@@ -1,52 +1,114 @@
-import { useEffect, useState } from "react";
-import { Link, useLocation } from "wouter";
-import { T } from "@/lib/data";
+import { useLocation } from "wouter";
+import { T, font } from "@/lib/data";
 import { PhoneShell } from "@/components/PhoneShell";
 
-export default function Splash() {
-  const [visible, setVisible] = useState(false);
-  const [, setLocation] = useLocation();
+const avatarFaces = [
+  { letter: "M", color: T.accent }, { letter: "K", color: T.purple },
+  { letter: "T", color: T.green }, { letter: "A", color: T.gold }, { letter: "R", color: T.blue },
+];
 
-  useEffect(() => { setTimeout(() => setVisible(true), 100); }, []);
+const pills = [
+  { icon: "🗓️", label: "Events", color: T.accent },
+  { icon: "🍔", label: "Food Plans", color: T.gold },
+  { icon: "💸", label: "Split Costs", color: T.green },
+  { icon: "🗳️", label: "Polls", color: T.blue },
+  { icon: "💬", label: "Group Chat", color: T.purple },
+];
+
+import { useState } from "react";
+
+function PressBtn({ children, onClick, primary }: { children: React.ReactNode; onClick: () => void; primary: boolean }) {
+  const [p, setP] = useState(false);
+  return (
+    <button
+      onClick={onClick}
+      onMouseDown={() => setP(true)} onMouseUp={() => setP(false)} onMouseLeave={() => setP(false)}
+      style={{
+        width: "100%", borderRadius: 15, border: primary ? "none" : `1.5px solid ${T.border}`,
+        background: primary ? `linear-gradient(135deg, ${T.accent} 0%, #FF8050 100%)` : "transparent",
+        color: primary ? "#fff" : T.textSub,
+        fontFamily: font, fontWeight: 800, fontSize: 15,
+        padding: "14px 20px", cursor: "pointer",
+        boxShadow: primary ? `0 8px 28px ${T.accent}45` : "none",
+        transform: p ? "scale(0.97)" : "scale(1)",
+        transition: "transform 0.12s",
+      }}
+    >{children}</button>
+  );
+}
+
+export default function Splash() {
+  const [, setLocation] = useLocation();
 
   return (
     <PhoneShell>
-      <div className="flex-1 bg-squadz-bg flex flex-col items-center justify-center p-8 gap-0 relative overflow-hidden">
-        {/* Animated bg blobs */}
-        <div style={{ position: "absolute", top: -60, right: -60, width: 280, height: 280, borderRadius: "50%", background: T.accent, opacity: 0.12, filter: "blur(60px)" }} />
-        <div style={{ position: "absolute", bottom: -40, left: -40, width: 200, height: 200, borderRadius: "50%", background: T.gold, opacity: 0.08, filter: "blur(50px)" }} />
-        <div style={{ position: "absolute", bottom: 200, right: 20, width: 120, height: 120, borderRadius: "50%", background: T.purple, opacity: 0.08, filter: "blur(40px)" }} />
+      <style>{`
+        @keyframes splashFadeUp {
+          from { opacity: 0; transform: translateY(18px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .splash-a1 { animation: splashFadeUp 0.55s cubic-bezier(0.34,1.4,0.64,1) 0.06s both; }
+        .splash-a2 { animation: splashFadeUp 0.55s cubic-bezier(0.34,1.4,0.64,1) 0.22s both; }
+        .splash-a3 { animation: splashFadeUp 0.55s cubic-bezier(0.34,1.4,0.64,1) 0.38s both; }
+        .splash-a4 { animation: splashFadeUp 0.55s cubic-bezier(0.34,1.4,0.64,1) 0.52s both; }
+      `}</style>
+      <div style={{
+        flex: 1, display: "flex", flexDirection: "column",
+        background: T.bg, position: "relative", overflow: "hidden",
+        padding: "20px 24px 24px",
+      }}>
+        {/* Ambient glows */}
+        <div style={{ position: "absolute", top: -60, right: -40, width: 260, height: 260, borderRadius: "50%", background: T.accent, opacity: 0.13, filter: "blur(65px)", pointerEvents: "none" }} />
+        <div style={{ position: "absolute", top: 140, left: -70, width: 200, height: 200, borderRadius: "50%", background: T.purple, opacity: 0.09, filter: "blur(55px)", pointerEvents: "none" }} />
+        <div style={{ position: "absolute", bottom: 120, right: 0, width: 160, height: 160, borderRadius: "50%", background: T.gold, opacity: 0.08, filter: "blur(50px)", pointerEvents: "none" }} />
 
         {/* Logo */}
-        <div style={{ opacity: visible ? 1 : 0, transform: visible ? "translateY(0)" : "translateY(30px)", transition: "all 0.7s cubic-bezier(0.34, 1.56, 0.64, 1)", textAlign: "center", marginBottom: 16 }}>
-          <div style={{ width: 90, height: 90, borderRadius: 28, background: `linear-gradient(135deg, ${T.accent}, #FF8C3A)`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", boxShadow: `0 20px 60px ${T.accent}40` }}>
+        <div className="splash-a1" style={{ textAlign: "center", marginBottom: 18, paddingTop: 30 }}>
+          <div style={{
+            width: 88, height: 88, borderRadius: 28,
+            background: `linear-gradient(145deg, ${T.accent} 0%, #FF8040 65%, ${T.gold} 100%)`,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            margin: "0 auto 18px",
+            boxShadow: `0 0 0 1px rgba(255,255,255,0.10) inset, 0 20px 60px ${T.accent}55`,
+          }}>
             <span style={{ fontSize: 44 }}>⚡</span>
           </div>
-          <div style={{ fontFamily: "'Georgia', serif", fontSize: 46, fontWeight: 700, color: T.white, letterSpacing: "-0.04em", lineHeight: 1 }}>squadz</div>
-          <div style={{ fontSize: 16, color: T.textSub, marginTop: 8, letterSpacing: "0.02em" }}>Stop texting. Start planning.</div>
+          <div style={{ fontFamily: "'Georgia', serif", fontSize: 48, fontWeight: 700, color: T.white, letterSpacing: "-0.05em", lineHeight: 0.95 }}>squadz</div>
+          <div style={{ fontSize: 15, color: T.textSub, marginTop: 9, fontFamily: font }}>Stop texting. Start actually hanging.</div>
+        </div>
+
+        {/* Social proof */}
+        <div className="splash-a2" style={{ display: "flex", alignItems: "center", gap: 10, background: T.surfaceUp, border: `1px solid ${T.border}`, borderRadius: 28, padding: "8px 16px", marginBottom: 16, alignSelf: "center" }}>
+          <div style={{ display: "flex" }}>
+            {avatarFaces.map((a, i) => (
+              <div key={a.letter} style={{ width: 26, height: 26, borderRadius: 13, background: a.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, color: "#000", marginLeft: i > 0 ? -8 : 0, border: `2px solid ${T.surfaceUp}` }}>{a.letter}</div>
+            ))}
+          </div>
+          <span style={{ fontSize: 13, color: T.textSub, fontFamily: font, whiteSpace: "nowrap" }}>
+            <span style={{ color: T.white, fontWeight: 700 }}>50k+ squads</span> planning smarter
+          </span>
         </div>
 
         {/* Feature pills */}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", margin: "28px 0 48px", opacity: visible ? 1 : 0, transition: "opacity 0.7s 0.3s" }}>
-          {["🗓️ Events", "🍔 Food Plans", "💸 Split Costs", "🗳️ Polls", "📅 Schedules"].map(pill => (
-            <div key={pill} style={{ background: T.surfaceUp, border: `1px solid ${T.border}`, borderRadius: 20, padding: "6px 14px", fontSize: 13, color: T.textSub }}>
-              {pill}
+        <div className="splash-a2" style={{ display: "flex", flexWrap: "wrap", gap: 7, justifyContent: "center", marginBottom: 28 }}>
+          {pills.map(p => (
+            <div key={p.label} style={{ background: p.color + "15", border: `1px solid ${p.color}35`, borderRadius: 20, padding: "6px 13px", fontSize: 12, color: p.color, fontFamily: font, fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}>
+              <span>{p.icon}</span>{p.label}
             </div>
           ))}
         </div>
 
         {/* CTAs */}
-        <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 10, opacity: visible ? 1 : 0, transition: "opacity 0.7s 0.5s" }}>
-          <button onClick={() => setLocation('/home')} className="w-full rounded-2xl bg-squadz-accent text-white font-bold py-3.5 hover:scale-95 transition-transform">
-            Get Started — It's Free
-          </button>
-          <button onClick={() => setLocation('/home')} className="w-full rounded-2xl bg-squadz-surfaceUp border border-squadz-border text-squadz-text font-bold py-3.5 hover:scale-95 transition-transform">
-            I Already Have an Account
-          </button>
+        <div className="splash-a3" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <PressBtn onClick={() => setLocation("/signup")} primary>
+            Get Started — It&apos;s Free ✨
+          </PressBtn>
+          <PressBtn onClick={() => setLocation("/login")} primary={false}>
+            I already have an account
+          </PressBtn>
         </div>
-
-        <div style={{ marginTop: 20, fontSize: 12, color: T.textDim, textAlign: "center", opacity: visible ? 1 : 0, transition: "opacity 0.7s 0.7s" }}>
-          50,000+ squads planning smarter 🎉
+        <div className="splash-a4" style={{ textAlign: "center", fontSize: 11, color: T.textDim, fontFamily: font, marginTop: 10 }}>
+          Free forever · No credit card needed
         </div>
       </div>
     </PhoneShell>
