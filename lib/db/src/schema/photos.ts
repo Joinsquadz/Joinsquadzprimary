@@ -7,7 +7,7 @@ export const photosTable = pgTable("photos", {
   id: serial("id").primaryKey(),
   eventId: text("event_id").references(() => eventsTable.id, { onDelete: "cascade" }),
   uploaderId: text("uploader_id").notNull(),
-  url: text("url").notNull(),
+  url: text("url").notNull().unique(),
   squadId: text("squad_id"),
   sharedToSquad: boolean("shared_to_squad").notNull().default(false),
   uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),

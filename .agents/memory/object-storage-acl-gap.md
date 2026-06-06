@@ -1,12 +1,16 @@
 ---
-name: Object storage ACL gap
-description: Photo bytes are served without auth/ACL, so any "members only" / private vault promise is only enforced on metadata, not the files.
+name: Object storage read ACL (CLOSED)
+description: Photo bytes are now auth+ACL gated. Records how member-only photo privacy is enforced and the one residual provenance edge.
 ---
 
-# Object storage has no read ACL
+# Object storage read ACL — closed
 
-`GET /api/storage/objects/*` (artifacts/api-server/src/routes/storage.ts) streams object bytes to ANYONE with the path — there is no `requireAuth` and no ACL check on read. The handler comment even says ACL is optional/not wired.
+`GET /api/storage/objects/*` (artifacts/api-server/src/routes/storage.ts) now requires auth (`requireAuth`) and runs a domain ACL before streaming bytes: `storage.canUserViewPhotoByUrl` allows a viewer only if they are the uploader, a member of a squad the photo was curated into (`sharedToSquad` + `squadId`), or host/member of the photo's event. Fail-closed: unknown object paths and non-matching viewers get 403. `/storage/public-objects/*` stays intentionally public.
 
-**Why it matters:** every photo-vault surface (personal vault, event vault, squad vault) returns durable raw object paths and renders them via `/api/storage${url}`. So the "private, members-only" promise is enforced only on the *metadata* endpoints (which do check membership/Pro) — the actual image files are guessable/shareable URLs with no membership check. This is pre-existing and platform-wide, not specific to any one feature.
+**Why it matters:** the photo-vault surfaces render durable object paths. Previously the bytes route was unauthenticated, so the "members-only" promise was only enforced on metadata, not the files. It is now enforced on delivery too.
 
-**How to apply:** if a task requires real per-user/per-squad media privacy, you must add authz on object delivery (gate `/storage/objects/*` behind auth + an ACL that checks the requester against the photo's owner/squad membership) OR switch to short-lived signed read URLs scoped to an authorized viewer. Don't claim a vault is "private/members-only" until this is closed.
+**Provenance:** the read ACL keys on `photos.url`. To stop a user forging a photo row for someone else's object path and self-authorizing, `photos.url` is **DB-unique** and `storage.addPhoto` is idempotent for the original uploader but throws `PhotoUrlConflictError` for anyone else. So each object path has exactly one authoritative owner row.
+
+**Residual edge (known limitation, flagged to user):** `POST /api/storage/uploads/request-url` is still unauthenticated and issues object paths with no upload-time owner binding. Paths are random UUIDs (effectively unguessable), so the only residual vector is a "first-poster-claims" race on a path an attacker already knows via a leak. True fix if ever needed: authenticate request-url and bind the issued objectPath to the requesting user (upload-intent token consumed on photo create), making provenance independent of who POSTs first.
+
+**Client impact:** web `<img>` uses the same-origin session cookie (no change). Mobile expo-image must send `source.headers: authHeaders()` (Bearer) on protected `/objects/*` images. Avatars are external OIDC URLs, not `/objects/*`, so unaffected.

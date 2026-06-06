@@ -411,7 +411,7 @@ export default function VaultScreen() {
                   activeOpacity={0.8}
                 >
                   <Image
-                    source={{ uri: imageUrl(p.url) }}
+                    source={{ uri: imageUrl(p.url), headers: authHeaders() as Record<string, string> }}
                     style={styles.gridImage}
                     contentFit="cover"
                   />
@@ -434,7 +434,7 @@ export default function VaultScreen() {
           ) : (
             <View style={[styles.emptyState, { borderColor: colors.border }]}>
               <Text style={styles.emptyIcon}>📸</Text>
-              <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>No photos rolled up yet</Text>
+              <Text style={[styles.emptyTitle, { color: colors.mutedForeground }]}>No photos rolled up yet</Text>
               <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>Roll up your best photos to start the squad vault</Text>
             </View>
           )}
@@ -563,7 +563,7 @@ export default function VaultScreen() {
                         </View>
                       ) : (
                         <Image
-                          source={{ uri: imageUrl((p as Extract<VaultPhoto, { locked: false }>).url) }}
+                          source={{ uri: imageUrl((p as Extract<VaultPhoto, { locked: false }>).url), headers: authHeaders() as Record<string, string> }}
                           style={styles.gridImage}
                           contentFit="cover"
                         />
@@ -677,11 +677,17 @@ export default function VaultScreen() {
                         style={[styles.gridCell, { borderWidth: 2, borderColor: picked ? colors.primary : "transparent" }]}
                         activeOpacity={0.8}
                       >
-                        <Image
-                          source={{ uri: imageUrl(p.url) }}
-                          style={styles.gridImage}
-                          contentFit="cover"
-                        />
+                        {p.locked ? (
+                          <View style={[styles.lockedCell, { backgroundColor: colors.card }]}>
+                            <Ionicons name="lock-closed" size={20} color={colors.mutedForeground} />
+                          </View>
+                        ) : (
+                          <Image
+                            source={{ uri: imageUrl((p as Extract<VaultPhoto, { locked: false }>).url), headers: authHeaders() as Record<string, string> }}
+                            style={styles.gridImage}
+                            contentFit="cover"
+                          />
+                        )}
                         {picked && (
                           <>
                             <View style={[styles.pickOverlay, { backgroundColor: colors.primary + "33" }]} />
@@ -698,7 +704,7 @@ export default function VaultScreen() {
             ) : (
               <View style={styles.modalCenter}>
                 <Text style={styles.emptyIcon}>📷</Text>
-                <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>No photos to share</Text>
+                <Text style={[styles.emptyTitle, { color: colors.mutedForeground }]}>No photos to share</Text>
                 <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>Upload photos to your vault first</Text>
               </View>
             )}

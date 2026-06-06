@@ -2,6 +2,18 @@ import { usersTable, eventsTable, photosTable, squadsTable, type Photo } from '@
 import { eq, sql, count, and, gte, lt, desc, inArray } from 'drizzle-orm';
 import { db } from '@workspace/db';
 
+/**
+ * Thrown when a photo URL is already recorded under a different uploader.
+ * Prevents a user from claiming another user's object path and then
+ * self-authorizing access to its bytes via the read ACL.
+ */
+export class PhotoUrlConflictError extends Error {
+  constructor() {
+    super('Photo URL already claimed by another user');
+    this.name = 'PhotoUrlConflictError';
+  }
+}
+
 export class Storage {
   async getProduct(productId: string) {
     const result = await db.execute(
@@ -146,6 +158,20 @@ export class Storage {
   }
 
   async addPhoto(uploaderId: string, url: string, eventId?: string): Promise<Photo> {
+    // Enforce object-URL provenance: each object path maps to exactly one photo
+    // row (DB-unique on url). If the URL is already recorded, only its original
+    // uploader may re-save it (idempotent retry); anyone else is rejected so
+    // they cannot claim another user's object and self-authorize via the ACL.
+    const [existing] = await db
+      .select()
+      .from(photosTable)
+      .where(eq(photosTable.url, url));
+    if (existing) {
+      if (existing.uploaderId !== uploaderId) {
+        throw new PhotoUrlConflictError();
+      }
+      return existing;
+    }
     const [photo] = await db
       .insert(photosTable)
       .values({ uploaderId, url, eventId: eventId ?? null })
@@ -245,6 +271,51 @@ export class Storage {
       .select()
       .from(photosTable)
       .where(inArray(photosTable.eventId, eventIds));
+  }
+
+  /**
+   * Authorization check for serving a photo's underlying object bytes.
+   * A user may view a photo if they uploaded it, it is curated into a squad
+   * vault they belong to, or it belongs to an event they host or whose squad
+   * they are a member of. Returns false for unknown object paths (fail closed).
+   */
+  async canUserViewPhotoByUrl(objectPath: string, userId: string): Promise<boolean> {
+    const [photo] = await db
+      .select()
+      .from(photosTable)
+      .where(eq(photosTable.url, objectPath));
+    if (!photo) return false;
+
+    if (photo.uploaderId === userId) return true;
+
+    if (photo.sharedToSquad && photo.squadId) {
+      if (await this.isSquadMember(photo.squadId, userId)) return true;
+    }
+
+    if (photo.eventId) {
+      const [event] = await db
+        .select({ squadId: eventsTable.squadId, hostId: eventsTable.hostId })
+        .from(eventsTable)
+        .where(eq(eventsTable.id, photo.eventId));
+      if (event) {
+        if (event.hostId === userId) return true;
+        if (event.squadId && (await this.isSquadMember(event.squadId, userId))) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  private async isSquadMember(squadId: string, userId: string): Promise<boolean> {
+    if (!squadId) return false;
+    const [squad] = await db
+      .select({ memberIds: squadsTable.memberIds })
+      .from(squadsTable)
+      .where(eq(squadsTable.id, squadId));
+    if (!squad) return false;
+    return ((squad.memberIds ?? []) as string[]).includes(userId);
   }
 }
 
