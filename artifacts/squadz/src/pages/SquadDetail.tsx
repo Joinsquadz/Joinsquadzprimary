@@ -1,17 +1,51 @@
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
 import { PhoneShell } from "@/components/PhoneShell";
 import { Avatar, Tag, SectionLabel, Btn } from "@/components/shared";
 import { T, font, fontMono, MEMBERS, EVENT_PHOTOS } from "@/lib/data";
 import { useProStatus } from "@/hooks/useProStatus";
 
+const SQUAD_TAB_KEY = "squadz:squad-detail-tab";
+const SQUAD_PHOTOS_SCROLL_KEY = "squadz:photos-scroll-y";
+const VALID_TABS = ["events", "photos", "members", "polls", "settings"];
+
 export default function SquadDetail() {
   const [, setLocation] = useLocation();
-  const [tab, setTab] = useState("events");
+  const [tab, setTab] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem(SQUAD_TAB_KEY);
+      if (saved && VALID_TABS.includes(saved)) return saved;
+    } catch {}
+    return "events";
+  });
   const { isPro } = useProStatus();
   const [showInvite, setShowInvite] = useState(false);
   const [copied, setCopied] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
+
+  const contentRef = useRef<HTMLDivElement>(null);
+  const prevTabRef = useRef(tab);
+
+  const switchTab = useCallback((next: string) => {
+    if (prevTabRef.current === "photos" && contentRef.current) {
+      try { localStorage.setItem(SQUAD_PHOTOS_SCROLL_KEY, String(contentRef.current.scrollTop)); } catch {}
+    }
+    prevTabRef.current = next;
+    setTab(next);
+  }, []);
+
+  useEffect(() => {
+    try { localStorage.setItem(SQUAD_TAB_KEY, tab); } catch {}
+    if (tab === "photos" && contentRef.current) {
+      try {
+        const saved = localStorage.getItem(SQUAD_PHOTOS_SCROLL_KEY);
+        if (saved) {
+          const y = parseFloat(saved);
+          if (!isNaN(y)) contentRef.current.scrollTop = y;
+        }
+      } catch {}
+    }
+  }, [tab]);
 
   const copyLink = () => { setCopied(true); setTimeout(() => setCopied(false), 2000); };
   const events = [
@@ -35,7 +69,7 @@ export default function SquadDetail() {
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
             <button onClick={() => setLocation("/home")} style={{ background: "rgba(255,255,255,0.15)", border: "none", color: "#fff", borderRadius: 10, width: 32, height: 32, cursor: "pointer", fontSize: 16 }}>←</button>
             <div style={{ flex: 1 }} />
-            <button onClick={() => setTab("settings")} style={{ background: "rgba(255,255,255,0.15)", border: "none", color: "#fff", borderRadius: 10, width: 32, height: 32, cursor: "pointer", fontSize: 16 }}>⚙️</button>
+            <button onClick={() => switchTab("settings")} style={{ background: "rgba(255,255,255,0.15)", border: "none", color: "#fff", borderRadius: 10, width: 32, height: 32, cursor: "pointer", fontSize: 16 }}>⚙️</button>
           </div>
           <div style={{ textAlign: "center", paddingBottom: 20 }}>
             <div style={{ fontSize: 48, marginBottom: 8 }}>🔥</div>
@@ -50,12 +84,12 @@ export default function SquadDetail() {
           </div>
           <div style={{ display: "flex", overflowX: "auto" }}>
             {["events", "photos", "members", "polls", "settings"].map(t => (
-              <button key={t} onClick={() => setTab(t)} style={{ flex: 1, background: "none", border: "none", padding: "10px 0", cursor: "pointer", fontFamily: font, fontWeight: 700, fontSize: 12, color: tab === t ? "#fff" : "rgba(255,255,255,0.6)", borderBottom: `2px solid ${tab === t ? "#fff" : "transparent"}`, textTransform: "capitalize", flexShrink: 0, minWidth: 60 }}>{t}</button>
+              <button key={t} onClick={() => switchTab(t)} style={{ flex: 1, background: "none", border: "none", padding: "10px 0", cursor: "pointer", fontFamily: font, fontWeight: 700, fontSize: 12, color: tab === t ? "#fff" : "rgba(255,255,255,0.6)", borderBottom: `2px solid ${tab === t ? "#fff" : "transparent"}`, textTransform: "capitalize", flexShrink: 0, minWidth: 60 }}>{t}</button>
             ))}
           </div>
         </div>
 
-        <div style={{ flex: 1, overflowY: "auto" }}>
+        <div ref={contentRef} style={{ flex: 1, overflowY: "auto" }}>
           <div style={{ padding: "16px 20px 24px" }}>
             {tab === "events" && (
               <>

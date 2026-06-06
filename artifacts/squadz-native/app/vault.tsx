@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -7,6 +7,8 @@ import {
   TouchableOpacity,
   Platform,
   ActivityIndicator,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -14,11 +16,16 @@ import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
 import Constants from "expo-constants";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AppContext";
 import { PLACEHOLDER_PHOTOS, FILTERS, photoFilename, type VaultPhoto } from "@/constants/photos";
 import { downloadPhoto } from "@/lib/downloadPhoto";
+
+const VAULT_FILTER_KEY = "vault:activeFilter";
+const VAULT_SELECTED_KEY = "vault:selectedPhoto";
+const VAULT_SCROLL_KEY = "vault:scrollY";
 
 function resolveApiBase(): string {
   if (process.env.EXPO_PUBLIC_API_URL) return process.env.EXPO_PUBLIC_API_URL;
@@ -42,12 +49,19 @@ export default function VaultScreen() {
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
+  const initialized = useRef(false);
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollYRef = useRef(0);
+  const saveScrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const { squadId, squadName, eventId, eventName } = useLocalSearchParams<{
     squadId?: string;
     squadName?: string;
     eventId?: string;
     eventName?: string;
   }>();
+
+  const isContextual = !!(squadId || eventId);
 
   const filterLabel = eventName
     ? decodeURIComponent(eventName)
@@ -90,10 +104,65 @@ export default function VaultScreen() {
     return true;
   });
 
-  const activeFilters = eventId || squadId ? [] : FILTERS;
+  const activeFilters = isContextual ? [] : FILTERS;
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
+
+  useEffect(() => {
+    if (isContextual) {
+      initialized.current = true;
+      return;
+    }
+    Promise.all([
+      AsyncStorage.getItem(VAULT_FILTER_KEY),
+      AsyncStorage.getItem(VAULT_SELECTED_KEY),
+      AsyncStorage.getItem(VAULT_SCROLL_KEY),
+    ]).then(([savedFilter, savedSelected, savedScroll]) => {
+      if (savedFilter && FILTERS.includes(savedFilter)) {
+        setActiveFilter(savedFilter);
+      }
+      if (savedSelected) {
+        const id = parseInt(savedSelected, 10);
+        if (!isNaN(id) && PLACEHOLDER_PHOTOS.some(p => p.id === id)) {
+          setSelected(id);
+        }
+      }
+      initialized.current = true;
+
+      if (savedScroll) {
+        const y = parseFloat(savedScroll);
+        if (!isNaN(y) && y > 0) {
+          setTimeout(() => {
+            scrollRef.current?.scrollTo({ y, animated: false });
+          }, 100);
+        }
+      }
+    });
+  }, [isContextual]);
+
+  useEffect(() => {
+    if (!initialized.current || isContextual) return;
+    AsyncStorage.setItem(VAULT_FILTER_KEY, activeFilter);
+  }, [activeFilter, isContextual]);
+
+  useEffect(() => {
+    if (!initialized.current || isContextual) return;
+    if (selected === null) {
+      AsyncStorage.removeItem(VAULT_SELECTED_KEY);
+    } else {
+      AsyncStorage.setItem(VAULT_SELECTED_KEY, String(selected));
+    }
+  }, [selected, isContextual]);
+
+  const handleScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (isContextual) return;
+    scrollYRef.current = e.nativeEvent.contentOffset.y;
+    if (saveScrollTimer.current) clearTimeout(saveScrollTimer.current);
+    saveScrollTimer.current = setTimeout(() => {
+      AsyncStorage.setItem(VAULT_SCROLL_KEY, String(scrollYRef.current));
+    }, 300);
+  }, [isContextual]);
 
   const authHeaders = useCallback((): HeadersInit => {
     return authToken ? { Authorization: `Bearer ${authToken}` } : {};
@@ -215,8 +284,11 @@ export default function VaultScreen() {
         </ScrollView>
       ) : (
         <ScrollView
+          ref={scrollRef}
           contentContainerStyle={[styles.scroll, { paddingBottom: botPad + 24 }]}
           showsVerticalScrollIndicator={false}
+          onScroll={handleScroll}
+          scrollEventThrottle={100}
         >
           <Text style={[styles.countLabel, { color: colors.mutedForeground }]}>
             {filteredPhotos.length} photos · tap to view details
