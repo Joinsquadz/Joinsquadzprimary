@@ -45,38 +45,58 @@ router.post("/squads", requireAuth, async (req: Request, res: Response): Promise
   res.status(201).json(squad);
 });
 
-router.get("/squads/:id", async (req: Request, res: Response): Promise<void> => {
+router.get("/squads/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const id = parseId(req.params.id);
+  const userId = (req.user as { id: string }).id;
   const [squad] = await db.select().from(squadsTable).where(eq(squadsTable.id, id));
   if (!squad) {
     res.status(404).json({ error: "Squad not found" });
     return;
   }
+  const memberIds = (squad.memberIds ?? []) as string[];
+  if (!memberIds.includes(userId)) {
+    res.status(403).json({ error: "Access denied" });
+    return;
+  }
   res.json(squad);
 });
 
-router.patch("/squads/:id", async (req: Request, res: Response): Promise<void> => {
+router.patch("/squads/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const id = parseId(req.params.id);
+  const userId = (req.user as { id: string }).id;
   const parsed = UpdateSquadBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const [squad] = await db.update(squadsTable).set(parsed.data).where(eq(squadsTable.id, id)).returning();
-  if (!squad) {
+  const [existing] = await db.select().from(squadsTable).where(eq(squadsTable.id, id));
+  if (!existing) {
     res.status(404).json({ error: "Squad not found" });
     return;
   }
+  const memberIds = (existing.memberIds ?? []) as string[];
+  if (!memberIds.includes(userId)) {
+    res.status(403).json({ error: "Access denied" });
+    return;
+  }
+  const [squad] = await db.update(squadsTable).set(parsed.data).where(eq(squadsTable.id, id)).returning();
   res.json(squad);
 });
 
-router.delete("/squads/:id", async (req: Request, res: Response): Promise<void> => {
+router.delete("/squads/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const id = parseId(req.params.id);
-  const [squad] = await db.delete(squadsTable).where(eq(squadsTable.id, id)).returning();
-  if (!squad) {
+  const userId = (req.user as { id: string }).id;
+  const [existing] = await db.select().from(squadsTable).where(eq(squadsTable.id, id));
+  if (!existing) {
     res.status(404).json({ error: "Squad not found" });
     return;
   }
+  const memberIds = (existing.memberIds ?? []) as string[];
+  if (!memberIds.includes(userId)) {
+    res.status(403).json({ error: "Access denied" });
+    return;
+  }
+  await db.delete(squadsTable).where(eq(squadsTable.id, id));
   res.sendStatus(204);
 });
 

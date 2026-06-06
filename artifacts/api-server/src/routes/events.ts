@@ -159,21 +159,39 @@ router.post("/events", requireAuth, async (req: Request, res: Response): Promise
   res.status(201).json(event);
 });
 
-router.get("/events/:id", async (req: Request, res: Response): Promise<void> => {
+router.get("/events/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const id = parseId(req.params.id);
+  const userId = (req.user as { id: string }).id;
   const [event] = await db.select().from(eventsTable).where(eq(eventsTable.id, id));
   if (!event) {
     res.status(404).json({ error: "Event not found" });
     return;
   }
+  const rsvps = (event.rsvps ?? {}) as Record<string, string>;
+  const isHost = event.hostId === userId;
+  const hasRsvp = userId in rsvps;
+  if (!isHost && !hasRsvp) {
+    res.status(403).json({ error: "Access denied" });
+    return;
+  }
   res.json(event);
 });
 
-router.patch("/events/:id", async (req: Request, res: Response): Promise<void> => {
+router.patch("/events/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const id = parseId(req.params.id);
+  const userId = (req.user as { id: string }).id;
   const parsed = UpdateEventBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const [existing] = await db.select().from(eventsTable).where(eq(eventsTable.id, id));
+  if (!existing) {
+    res.status(404).json({ error: "Event not found" });
+    return;
+  }
+  if (existing.hostId !== userId) {
+    res.status(403).json({ error: "Access denied" });
     return;
   }
   const patch: Record<string, unknown> = { ...parsed.data };
@@ -181,20 +199,22 @@ router.patch("/events/:id", async (req: Request, res: Response): Promise<void> =
     patch.budget = String(parsed.data.budget);
   }
   const [event] = await db.update(eventsTable).set(patch).where(eq(eventsTable.id, id)).returning();
-  if (!event) {
-    res.status(404).json({ error: "Event not found" });
-    return;
-  }
   res.json(event);
 });
 
-router.delete("/events/:id", async (req: Request, res: Response): Promise<void> => {
+router.delete("/events/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const id = parseId(req.params.id);
-  const [event] = await db.delete(eventsTable).where(eq(eventsTable.id, id)).returning();
-  if (!event) {
+  const userId = (req.user as { id: string }).id;
+  const [existing] = await db.select().from(eventsTable).where(eq(eventsTable.id, id));
+  if (!existing) {
     res.status(404).json({ error: "Event not found" });
     return;
   }
+  if (existing.hostId !== userId) {
+    res.status(403).json({ error: "Access denied" });
+    return;
+  }
+  await db.delete(eventsTable).where(eq(eventsTable.id, id));
   res.sendStatus(204);
 });
 
