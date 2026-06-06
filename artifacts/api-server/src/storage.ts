@@ -1,4 +1,4 @@
-import { usersTable, eventsTable, photosTable } from '@workspace/db/schema';
+import { usersTable, eventsTable, photosTable, squadsTable, type Photo } from '@workspace/db/schema';
 import { eq, sql, count, and, gte, lt, desc, inArray } from 'drizzle-orm';
 import { db } from '@workspace/db';
 
@@ -130,14 +130,14 @@ export class Storage {
     return event ?? null;
   }
 
-  async getPhotosByEventId(eventId: string) {
+  async getPhotosByEventId(eventId: string): Promise<Photo[]> {
     return db
       .select()
       .from(photosTable)
       .where(eq(photosTable.eventId, eventId));
   }
 
-  async getPhotosByUploaderId(uploaderId: string) {
+  async getPhotosByUploaderId(uploaderId: string): Promise<Photo[]> {
     return db
       .select()
       .from(photosTable)
@@ -145,7 +145,7 @@ export class Storage {
       .orderBy(desc(photosTable.uploadedAt));
   }
 
-  async addPhoto(uploaderId: string, url: string, eventId?: string) {
+  async addPhoto(uploaderId: string, url: string, eventId?: string): Promise<Photo> {
     const [photo] = await db
       .insert(photosTable)
       .values({ uploaderId, url, eventId: eventId ?? null })
@@ -193,6 +193,58 @@ export class Storage {
       )
       .returning();
     return photo ?? null;
+  }
+
+  /**
+   * Return photos for all events belonging to a squad, scoped to the requesting user.
+   * The user must be listed in the squad's memberIds.
+   */
+  async getPhotosBySquadId(
+    squadId: string,
+    userId: string,
+  ): Promise<{ photos: Photo[]; authorized: boolean }> {
+    const [squad] = await db
+      .select()
+      .from(squadsTable)
+      .where(eq(squadsTable.id, squadId));
+
+    if (!squad) return { photos: [], authorized: false };
+
+    const memberIds = (squad.memberIds ?? []) as string[];
+    if (!memberIds.includes(userId)) return { photos: [], authorized: false };
+
+    const events = await db
+      .select({ id: eventsTable.id })
+      .from(eventsTable)
+      .where(eq(eventsTable.squadId, squadId));
+
+    if (events.length === 0) return { photos: [], authorized: true };
+
+    const eventIds = events.map(e => e.id);
+    const photos = await db
+      .select()
+      .from(photosTable)
+      .where(inArray(photosTable.eventId, eventIds));
+
+    return { photos, authorized: true };
+  }
+
+  /**
+   * Return photos for all events hosted by the given user (no squad filter).
+   */
+  async getPhotosByHostId(userId: string): Promise<Photo[]> {
+    const events = await db
+      .select({ id: eventsTable.id })
+      .from(eventsTable)
+      .where(eq(eventsTable.hostId, userId));
+
+    if (events.length === 0) return [];
+
+    const eventIds = events.map(e => e.id);
+    return db
+      .select()
+      .from(photosTable)
+      .where(inArray(photosTable.eventId, eventIds));
   }
 }
 

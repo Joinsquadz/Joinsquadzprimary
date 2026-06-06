@@ -463,7 +463,7 @@ router.get('/events/:id/photos', requireAuth, async (req, res): Promise<void> =>
       return;
     }
 
-    const photos = await storage.getPhotosByEventId(parseInt(eventId, 10));
+    const photos = await storage.getPhotosByEventId(eventId);
     const cutoff = new Date(Date.now() - PHOTO_VAULT_DAYS * 24 * 60 * 60 * 1000);
 
     const result = photos.map(photo => {
