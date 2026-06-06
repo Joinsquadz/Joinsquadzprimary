@@ -572,7 +572,8 @@ function ProfileTab({ go, setTab, displayName, checkoutSuccess }: { go: (s: stri
   const [upgradeError, setUpgradeError] = useState<string | null>(null);
   const [showSuccessBanner, setShowSuccessBanner] = useState(!!checkoutSuccess);
   const [showProFeatures, setShowProFeatures] = useState(false);
-  const stats = [{ n: "24", l: "Events" }, { n: "4", l: "SquadZ" }, { n: "🔥12", l: "Streak" }];
+  const [eventCount, setEventCount] = useState<number | null>(null);
+  const [eventLimit] = useState(3);
 
   // Check subscription status on mount.
   // Server resolves the current user from the session cookie — no userId in the request.
@@ -582,6 +583,22 @@ function ProfileTab({ go, setTab, displayName, checkoutSuccess }: { go: (s: stri
       .then((d: { isPro?: boolean }) => { if (d.isPro) setIsPro(true); })
       .catch(() => {});
   }, []);
+
+  // Fetch real event count for this year.
+  React.useEffect(() => {
+    fetch('/api/events/count', { credentials: 'include' })
+      .then(r => r.json())
+      .then((d: { count?: number; limit?: number }) => {
+        if (typeof d.count === 'number') setEventCount(d.count);
+      })
+      .catch(() => {});
+  }, []);
+
+  const stats = [
+    { n: eventCount !== null ? String(eventCount) : "—", l: "Events" },
+    { n: "4", l: "SquadZ" },
+    { n: "🔥12", l: "Streak" },
+  ];
 
   async function handleUpgrade() {
     setUpgradeLoading(true);
@@ -658,6 +675,17 @@ function ProfileTab({ go, setTab, displayName, checkoutSuccess }: { go: (s: stri
               </div>
             ))}
           </div>
+          {eventCount !== null && !isPro && (
+            <div style={{ marginTop: 14, background: T.surfaceUp, border: `1px solid ${T.border}`, borderRadius: 12, padding: "10px 14px", width: "100%", boxSizing: "border-box" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <div style={{ fontFamily: font, fontSize: 12, color: T.textSub }}>{eventCount} / {eventLimit} free events used this year</div>
+                <div style={{ fontFamily: fontMono, fontSize: 11, fontWeight: 700, color: eventCount >= eventLimit ? T.accent : T.textDim }}>{eventLimit - eventCount > 0 ? `${eventLimit - eventCount} left` : "Limit reached"}</div>
+              </div>
+              <div style={{ height: 5, borderRadius: 3, background: T.border, overflow: "hidden" }}>
+                <div style={{ height: "100%", borderRadius: 3, background: eventCount >= eventLimit ? T.accent : T.purple, width: `${Math.min(100, (eventCount / eventLimit) * 100)}%`, transition: "width 0.4s ease" }} />
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Pro section */}

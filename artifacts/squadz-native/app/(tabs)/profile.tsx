@@ -73,6 +73,8 @@ export default function ProfileScreen() {
   const [checkingPro, setCheckingPro] = useState(false);
   const [upgradeLoading, setUpgradeLoading] = useState(false);
   const [showSuccessBanner, setShowSuccessBanner] = useState(didCheckoutSuccess);
+  const [eventCount, setEventCount] = useState<number | null>(null);
+  const [eventLimit] = useState(3);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 84 : 100);
@@ -106,6 +108,23 @@ export default function ProfileScreen() {
   useEffect(() => {
     void checkSubscription();
   }, [checkSubscription]);
+
+  useEffect(() => {
+    async function fetchEventCount() {
+      try {
+        const res = await fetch(`${API_BASE}/api/events/count`, {
+          headers: authHeaders(),
+        });
+        if (res.ok) {
+          const data = await res.json() as { count: number; limit: number };
+          setEventCount(data.count);
+        }
+      } catch {
+        // silently ignore — event count is best-effort
+      }
+    }
+    void fetchEventCount();
+  }, [authHeaders]);
 
   useEffect(() => {
     if (!showSuccessBanner) return;
@@ -295,7 +314,7 @@ export default function ProfileScreen() {
           </View>
           <View style={styles.statsRow}>
             {[
-              { value: myEvents.length.toString(), label: "Events" },
+              { value: eventCount !== null ? String(eventCount) : "—", label: "Events" },
               { value: mySquads.length.toString(), label: "Squads" },
               { value: "Mar '24", label: "Joined" },
             ].map((s, i) => (
@@ -305,6 +324,29 @@ export default function ProfileScreen() {
               </View>
             ))}
           </View>
+          {eventCount !== null && !isPro && (
+            <View style={[styles.eventUsageBar, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <View style={styles.eventUsageRow}>
+                <Text style={[styles.eventUsageLabel, { color: colors.mutedForeground }]}>
+                  {eventCount} / {eventLimit} free events used this year
+                </Text>
+                <Text style={[styles.eventUsageRemaining, { color: eventCount >= eventLimit ? colors.destructive : colors.mutedForeground }]}>
+                  {eventCount >= eventLimit ? "Limit reached" : `${eventLimit - eventCount} left`}
+                </Text>
+              </View>
+              <View style={[styles.eventUsageTrack, { backgroundColor: colors.border }]}>
+                <View
+                  style={[
+                    styles.eventUsageFill,
+                    {
+                      backgroundColor: eventCount >= eventLimit ? colors.destructive : colors.primary,
+                      width: `${Math.min(100, (eventCount / eventLimit) * 100)}%` as `${number}%`,
+                    },
+                  ]}
+                />
+              </View>
+            </View>
+          )}
         </View>
 
         <View style={styles.section}>
@@ -425,4 +467,10 @@ const styles = StyleSheet.create({
   featureChip: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 20, borderWidth: 1, paddingHorizontal: 11, paddingVertical: 5 },
   featureChipIcon: { fontSize: 13 },
   featureChipLabel: { fontSize: 12, fontWeight: "700" },
+  eventUsageBar: { marginTop: 14, borderRadius: 12, borderWidth: 1, padding: 10, width: "100%" },
+  eventUsageRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 },
+  eventUsageLabel: { fontSize: 12 },
+  eventUsageRemaining: { fontSize: 11, fontWeight: "700" },
+  eventUsageTrack: { height: 5, borderRadius: 3, overflow: "hidden" },
+  eventUsageFill: { height: "100%", borderRadius: 3 },
 });
