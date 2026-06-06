@@ -282,14 +282,16 @@ export default function OnboardingScreen() {
               onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setPlan("pro"); }}
               style={[styles.planCard, { backgroundColor: plan === "pro" ? "#FF5C3A18" : colors.card, borderColor: plan === "pro" ? "#FF5C3A" : colors.border, borderWidth: plan === "pro" ? 2 : 1 }]}
             >
-              <View style={[styles.bestValueBadge, { backgroundColor: "#FF5C3A" }]}>
-                <Text style={styles.bestValueText}>BEST VALUE</Text>
-              </View>
               <View style={styles.planHeader}>
                 <Text style={[styles.planName, { color: colors.foreground }]}>Pro ⚡</Text>
-                <View style={{ flexDirection: "row", alignItems: "baseline", gap: 2 }}>
-                  <Text style={[styles.planPrice, { color: colors.foreground }]}>$20</Text>
-                  <Text style={{ fontSize: 12, color: colors.mutedForeground }}>/year</Text>
+                <View style={{ alignItems: "flex-end", gap: 4 }}>
+                  <View style={[styles.bestValueBadge, { backgroundColor: "#FF5C3A" }]}>
+                    <Text style={styles.bestValueText}>BEST VALUE</Text>
+                  </View>
+                  <View style={{ flexDirection: "row", alignItems: "baseline", gap: 2 }}>
+                    <Text style={[styles.planPrice, { color: colors.foreground }]}>$20</Text>
+                    <Text style={{ fontSize: 12, color: colors.mutedForeground }}>/year</Text>
+                  </View>
                 </View>
               </View>
               {["Unlimited events per year", "Permanent photo vault", "Calendar sync & AI scheduling", "Custom invite codes", "Priority support"].map((f) => (
@@ -430,8 +432,8 @@ const styles = StyleSheet.create({
   planFeature: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 5 },
   planFeatureText: { fontSize: 13 },
   bestValueBadge: {
-    position: "absolute", top: 14, right: 14,
     borderRadius: 20, paddingHorizontal: 10, paddingVertical: 3,
+    alignSelf: "flex-end",
   },
   bestValueText: { fontSize: 10, fontWeight: "800", color: "#fff" },
   footer: {

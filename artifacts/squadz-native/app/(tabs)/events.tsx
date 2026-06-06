@@ -58,7 +58,7 @@ export default function EventsScreen() {
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       {/* Header */}
       <View style={[styles.header, { paddingTop: topPad + 8 }]}>
-        <Text style={[styles.title, { color: colors.foreground }]}>Discover</Text>
+        <Text style={[styles.title, { color: colors.foreground }]}>Events</Text>
         <View style={[styles.searchBar, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Ionicons name="search-outline" size={18} color={colors.mutedForeground} />
           <TextInput
