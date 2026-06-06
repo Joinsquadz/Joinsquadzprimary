@@ -2,11 +2,13 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { PhoneShell } from "@/components/PhoneShell";
 import { Avatar, Tag, SectionLabel, Btn } from "@/components/shared";
-import { T, font, fontMono, MEMBERS } from "@/lib/data";
+import { T, font, fontMono, MEMBERS, EVENT_PHOTOS } from "@/lib/data";
+import { useProStatus } from "@/hooks/useProStatus";
 
 export default function SquadDetail() {
   const [, setLocation] = useLocation();
   const [tab, setTab] = useState("events");
+  const { isPro } = useProStatus();
   const [showInvite, setShowInvite] = useState(false);
   const [copied, setCopied] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
@@ -46,9 +48,9 @@ export default function SquadDetail() {
               <div style={{ marginLeft: 8, fontSize: 12, color: "rgba(255,255,255,0.8)", alignSelf: "center" }}>+2</div>
             </div>
           </div>
-          <div style={{ display: "flex" }}>
-            {["events", "members", "polls", "settings"].map(t => (
-              <button key={t} onClick={() => setTab(t)} style={{ flex: 1, background: "none", border: "none", padding: "10px 0", cursor: "pointer", fontFamily: font, fontWeight: 700, fontSize: 12, color: tab === t ? "#fff" : "rgba(255,255,255,0.6)", borderBottom: `2px solid ${tab === t ? "#fff" : "transparent"}`, textTransform: "capitalize" }}>{t}</button>
+          <div style={{ display: "flex", overflowX: "auto" }}>
+            {["events", "photos", "members", "polls", "settings"].map(t => (
+              <button key={t} onClick={() => setTab(t)} style={{ flex: 1, background: "none", border: "none", padding: "10px 0", cursor: "pointer", fontFamily: font, fontWeight: 700, fontSize: 12, color: tab === t ? "#fff" : "rgba(255,255,255,0.6)", borderBottom: `2px solid ${tab === t ? "#fff" : "transparent"}`, textTransform: "capitalize", flexShrink: 0, minWidth: 60 }}>{t}</button>
             ))}
           </div>
         </div>
@@ -81,6 +83,65 @@ export default function SquadDetail() {
                     </div>
                   ))}
                 </div>
+              </>
+            )}
+            {tab === "photos" && (
+              <>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <SectionLabel>📸 Squad Photos</SectionLabel>
+                  {isPro
+                    ? <Tag color={T.green}>🔒 Vault · Forever</Tag>
+                    : <Tag color={T.gold}>30-day limit · Free</Tag>
+                  }
+                </div>
+                {isPro ? (
+                  <>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 12 }}>
+                      {EVENT_PHOTOS.map((photo, i) => {
+                        const bgColors = [T.accent, T.purple, T.gold, T.blue, T.green, T.accent];
+                        const bgColors2 = [T.accent, T.purple, T.gold, T.blue, T.green, T.purple];
+                        return (
+                          <div key={i} style={{ position: "relative", aspectRatio: "1", borderRadius: 12, background: `linear-gradient(135deg, ${bgColors[i % bgColors.length]}22, ${bgColors2[i % bgColors2.length]}44)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, border: `1px solid ${T.border}` }}>
+                            <span>{photo.em}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div style={{ background: `${T.green}18`, border: `1px solid ${T.green}40`, borderRadius: 14, padding: "12px 16px", marginBottom: 10, display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ fontSize: 18 }}>✅</span>
+                      <div style={{ flex: 1, fontSize: 13, color: T.green, fontFamily: font, fontWeight: 700 }}>Photos saved to your permanent vault</div>
+                    </div>
+                    <Btn variant="ghost" onPress={() => {}}>+ Add Photos</Btn>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ background: T.surface, borderRadius: 20, border: `1px solid ${T.border}`, padding: 24, display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 16 }}>
+                      <div style={{ fontSize: 48, marginBottom: 12 }}>🔒</div>
+                      <div style={{ fontFamily: font, fontWeight: 700, fontSize: 17, color: T.text, textAlign: "center", marginBottom: 8 }}>Photo Vault is a Pro feature</div>
+                      <div style={{ fontSize: 13, color: T.textSub, fontFamily: font, textAlign: "center", lineHeight: 1.5, marginBottom: 16 }}>
+                        Upload unlimited squad photos. Private, organized by event, and stored forever — only visible to squad members.
+                      </div>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" as const, justifyContent: "center", marginBottom: 0 }}>
+                        {["🖼️ Private gallery", "📁 By event", "🔐 Members only"].map(f => (
+                          <div key={f} style={{ background: T.surfaceUp, border: `1px solid ${T.border}`, borderRadius: 20, padding: "4px 12px", fontSize: 12, color: T.textSub, fontFamily: font }}>{f}</div>
+                        ))}
+                      </div>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 14, opacity: 0.3 }}>
+                      {EVENT_PHOTOS.map((photo, i) => {
+                        const bgColors = [T.accent, T.purple, T.gold, T.blue, T.green, T.accent];
+                        return (
+                          <div key={i} style={{ aspectRatio: "1", borderRadius: 12, background: `${bgColors[i % bgColors.length]}22`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, border: `1px solid ${T.border}` }}>
+                            <span style={{ filter: "blur(3px)" }}>{photo.em}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <button onClick={() => setLocation("/subscription")} style={{ width: "100%", borderRadius: 14, border: "none", background: `linear-gradient(135deg, ${T.accent}, ${T.gold})`, color: "#fff", fontFamily: font, fontWeight: 800, fontSize: 14, padding: "14px 16px", cursor: "pointer" }}>
+                      ⚡ Upgrade to Pro — $20/year
+                    </button>
+                  </>
+                )}
               </>
             )}
             {tab === "members" && (

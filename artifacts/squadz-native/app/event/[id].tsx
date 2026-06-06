@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -10,13 +10,15 @@ import {
   Platform,
   Share,
   Alert,
+  ActivityIndicator,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
-import { useData } from "@/context/AppContext";
+import { useData, useAuth } from "@/context/AppContext";
+import Constants from "expo-constants";
 import { UserAvatar } from "@/components/UserAvatar";
 import {
   getUserById,
@@ -24,7 +26,7 @@ import {
   type RsvpStatus,
 } from "@/data/mock";
 
-type EventTab = "overview" | "guests" | "tasks" | "costs" | "chat" | "admin";
+type EventTab = "overview" | "guests" | "tasks" | "costs" | "chat" | "photos" | "admin";
 
 const EMOJIS = ["🔥", "🎉", "🎮", "🏖️", "🍕", "🎸", "⚽", "🎬", "🍻", "🎊"];
 
@@ -55,6 +57,30 @@ export default function EventDetailScreen() {
   } = useData();
 
   const [tab, setTab] = useState<EventTab>("overview");
+  const [isPro, setIsPro] = useState<boolean | null>(null);
+  const { authToken } = useAuth();
+
+  const authHeaders = useCallback((): HeadersInit => {
+    return authToken ? { Authorization: `Bearer ${authToken}` } : {};
+  }, [authToken]);
+
+  function resolveApiBase(): string {
+    if (process.env.EXPO_PUBLIC_API_URL) return process.env.EXPO_PUBLIC_API_URL;
+    const extra = Constants.expoConfig?.extra as Record<string, string> | undefined;
+    if (extra?.apiBase) return extra.apiBase;
+    if (Platform.OS === "web") return "";
+    const devDomain = process.env.REPLIT_DEV_DOMAIN;
+    if (devDomain) return `https://${devDomain}`;
+    return "";
+  }
+
+  useEffect(() => {
+    const apiBase = resolveApiBase();
+    fetch(`${apiBase}/api/subscription`, { headers: authHeaders() })
+      .then(r => { if (!r.ok) { setIsPro(false); return; } return r.json(); })
+      .then((d?: { isPro?: boolean }) => { if (d !== undefined) setIsPro(!!d.isPro); })
+      .catch(() => setIsPro(false));
+  }, [authHeaders]);
 
   // Modals
   const [taskModal, setTaskModal] = useState(false);
@@ -125,6 +151,7 @@ export default function EventDetailScreen() {
     { key: "tasks", label: "Tasks" },
     { key: "costs", label: "Costs" },
     { key: "chat", label: "Chat" },
+    { key: "photos", label: "📷 Photos" },
     ...(isHost ? [{ key: "admin" as EventTab, label: "Admin" }] : []),
   ];
 
@@ -590,6 +617,104 @@ export default function EventDetailScreen() {
           </View>
         )}
 
+        {tab === "photos" && (
+          <View style={{ gap: 16 }}>
+            {isPro === null ? (
+              <View style={styles.proLoadingCenter}>
+                <ActivityIndicator color={colors.primary} />
+              </View>
+            ) : !isPro ? (
+              <>
+                <View style={[styles.vaultLockCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                  <Text style={styles.vaultLockIcon}>🔒</Text>
+                  <Text style={[styles.vaultLockTitle, { color: colors.foreground }]}>Photo Vault is a Pro feature</Text>
+                  <Text style={[styles.vaultLockBody, { color: colors.mutedForeground }]}>
+                    Upload event photos and keep them forever — private to squad members only.
+                  </Text>
+                  <View style={styles.vaultFeaturePills}>
+                    {["🖼️ Private gallery", "📁 By event", "🔐 Members only"].map(f => (
+                      <View key={f} style={[styles.vaultPill, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                        <Text style={[styles.vaultPillText, { color: colors.mutedForeground }]}>{f}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+                <View style={[styles.vaultPhotoGrid, { opacity: 0.3 }]}>
+                  {[
+                    { color: "#FF6B3A", emoji: "🔥" },
+                    { color: "#7B6EF6", emoji: "🎳" },
+                    { color: "#F5A623", emoji: "🍕" },
+                  ].map((p, i) => (
+                    <View key={i} style={[styles.vaultGridCell, { backgroundColor: p.color + "30" }]}>
+                      <Text style={[styles.vaultGridEmoji, { opacity: 0 }]}>{p.emoji}</Text>
+                    </View>
+                  ))}
+                </View>
+                <TouchableOpacity
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                    router.push(`/vault?eventId=${event.id}&eventName=${encodeURIComponent(event.title)}` as never);
+                  }}
+                  style={[styles.vaultUpgradeBtn, { backgroundColor: colors.primary }]}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.vaultUpgradeBtnText}>⚡ Upgrade to Pro — $20/year</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <TouchableOpacity
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    router.push(`/vault?eventId=${event.id}&eventName=${encodeURIComponent(event.title)}` as never);
+                  }}
+                  style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}
+                >
+                  <View style={styles.cardHeaderRow}>
+                    <View style={{ flex: 1, gap: 4 }}>
+                      <Text style={[styles.cardTitle, { color: colors.mutedForeground }]}>📷 Event Photos</Text>
+                      <Text style={[styles.cardBody, { color: colors.foreground }]}>View all photos from {event.title}</Text>
+                      <Text style={[styles.cardTitle, { color: colors.mutedForeground, marginTop: 4 }]}>Stored in Photo Vault · private to squad members</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={20} color={colors.textDim} />
+                  </View>
+                </TouchableOpacity>
+                <View style={styles.vaultPhotoGrid}>
+                  {[
+                    { color: "#FF6B3A", emoji: "🔥" },
+                    { color: "#7B6EF6", emoji: "🎳" },
+                    { color: "#F5A623", emoji: "🍕" },
+                  ].map((p, i) => (
+                    <TouchableOpacity
+                      key={i}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        router.push(`/vault?eventId=${event.id}&eventName=${encodeURIComponent(event.title)}` as never);
+                      }}
+                      style={[styles.vaultGridCell, { backgroundColor: p.color + "30" }]}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.vaultGridEmoji}>{p.emoji}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <TouchableOpacity
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                    router.push(`/vault?eventId=${event.id}&eventName=${encodeURIComponent(event.title)}` as never);
+                  }}
+                  style={[styles.vaultCta, { backgroundColor: colors.primary + "18", borderColor: colors.primary + "40" }]}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="images-outline" size={18} color={colors.primary} />
+                  <Text style={[styles.vaultCtaText, { color: colors.primary }]}>Open Photo Vault for this event</Text>
+                  <Ionicons name="chevron-forward" size={16} color={colors.primary} />
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        )}
+
         {tab === "chat" && (
           <View style={{ gap: 12 }}>
             {event.messages.length === 0 ? (
@@ -1000,6 +1125,23 @@ const styles = StyleSheet.create({
   emptyTitle: { fontSize: 17, fontWeight: "700" },
   emptySub: { fontSize: 14, textAlign: "center" },
   errorText: { textAlign: "center", marginTop: 80, fontSize: 16 },
+  // vault photos
+  proLoadingCenter: { alignItems: "center", paddingVertical: 40 },
+  vaultPhotoGrid: { flexDirection: "row", gap: 6 },
+  vaultGridCell: { flex: 1, aspectRatio: 1, borderRadius: 12, alignItems: "center", justifyContent: "center", position: "relative" },
+  vaultGridEmoji: { fontSize: 28 },
+  vaultLockBadge: { position: "absolute", bottom: 6, right: 6, width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  vaultLockCard: { borderRadius: 20, borderWidth: 1, padding: 24, alignItems: "center" },
+  vaultLockIcon: { fontSize: 44, marginBottom: 12 },
+  vaultLockTitle: { fontSize: 18, fontWeight: "700", textAlign: "center", marginBottom: 8 },
+  vaultLockBody: { fontSize: 13, textAlign: "center", lineHeight: 20, marginBottom: 16 },
+  vaultFeaturePills: { flexDirection: "row", flexWrap: "wrap", gap: 6, justifyContent: "center" },
+  vaultPill: { borderRadius: 20, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 4 },
+  vaultPillText: { fontSize: 12 },
+  vaultUpgradeBtn: { borderRadius: 14, padding: 16, alignItems: "center" },
+  vaultUpgradeBtnText: { color: "#fff", fontSize: 15, fontWeight: "800" },
+  vaultCta: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 14, borderWidth: 1, padding: 14 },
+  vaultCtaText: { flex: 1, fontSize: 14, fontWeight: "700" },
   // chat
   msgRow: { flexDirection: "row", alignItems: "flex-end", gap: 8 },
   msgBubble: { maxWidth: "78%", borderRadius: 14, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 8 },

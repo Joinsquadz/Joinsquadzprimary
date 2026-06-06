@@ -151,6 +151,24 @@ export default function SquadDetailScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* Photos */}
+        <TouchableOpacity
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            router.push(`/vault?squadId=${squad.id}&squadName=${encodeURIComponent(squad.name)}` as never);
+          }}
+          style={[styles.photosRow, { backgroundColor: colors.card, borderColor: colors.border }]}
+        >
+          <View style={[styles.photosIcon, { backgroundColor: colors.primary + "20" }]}>
+            <Ionicons name="images-outline" size={20} color={colors.primary} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.photosTitle, { color: colors.foreground }]}>Squad Photos</Text>
+            <Text style={[styles.photosSub, { color: colors.mutedForeground }]}>View vault · private memories</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
+        </TouchableOpacity>
+
         {/* Events */}
         <Text style={[styles.sectionTitle, { color: colors.foreground, marginTop: 24 }]}>Events</Text>
         {squadEvents.length === 0 ? (
@@ -257,6 +275,10 @@ const styles = StyleSheet.create({
   emptyText: { fontSize: 14 },
   emptyCta: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 20, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 9 },
   emptyCtaText: { fontSize: 14, fontWeight: "700" },
+  photosRow: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 14, borderWidth: 1, padding: 14, marginTop: 20 },
+  photosIcon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+  photosTitle: { fontSize: 15, fontWeight: "800" },
+  photosSub: { fontSize: 12, marginTop: 2 },
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" },
   modalCard: { borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, padding: 20 },
   modalTitle: { fontSize: 20, fontWeight: "800", marginBottom: 16 },
