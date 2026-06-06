@@ -96,7 +96,10 @@ export default function CreateEvent() {
         return;
       }
       if (!res.ok) return;
-      setEventCount(c => (c ?? 0) + 1);
+      fetch("/api/events/count")
+        .then(r => r.ok ? r.json() : null)
+        .then((data: { count: number } | null) => { if (data) setEventCount(data.count); })
+        .catch(() => {});
       setLocation("/event");
     } catch {
       setLocation("/event");

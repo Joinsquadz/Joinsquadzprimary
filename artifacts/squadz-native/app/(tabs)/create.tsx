@@ -112,7 +112,10 @@ export default function CreateEventScreen() {
       date: date.trim(), location: location.trim(),
       description: description.trim(), squadId: selectedSquad,
     });
-    setMyEventCount(c => c + 1);
+    fetch(`${API_BASE}/api/events/count`, { headers: authHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then((data: { count: number } | null) => { if (data) setMyEventCount(data.count); })
+      .catch(() => {});
     Alert.alert("Event created!", `${selectedEmoji} ${title} has been created. Your squad will be notified.`, [
       { text: "View Event", onPress: () => { resetForm(); router.push(`/event/${id}` as never); } },
     ]);
