@@ -26,11 +26,18 @@ function SocialBtn({ icon, label, onPress, style = {} }: { icon: string; label: 
 export default function Signup() {
   const [, setLocation] = useLocation();
   const [screen, setScreen] = useState("options");
+  const [socialProvider, setSocialProvider] = useState<"facebook" | "google" | null>(null);
   const [visible, setVisible] = useState(false);
   const [email, setEmail] = useState("");
   const [pass, setPass] = useState("");
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState(["", "", "", "", "", ""]);
+
+  const goSocial = (provider: "facebook" | "google") => {
+    setSocialProvider(provider);
+    setVisible(false);
+    setTimeout(() => setScreen("social-phone"), 80);
+  };
 
   useEffect(() => { setTimeout(() => setVisible(true), 80); }, [screen]);
 
@@ -88,6 +95,38 @@ export default function Signup() {
     </PhoneShell>
   );
 
+  if (screen === "social-phone") return (
+    <PhoneShell>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", background: T.bg, position: "relative", overflow: "hidden" }}>
+        <GlowBlobs />
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: "20px 24px", overflowY: "auto", position: "relative" }}>
+          <button onClick={() => { setVisible(false); setTimeout(() => setScreen("options"), 80); }} style={{ background: "none", border: "none", color: T.textSub, fontSize: 22, cursor: "pointer", padding: 0, marginBottom: 24, textAlign: "left", width: "fit-content" }}>←</button>
+          {/* Provider badge */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, background: T.surfaceUp, border: `1px solid ${T.border}`, borderRadius: 28, padding: "8px 14px", alignSelf: "flex-start", marginBottom: 24 }}>
+            {socialProvider === "facebook"
+              ? <><div style={{ width: 22, height: 22, borderRadius: 11, background: "#1877F2", display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="12" height="12" viewBox="0 0 24 24" fill="white"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg></div><span style={{ fontSize: 13, color: T.text, fontFamily: font, fontWeight: 600 }}>Connected via Facebook</span></>
+              : <><svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20H24v8h11.3C33.6 33.4 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3 0 5.7 1.1 7.8 2.9L38.2 9C34.6 5.7 29.5 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20c11 0 20-9 20-20 0-1.3-.1-2.7-.4-4z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.5 15.1 18.9 12 24 12c3 0 5.7 1.1 7.8 2.9L38.2 9C34.6 5.7 29.5 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 10-2 13.6-5.2l-6.3-5.3C29.4 35.4 26.8 36 24 36c-5.2 0-9.6-3.5-11.2-8.3l-6.6 5.1C9.6 39.6 16.3 44 24 44z"/><path fill="#1976D2" d="M43.6 20H24v8h11.3c-.8 2.1-2.1 3.9-3.9 5.2l6.3 5.3C41.2 35 44 30 44 24c0-1.3-.1-2.7-.4-4z"/></svg><span style={{ fontSize: 13, color: T.text, fontFamily: font, fontWeight: 600 }}>Connected via Google</span></>
+            }
+          </div>
+          <div style={{ fontSize: 40, textAlign: "center", marginBottom: 12 }}>📱</div>
+          <div style={{ fontFamily: "'Georgia', serif", fontSize: 26, fontWeight: 700, color: T.white, marginBottom: 6, textAlign: "center" }}>One more step</div>
+          <div style={{ fontSize: 14, color: T.textSub, marginBottom: 28, fontFamily: font, textAlign: "center" }}>Add your phone number so your squad can find you — and to keep your account secure.</div>
+          <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+            <div style={{ background: T.surfaceUp, border: `1.5px solid ${T.border}`, borderRadius: 13, padding: "13px 14px", color: T.text, fontFamily: font, fontSize: 15, width: 64, textAlign: "center", flexShrink: 0 }}>+1</div>
+            <input type="tel" placeholder="(555) 000-0000" value={phone} onChange={e => setPhone(e.target.value)}
+              style={{ flex: 1, background: T.surfaceUp, border: `1.5px solid ${T.border}`, borderRadius: 13, padding: "13px 14px", color: T.text, fontFamily: font, fontSize: 15, outline: "none" }} />
+          </div>
+          <button onClick={() => setScreen("otp")} style={{ width: "100%", borderRadius: 14, border: "none", background: `linear-gradient(135deg, ${T.accent}, #FF8050)`, color: "#fff", fontFamily: font, fontWeight: 800, fontSize: 16, padding: "14px 20px", cursor: "pointer", boxShadow: `0 8px 28px ${T.accent}45`, marginBottom: 12 }}>
+            Send Verification Code →
+          </button>
+          <div style={{ fontSize: 12, color: T.textDim, fontFamily: font, textAlign: "center", lineHeight: 1.6 }}>
+            Standard SMS rates may apply. Your number is never shared with other users.
+          </div>
+        </div>
+      </div>
+    </PhoneShell>
+  );
+
   if (screen === "otp") return (
     <PhoneShell>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", background: T.bg, position: "relative", overflow: "hidden" }}>
@@ -136,14 +175,14 @@ export default function Signup() {
 
           {/* Auth buttons */}
           <div style={{ ...anim, display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
-            <button onClick={() => setLocation("/onboarding")}
+            <button onClick={() => goSocial("facebook")}
               style={{ width: "100%", background: "#1877F2", borderRadius: 14, border: "none", padding: "13px 18px", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, cursor: "pointer", fontFamily: font, fontWeight: 800, fontSize: 15, color: "#fff" }}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
                 <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
               </svg>
               Continue with Facebook
             </button>
-            <button onClick={() => setLocation("/onboarding")}
+            <button onClick={() => goSocial("google")}
               style={{ width: "100%", background: T.surfaceUp, border: `1.5px solid ${T.border}`, borderRadius: 14, padding: "13px 18px", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, cursor: "pointer", fontFamily: font, fontWeight: 700, fontSize: 15, color: T.text }}>
               <svg width="18" height="18" viewBox="0 0 48 48">
                 <path fill="#FFC107" d="M43.6 20H24v8h11.3C33.6 33.4 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3 0 5.7 1.1 7.8 2.9L38.2 9C34.6 5.7 29.5 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20c11 0 20-9 20-20 0-1.3-.1-2.7-.4-4z"/>
@@ -160,7 +199,7 @@ export default function Signup() {
               <div style={{ flex: 1, height: 1, background: T.border }} />
             </div>
 
-            <SocialBtn icon="✉️" label="Use email or phone number" onPress={() => setScreen("email")} />
+            <SocialBtn icon="✉️" label="Email & Phone Number" onPress={() => setScreen("email")} />
           </div>
 
           {/* Feature preview */}
