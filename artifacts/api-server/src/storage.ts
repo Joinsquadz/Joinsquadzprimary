@@ -1,5 +1,5 @@
 import { usersTable, eventsTable, photosTable } from '@workspace/db/schema';
-import { eq, sql, count, and, gte, lt } from 'drizzle-orm';
+import { eq, sql, count, and, gte, lt, desc } from 'drizzle-orm';
 import { db } from '@workspace/db';
 
 export class Storage {
@@ -130,11 +130,27 @@ export class Storage {
     return event ?? null;
   }
 
-  async getPhotosByEventId(eventId: number) {
+  async getPhotosByEventId(eventId: string) {
     return db
       .select()
       .from(photosTable)
       .where(eq(photosTable.eventId, eventId));
+  }
+
+  async getPhotosByUploaderId(uploaderId: string) {
+    return db
+      .select()
+      .from(photosTable)
+      .where(eq(photosTable.uploaderId, uploaderId))
+      .orderBy(desc(photosTable.uploadedAt));
+  }
+
+  async addPhoto(uploaderId: string, url: string, eventId?: string) {
+    const [photo] = await db
+      .insert(photosTable)
+      .values({ uploaderId, url, eventId: eventId ?? null })
+      .returning();
+    return photo;
   }
 }
 

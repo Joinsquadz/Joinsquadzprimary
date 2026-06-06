@@ -6,6 +6,8 @@ import eventsRouter from "./events";
 import squadsRouter from "./squads";
 import emailPreviewRouter from "./emailPreview";
 import userPreferencesRouter from "./userPreferences";
+import storageRouter from "./storage";
+import vaultRouter from "./vault";
 
 const router: IRouter = Router();
 
@@ -16,5 +18,7 @@ router.use(eventsRouter);
 router.use(squadsRouter);
 router.use(emailPreviewRouter);
 router.use(userPreferencesRouter);
+router.use(storageRouter);
+router.use(vaultRouter);
 
 export default router;

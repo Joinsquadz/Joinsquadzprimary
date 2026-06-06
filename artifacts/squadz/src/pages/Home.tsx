@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
 import { PhoneShell } from "@/components/PhoneShell";
 import { Avatar, Tag, SectionLabel, Card, SwitchToggle, Btn } from "@/components/shared";
@@ -520,17 +520,12 @@ const PRO_FEATURES = [
   { key: "calendar", icon: "📅", label: "Calendar Sync" },
 ] as const;
 
-const VAULT_PLACEHOLDER_PHOTOS = [
-  { id: 1, url: "https://picsum.photos/seed/squadz-bbq/600/600", emoji: "🔥", label: "Rooftop BBQ", squad: "The Usual Suspects", date: "Jun 7", color: "#FF6B3A" },
-  { id: 2, url: "https://picsum.photos/seed/squadz-bowl/600/600", emoji: "🎳", label: "Bowling Night", squad: "College Crew", date: "May 24", color: "#7B6EF6" },
-  { id: 3, url: "https://picsum.photos/seed/squadz-pizza/600/600", emoji: "🍕", label: "Pizza Friday", squad: "Work Crew", date: "May 17", color: "#F5A623" },
-  { id: 4, url: "https://picsum.photos/seed/squadz-beach/600/600", emoji: "🏖️", label: "Beach Day", squad: "Westside Fam", date: "Apr 30", color: "#4ECDC4" },
-  { id: 5, url: "https://picsum.photos/seed/squadz-game/600/600", emoji: "🎮", label: "Game Night", squad: "The Usual Suspects", date: "Apr 19", color: "#A78BFA" },
-  { id: 6, url: "https://picsum.photos/seed/squadz-brunch/600/600", emoji: "🍳", label: "Brunch Run", squad: "College Crew", date: "Apr 5", color: "#FB923C" },
-  { id: 7, url: "https://picsum.photos/seed/squadz-hike/600/600", emoji: "🥾", label: "Sunrise Hike", squad: "Westside Fam", date: "Mar 22", color: "#34D399" },
-  { id: 8, url: "https://picsum.photos/seed/squadz-concert/600/600", emoji: "🎤", label: "Concert Night", squad: "The Usual Suspects", date: "Mar 9", color: "#F472B6" },
-  { id: 9, url: "https://picsum.photos/seed/squadz-coffee/600/600", emoji: "☕", label: "Coffee Catchup", squad: "Work Crew", date: "Feb 28", color: "#C084FC" },
-];
+interface VaultPhoto {
+  id: number;
+  url: string;
+  uploadedAt: string;
+  eventId?: string | null;
+}
 
 async function downloadVaultPhoto(url: string, label: string, id: number): Promise<boolean> {
   try {
@@ -554,14 +549,9 @@ async function downloadVaultPhoto(url: string, label: string, id: number): Promi
 function PhotoVaultTab({ onUpgrade }: { onUpgrade?: () => void }) {
   const [isPro, setIsPro] = React.useState<boolean | null>(null);
   const [selected, setSelected] = React.useState<number | null>(null);
-  const [downloadingId, setDownloadingId] = React.useState<number | "all" | null>(null);
-  const [toast, setToast] = React.useState<string | null>(null);
-  const [activeFilter, setActiveFilter] = React.useState("All");
-
-  const filteredPhotos = React.useMemo(
-    () => VAULT_PLACEHOLDER_PHOTOS.filter(p => activeFilter === "All" || p.squad === activeFilter),
-    [activeFilter]
-  );
+  const [photos, setPhotos] = React.useState<VaultPhoto[]>([]);
+  const [isUploading, setIsUploading] = React.useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
     fetch('/api/subscription', { credentials: 'include' })
@@ -570,30 +560,60 @@ function PhotoVaultTab({ onUpgrade }: { onUpgrade?: () => void }) {
       .catch(() => setIsPro(false));
   }, []);
 
-  const showToast = React.useCallback((msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 2600);
+  const fetchPhotos = useCallback(async () => {
+    try {
+      const res = await fetch('/api/vault/photos', { credentials: 'include' });
+      if (!res.ok) return;
+      const data = await res.json() as { photos: VaultPhoto[] };
+      setPhotos(data.photos ?? []);
+    } catch {
+      // silently fail
+    }
   }, []);
 
-  const handleDownload = React.useCallback(async (p: typeof VAULT_PLACEHOLDER_PHOTOS[number]) => {
-    if (downloadingId !== null) return;
-    setDownloadingId(p.id);
-    const ok = await downloadVaultPhoto(p.url, p.label, p.id);
-    setDownloadingId(null);
-    showToast(ok ? "Photo downloaded" : "Couldn't download photo");
-  }, [downloadingId, showToast]);
+  React.useEffect(() => {
+    if (isPro) fetchPhotos();
+  }, [isPro, fetchPhotos]);
 
-  const handleDownloadAll = React.useCallback(async () => {
-    if (downloadingId !== null) return;
-    setDownloadingId("all");
-    let saved = 0;
-    for (const p of filteredPhotos) {
-      const ok = await downloadVaultPhoto(p.url, p.label, p.id);
-      if (ok) saved += 1;
+  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (!files.length) return;
+
+    setIsUploading(true);
+    try {
+      for (const file of files) {
+        const urlRes = await fetch('/api/storage/uploads/request-url', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: file.name, size: file.size, contentType: file.type || 'image/jpeg' }),
+        });
+        if (!urlRes.ok) continue;
+        const { uploadURL, objectPath } = await urlRes.json() as { uploadURL: string; objectPath: string };
+
+        const putRes = await fetch(uploadURL, {
+          method: 'PUT',
+          body: file,
+          headers: { 'Content-Type': file.type || 'image/jpeg' },
+        });
+        if (!putRes.ok) continue;
+
+        await fetch('/api/vault/photos', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: objectPath }),
+        });
+      }
+      await fetchPhotos();
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
-    setDownloadingId(null);
-    showToast(saved > 0 ? `Downloaded ${saved} photos` : "Couldn't download photos");
-  }, [downloadingId, filteredPhotos, showToast]);
+  }, [fetchPhotos]);
+
+  const selectedPhoto = photos.find(p => p.id === selected) ?? null;
+  const imageUrl = (objectPath: string) => `/api/storage${objectPath}`;
 
   if (isPro === null) {
     return (
@@ -633,10 +653,8 @@ function PhotoVaultTab({ onUpgrade }: { onUpgrade?: () => void }) {
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4, borderRadius: 14, overflow: "hidden", filter: "blur(3px) brightness(0.5)", pointerEvents: "none", marginBottom: 24 }}>
-            {VAULT_PLACEHOLDER_PHOTOS.map(p => (
-              <div key={p.id} style={{ aspectRatio: "1", overflow: "hidden", background: T.surface }}>
-                <img src={p.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-              </div>
+            {[...Array(6)].map((_, i) => (
+              <div key={i} style={{ aspectRatio: "1", background: `${T.surface}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28 }}>📷</div>
             ))}
           </div>
 
@@ -658,67 +676,63 @@ function PhotoVaultTab({ onUpgrade }: { onUpgrade?: () => void }) {
           <div style={{ fontFamily: "'Georgia', serif", fontSize: 24, fontWeight: 700, color: T.white }}>📷 Photo Vault</div>
           <div style={{ background: T.gold + "22", border: `1px solid ${T.gold}60`, borderRadius: 6, padding: "2px 8px", fontSize: 10, fontWeight: 900, color: T.gold, letterSpacing: "0.08em", fontFamily: fontMono }}>PRO</div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-          <div style={{ fontSize: 13, color: T.textSub, fontFamily: font }}>Every memory · {filteredPhotos.length} photo{filteredPhotos.length === 1 ? "" : "s"}</div>
-          <button
-            onClick={handleDownloadAll}
-            disabled={downloadingId !== null || filteredPhotos.length === 0}
-            style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: `1px solid ${T.border}`, borderRadius: 20, padding: "6px 12px", fontSize: 12, color: T.accent, fontFamily: font, fontWeight: 700, cursor: downloadingId !== null ? "default" : "pointer", opacity: downloadingId !== null ? 0.5 : 1, whiteSpace: "nowrap" as const }}>
-            {downloadingId === "all" ? "Downloading…" : "⬇️ Download all"}
-          </button>
+        <div style={{ fontSize: 13, color: T.textSub, marginBottom: 20, fontFamily: font }}>
+          Private squad memories · {photos.length} {photos.length === 1 ? "photo" : "photos"}
         </div>
 
-        <div style={{ display: "flex", gap: 8, marginBottom: 20, overflowX: "auto", paddingBottom: 4 }}>
-          {["All", "The Usual Suspects", "College Crew", "Work Crew", "Westside Fam"].map(f => (
-            <button key={f} onClick={() => { setActiveFilter(f); setSelected(null); }} style={{ flexShrink: 0, background: f === activeFilter ? T.accent : T.surface, border: `1px solid ${f === activeFilter ? T.accent : T.border}`, borderRadius: 20, padding: "6px 14px", fontSize: 12, color: f === activeFilter ? "#fff" : T.textSub, fontFamily: font, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" as const }}>{f}</button>
-          ))}
-        </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, borderRadius: 14, marginBottom: 20 }}>
-          {filteredPhotos.map(p => (
-            <div
-              key={p.id}
-              onClick={() => setSelected(selected === p.id ? null : p.id)}
-              style={{ aspectRatio: "1", borderRadius: 10, overflow: "hidden", cursor: "pointer", position: "relative", border: selected === p.id ? `2px solid ${T.accent}` : "2px solid transparent", transition: "border-color 0.15s", background: T.surface }}>
-              <img src={p.url} alt={p.label} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-              <button
-                onClick={(e) => { e.stopPropagation(); handleDownload(p); }}
-                disabled={downloadingId !== null}
-                title="Download"
-                style={{ position: "absolute", top: 6, right: 6, width: 28, height: 28, borderRadius: 14, border: "none", background: "#00000080", color: "#fff", fontSize: 13, cursor: downloadingId !== null ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                {downloadingId === p.id ? "…" : "⬇"}
-              </button>
-              {selected === p.id && (
-                <div style={{ position: "absolute", bottom: 6, left: 6, width: 18, height: 18, background: T.accent, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#fff" }}>✓</div>
-              )}
-            </div>
-          ))}
-        </div>
-
-        {selected !== null && (() => {
-          const p = VAULT_PLACEHOLDER_PHOTOS.find(x => x.id === selected);
-          if (!p) return null;
-          return (
-            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 16, overflow: "hidden", marginBottom: 20 }}>
-              <img src={p.url} alt={p.label} style={{ width: "100%", height: 220, objectFit: "cover", display: "block" }} />
-              <div style={{ padding: "14px 16px" }}>
-                <div style={{ fontFamily: font, fontWeight: 700, fontSize: 15, color: T.text, marginBottom: 4 }}>{p.emoji} {p.label}</div>
-                <div style={{ fontSize: 12, color: T.textSub, marginBottom: 14 }}>{p.squad} · {p.date}</div>
-                <button
-                  onClick={() => handleDownload(p)}
-                  disabled={downloadingId !== null}
-                  style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, border: "none", borderRadius: 12, background: T.accent, color: "#fff", fontFamily: font, fontWeight: 700, fontSize: 14, padding: "12px", cursor: downloadingId !== null ? "default" : "pointer", opacity: downloadingId !== null ? 0.6 : 1 }}>
-                  {downloadingId === p.id ? "Downloading…" : "⬇️ Download to device"}
-                </button>
+        {photos.length > 0 ? (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4, borderRadius: 14, overflow: "hidden", marginBottom: 20 }}>
+            {photos.map(p => (
+              <div
+                key={p.id}
+                onClick={() => setSelected(selected === p.id ? null : p.id)}
+                style={{ aspectRatio: "1", overflow: "hidden", cursor: "pointer", position: "relative", border: selected === p.id ? `2px solid ${T.accent}` : "2px solid transparent", transition: "border-color 0.15s", background: T.surface }}>
+                <img
+                  src={imageUrl(p.url)}
+                  alt="vault photo"
+                  style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                />
+                {selected === p.id && (
+                  <div style={{ position: "absolute", bottom: 4, right: 4, width: 18, height: 18, background: T.accent, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#fff" }}>✓</div>
+                )}
               </div>
-            </div>
-          );
-        })()}
+            ))}
+          </div>
+        ) : (
+          <div style={{ border: `1px dashed ${T.border}`, borderRadius: 14, padding: "32px 20px", textAlign: "center", marginBottom: 20 }}>
+            <div style={{ fontSize: 36, marginBottom: 10 }}>📷</div>
+            <div style={{ fontFamily: font, fontWeight: 700, fontSize: 14, color: T.textSub, marginBottom: 4 }}>No photos yet</div>
+            <div style={{ fontSize: 12, color: T.textDim }}>Upload your first squad memory below</div>
+          </div>
+        )}
 
-        <div style={{ border: `1.5px dashed ${T.border}`, borderRadius: 16, padding: "24px 20px", textAlign: "center", cursor: "pointer" }}
-          onClick={() => {}}>
-          <div style={{ fontSize: 28, marginBottom: 8 }}>+</div>
-          <div style={{ fontFamily: font, fontWeight: 700, fontSize: 14, color: T.textSub, marginBottom: 4 }}>Upload photos</div>
+        {selectedPhoto && (
+          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 16, padding: "14px 16px", marginBottom: 20 }}>
+            <div style={{ fontFamily: font, fontWeight: 700, fontSize: 15, color: T.text, marginBottom: 4 }}>
+              {new Date(selectedPhoto.uploadedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+            </div>
+            <div style={{ fontSize: 12, color: T.textSub }}>
+              {selectedPhoto.eventId ? `Event ${selectedPhoto.eventId}` : "Vault photo"}
+            </div>
+          </div>
+        )}
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          style={{ display: "none" }}
+          onChange={handleFileChange}
+        />
+        <div
+          style={{ border: `1.5px dashed ${T.border}`, borderRadius: 16, padding: "24px 20px", textAlign: "center", cursor: isUploading ? "default" : "pointer", opacity: isUploading ? 0.7 : 1 }}
+          onClick={() => !isUploading && fileInputRef.current?.click()}
+        >
+          <div style={{ fontSize: 28, marginBottom: 8 }}>{isUploading ? "⏳" : "+"}</div>
+          <div style={{ fontFamily: font, fontWeight: 700, fontSize: 14, color: T.textSub, marginBottom: 4 }}>
+            {isUploading ? "Uploading…" : "Upload photos"}
+          </div>
           <div style={{ fontSize: 12, color: T.textDim }}>Add memories from your last event</div>
         </div>
       </div>

@@ -16,3 +16,5 @@ export * from './healthStatus';
 export * from './logoutSuccess';
 export * from './mobileTokenExchangeRequest';
 export * from './mobileTokenExchangeSuccess';
+export * from './uploadUrlRequest';
+export * from './uploadUrlResponse';

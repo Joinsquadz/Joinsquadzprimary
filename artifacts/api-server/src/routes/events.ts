@@ -434,12 +434,7 @@ router.post("/events/:id/messages", requireAuth, async (req: Request, res: Respo
 router.get('/events/:id/photos', requireAuth, async (req, res): Promise<void> => {
   try {
     const userId = (req.user as { id: string }).id;
-    const eventId = req.params['id'] as string;
-
-    if (!eventId) {
-      res.status(400).json({ error: 'Invalid event id' });
-      return;
-    }
+    const eventId = parseId(req.params['id']);
 
     let user = await storage.getUser(userId);
     if (!user) {
