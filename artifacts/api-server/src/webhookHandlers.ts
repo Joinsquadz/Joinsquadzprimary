@@ -1,6 +1,7 @@
 import { getStripeSync } from './stripeClient';
 import { storage } from './storage';
 import { logger } from './lib/logger';
+import { emailService } from './emailService';
 import { db } from '@workspace/db';
 import { sql } from 'drizzle-orm';
 
@@ -33,6 +34,7 @@ export class WebhookHandlers {
     // We read the managed webhook secret from the DB (set by findOrCreateManagedWebhook).
     let customerId: string | null = null;
     let subscriptionId: string | null = null;
+    let isCheckoutCompleted = false;
 
     try {
       const webhookSecret = await getManagedWebhookSecret();
@@ -60,12 +62,14 @@ export class WebhookHandlers {
           };
           customerId = session.customer;
           subscriptionId = session.subscription;
+          isCheckoutCompleted = true;
         }
       }
     } catch (err) {
       logger.warn({ err }, 'Could not parse webhook event for user linkage');
     }
 
+    // Sync Stripe data into the stripe.* schema tables (must happen before we query them)
     await sync.processWebhook(payload, signature);
 
     // Link subscription back to the user record so GET /api/subscription is accurate
@@ -79,6 +83,12 @@ export class WebhookHandlers {
       } catch (err) {
         logger.warn({ err, customerId, subscriptionId }, 'Could not link subscription to user');
       }
+    }
+
+    // Send the Pro welcome email on successful checkout.
+    // This runs after sync.processWebhook so subscription/price data are in the DB.
+    if (isCheckoutCompleted && subscriptionId && customerId) {
+      await emailService.sendProWelcome(subscriptionId, customerId);
     }
   }
 }
