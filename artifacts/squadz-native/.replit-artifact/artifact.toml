@@ -1,0 +1,27 @@
+kind = "mobile"
+previewPath = "/mobile/"
+title = "Squadz Mobile"
+version = "1.0.0"
+id = "artifacts/squadz-native"
+router = "expo-domain"
+
+[[integratedSkills]]
+name = "expo"
+version = "1.0.0"
+
+[[services]]
+ensurePreviewReachable = "/status"
+name = "expo"
+paths = [ "/mobile/" ]
+localPort = 22402
+
+[services.development]
+run = "pnpm --filter @workspace/squadz-native run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/squadz-native", "run", "build" ]
+run = [ "pnpm", "--filter", "@workspace/squadz-native", "run", "serve" ]
+
+[services.env]
+PORT = "22402"
+BASE_PATH = "/mobile/"

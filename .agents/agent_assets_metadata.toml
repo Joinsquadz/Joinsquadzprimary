@@ -1,0 +1,8 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "WlRPET9bYcNNVWiaFTgcl"
+uri = "file://artifacts/squadz-native/assets/images/icon.png"
+type = "image"
+title = "squadz mobile app icon"
