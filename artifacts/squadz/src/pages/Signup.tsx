@@ -26,6 +26,7 @@ function SocialBtn({ icon, label, onPress, style = {} }: { icon: string; label: 
 export default function Signup() {
   const [, setLocation] = useLocation();
   const [screen, setScreen] = useState("options");
+  const [prevScreen, setPrevScreen] = useState("options");
   const [socialProvider, setSocialProvider] = useState<"facebook" | "google" | null>(null);
   const [visible, setVisible] = useState(false);
   const [email, setEmail] = useState("");
@@ -37,6 +38,11 @@ export default function Signup() {
     setSocialProvider(provider);
     setVisible(false);
     setTimeout(() => setScreen("social-phone"), 80);
+  };
+
+  const goOtp = (from: string) => {
+    setPrevScreen(from);
+    setScreen("otp");
   };
 
   useEffect(() => { setTimeout(() => setVisible(true), 80); }, [screen]);
@@ -87,7 +93,7 @@ export default function Signup() {
             <input type="tel" placeholder="(555) 000-0000" value={phone} onChange={e => setPhone(e.target.value)}
               style={{ flex: 1, background: T.surfaceUp, border: `1.5px solid ${T.border}`, borderRadius: 13, padding: "13px 14px", color: T.text, fontFamily: font, fontSize: 15, outline: "none" }} />
           </div>
-          <button onClick={() => setScreen("otp")} style={{ width: "100%", borderRadius: 14, border: "none", background: `linear-gradient(135deg, ${T.accent}, #FF8050)`, color: "#fff", fontFamily: font, fontWeight: 800, fontSize: 16, padding: "14px 20px", cursor: "pointer", boxShadow: `0 8px 28px ${T.accent}45` }}>
+          <button onClick={() => goOtp("phone")} style={{ width: "100%", borderRadius: 14, border: "none", background: `linear-gradient(135deg, ${T.accent}, #FF8050)`, color: "#fff", fontFamily: font, fontWeight: 800, fontSize: 16, padding: "14px 20px", cursor: "pointer", boxShadow: `0 8px 28px ${T.accent}45` }}>
             Send Code →
           </button>
         </div>
@@ -159,7 +165,7 @@ export default function Signup() {
               <input type="tel" placeholder="(555) 000-0000" value={phone} onChange={e => setPhone(e.target.value)}
                 style={{ flex: 1, background: T.surfaceUp, border: `1.5px solid ${T.border}`, borderRadius: 13, padding: "13px 14px", color: T.text, fontFamily: font, fontSize: 15, outline: "none" }} />
             </div>
-            <button onClick={() => setScreen("otp")} style={{ width: "100%", borderRadius: 14, border: "none", background: `linear-gradient(135deg, ${T.accent}, #FF8050)`, color: "#fff", fontFamily: font, fontWeight: 800, fontSize: 16, padding: "14px 20px", cursor: "pointer", boxShadow: `0 8px 28px ${T.accent}45`, marginBottom: 12 }}>
+            <button onClick={() => goOtp("social-phone")} style={{ width: "100%", borderRadius: 14, border: "none", background: `linear-gradient(135deg, ${T.accent}, #FF8050)`, color: "#fff", fontFamily: font, fontWeight: 800, fontSize: 16, padding: "14px 20px", cursor: "pointer", boxShadow: `0 8px 28px ${T.accent}45`, marginBottom: 12 }}>
               Send Verification Code →
             </button>
             <div style={{ fontSize: 12, color: T.textDim, fontFamily: font, textAlign: "center", lineHeight: 1.6 }}>
@@ -176,7 +182,7 @@ export default function Signup() {
       <div style={{ flex: 1, display: "flex", flexDirection: "column", background: T.bg, position: "relative", overflow: "hidden" }}>
         <GlowBlobs />
         <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: "20px 24px", position: "relative" }}>
-          <button onClick={() => setScreen("phone")} style={{ background: "none", border: "none", color: T.textSub, fontSize: 22, cursor: "pointer", padding: 0, marginBottom: 24, textAlign: "left", width: "fit-content" }}>←</button>
+          <button onClick={() => setScreen(prevScreen)} style={{ background: "none", border: "none", color: T.textSub, fontSize: 22, cursor: "pointer", padding: 0, marginBottom: 24, textAlign: "left", width: "fit-content" }}>←</button>
           <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
             <div style={{ width: 72, height: 72, borderRadius: 22, background: T.purple + "25", border: `1px solid ${T.purple}40`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 36, marginBottom: 20 }}>💬</div>
             <div style={{ fontFamily: "'Georgia', serif", fontSize: 26, fontWeight: 700, color: T.white, marginBottom: 4, textAlign: "center" }}>Check your texts</div>

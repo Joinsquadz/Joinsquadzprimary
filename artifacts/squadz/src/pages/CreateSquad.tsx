@@ -21,6 +21,7 @@ export default function CreateSquad() {
       <PhoneShell>
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           <div style={{ padding: "20px 24px 16px" }}>
+            <button onClick={() => setStep(0)} style={{ background: "none", border: "none", color: T.textSub, fontSize: 22, cursor: "pointer", padding: 0, marginBottom: 16, display: "block" }}>←</button>
             <div style={{ fontFamily: "'Georgia', serif", fontSize: 24, fontWeight: 700, color: T.white, marginBottom: 4 }}>Invite Your Squad</div>
             <div style={{ fontSize: 14, color: T.textSub, marginBottom: 16, fontFamily: font }}>Add friends to "{name || "New Squad"}"</div>
             <div style={{ background: T.surfaceUp, border: `1px solid ${T.border}`, borderRadius: 14, padding: "12px 16px", display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
