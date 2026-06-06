@@ -303,6 +303,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     AsyncStorage.removeItem(AUTH_TOKEN_KEY).catch(() => {});
     setAuthToken(null);
     setApiUser(null);
+    setEvents([]);
+    setSquads([]);
     setIsLoggedIn(false);
     currentUserIdRef.current = ME.id;
   }, []);
