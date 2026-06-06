@@ -7,7 +7,7 @@ import { T, font, fontMono, SQUADS, MEMBERS, ACTIVITY_FEED, SUGGESTIONS, MESSAGE
 function BottomTab({ active, setActive }: { active: string; setActive: (t: string) => void }) {
   const tabs = [
     { key: "home", icon: "⊞", label: "Home" },
-    { key: "squads", icon: "👥", label: "Squads" },
+    { key: "squads", icon: "👥", label: "SquadZ" },
     { key: "messages", icon: "💬", label: "Messages" },
     { key: "discover", icon: "✦", label: "Discover" },
     { key: "activity", icon: "◎", label: "Activity" },
@@ -36,9 +36,9 @@ function HomeTab({ go }: { go: (s: string) => void }) {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
           <div>
             <div style={{ fontFamily: "'Georgia', serif", fontSize: 26, fontWeight: 700, color: T.white }}>Hey, Jordan 👋</div>
-            <div style={{ fontSize: 13, color: T.textSub, fontFamily: font }}>4 squads · 1 event this week</div>
+            <div style={{ fontSize: 13, color: T.textSub, fontFamily: font }}>4 SquadZ · 1 event this week</div>
           </div>
-          <div style={{ position: "relative" }}>
+          <div style={{ position: "relative", cursor: "pointer" }} onClick={() => go("profile")}>
             <Avatar name="Jordan" size={44} color={T.accent} />
             <div style={{ position: "absolute", top: 0, right: 0, width: 14, height: 14, background: T.green, borderRadius: "50%", border: `2px solid ${T.bg}` }} />
           </div>
@@ -66,9 +66,8 @@ function HomeTab({ go }: { go: (s: string) => void }) {
           <Tag color={T.gold}>🏆</Tag>
         </div>
 
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <SectionLabel>My Squads</SectionLabel>
-          <span style={{ fontSize: 12, color: T.accent, fontFamily: font, cursor: "pointer" }}>See All →</span>
+        <div style={{ marginBottom: 12 }}>
+          <SectionLabel>My SquadZ</SectionLabel>
         </div>
         <div style={{ display: "flex", gap: 10, marginBottom: 24, overflowX: "auto", paddingBottom: 4 }}>
           {SQUADS.map(s => (
@@ -108,7 +107,7 @@ function SquadsTab({ go }: { go: (s: string) => void }) {
   return (
     <div style={{ flex: 1, overflowY: "auto" }}>
       <div style={{ padding: "20px 20px 24px" }}>
-        <div style={{ fontFamily: "'Georgia', serif", fontSize: 24, fontWeight: 700, color: T.white, marginBottom: 4 }}>Your Squads</div>
+        <div style={{ fontFamily: "'Georgia', serif", fontSize: 24, fontWeight: 700, color: T.white, marginBottom: 4 }}>Your SquadZ</div>
         <div style={{ fontSize: 13, color: T.textSub, marginBottom: 20, fontFamily: font }}>4 active groups</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {SQUADS.map(s => (
@@ -238,7 +237,7 @@ function ProfileTab({ go }: { go: (s: string) => void }) {
   const [notifs, setNotifs] = useState(true);
   const [calSync, setCalSync] = useState(true);
   const [darkMode, setDarkMode] = useState(true);
-  const stats = [{ n: "24", l: "Events" }, { n: "4", l: "Squads" }, { n: "🔥12", l: "Streak" }];
+  const stats = [{ n: "24", l: "Events" }, { n: "4", l: "SquadZ" }, { n: "🔥12", l: "Streak" }];
   return (
     <div style={{ flex: 1, overflowY: "auto" }}>
       <div style={{ padding: "20px 20px 40px" }}>
