@@ -79,6 +79,11 @@ const SendMessageBody = z.object({
   text: z.string().min(1),
 });
 
+const JoinEventBody = z.object({
+  inviteCode: z.string().min(1),
+});
+
+
 // GET /events/count — requires auth, returns user's event count vs free limit
 router.get("/events/count", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
@@ -157,6 +162,37 @@ router.post("/events", requireAuth, async (req: Request, res: Response): Promise
     .values({ ...rest, hostId, inviteCode: inviteCode ?? randomCode() })
     .returning();
   res.status(201).json(event);
+});
+
+// POST /events/join — requires auth, joins an event by invite code
+router.post("/events/join", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const parsed = JoinEventBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  const userId = (req.user as { id: string }).id;
+  const { inviteCode } = parsed.data;
+
+  const [existing] = await db
+    .select()
+    .from(eventsTable)
+    .where(eq(eventsTable.inviteCode, inviteCode));
+
+  if (!existing) {
+    res.status(404).json({ error: "Event not found" });
+    return;
+  }
+
+  const rsvps = { ...(existing.rsvps as Record<string, string>), [userId]: "going" };
+  const [event] = await db
+    .update(eventsTable)
+    .set({ rsvps })
+    .where(eq(eventsTable.id, existing.id))
+    .returning();
+
+  res.json(event);
 });
 
 router.get("/events/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {
