@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   FlatList,
   Platform,
-  ActivityIndicator,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
@@ -17,6 +16,7 @@ import { useColors } from "@/hooks/useColors";
 import { useAuth, useData } from "@/context/AppContext";
 import { EventCard } from "@/components/EventCard";
 import { UserAvatar } from "@/components/UserAvatar";
+import { SkeletonBox } from "@/components/SkeletonBox";
 import { goingCount, getUserById } from "@/data/mock";
 
 const AI_SUGGESTIONS = [
@@ -29,18 +29,9 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { currentUser } = useAuth();
   const { events, squads, eventsLoading, squadsLoading } = useData();
-  const isLoading = eventsLoading || squadsLoading;
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const upNext = events[0] ?? null;
-
-  if (isLoading) {
-    return (
-      <View style={[styles.screen, styles.centered, { backgroundColor: colors.background }]}>
-        <ActivityIndicator size="large" color={colors.primary} />
-      </View>
-    );
-  }
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -74,7 +65,11 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* Hero "Up Next" card */}
-        {upNext && (
+        {eventsLoading ? (
+          <View style={styles.section}>
+            <SkeletonBox height={160} borderRadius={22} />
+          </View>
+        ) : upNext ? (
           <View style={styles.section}>
             <TouchableOpacity
               onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push(`/event/${upNext.id}`); }}
@@ -112,7 +107,7 @@ export default function HomeScreen() {
               </LinearGradient>
             </TouchableOpacity>
           </View>
-        )}
+        ) : null}
 
         {/* Streak banner */}
         <View style={styles.section}>
@@ -132,44 +127,54 @@ export default function HomeScreen() {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={[styles.sectionTitle, { color: colors.foreground }]}>My SquadZ</Text>
-            <TouchableOpacity onPress={() => router.push("/(tabs)/profile")}>
-              <Text style={[styles.seeAll, { color: colors.primary }]}>See all →</Text>
-            </TouchableOpacity>
-          </View>
-          <FlatList
-            data={squads}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            keyExtractor={(s) => s.id}
-            contentContainerStyle={{ gap: 10, paddingRight: 20 }}
-            ListFooterComponent={
-              <TouchableOpacity
-                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push("/squad/create"); }}
-                style={[styles.squadBubble, styles.newSquadBubble, { borderColor: colors.primary + "50" }]}
-              >
-                <View style={[styles.squadEmoji, { backgroundColor: colors.primary + "20" }]}>
-                  <Ionicons name="add" size={26} color={colors.primary} />
-                </View>
-                <Text style={[styles.squadName, { color: colors.primary }]}>New</Text>
-              </TouchableOpacity>
-            }
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push(`/squad/${item.id}`); }}
-                style={[styles.squadBubble, { backgroundColor: colors.card, borderColor: colors.border }]}
-              >
-                <View style={[styles.squadEmoji, { backgroundColor: item.color + "20" }]}>
-                  <Text style={styles.squadEmojiText}>{item.emoji}</Text>
-                </View>
-                <Text style={[styles.squadName, { color: colors.foreground }]} numberOfLines={1}>
-                  {item.name}
-                </Text>
-                <Text style={[styles.squadCount, { color: colors.mutedForeground }]}>
-                  {item.memberIds.length} members
-                </Text>
+            {!squadsLoading && (
+              <TouchableOpacity onPress={() => router.push("/(tabs)/profile")}>
+                <Text style={[styles.seeAll, { color: colors.primary }]}>See all →</Text>
               </TouchableOpacity>
             )}
-          />
+          </View>
+          {squadsLoading ? (
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              {[130, 130, 130].map((w, i) => (
+                <SkeletonBox key={i} width={w} height={120} borderRadius={16} />
+              ))}
+            </View>
+          ) : (
+            <FlatList
+              data={squads}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              keyExtractor={(s) => s.id}
+              contentContainerStyle={{ gap: 10, paddingRight: 20 }}
+              ListFooterComponent={
+                <TouchableOpacity
+                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push("/squad/create"); }}
+                  style={[styles.squadBubble, styles.newSquadBubble, { borderColor: colors.primary + "50" }]}
+                >
+                  <View style={[styles.squadEmoji, { backgroundColor: colors.primary + "20" }]}>
+                    <Ionicons name="add" size={26} color={colors.primary} />
+                  </View>
+                  <Text style={[styles.squadName, { color: colors.primary }]}>New</Text>
+                </TouchableOpacity>
+              }
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push(`/squad/${item.id}`); }}
+                  style={[styles.squadBubble, { backgroundColor: colors.card, borderColor: colors.border }]}
+                >
+                  <View style={[styles.squadEmoji, { backgroundColor: item.color + "20" }]}>
+                    <Text style={styles.squadEmojiText}>{item.emoji}</Text>
+                  </View>
+                  <Text style={[styles.squadName, { color: colors.foreground }]} numberOfLines={1}>
+                    {item.name}
+                  </Text>
+                  <Text style={[styles.squadCount, { color: colors.mutedForeground }]}>
+                    {item.memberIds.length} members
+                  </Text>
+                </TouchableOpacity>
+              )}
+            />
+          )}
         </View>
 
         {/* Upcoming Events */}
@@ -240,7 +245,6 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  centered: { alignItems: "center", justifyContent: "center" },
   header: {
     flexDirection: "row", justifyContent: "space-between", alignItems: "center",
     paddingHorizontal: 20, paddingBottom: 12, borderBottomWidth: 1,

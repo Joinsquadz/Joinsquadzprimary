@@ -197,6 +197,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [eventsLoading, setEventsLoading] = useState(true);
   const [squadsLoading, setSquadsLoading] = useState(true);
   const [friends, setFriends] = useState<string[]>(INITIAL_FRIENDS);
+  const [eventsLoading, setEventsLoading] = useState(true);
+  const [squadsLoading, setSquadsLoading] = useState(true);
   const currentUserIdRef = useRef<string>(ME.id);
 
   const addFriend = useCallback((userId: string) => {
