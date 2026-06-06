@@ -165,7 +165,7 @@ export default function SignupScreen() {
 
         <View style={[styles.authSection, { paddingBottom: botPad + 16 }]}>
           <TouchableOpacity
-            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setScreen("email"); }}
+            onPress={handleVerify}
             style={[styles.socialBtn, { backgroundColor: "#1877F2" }]}
           >
             <Ionicons name="logo-facebook" size={20} color="#fff" />
@@ -173,7 +173,7 @@ export default function SignupScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setScreen("email"); }}
+            onPress={handleVerify}
             style={[styles.socialBtn, { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border }]}
           >
             <Ionicons name="logo-google" size={20} color={colors.foreground} />

@@ -13,7 +13,7 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useAuth, useData } from "@/context/AppContext";
 import { UserAvatar } from "@/components/UserAvatar";
-import { SQUADS, ME } from "@/data/mock";
+import { ME } from "@/data/mock";
 import { router } from "expo-router";
 
 type SettingItem = {
@@ -28,7 +28,7 @@ export default function ProfileScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { currentUser, logout } = useAuth();
-  const { events } = useData();
+  const { events, squads } = useData();
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 84 : 100);
@@ -36,20 +36,20 @@ export default function ProfileScreen() {
   const myEvents = events.filter(
     (e) => e.hostId === ME.id || e.rsvps[ME.id] === "going" || e.rsvps[ME.id] === "maybe",
   );
-  const mySquads = SQUADS;
+  const mySquads = squads;
 
   const SETTINGS: SettingItem[][] = [
     [
-      { icon: "person-outline", label: "Edit Profile", onPress: () => {} },
-      { icon: "notifications-outline", label: "Notifications", onPress: () => {} },
-      { icon: "lock-closed-outline", label: "Privacy", onPress: () => {} },
+      { icon: "person-outline", label: "Edit Profile", onPress: () => Alert.alert("Edit Profile", "Profile editing isn't available in this preview yet.") },
+      { icon: "notifications-outline", label: "Notifications", onPress: () => Alert.alert("Notifications", "You're all caught up — push notifications are on.") },
+      { icon: "lock-closed-outline", label: "Privacy", onPress: () => Alert.alert("Privacy", "Your squads and events are visible to members only.") },
     ],
     [
       { icon: "flash", label: "Upgrade to Pro", value: "$20/yr", color: colors.gold, onPress: () => Alert.alert("Pro", "Upgrade to Pro for unlimited events, photo vault, and more!") },
     ],
     [
-      { icon: "help-circle-outline", label: "Help & Support", onPress: () => {} },
-      { icon: "star-outline", label: "Rate SquadZ", onPress: () => {} },
+      { icon: "help-circle-outline", label: "Help & Support", onPress: () => Alert.alert("Help & Support", "Need a hand? Reach us at support@getsquadz.com") },
+      { icon: "star-outline", label: "Rate Squadz", onPress: () => Alert.alert("Rate Squadz", "Thanks for the love! ⭐️ Ratings open in the App Store.") },
     ],
     [
       {
@@ -104,6 +104,42 @@ export default function ProfileScreen() {
           </View>
         </View>
 
+        {/* My Squads */}
+        <View style={styles.section}>
+          <View style={styles.squadsHeader}>
+            <Text style={[styles.sectionTitle, { color: colors.foreground, marginBottom: 0 }]}>My Squads</Text>
+            <TouchableOpacity
+              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push("/squad/create"); }}
+              style={styles.newSquadLink}
+            >
+              <Ionicons name="add" size={16} color={colors.primary} />
+              <Text style={[styles.newSquadLinkText, { color: colors.primary }]}>New</Text>
+            </TouchableOpacity>
+          </View>
+          {mySquads.length === 0 ? (
+            <Text style={[styles.eventDate, { color: colors.mutedForeground }]}>You haven't joined any squads yet.</Text>
+          ) : (
+            <View style={{ gap: 8 }}>
+              {mySquads.map((s) => (
+                <TouchableOpacity
+                  key={s.id}
+                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push(`/squad/${s.id}` as never); }}
+                  style={[styles.squadRow, { backgroundColor: colors.card, borderColor: colors.border }]}
+                >
+                  <View style={[styles.squadRowIcon, { backgroundColor: s.color + "20" }]}>
+                    <Text style={{ fontSize: 20 }}>{s.emoji}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.squadRowName, { color: colors.foreground }]}>{s.name}</Text>
+                    <Text style={[styles.eventDate, { color: colors.mutedForeground }]}>{s.memberIds.length} members</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color={colors.textDim} />
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+        </View>
+
         {/* Settings */}
         {SETTINGS.map((group, gi) => (
           <View key={gi} style={styles.settingsGroup}>
@@ -149,6 +185,12 @@ const styles = StyleSheet.create({
   eventEmoji: { fontSize: 22 },
   eventTitle: { fontSize: 14, fontWeight: "700" },
   eventDate: { fontSize: 12 },
+  squadsHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
+  newSquadLink: { flexDirection: "row", alignItems: "center", gap: 2 },
+  newSquadLinkText: { fontSize: 14, fontWeight: "700" },
+  squadRow: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 14, borderWidth: 1, padding: 12 },
+  squadRowIcon: { width: 44, height: 44, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+  squadRowName: { fontSize: 15, fontWeight: "700" },
   settingsGroup: { paddingHorizontal: 20, paddingTop: 20 },
   settingRow: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderWidth: 1 },
   settingFirst: { borderTopLeftRadius: 14, borderTopRightRadius: 14 },

@@ -72,18 +72,23 @@ export default function EventDetailScreen() {
   const [editModal, setEditModal] = useState(false);
   const [edit, setEdit] = useState({ title: "", date: "", location: "", description: "", emoji: "🔥" });
 
+  const [budgetModal, setBudgetModal] = useState(false);
+  const [budgetInput, setBudgetInput] = useState("");
+
   const [chatText, setChatText] = useState("");
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
   const btnTop = topPad + 8;
 
+  const goBack = () => (router.canGoBack() ? router.back() : router.replace("/(tabs)" as never));
+
   const event = getEvent(id ?? "e1");
 
   if (!event) {
     return (
       <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: topPad }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+        <TouchableOpacity onPress={goBack} style={styles.backBtn}>
           <Ionicons name="chevron-back" size={24} color={colors.foreground} />
         </TouchableOpacity>
         <Text style={[styles.errorText, { color: colors.mutedForeground }]}>Event not found</Text>
@@ -96,6 +101,14 @@ export default function EventDetailScreen() {
   const squad = getSquadById(event.squadId);
   const squadMembers = squad ? squad.memberIds.map(getUserById) : [getUserById(ME.id)];
   const myRsvp = event.rsvps[ME.id] ?? null;
+
+  const spent = event.costs.reduce((s, c) => s + c.amount, 0);
+  const hasBudget = event.budget != null;
+  const budgetVal = event.budget ?? 0;
+  const budgetRemaining = budgetVal - spent;
+  const budgetPct = budgetVal > 0 ? Math.min(100, (spent / budgetVal) * 100) : 0;
+  const budgetPerPerson = budgetVal / Math.max(1, squadMembers.length);
+  const budgetOver = budgetRemaining < 0;
 
   const attendees = Object.entries(event.rsvps).map(([uid, status]) => ({
     user: getUserById(uid),
@@ -223,17 +236,37 @@ export default function EventDetailScreen() {
         style: "destructive",
         onPress: () => {
           cancelEvent(event.id);
-          router.back();
+          goBack();
         },
       },
     ]);
+  };
+
+  const openBudget = () => {
+    setBudgetInput(event.budget != null ? String(event.budget) : "");
+    setBudgetModal(true);
+  };
+  const saveBudget = () => {
+    const val = parseFloat(budgetInput);
+    if (isNaN(val) || val < 0) {
+      Alert.alert("Invalid budget", "Enter a budget of $0 or more.");
+      return;
+    }
+    updateEvent(event.id, { budget: val });
+    setBudgetModal(false);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  };
+  const clearBudget = () => {
+    updateEvent(event.id, { budget: undefined });
+    setBudgetModal(false);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       {/* Hero */}
       <View style={[styles.hero, { paddingTop: topPad + 8 }]}>
-        <TouchableOpacity onPress={() => router.back()} style={[styles.backBtn, { top: btnTop }]}>
+        <TouchableOpacity onPress={goBack} style={[styles.backBtn, { top: btnTop }]}>
           <Ionicons name="chevron-back" size={24} color="#fff" />
         </TouchableOpacity>
         <TouchableOpacity
@@ -242,6 +275,11 @@ export default function EventDetailScreen() {
         >
           <Ionicons name="share-outline" size={22} color="#fff" />
         </TouchableOpacity>
+        {isHost && (
+          <TouchableOpacity onPress={openEdit} style={[styles.gearBtn, { top: btnTop }]}>
+            <Ionicons name="settings-outline" size={21} color="#fff" />
+          </TouchableOpacity>
+        )}
         <Text style={styles.heroEmoji}>{event.emoji}</Text>
         <View style={styles.heroTitleRow}>
           <Text style={styles.heroTitle}>{event.title}</Text>
@@ -449,6 +487,35 @@ export default function EventDetailScreen() {
 
         {tab === "costs" && (
           <View style={{ gap: 8 }}>
+            {hasBudget ? (
+              <View style={[styles.budgetCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <View style={styles.budgetHead}>
+                  <Text style={[styles.cardTitle, { color: colors.mutedForeground }]}>Group budget</Text>
+                  {isHost && (
+                    <TouchableOpacity onPress={openBudget} style={styles.budgetEdit}>
+                      <Ionicons name="create-outline" size={15} color={colors.primary} />
+                      <Text style={[styles.budgetEditText, { color: colors.primary }]}>Edit</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+                <Text style={[styles.budgetAmount, { color: colors.foreground }]}>${budgetVal.toFixed(2)}</Text>
+                <View style={[styles.budgetTrack, { backgroundColor: colors.surfaceUp }]}>
+                  <View style={[styles.budgetFill, { width: `${budgetPct}%`, backgroundColor: budgetOver ? colors.destructive : colors.green }]} />
+                </View>
+                <View style={styles.budgetMetaRow}>
+                  <Text style={[styles.budgetMeta, { color: colors.mutedForeground }]}>${spent.toFixed(2)} spent</Text>
+                  <Text style={[styles.budgetMeta, { color: budgetOver ? colors.destructive : colors.green }]}>
+                    {budgetOver ? `$${Math.abs(budgetRemaining).toFixed(2)} over` : `$${budgetRemaining.toFixed(2)} left`}
+                  </Text>
+                </View>
+                <Text style={[styles.budgetPer, { color: colors.textDim }]}>≈ ${budgetPerPerson.toFixed(2)} per person</Text>
+              </View>
+            ) : isHost ? (
+              <TouchableOpacity onPress={openBudget} style={[styles.addRow, { borderColor: colors.border }]}>
+                <Ionicons name="wallet-outline" size={20} color={colors.primary} />
+                <Text style={[styles.addText, { color: colors.primary }]}>Set group budget</Text>
+              </TouchableOpacity>
+            ) : null}
             {event.costs.length === 0 ? (
               <View style={styles.emptyState}>
                 <Ionicons name="card-outline" size={40} color={colors.textDim} />
@@ -796,6 +863,44 @@ export default function EventDetailScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* ---- Budget Modal ---- */}
+      <Modal visible={budgetModal} transparent animationType="fade" onRequestClose={() => setBudgetModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Text style={[styles.modalTitle, { color: colors.foreground }]}>Group budget</Text>
+            <Text style={[styles.modalHint, { color: colors.mutedForeground }]}>
+              Set a target the whole squad can track against.
+            </Text>
+            <View style={[styles.modalInput, styles.amountRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Text style={[styles.dollar, { color: colors.mutedForeground }]}>$</Text>
+              <TextInput
+                placeholder="0.00"
+                placeholderTextColor={colors.textDim}
+                value={budgetInput}
+                onChangeText={setBudgetInput}
+                keyboardType="decimal-pad"
+                autoFocus
+                style={[styles.amountInput, { color: colors.foreground }]}
+              />
+            </View>
+            {hasBudget && (
+              <TouchableOpacity onPress={clearBudget} style={[styles.addRow, { borderColor: colors.border, marginTop: 4 }]}>
+                <Ionicons name="trash-outline" size={18} color={colors.destructive} />
+                <Text style={[styles.addText, { color: colors.destructive }]}>Remove budget</Text>
+              </TouchableOpacity>
+            )}
+            <View style={styles.modalActions}>
+              <TouchableOpacity onPress={() => setBudgetModal(false)} style={[styles.modalBtn, { backgroundColor: colors.card }]}>
+                <Text style={[styles.modalBtnText, { color: colors.mutedForeground }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={saveBudget} style={[styles.modalBtn, { backgroundColor: colors.primary }]}>
+                <Text style={[styles.modalBtnText, { color: "#fff" }]}>Save budget</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -805,6 +910,17 @@ const styles = StyleSheet.create({
   hero: { backgroundColor: "#FF5C3A", paddingHorizontal: 20, paddingBottom: 20, position: "relative" },
   backBtn: { position: "absolute", top: 0, left: 16, padding: 8, zIndex: 10 },
   shareBtn: { position: "absolute", top: 0, right: 16, padding: 8, zIndex: 10 },
+  gearBtn: { position: "absolute", top: 0, right: 54, padding: 8, zIndex: 10 },
+  budgetCard: { borderRadius: 14, borderWidth: 1, padding: 16 },
+  budgetHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  budgetEdit: { flexDirection: "row", alignItems: "center", gap: 3 },
+  budgetEditText: { fontSize: 13, fontWeight: "700" },
+  budgetAmount: { fontSize: 26, fontWeight: "900", marginTop: 4, marginBottom: 12 },
+  budgetTrack: { height: 8, borderRadius: 4, overflow: "hidden" },
+  budgetFill: { height: 8, borderRadius: 4 },
+  budgetMetaRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 8 },
+  budgetMeta: { fontSize: 13, fontWeight: "700" },
+  budgetPer: { fontSize: 12, marginTop: 6 },
   heroEmoji: { fontSize: 48, textAlign: "center", marginTop: 20, marginBottom: 8 },
   heroTitleRow: { alignItems: "center", gap: 6, marginBottom: 4 },
   heroTitle: { fontSize: 24, fontWeight: "800", color: "#fff", textAlign: "center" },

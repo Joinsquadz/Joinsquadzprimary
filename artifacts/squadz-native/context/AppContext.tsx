@@ -4,6 +4,7 @@ import {
   EVENTS,
   SQUADS,
   type Event,
+  type Squad,
   type RsvpStatus,
   type Cost,
   type CostShare,
@@ -40,7 +41,7 @@ type AppContextType = {
   addEvent: (input: NewEventInput) => string;
   updateEvent: (
     eventId: string,
-    patch: Partial<Pick<Event, "title" | "description" | "date" | "location" | "emoji">>,
+    patch: Partial<Pick<Event, "title" | "description" | "date" | "location" | "emoji" | "budget">>,
   ) => void;
   cancelEvent: (eventId: string) => void;
   toggleTask: (eventId: string, taskId: string) => void;
@@ -50,6 +51,12 @@ type AppContextType = {
   addPoll: (eventId: string, question: string, options: string[]) => void;
   votePoll: (eventId: string, pollId: string, optionId: string) => void;
   sendMessage: (eventId: string, text: string) => void;
+
+  squads: Squad[];
+  getSquad: (id: string) => Squad | undefined;
+  addSquad: (input: { name: string; emoji: string; color: string }) => string;
+  updateSquad: (id: string, patch: Partial<Pick<Squad, "name" | "emoji" | "color">>) => void;
+  leaveSquad: (id: string) => void;
 };
 
 const noop = () => {};
@@ -74,6 +81,11 @@ const AppContext = createContext<AppContextType>({
   addPoll: noop,
   votePoll: noop,
   sendMessage: noop,
+  squads: SQUADS,
+  getSquad: () => undefined,
+  addSquad: () => "",
+  updateSquad: noop,
+  leaveSquad: noop,
 });
 
 let idCounter = 1000;
@@ -91,6 +103,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [inviteCtx, setInviteCtx] = useState<InviteCtx | null>(null);
   const [events, setEvents] = useState<Event[]>(() =>
     EVENTS.map((e) => ({ ...e, rsvps: { ...e.rsvps } })),
+  );
+  const [squads, setSquads] = useState<Squad[]>(() =>
+    SQUADS.map((s) => ({ ...s, memberIds: [...s.memberIds] })),
   );
 
   const login = useCallback(() => setIsLoggedIn(true), []);
@@ -117,7 +132,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const addEvent = useCallback((input: NewEventInput) => {
     const id = nextId("e");
-    const squad = SQUADS.find((s) => s.id === input.squadId);
+    const squad = squads.find((s) => s.id === input.squadId);
     const newEvent: Event = {
       id,
       emoji: input.emoji,
@@ -137,10 +152,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
     setEvents((prev) => [newEvent, ...prev]);
     return id;
-  }, []);
+  }, [squads]);
 
   const updateEvent = useCallback(
-    (eventId: string, patch: Partial<Pick<Event, "title" | "description" | "date" | "location" | "emoji">>) => {
+    (eventId: string, patch: Partial<Pick<Event, "title" | "description" | "date" | "location" | "emoji" | "budget">>) => {
       patchEvent(eventId, (e) => ({ ...e, ...patch }));
     },
     [patchEvent],
@@ -249,6 +264,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [patchEvent],
   );
 
+  const getSquad = useCallback(
+    (sid: string) => squads.find((s) => s.id === sid),
+    [squads],
+  );
+
+  const addSquad = useCallback((input: { name: string; emoji: string; color: string }) => {
+    const id = nextId("s");
+    const newSquad: Squad = {
+      id,
+      name: input.name,
+      emoji: input.emoji,
+      color: input.color,
+      memberIds: [ME.id],
+    };
+    setSquads((prev) => [...prev, newSquad]);
+    return id;
+  }, []);
+
+  const updateSquad = useCallback(
+    (sid: string, patch: Partial<Pick<Squad, "name" | "emoji" | "color">>) => {
+      setSquads((prev) => prev.map((s) => (s.id === sid ? { ...s, ...patch } : s)));
+    },
+    [],
+  );
+
+  const leaveSquad = useCallback((sid: string) => {
+    setSquads((prev) => prev.filter((s) => s.id !== sid));
+  }, []);
+
   return (
     <AppContext.Provider
       value={{
@@ -271,6 +315,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         addPoll,
         votePoll,
         sendMessage,
+        squads,
+        getSquad,
+        addSquad,
+        updateSquad,
+        leaveSquad,
       }}
     >
       {children}

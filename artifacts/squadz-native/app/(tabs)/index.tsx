@@ -15,16 +15,16 @@ import { useColors } from "@/hooks/useColors";
 import { useAuth, useData } from "@/context/AppContext";
 import { EventCard } from "@/components/EventCard";
 import { UserAvatar } from "@/components/UserAvatar";
-import { SQUADS, goingCount } from "@/data/mock";
+import { goingCount } from "@/data/mock";
 
 export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { currentUser } = useAuth();
-  const { events } = useData();
+  const { events, squads } = useData();
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
-  const memberCount = new Set(SQUADS.flatMap((s) => s.memberIds)).size;
+  const memberCount = new Set(squads.flatMap((s) => s.memberIds)).size;
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -93,11 +93,22 @@ export default function HomeScreen() {
             </TouchableOpacity>
           </View>
           <FlatList
-            data={SQUADS}
+            data={squads}
             horizontal
             showsHorizontalScrollIndicator={false}
             keyExtractor={(s) => s.id}
             contentContainerStyle={{ gap: 12, paddingRight: 20 }}
+            ListFooterComponent={
+              <TouchableOpacity
+                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push("/squad/create"); }}
+                style={[styles.squadBubble, styles.newSquadBubble, { borderColor: colors.primary + "50" }]}
+              >
+                <View style={[styles.squadEmoji, { backgroundColor: colors.primary + "20" }]}>
+                  <Ionicons name="add" size={26} color={colors.primary} />
+                </View>
+                <Text style={[styles.squadName, { color: colors.primary }]}>New squad</Text>
+              </TouchableOpacity>
+            }
             renderItem={({ item }) => (
               <TouchableOpacity
                 onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push(`/squad/${item.id}`); }}
@@ -123,7 +134,7 @@ export default function HomeScreen() {
           <View style={styles.statsRow}>
             {[
               { value: events.length.toString(), label: "Events", color: colors.primary },
-              { value: SQUADS.length.toString(), label: "Squads", color: colors.blue },
+              { value: squads.length.toString(), label: "Squads", color: colors.blue },
               { value: memberCount.toString(), label: "Members", color: colors.green },
             ].map((s) => (
               <View key={s.label} style={[styles.statCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -167,6 +178,7 @@ const styles = StyleSheet.create({
     borderRadius: 16, borderWidth: 1, padding: 14, width: 140,
     alignItems: "center", gap: 8,
   },
+  newSquadBubble: { borderStyle: "dashed", justifyContent: "center" },
   squadEmoji: { width: 52, height: 52, borderRadius: 16, alignItems: "center", justifyContent: "center" },
   squadEmojiText: { fontSize: 24 },
   squadName: { fontSize: 13, fontWeight: "700", textAlign: "center" },

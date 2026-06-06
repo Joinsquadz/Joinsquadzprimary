@@ -241,7 +241,7 @@ export default function LoginScreen() {
 
           <View style={{ paddingHorizontal: 24, gap: 10 }}>
             <TouchableOpacity
-              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setScreen("email"); }}
+              onPress={handleVerify}
               style={[styles.socialBtn, { backgroundColor: "#1877F2" }]}
             >
               <Ionicons name="logo-facebook" size={20} color="#fff" />
@@ -249,7 +249,7 @@ export default function LoginScreen() {
             </TouchableOpacity>
 
             <TouchableOpacity
-              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setScreen("email"); }}
+              onPress={handleVerify}
               style={[styles.socialBtn, { backgroundColor: colors.surfaceUp, borderWidth: 1.5, borderColor: colors.border }]}
             >
               <Ionicons name="logo-google" size={20} color={colors.foreground} />

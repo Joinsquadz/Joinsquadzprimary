@@ -15,14 +15,13 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useData } from "@/context/AppContext";
-import { SQUADS } from "@/data/mock";
 
 const EMOJIS = ["🔥", "🎉", "🎮", "🏖️", "🍕", "🎸", "⚽", "🎬", "🍻", "🎊"];
 
 export default function CreateEventScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { addEvent } = useData();
+  const { addEvent, squads } = useData();
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
 
@@ -168,7 +167,14 @@ export default function CreateEventScreen() {
         <View style={styles.section}>
           <Text style={[styles.label, { color: colors.mutedForeground }]}>Squad</Text>
           <View style={styles.squadList}>
-            {SQUADS.map((s) => (
+            <TouchableOpacity
+              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push("/squad/create"); }}
+              style={[styles.newSquadRow, { borderColor: colors.primary + "50" }]}
+            >
+              <Ionicons name="add-circle-outline" size={20} color={colors.primary} />
+              <Text style={[styles.newSquadText, { color: colors.primary }]}>New squad</Text>
+            </TouchableOpacity>
+            {squads.map((s) => (
               <TouchableOpacity
                 key={s.id}
                 onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSelectedSquad(s.id); }}
@@ -227,6 +233,8 @@ const styles = StyleSheet.create({
   emojiOption: { width: 52, height: 52, borderRadius: 14, borderWidth: 2, alignItems: "center", justifyContent: "center" },
   emojiText: { fontSize: 24 },
   squadList: { gap: 8 },
+  newSquadRow: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 13, borderWidth: 1.5, borderStyle: "dashed", padding: 14 },
+  newSquadText: { fontSize: 14, fontWeight: "700" },
   squadOption: {
     flexDirection: "row", alignItems: "center", gap: 12,
     borderRadius: 13, borderWidth: 1.5, padding: 12,

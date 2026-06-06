@@ -246,7 +246,7 @@ export default function OnboardingScreen() {
             <Text style={[styles.planName, { color: colors.foreground }]}>Pro</Text>
             <Text style={[styles.planPrice, { color: colors.gold }]}>$20/yr</Text>
           </View>
-          {["Unlimited squads & events", "Photo vault (forever)", "AI best-time finder", "Split costs auto", "Priority support"].map((f) => (
+          {["Unlimited squads & events", "Photo vault (forever)", "AI best-time finder", "Split costs auto"].map((f) => (
             <View key={f} style={styles.planFeature}>
               <Ionicons name="checkmark-circle" size={16} color={colors.green} />
               <Text style={[styles.planFeatureText, { color: colors.mutedForeground }]}>{f}</Text>
@@ -295,6 +295,6 @@ const styles = StyleSheet.create({
   planPrice: { fontSize: 20, fontWeight: "800" },
   planFeature: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 },
   planFeatureText: { fontSize: 14 },
-  bestValue: { position: "absolute", top: -10, right: 16, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 3 },
+  bestValue: { position: "absolute", top: -10, left: 16, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 3 },
   bestValueText: { fontSize: 10, fontWeight: "800", color: "#000" },
 });

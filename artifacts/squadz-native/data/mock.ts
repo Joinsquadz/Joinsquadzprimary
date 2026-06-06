@@ -63,6 +63,7 @@ export type Event = {
   polls: Poll[];
   messages: Message[];
   cancelled?: boolean;
+  budget?: number;
 };
 
 export type Squad = {
