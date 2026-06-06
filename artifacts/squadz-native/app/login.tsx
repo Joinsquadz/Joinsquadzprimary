@@ -8,7 +8,6 @@ import {
   Platform,
   StatusBar,
   ScrollView,
-  Image,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -16,6 +15,8 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AppContext";
+import { SquadzIcon } from "@/components/SquadzIcon";
+import { GradientButton } from "@/components/GradientButton";
 
 type Screen = "splash" | "options" | "email" | "phone" | "otp";
 
@@ -114,11 +115,10 @@ export default function LoginScreen() {
               </View>
             </View>
           )}
-          <TouchableOpacity onPress={handleVerify} style={[styles.primaryBtn, { backgroundColor: colors.primary }]}>
-            <Text style={styles.primaryBtnText}>
-              {hasInvite ? `Join ${params.inviteTitle} →` : "Verify & Sign In →"}
-            </Text>
-          </TouchableOpacity>
+          <GradientButton
+            onPress={handleVerify}
+            label={hasInvite ? `Join ${params.inviteTitle} →` : "Verify & Sign In →"}
+          />
           <TouchableOpacity style={{ marginTop: 18, alignItems: "center" }}>
             <Text style={[{ fontSize: 13, color: colors.mutedForeground }]}>
               Didn't get it?{"  "}
@@ -155,9 +155,7 @@ export default function LoginScreen() {
               style={[styles.phoneInput, cardBg, { color: colors.foreground }]}
             />
           </View>
-          <TouchableOpacity onPress={() => setScreen("otp")} style={[styles.primaryBtn, { backgroundColor: colors.primary }]}>
-            <Text style={styles.primaryBtnText}>Send Code →</Text>
-          </TouchableOpacity>
+          <GradientButton onPress={() => setScreen("otp")} label="Send Code →" />
         </View>
       </View>
     );
@@ -203,9 +201,7 @@ export default function LoginScreen() {
           <TouchableOpacity style={{ alignSelf: "flex-end", marginBottom: 20 }}>
             <Text style={[{ fontSize: 13, color: colors.primary }]}>Forgot password?</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => setScreen("phone")} style={[styles.primaryBtn, { backgroundColor: colors.primary }]}>
-            <Text style={styles.primaryBtnText}>Continue →</Text>
-          </TouchableOpacity>
+          <GradientButton onPress={() => setScreen("phone")} label="Continue →" />
         </ScrollView>
       </View>
     );
@@ -310,10 +306,7 @@ export default function LoginScreen() {
         <View style={styles.logoSection}>
           <View style={styles.iconWrapper}>
             <View style={[styles.iconGlow, { backgroundColor: "#FF5C3A" }]} />
-            <Image
-              source={require("../assets/images/icon.png")}
-              style={styles.appIcon}
-            />
+            <SquadzIcon size={92} style={styles.appIcon} />
           </View>
 
           <Text style={styles.wordmark}>squadz</Text>
@@ -358,12 +351,10 @@ export default function LoginScreen() {
 
         {/* CTAs */}
         <View style={styles.ctaSection}>
-          <TouchableOpacity
+          <GradientButton
+            label="Get Started — It's Free ✨"
             onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push("/signup"); }}
-            style={[styles.primaryBtn, styles.primaryBtnShadow, { backgroundColor: colors.primary }]}
-          >
-            <Text style={styles.primaryBtnText}>Get Started — It's Free ✨</Text>
-          </TouchableOpacity>
+          />
 
           <TouchableOpacity
             onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setScreen("options"); }}
