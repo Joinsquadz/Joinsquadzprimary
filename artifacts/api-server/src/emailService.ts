@@ -433,6 +433,29 @@ function createTransport() {
   });
 }
 
+export function getSmtpStatus(): { configured: boolean; host: string | undefined; port: number; user: string | undefined; from: string | undefined; missing: string[] } {
+  const host = process.env.SMTP_HOST;
+  const port = parseInt(process.env.SMTP_PORT ?? '587', 10);
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
+  const from = process.env.SMTP_FROM;
+
+  const missing: string[] = [];
+  if (!host) missing.push('SMTP_HOST');
+  if (!user) missing.push('SMTP_USER');
+  if (!pass) missing.push('SMTP_PASS');
+  if (!from) missing.push('SMTP_FROM');
+
+  return {
+    configured: missing.length === 0,
+    host,
+    port,
+    user,
+    from,
+    missing,
+  };
+}
+
 export class EmailService {
   async sendProWelcome(subscriptionId: string, customerId: string): Promise<void> {
     try {

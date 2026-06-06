@@ -2,6 +2,7 @@ import { runMigrations } from 'stripe-replit-sync';
 import { getStripeSync } from './stripeClient';
 import app from './app';
 import { logger } from './lib/logger';
+import { getSmtpStatus } from './emailService';
 
 const rawPort = process.env['PORT'];
 
@@ -43,6 +44,19 @@ async function initStripe() {
 }
 
 await initStripe();
+
+const smtpStatus = getSmtpStatus();
+if (smtpStatus.configured) {
+  logger.info(
+    { host: smtpStatus.host, port: smtpStatus.port, user: smtpStatus.user, from: smtpStatus.from },
+    'SMTP transport configured — emails will send via SendGrid'
+  );
+} else {
+  logger.warn(
+    { missing: smtpStatus.missing },
+    'SMTP transport NOT configured — emails will be logged only. Set missing env vars to enable SendGrid.'
+  );
+}
 
 app.listen(port, (err) => {
   if (err) {
