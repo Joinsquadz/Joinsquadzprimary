@@ -110,7 +110,7 @@ export default function LoginScreen() {
       <View style={[styles.screen, bg]}>
         <GlowBlobs />
         <HeaderWrapper>
-          <TouchableOpacity onPress={() => setScreen("options")} style={styles.socialHeaderBack}>
+          <TouchableOpacity onPress={() => setScreen("options")} style={[styles.socialHeaderBack, { top: topPad + 12 }]}>
             <Text style={{ color: "rgba(255,255,255,0.9)", fontSize: 20, fontWeight: "700" }}>←</Text>
           </TouchableOpacity>
           <View style={{ alignItems: "center", paddingBottom: 20 }}>

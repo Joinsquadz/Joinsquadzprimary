@@ -16,6 +16,10 @@ function NativeTabLayout() {
         <Icon sf={{ default: "house", selected: "house.fill" }} />
         <Label>Home</Label>
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="squads">
+        <Icon sf={{ default: "person.2", selected: "person.2.fill" }} />
+        <Label>SquadZ</Label>
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="events">
         <Icon sf={{ default: "calendar", selected: "calendar" }} />
         <Label>Events</Label>
@@ -30,7 +34,7 @@ function NativeTabLayout() {
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="profile">
         <Icon sf={{ default: "person", selected: "person.fill" }} />
-        <Label>Profile</Label>
+        <Label>You</Label>
       </NativeTabs.Trigger>
     </NativeTabs>
   );
@@ -84,6 +88,18 @@ function ClassicTabLayout() {
         }}
       />
       <Tabs.Screen
+        name="squads"
+        options={{
+          title: "SquadZ",
+          tabBarIcon: ({ color }) =>
+            isIOS ? (
+              <SymbolView name="person.2" tintColor={color} size={24} />
+            ) : (
+              <Ionicons name="people-outline" size={22} color={color} />
+            ),
+        }}
+      />
+      <Tabs.Screen
         name="events"
         options={{
           title: "Events",
@@ -123,7 +139,7 @@ function ClassicTabLayout() {
       <Tabs.Screen
         name="profile"
         options={{
-          title: "Profile",
+          title: "You",
           tabBarIcon: ({ color }) =>
             isIOS ? (
               <SymbolView name="person" tintColor={color} size={24} />
