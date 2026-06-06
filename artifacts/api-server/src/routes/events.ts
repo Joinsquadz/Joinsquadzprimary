@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { eq, count } from "drizzle-orm";
+import { eq, count, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, eventsTable } from "@workspace/db";
 import { storage } from "../storage";
@@ -198,59 +198,66 @@ router.get("/events/count", requireAuth, async (req: Request, res: Response): Pr
   }
 });
 
-router.get("/events", async (req: Request, res: Response): Promise<void> => {
-  await seedIfEmpty();
-  const events = await db.select().from(eventsTable).orderBy(eventsTable.createdAt);
+router.get("/events", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const userId = (req.user as { id: string }).id;
+  const events = await db
+    .select()
+    .from(eventsTable)
+    .where(
+      or(
+        eq(eventsTable.hostId, userId),
+        sql`${eventsTable.rsvps} ? ${userId}`,
+      ),
+    )
+    .orderBy(eventsTable.createdAt);
   res.json(events);
 });
 
-router.post("/events", async (req: Request, res: Response): Promise<void> => {
+router.post("/events", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const parsed = CreateEventBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
 
-  // If the caller is authenticated, enforce Pro event limits and use auth userId as hostId
-  const authUser = req.user as { id: string; email?: string } | undefined;
-  if (authUser) {
-    try {
-      let user = await storage.getUser(authUser.id);
-      if (!user) {
-        user = await storage.upsertUser(authUser.id, authUser.email ?? "");
-      }
+  const authUser = req.user as { id: string; email?: string };
 
-      const isPro = await (async () => {
-        if (user!.stripeSubscriptionId) {
-          const sub = await storage.getSubscription(user!.stripeSubscriptionId);
-          return sub?.status === "active" || sub?.status === "trialing";
-        }
-        if (user!.stripeCustomerId) {
-          const sub = await storage.getActiveSubscriptionByCustomerId(user!.stripeCustomerId);
-          return !!sub;
-        }
-        return false;
-      })();
-
-      if (!isPro) {
-        const eventCount = await storage.countUserEventsThisYear(authUser.id);
-        if (eventCount >= FREE_EVENT_LIMIT) {
-          res.status(403).json({
-            error: `Free plan is limited to ${FREE_EVENT_LIMIT} events. Upgrade to Pro to create unlimited events.`,
-            requiresPro: true,
-            count: eventCount,
-            limit: FREE_EVENT_LIMIT,
-          });
-          return;
-        }
-      }
-    } catch (err) {
-      logger.error({ err }, "Error checking Pro status");
+  try {
+    let user = await storage.getUser(authUser.id);
+    if (!user) {
+      user = await storage.upsertUser(authUser.id, authUser.email ?? "");
     }
+
+    const isPro = await (async () => {
+      if (user!.stripeSubscriptionId) {
+        const sub = await storage.getSubscription(user!.stripeSubscriptionId);
+        return sub?.status === "active" || sub?.status === "trialing";
+      }
+      if (user!.stripeCustomerId) {
+        const sub = await storage.getActiveSubscriptionByCustomerId(user!.stripeCustomerId);
+        return !!sub;
+      }
+      return false;
+    })();
+
+    if (!isPro) {
+      const eventCount = await storage.countUserEventsThisYear(authUser.id);
+      if (eventCount >= FREE_EVENT_LIMIT) {
+        res.status(403).json({
+          error: `Free plan is limited to ${FREE_EVENT_LIMIT} events. Upgrade to Pro to create unlimited events.`,
+          requiresPro: true,
+          count: eventCount,
+          limit: FREE_EVENT_LIMIT,
+        });
+        return;
+      }
+    }
+  } catch (err) {
+    logger.error({ err }, "Error checking Pro status");
   }
 
-  const { inviteCode, hostId: bodyHostId, ...rest } = parsed.data;
-  const hostId = authUser?.id ?? bodyHostId ?? "anonymous";
+  const { inviteCode, hostId: _bodyHostId, ...rest } = parsed.data;
+  const hostId = authUser.id;
 
   const [event] = await db
     .insert(eventsTable)

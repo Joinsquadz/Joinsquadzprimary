@@ -1,7 +1,8 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, squadsTable } from "@workspace/db";
+import { requireAuth } from "../middleware/currentUser";
 
 const router: IRouter = Router();
 
@@ -39,19 +40,25 @@ async function seedIfEmpty() {
   seeded = true;
 }
 
-router.get("/squads", async (req: Request, res: Response): Promise<void> => {
-  await seedIfEmpty();
-  const squads = await db.select().from(squadsTable).orderBy(squadsTable.createdAt);
+router.get("/squads", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const userId = (req.user as { id: string }).id;
+  const squads = await db
+    .select()
+    .from(squadsTable)
+    .where(sql`${squadsTable.memberIds} @> ${JSON.stringify([userId])}::jsonb`)
+    .orderBy(squadsTable.createdAt);
   res.json(squads);
 });
 
-router.post("/squads", async (req: Request, res: Response): Promise<void> => {
+router.post("/squads", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const parsed = CreateSquadBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const [squad] = await db.insert(squadsTable).values(parsed.data).returning();
+  const userId = (req.user as { id: string }).id;
+  const memberIds = Array.from(new Set([userId, ...parsed.data.memberIds]));
+  const [squad] = await db.insert(squadsTable).values({ ...parsed.data, memberIds }).returning();
   res.status(201).json(squad);
 });
 
