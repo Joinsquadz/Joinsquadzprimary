@@ -14,14 +14,14 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useData } from "@/context/AppContext";
 import { EventCard } from "@/components/EventCard";
-import { Event, ME, goingCount, parseEventDate } from "@/data/mock";
+import { Event, goingCount, parseEventDate } from "@/data/mock";
 
 const FILTERS = ["All", "This Week", "Hosting", "Going", "Maybe"];
 
 export default function EventsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { events } = useData();
+  const { events, currentUser } = useData();
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
 
@@ -37,11 +37,11 @@ export default function EventsScreen() {
         return !!d && d >= now && d <= weekFromNow;
       }
       case "Hosting":
-        return e.hostId === ME.id;
+        return e.hostId === currentUser.id;
       case "Going":
-        return e.rsvps[ME.id] === "going";
+        return e.rsvps[currentUser.id] === "going";
       case "Maybe":
-        return e.rsvps[ME.id] === "maybe";
+        return e.rsvps[currentUser.id] === "maybe";
       default:
         return true;
     }

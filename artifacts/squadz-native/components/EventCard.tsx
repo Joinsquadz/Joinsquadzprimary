@@ -2,7 +2,8 @@ import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useColors } from "@/hooks/useColors";
-import { getUserById, ME } from "@/data/mock";
+import { useData } from "@/context/AppContext";
+import { getUserById } from "@/data/mock";
 
 interface EventCardProps {
   id: string;
@@ -26,8 +27,9 @@ export function EventCard({
   horizontal,
 }: EventCardProps) {
   const colors = useColors();
+  const { currentUser } = useData();
   const host = getUserById(hostId);
-  const isHost = hostId === ME.id;
+  const isHost = hostId === currentUser.id;
 
   return (
     <TouchableOpacity

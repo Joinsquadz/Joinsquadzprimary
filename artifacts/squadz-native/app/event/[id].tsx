@@ -21,7 +21,6 @@ import { UserAvatar } from "@/components/UserAvatar";
 import {
   getUserById,
   goingCount,
-  ME,
   type RsvpStatus,
 } from "@/data/mock";
 
@@ -52,6 +51,7 @@ export default function EventDetailScreen() {
     votePoll,
     sendMessage,
     getSquad,
+    currentUser,
   } = useData();
 
   const [tab, setTab] = useState<EventTab>("overview");
@@ -97,11 +97,11 @@ export default function EventDetailScreen() {
   }
 
   const host = getUserById(event.hostId);
-  const isHost = event.hostId === ME.id;
+  const isHost = event.hostId === currentUser.id;
   const squad = getSquad(event.squadId);
-  const squadMembers = squad ? squad.memberIds.map(getUserById) : [getUserById(ME.id)];
+  const squadMembers = squad ? squad.memberIds.map(getUserById) : [getUserById(currentUser.id)];
   const squadName = squad?.name ?? event.squadName;
-  const myRsvp = event.rsvps[ME.id] ?? null;
+  const myRsvp = event.rsvps[currentUser.id] ?? null;
 
   const spent = event.costs.reduce((s, c) => s + c.amount, 0);
   const hasBudget = event.budget != null;
@@ -379,7 +379,7 @@ export default function EventDetailScreen() {
                       <Text style={[styles.pollQ, { color: colors.foreground }]}>{poll.question}</Text>
                       {poll.options.map((o) => {
                         const pct = totalVotes ? Math.round((o.voterIds.length / totalVotes) * 100) : 0;
-                        const voted = o.voterIds.includes(ME.id);
+                        const voted = o.voterIds.includes(currentUser.id);
                         return (
                           <TouchableOpacity
                             key={o.id}
@@ -431,7 +431,7 @@ export default function EventDetailScreen() {
               <View key={u.id} style={[styles.guestRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
                 <UserAvatar initials={u.initials} color={u.color} size={44} fontSize={15} />
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.guestName, { color: colors.foreground }]}>{u.name}{u.id === ME.id ? " (You)" : ""}</Text>
+                  <Text style={[styles.guestName, { color: colors.foreground }]}>{u.name}{u.id === currentUser.id ? " (You)" : ""}</Text>
                   <Text style={[styles.guestStatus, { color: statusColor(status) }]}>{STATUS_LABEL[status]}</Text>
                 </View>
                 {u.id === event.hostId && (
@@ -535,19 +535,19 @@ export default function EventDetailScreen() {
                   <View style={{ alignItems: "flex-end" }}>
                     <Text style={[styles.cardTitle, { color: colors.mutedForeground }]}>Your share</Text>
                     <Text style={[styles.totalsValue, { color: colors.primary }]}>
-                      ${event.costs.reduce((s, c) => s + (c.shares.find((sh) => sh.userId === ME.id)?.amount ?? 0), 0).toFixed(2)}
+                      ${event.costs.reduce((s, c) => s + (c.shares.find((sh) => sh.userId === currentUser.id)?.amount ?? 0), 0).toFixed(2)}
                     </Text>
                   </View>
                 </View>
                 {event.costs.map((cost) => {
                   const payer = getUserById(cost.paidById);
-                  const myShare = cost.shares.find((s) => s.userId === ME.id)?.amount ?? 0;
+                  const myShare = cost.shares.find((s) => s.userId === currentUser.id)?.amount ?? 0;
                   return (
                     <View key={cost.id} style={[styles.costRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
                       <View style={{ flex: 1 }}>
                         <Text style={[styles.costDesc, { color: colors.foreground }]}>{cost.description}</Text>
                         <Text style={[styles.costPayer, { color: colors.mutedForeground }]}>
-                          Paid by {payer.id === ME.id ? "you" : payer.name} · split {cost.shares.length} ways
+                          Paid by {payer.id === currentUser.id ? "you" : payer.name} · split {cost.shares.length} ways
                         </Text>
                       </View>
                       <View style={styles.costRight}>
@@ -582,7 +582,7 @@ export default function EventDetailScreen() {
             ) : (
               event.messages.map((m) => {
                 const sender = getUserById(m.senderId);
-                const mine = m.senderId === ME.id;
+                const mine = m.senderId === currentUser.id;
                 return (
                   <View key={m.id} style={[styles.msgRow, mine && { flexDirection: "row-reverse" }]}>
                     <UserAvatar initials={sender.initials} color={sender.color} size={32} fontSize={11} />
@@ -726,7 +726,7 @@ export default function EventDetailScreen() {
               {squadMembers.map((m) => (
                 <View key={m.id} style={[styles.assignRow, { borderColor: colors.border }]}>
                   <UserAvatar initials={m.initials} color={m.color} size={32} fontSize={11} />
-                  <Text style={[styles.assignName, { color: colors.foreground }]}>{m.name.split(" ")[0]}{m.id === ME.id ? " (You)" : ""}</Text>
+                  <Text style={[styles.assignName, { color: colors.foreground }]}>{m.name.split(" ")[0]}{m.id === currentUser.id ? " (You)" : ""}</Text>
                   <View style={[styles.assignInputWrap, { backgroundColor: colors.card, borderColor: colors.border }]}>
                     <Text style={[styles.dollar, { color: colors.textDim }]}>$</Text>
                     <TextInput

@@ -232,15 +232,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const setRsvp = useCallback(
     (eventId: string, status: RsvpStatus) => {
+      const uid = apiUser?.id ?? ME.id;
       patchEvent(eventId, (e) => ({
         ...e,
-        rsvps: { ...e.rsvps, [ME.id]: status },
+        rsvps: { ...e.rsvps, [uid]: status },
       }));
     },
-    [patchEvent],
+    [patchEvent, apiUser],
   );
 
   const addEvent = useCallback((input: NewEventInput) => {
+    const uid = apiUser?.id ?? ME.id;
     const id = nextId("e");
     const squad = squads.find((s) => s.id === input.squadId);
     const newEvent: Event = {
@@ -251,8 +253,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       location: input.location || "Location TBD",
       squadId: squad?.id ?? "",
       squadName: squad?.name ?? "Personal",
-      hostId: ME.id,
-      rsvps: { [ME.id]: "going" },
+      hostId: uid,
+      rsvps: { [uid]: "going" },
       description: input.description ?? "",
       inviteCode: randomCode(),
       tasks: [],
@@ -262,7 +264,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
     setEvents((prev) => [newEvent, ...prev]);
     return id;
-  }, [squads]);
+  }, [squads, apiUser]);
 
   const updateEvent = useCallback(
     (eventId: string, patch: Partial<Pick<Event, "title" | "description" | "date" | "location" | "emoji" | "budget">>) => {
@@ -287,12 +289,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const claimTask = useCallback(
     (eventId: string, taskId: string) => {
+      const uid = apiUser?.id ?? ME.id;
       patchEvent(eventId, (e) => ({
         ...e,
-        tasks: e.tasks.map((t) => (t.id === taskId ? { ...t, assigneeId: ME.id } : t)),
+        tasks: e.tasks.map((t) => (t.id === taskId ? { ...t, assigneeId: uid } : t)),
       }));
     },
-    [patchEvent],
+    [patchEvent, apiUser],
   );
 
   const addTask = useCallback(
@@ -316,12 +319,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         id: nextId("c"),
         description: input.description,
         amount: input.amount,
-        paidById: ME.id,
+        paidById: apiUser?.id ?? ME.id,
         shares: input.shares,
       };
       patchEvent(eventId, (e) => ({ ...e, costs: [...e.costs, cost] }));
     },
-    [patchEvent],
+    [patchEvent, apiUser],
   );
 
   const addPoll = useCallback(
@@ -343,6 +346,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const votePoll = useCallback(
     (eventId: string, pollId: string, optionId: string) => {
+      const uid = apiUser?.id ?? ME.id;
       patchEvent(eventId, (e) => ({
         ...e,
         polls: e.polls.map((poll) =>
@@ -354,24 +358,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                   ...o,
                   voterIds:
                     o.id === optionId
-                      ? Array.from(new Set([...o.voterIds, ME.id]))
-                      : o.voterIds.filter((v) => v !== ME.id),
+                      ? Array.from(new Set([...o.voterIds, uid]))
+                      : o.voterIds.filter((v) => v !== uid),
                 })),
               },
         ),
       }));
     },
-    [patchEvent],
+    [patchEvent, apiUser],
   );
 
   const sendMessage = useCallback(
     (eventId: string, text: string) => {
+      const uid = apiUser?.id ?? ME.id;
       patchEvent(eventId, (e) => ({
         ...e,
-        messages: [...e.messages, { id: nextId("m"), senderId: ME.id, text, time: "Just now" }],
+        messages: [...e.messages, { id: nextId("m"), senderId: uid, text, time: "Just now" }],
       }));
     },
-    [patchEvent],
+    [patchEvent, apiUser],
   );
 
   const getSquad = useCallback(
@@ -380,17 +385,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   const addSquad = useCallback((input: { name: string; emoji: string; color: string }) => {
+    const uid = apiUser?.id ?? ME.id;
     const id = nextId("s");
     const newSquad: Squad = {
       id,
       name: input.name,
       emoji: input.emoji,
       color: input.color,
-      memberIds: [ME.id],
+      memberIds: [uid],
     };
     setSquads((prev) => [...prev, newSquad]);
     return id;
-  }, []);
+  }, [apiUser]);
 
   const updateSquad = useCallback(
     (sid: string, patch: Partial<Pick<Squad, "name" | "emoji" | "color">>) => {
