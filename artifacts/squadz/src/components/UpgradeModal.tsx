@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { T, font, fontMono } from "@/lib/data";
 
 const PRO_FEATURES = [
@@ -43,6 +44,47 @@ export function UpgradeModal({
   onUpgrade?: () => void;
 }) {
   const { icon, title, body } = TRIGGER_COPY[trigger];
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleUpgrade() {
+    if (onUpgrade) { onUpgrade(); return; }
+    setLoading(true);
+    setError(null);
+    try {
+      const productsRes = await fetch('/api/products-with-prices');
+      const { data: products } = await productsRes.json() as {
+        data: Array<{ id: string; name: string; prices: Array<{ id: string; unit_amount: number; recurring: { interval: string } | null }> }>;
+      };
+
+      const pro = products.find(p => p.name === 'Squadz Pro');
+      const yearlyPrice = pro?.prices.find(p => p.recurring?.interval === 'year');
+
+      if (!yearlyPrice) {
+        setError('Squadz Pro plan not found. Please try again later.');
+        return;
+      }
+
+      // Server resolves the current user from session — no userId sent from client
+      const checkoutRes = await fetch('/api/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ priceId: yearlyPrice.id }),
+      });
+
+      const { url, error: apiError } = await checkoutRes.json() as { url?: string; error?: string };
+      if (apiError || !url) {
+        setError(apiError ?? 'Failed to start checkout. Please try again.');
+        return;
+      }
+
+      window.location.href = url;
+    } catch {
+      setError('Something went wrong. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <div
@@ -149,24 +191,33 @@ export function UpgradeModal({
           ))}
         </div>
 
+        {error && (
+          <div style={{ fontSize: 13, color: "#FF6B6B", fontFamily: font, marginBottom: 10, textAlign: "center" }}>
+            {error}
+          </div>
+        )}
+
         <button
-          onClick={onUpgrade ?? onClose}
+          onClick={handleUpgrade}
+          disabled={loading}
           style={{
             width: "100%",
             borderRadius: 14,
             border: "none",
-            background: `linear-gradient(135deg, ${T.accent}, #FF8050)`,
+            background: loading
+              ? `linear-gradient(135deg, ${T.accent}80, #FF805080)`
+              : `linear-gradient(135deg, ${T.accent}, #FF8050)`,
             color: "#fff",
             fontFamily: font,
             fontWeight: 800,
             fontSize: 15,
             padding: "14px 20px",
-            cursor: "pointer",
+            cursor: loading ? "not-allowed" : "pointer",
             boxShadow: `0 8px 28px ${T.accent}45`,
             marginBottom: 10,
           }}
         >
-          Upgrade to Pro — $20/year →
+          {loading ? "Opening checkout…" : "Upgrade to Pro — $20/year →"}
         </button>
         <button
           onClick={onClose}

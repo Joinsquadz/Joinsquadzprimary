@@ -96,10 +96,10 @@ export default function Splash() {
 
         {/* CTAs */}
         <div className="splash-a3" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <PressBtn onClick={() => setLocation("/signup")} primary>
+          <PressBtn onClick={() => { window.location.href = "/api/login?returnTo=/home"; }} primary>
             Get Started — It&apos;s Free ✨
           </PressBtn>
-          <PressBtn onClick={() => setLocation("/login")} primary={false}>
+          <PressBtn onClick={() => { window.location.href = "/api/login?returnTo=/home"; }} primary={false}>
             I already have an account
           </PressBtn>
         </div>

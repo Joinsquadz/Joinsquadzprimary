@@ -49,6 +49,10 @@ export default function Login() {
     setTimeout(() => setScreen(to), 80);
   };
 
+  const goReplitLogin = () => {
+    window.location.href = "/api/login?returnTo=/home";
+  };
+
   const goSocial = (p: "facebook" | "google") => {
     setProvider(p);
     setVisible(false);
@@ -280,6 +284,19 @@ export default function Login() {
           </div>
 
           <div style={{ ...anim, display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
+            {/* Replit — real OIDC auth */}
+            <button onClick={goReplitLogin}
+              style={{ width: "100%", background: `linear-gradient(135deg, ${T.accent}, #FF8050)`, borderRadius: 14, border: "none", padding: "13px 18px", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, cursor: "pointer", fontFamily: font, fontWeight: 800, fontSize: 15, color: "#fff", boxShadow: `0 6px 20px ${T.accent}40` }}>
+              <span style={{ fontSize: 18 }}>⚡</span>
+              Continue with Replit
+            </button>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ flex: 1, height: 1, background: T.border }} />
+              <span style={{ fontSize: 12, color: T.textDim, fontFamily: font }}>or demo with</span>
+              <div style={{ flex: 1, height: 1, background: T.border }} />
+            </div>
+
             {/* Facebook */}
             <button onClick={() => goSocial("facebook")}
               style={{ width: "100%", background: "#1877F2", borderRadius: 14, border: "none", padding: "13px 18px", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, cursor: "pointer", fontFamily: font, fontWeight: 800, fontSize: 15, color: "#fff" }}>
@@ -299,12 +316,6 @@ export default function Login() {
               </svg>
               Continue with Google
             </button>
-
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ flex: 1, height: 1, background: T.border }} />
-              <span style={{ fontSize: 12, color: T.textDim, fontFamily: font }}>or sign in with</span>
-              <div style={{ flex: 1, height: 1, background: T.border }} />
-            </div>
 
             {/* Email */}
             <button onClick={() => goScreen("email")}

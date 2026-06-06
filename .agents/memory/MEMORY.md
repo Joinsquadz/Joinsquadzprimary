@@ -1,1 +1,2 @@
 - [Squadz design parity](squadz-design-parity.md) — web app is the visual source of truth; mobile mirrors it via SquadzIcon SVG + GradientButton, not PNG logo / flat buttons.
+- [Stripe connector key names](stripe-connector-key-names.md) — Replit Stripe connector uses `settings.secret` not `settings.secret_key`; template is wrong.

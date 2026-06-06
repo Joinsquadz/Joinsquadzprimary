@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { useLocation } from "wouter";
 import { PhoneShell } from "@/components/PhoneShell";
 import { Avatar, Tag, SectionLabel, Card, SwitchToggle, Btn } from "@/components/shared";
@@ -378,7 +378,65 @@ function ProfileTab({ go }: { go: (s: string) => void }) {
   const [notifs, setNotifs] = useState(true);
   const [calSync, setCalSync] = useState(true);
   const [darkMode, setDarkMode] = useState(true);
+  const [isPro, setIsPro] = useState(false);
+  const [upgradeLoading, setUpgradeLoading] = useState(false);
+  const [upgradeError, setUpgradeError] = useState<string | null>(null);
   const stats = [{ n: "24", l: "Events" }, { n: "4", l: "SquadZ" }, { n: "🔥12", l: "Streak" }];
+
+  // Check subscription status on mount and after checkout redirect.
+  // Server resolves the current user from the session cookie — no userId in the request.
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("checkout") === "success") {
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+    fetch('/api/subscription', { credentials: 'include' })
+      .then(r => r.json())
+      .then((d: { isPro?: boolean }) => { if (d.isPro) setIsPro(true); })
+      .catch(() => {});
+  }, []);
+
+  async function handleUpgrade() {
+    setUpgradeLoading(true);
+    setUpgradeError(null);
+    try {
+      const productsRes = await fetch('/api/products-with-prices');
+      const { data: products } = await productsRes.json() as {
+        data: Array<{ id: string; name: string; prices: Array<{ id: string; recurring: { interval: string } | null }> }>;
+      };
+      const pro = products.find(p => p.name === "Squadz Pro");
+      const yearlyPrice = pro?.prices.find(p => p.recurring?.interval === "year");
+      if (!yearlyPrice) { setUpgradeError("Pro plan not found. Please try again later."); return; }
+
+      // Server resolves current user from session — only priceId sent from client
+      const checkoutRes = await fetch('/api/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ priceId: yearlyPrice.id }),
+      });
+      const { url, error: apiError } = await checkoutRes.json() as { url?: string; error?: string };
+      if (apiError || !url) { setUpgradeError(apiError ?? "Failed to start checkout."); return; }
+      window.location.href = url;
+    } catch { setUpgradeError("Something went wrong. Please try again."); }
+    finally { setUpgradeLoading(false); }
+  }
+
+  async function handlePortal() {
+    try {
+      // Server resolves current user from session — no userId sent from client
+      const res = await fetch('/api/portal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({}),
+      });
+      const { url, error: apiError } = await res.json() as { url?: string; error?: string };
+      if (apiError || !url) { alert(apiError ?? "Failed to open portal."); return; }
+      window.location.href = url;
+    } catch { alert("Something went wrong. Please try again."); }
+  }
+
   return (
     <div style={{ flex: 1, overflowY: "auto" }}>
       <div style={{ padding: "20px 20px 40px" }}>
@@ -387,7 +445,12 @@ function ProfileTab({ go }: { go: (s: string) => void }) {
             <div style={{ width: 80, height: 80, borderRadius: 40, background: `linear-gradient(135deg, ${T.accent}, ${T.gold})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 36, fontWeight: 800, color: "#000" }}>J</div>
             <div onClick={() => go("edit-profile")} style={{ position: "absolute", bottom: 0, right: 0, width: 26, height: 26, borderRadius: 13, background: T.surfaceHigh, border: `2px solid ${T.bg}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 13 }}>✏️</div>
           </div>
-          <div style={{ fontFamily: "'Georgia', serif", fontSize: 20, fontWeight: 700, color: T.white }}>Jordan Kim</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ fontFamily: "'Georgia', serif", fontSize: 20, fontWeight: 700, color: T.white }}>Jordan Kim</div>
+            {isPro && (
+              <div style={{ background: T.gold + "22", border: `1px solid ${T.gold}60`, borderRadius: 6, padding: "1px 7px", fontSize: 10, fontWeight: 900, color: T.gold, letterSpacing: "0.08em", fontFamily: fontMono }}>PRO</div>
+            )}
+          </div>
           <div style={{ fontSize: 13, color: T.textSub, marginTop: 2 }}>@jordank · Since Jan 2025</div>
           <div style={{ display: "flex", gap: 28, marginTop: 16 }}>
             {stats.map(s => (
@@ -397,6 +460,35 @@ function ProfileTab({ go }: { go: (s: string) => void }) {
               </div>
             ))}
           </div>
+        </div>
+
+        {/* Pro section */}
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.1em", textTransform: "uppercase", fontFamily: fontMono, marginBottom: 8, paddingLeft: 4 }}>Squadz Pro</div>
+          {isPro ? (
+            <div style={{ background: T.surface, borderRadius: 16, border: `1px solid ${T.border}`, overflow: "hidden" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px" }}>
+                <span style={{ fontSize: 18 }}>✅</span>
+                <div style={{ flex: 1, fontFamily: font, fontSize: 14, color: T.gold, fontWeight: 700 }}>Squadz Pro — Active</div>
+              </div>
+              <div onClick={handlePortal} style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", borderTop: `1px solid ${T.border}`, cursor: "pointer" }}>
+                <span style={{ fontSize: 18 }}>⚙️</span>
+                <div style={{ flex: 1, fontFamily: font, fontSize: 14, color: T.text }}>Manage Subscription</div>
+                <span style={{ color: T.textDim, fontSize: 16 }}>›</span>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <button
+                onClick={() => void handleUpgrade()}
+                disabled={upgradeLoading}
+                style={{ width: "100%", borderRadius: 14, border: "none", background: upgradeLoading ? `${T.accent}80` : `linear-gradient(135deg, ${T.accent}, #FF8050)`, color: "#fff", fontFamily: font, fontWeight: 800, fontSize: 15, padding: "14px 20px", cursor: upgradeLoading ? "not-allowed" : "pointer", boxShadow: `0 6px 20px ${T.accent}40`, marginBottom: 8 }}
+              >
+                {upgradeLoading ? "Opening checkout…" : "⚡ Upgrade to Pro — $20/year"}
+              </button>
+              {upgradeError && <div style={{ fontSize: 12, color: "#FF6B6B", fontFamily: font, textAlign: "center" }}>{upgradeError}</div>}
+            </div>
+          )}
         </div>
 
         {[

@@ -8,16 +8,23 @@ import {
   Platform,
   StatusBar,
   ScrollView,
+  Alert,
+  ActivityIndicator,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import * as WebBrowser from "expo-web-browser";
+import * as Linking from "expo-linking";
+import Constants from "expo-constants";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AppContext";
 import { SquadzIcon } from "@/components/SquadzIcon";
 import { GradientButton } from "@/components/GradientButton";
+
+WebBrowser.maybeCompleteAuthSession();
 
 type Screen = "splash" | "options" | "social-phone" | "email" | "phone" | "otp";
 
@@ -36,6 +43,32 @@ const PILLS = [
   { icon: "🗳️", label: "Polls", color: "#4A9EFF" },
   { icon: "💬", label: "Group Chat", color: "#A855F7" },
 ];
+
+function resolveApiBase(): string {
+  if (process.env.EXPO_PUBLIC_API_URL) return process.env.EXPO_PUBLIC_API_URL;
+  const extra = Constants.expoConfig?.extra as Record<string, string> | undefined;
+  if (extra?.apiBase) return extra.apiBase;
+  if (Platform.OS === "web") return "";
+  const devDomain = process.env.REPLIT_DEV_DOMAIN;
+  if (devDomain) return `https://${devDomain}`;
+  return "";
+}
+
+const API_BASE = resolveApiBase();
+
+function generateCodeVerifier(): string {
+  const arr = new Uint8Array(32);
+  crypto.getRandomValues(arr);
+  return btoa(String.fromCharCode(...arr))
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+}
+
+async function generateCodeChallenge(verifier: string): Promise<string> {
+  const data = new TextEncoder().encode(verifier);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return btoa(String.fromCharCode(...new Uint8Array(digest)))
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+}
 
 export default function LoginScreen() {
   const colors = useColors();
@@ -57,11 +90,74 @@ export default function LoginScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
+  const [oidcLoading, setOidcLoading] = useState(false);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
   const bg = { backgroundColor: colors.background };
   const cardBg = { backgroundColor: colors.card, borderColor: colors.border };
+
+  const handleReplitLogin = async () => {
+    setOidcLoading(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      const codeVerifier = generateCodeVerifier();
+      const codeChallenge = await generateCodeChallenge(codeVerifier);
+      const state = generateCodeVerifier();
+      const nonce = generateCodeVerifier();
+
+      const redirectUri = Linking.createURL("/");
+      const replId = Constants.expoConfig?.extra?.replId as string | undefined ?? process.env.EXPO_PUBLIC_REPL_ID ?? "";
+
+      const authUrl = new URL("https://replit.com/oidc/auth");
+      authUrl.searchParams.set("client_id", replId);
+      authUrl.searchParams.set("redirect_uri", redirectUri);
+      authUrl.searchParams.set("response_type", "code");
+      authUrl.searchParams.set("scope", "openid email profile offline_access");
+      authUrl.searchParams.set("code_challenge", codeChallenge);
+      authUrl.searchParams.set("code_challenge_method", "S256");
+      authUrl.searchParams.set("state", state);
+      authUrl.searchParams.set("nonce", nonce);
+      authUrl.searchParams.set("prompt", "login consent");
+
+      const result = await WebBrowser.openAuthSessionAsync(authUrl.toString(), redirectUri);
+      if (result.type !== "success") { setOidcLoading(false); return; }
+
+      const parsedUrl = new URL(result.url);
+      const code = parsedUrl.searchParams.get("code");
+      const returnedState = parsedUrl.searchParams.get("state");
+
+      if (!code || returnedState !== state) {
+        Alert.alert("Sign In Failed", "Invalid response from authentication provider.");
+        setOidcLoading(false);
+        return;
+      }
+
+      const exchangeRes = await fetch(`${API_BASE}/api/mobile-auth/token-exchange`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, code_verifier: codeVerifier, redirect_uri: redirectUri, state, nonce }),
+      });
+
+      const { token, error } = await exchangeRes.json() as { token?: string; error?: string };
+      if (error || !token) {
+        Alert.alert("Sign In Failed", error ?? "Could not complete sign in. Please try again.");
+        setOidcLoading(false);
+        return;
+      }
+
+      login(token);
+      if (hasInvite && params.inviteEventId) {
+        router.replace(`/event/${params.inviteEventId}` as never);
+      } else {
+        router.replace("/(tabs)" as never);
+      }
+    } catch (err) {
+      Alert.alert("Sign In Failed", "Something went wrong. Please try again.");
+    } finally {
+      setOidcLoading(false);
+    }
+  };
 
   const handleVerify = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -361,6 +457,26 @@ export default function LoginScreen() {
 
           <View style={{ paddingHorizontal: 24, gap: 10 }}>
             <TouchableOpacity
+              onPress={handleReplitLogin}
+              disabled={oidcLoading}
+              style={[styles.socialBtn, { backgroundColor: "#FF5C3A", opacity: oidcLoading ? 0.7 : 1 }]}
+            >
+              {oidcLoading
+                ? <ActivityIndicator size="small" color="#fff" />
+                : <Text style={{ fontSize: 18 }}>⚡</Text>
+              }
+              <Text style={[styles.socialBtnText, { color: "#fff" }]}>
+                {oidcLoading ? "Signing in…" : "Continue with Replit"}
+              </Text>
+            </TouchableOpacity>
+
+            <View style={styles.divider}>
+              <View style={[styles.divLine, { backgroundColor: colors.border }]} />
+              <Text style={[styles.divText, { color: colors.textDim }]}>or demo with</Text>
+              <View style={[styles.divLine, { backgroundColor: colors.border }]} />
+            </View>
+
+            <TouchableOpacity
               onPress={() => goSocial("facebook")}
               style={[styles.socialBtn, { backgroundColor: "#1877F2" }]}
             >
@@ -375,12 +491,6 @@ export default function LoginScreen() {
               <Ionicons name="logo-google" size={20} color={colors.foreground} />
               <Text style={[styles.socialBtnText, { color: colors.foreground }]}>Continue with Google</Text>
             </TouchableOpacity>
-
-            <View style={styles.divider}>
-              <View style={[styles.divLine, { backgroundColor: colors.border }]} />
-              <Text style={[styles.divText, { color: colors.textDim }]}>or sign in with</Text>
-              <View style={[styles.divLine, { backgroundColor: colors.border }]} />
-            </View>
 
             <TouchableOpacity
               onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setScreen("email"); }}
@@ -458,11 +568,11 @@ export default function LoginScreen() {
 
         <View style={styles.ctaSection}>
           <GradientButton
-            label="Get Started — It's Free ✨"
-            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push("/signup"); }}
+            label={oidcLoading ? "Signing in…" : "Get Started — It's Free ✨"}
+            onPress={handleReplitLogin}
           />
           <TouchableOpacity
-            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setScreen("options"); }}
+            onPress={handleReplitLogin}
             style={[styles.secondaryBtn, { borderColor: colors.border }]}
           >
             <Text style={[styles.secondaryBtnText, { color: colors.mutedForeground }]}>

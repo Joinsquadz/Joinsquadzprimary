@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useCallback } from "react";
+import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   ME,
   EVENTS,
@@ -9,6 +10,8 @@ import {
   type Cost,
   type CostShare,
 } from "@/data/mock";
+
+const AUTH_TOKEN_KEY = "@squadz/authToken";
 
 export type InviteCtx = {
   code: string;
@@ -31,7 +34,8 @@ type AppContextType = {
   isLoggedIn: boolean;
   currentUser: typeof ME;
   inviteCtx: InviteCtx | null;
-  login: () => void;
+  authToken: string | null;
+  login: (token?: string) => void;
   logout: () => void;
   setInviteCtx: (ctx: InviteCtx | null) => void;
 
@@ -65,6 +69,7 @@ const AppContext = createContext<AppContextType>({
   isLoggedIn: false,
   currentUser: ME,
   inviteCtx: null,
+  authToken: null,
   login: noop,
   logout: noop,
   setInviteCtx: noop,
@@ -100,6 +105,7 @@ function randomCode(): string {
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [authToken, setAuthToken] = useState<string | null>(null);
   const [inviteCtx, setInviteCtx] = useState<InviteCtx | null>(null);
   const [events, setEvents] = useState<Event[]>(() =>
     EVENTS.map((e) => ({ ...e, rsvps: { ...e.rsvps } })),
@@ -108,8 +114,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     SQUADS.map((s) => ({ ...s, memberIds: [...s.memberIds] })),
   );
 
-  const login = useCallback(() => setIsLoggedIn(true), []);
-  const logout = useCallback(() => setIsLoggedIn(false), []);
+  useEffect(() => {
+    AsyncStorage.getItem(AUTH_TOKEN_KEY).then(token => {
+      if (token) { setAuthToken(token); setIsLoggedIn(true); }
+    }).catch(() => {});
+  }, []);
+
+  const login = useCallback((token?: string) => {
+    if (token) {
+      AsyncStorage.setItem(AUTH_TOKEN_KEY, token).catch(() => {});
+      setAuthToken(token);
+    }
+    setIsLoggedIn(true);
+  }, []);
+
+  const logout = useCallback(() => {
+    AsyncStorage.removeItem(AUTH_TOKEN_KEY).catch(() => {});
+    setAuthToken(null);
+    setIsLoggedIn(false);
+  }, []);
 
   const patchEvent = useCallback((eventId: string, fn: (e: Event) => Event) => {
     setEvents((prev) => prev.map((e) => (e.id === eventId ? fn(e) : e)));
@@ -299,6 +322,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         isLoggedIn,
         currentUser: ME,
         inviteCtx,
+        authToken,
         login,
         logout,
         setInviteCtx,

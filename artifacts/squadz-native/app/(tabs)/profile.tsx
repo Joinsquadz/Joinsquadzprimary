@@ -6,6 +6,8 @@ import {
   TouchableOpacity,
   Platform,
   Alert,
+  Linking,
+  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -15,6 +17,39 @@ import { useAuth, useData } from "@/context/AppContext";
 import { UserAvatar } from "@/components/UserAvatar";
 import { ME } from "@/data/mock";
 import { router } from "expo-router";
+import { useState, useEffect, useCallback } from "react";
+import Constants from "expo-constants";
+
+/**
+ * Resolve the API base URL for native/web environments.
+ *
+ * In Expo Go / development: REPLIT_DEV_DOMAIN is injected via app.config.js extra.
+ * In web (Expo web): relative URLs work fine because the proxy routes /api correctly.
+ * In native production builds: set EXPO_PUBLIC_API_URL in the build environment.
+ */
+function resolveApiBase(): string {
+  // Production: explicit env var takes priority
+  if (process.env.EXPO_PUBLIC_API_URL) {
+    return process.env.EXPO_PUBLIC_API_URL;
+  }
+  // Expo constants extra (set in app.config.js from REPLIT_DEV_DOMAIN)
+  const extra = Constants.expoConfig?.extra as Record<string, string> | undefined;
+  if (extra?.apiBase) {
+    return extra.apiBase;
+  }
+  // Expo web: relative URLs work via proxy
+  if (Platform.OS === "web") {
+    return "";
+  }
+  // Fallback for Expo Go in Replit: use the dev domain directly
+  const devDomain = process.env.REPLIT_DEV_DOMAIN;
+  if (devDomain) {
+    return `https://${devDomain}`;
+  }
+  return "";
+}
+
+const API_BASE = resolveApiBase();
 
 type SettingItem = {
   icon: keyof typeof Ionicons.glyphMap;
@@ -27,8 +62,12 @@ type SettingItem = {
 export default function ProfileScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { currentUser, logout } = useAuth();
+  const { currentUser, logout, authToken } = useAuth();
   const { events, squads } = useData();
+
+  const [isPro, setIsPro] = useState(false);
+  const [checkingPro, setCheckingPro] = useState(false);
+  const [upgradeLoading, setUpgradeLoading] = useState(false);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 84 : 100);
@@ -38,15 +77,117 @@ export default function ProfileScreen() {
   );
   const mySquads = squads;
 
+  const authHeaders = useCallback((): HeadersInit => {
+    return authToken ? { "Authorization": `Bearer ${authToken}` } : {};
+  }, [authToken]);
+
+  const checkSubscription = useCallback(async () => {
+    setCheckingPro(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/subscription`, {
+        headers: authHeaders(),
+      });
+      if (res.ok) {
+        const { isPro: pro } = await res.json() as { isPro: boolean };
+        setIsPro(!!pro);
+      }
+    } catch {
+      // Network unavailable or server down — silently leave isPro false
+    } finally {
+      setCheckingPro(false);
+    }
+  }, [authHeaders]);
+
+  useEffect(() => {
+    void checkSubscription();
+  }, [checkSubscription]);
+
+  async function handleUpgrade() {
+    setUpgradeLoading(true);
+    try {
+      const productsRes = await fetch(`${API_BASE}/api/products-with-prices`);
+      const { data: products } = await productsRes.json() as {
+        data: Array<{ id: string; name: string; prices: Array<{ id: string; recurring: { interval: string } | null }> }>;
+      };
+
+      const pro = products.find(p => p.name === "Squadz Pro");
+      const yearlyPrice = pro?.prices.find(p => p.recurring?.interval === "year");
+
+      if (!yearlyPrice) {
+        Alert.alert("Squadz Pro", "Pro plan not found. Please try again later.");
+        return;
+      }
+
+      const checkoutRes = await fetch(`${API_BASE}/api/checkout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ priceId: yearlyPrice.id }),
+      });
+
+      const { url, error: apiError } = await checkoutRes.json() as { url?: string; error?: string };
+
+      if (apiError || !url) {
+        Alert.alert("Checkout Error", apiError ?? "Failed to start checkout. Please try again.");
+        return;
+      }
+
+      await Linking.openURL(url);
+    } catch {
+      Alert.alert("Error", "Something went wrong. Please try again.");
+    } finally {
+      setUpgradeLoading(false);
+    }
+  }
+
+  async function handlePortal() {
+    try {
+      const res = await fetch(`${API_BASE}/api/portal`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({}),
+      });
+      const { url, error: apiError } = await res.json() as { url?: string; error?: string };
+      if (apiError || !url) {
+        Alert.alert("Error", apiError ?? "Failed to open portal.");
+        return;
+      }
+      await Linking.openURL(url);
+    } catch {
+      Alert.alert("Error", "Something went wrong. Please try again.");
+    }
+  }
+
+  const proSection: SettingItem[] = isPro
+    ? [
+        {
+          icon: "checkmark-circle",
+          label: "Squadz Pro — Active",
+          color: colors.gold,
+          onPress: () => Alert.alert("Squadz Pro", "You're on Pro! Manage your subscription below."),
+        },
+        {
+          icon: "settings-outline",
+          label: "Manage Subscription",
+          onPress: handlePortal,
+        },
+      ]
+    : [
+        {
+          icon: "flash",
+          label: upgradeLoading ? "Opening checkout…" : "Upgrade to Pro",
+          value: "$20/yr",
+          color: colors.gold,
+          onPress: upgradeLoading ? undefined : () => { void handleUpgrade(); },
+        },
+      ];
+
   const SETTINGS: SettingItem[][] = [
     [
       { icon: "person-outline", label: "Edit Profile", onPress: () => Alert.alert("Edit Profile", "Profile editing isn't available in this preview yet.") },
       { icon: "notifications-outline", label: "Notifications", onPress: () => Alert.alert("Notifications", "You're all caught up — push notifications are on.") },
       { icon: "lock-closed-outline", label: "Privacy", onPress: () => Alert.alert("Privacy", "Your squads and events are visible to members only.") },
     ],
-    [
-      { icon: "flash", label: "Upgrade to Pro", value: "$20/yr", color: colors.gold, onPress: () => Alert.alert("Pro", "Upgrade to Pro for unlimited events, photo vault, and more!") },
-    ],
+    proSection,
     [
       { icon: "help-circle-outline", label: "Help & Support", onPress: () => Alert.alert("Help & Support", "Need a hand? Reach us at support@getsquadz.com") },
       { icon: "star-outline", label: "Rate Squadz", onPress: () => Alert.alert("Rate Squadz", "Thanks for the love! ⭐️ Ratings open in the App Store.") },
@@ -68,10 +209,18 @@ export default function ProfileScreen() {
         contentContainerStyle={{ paddingBottom: botPad }}
         showsVerticalScrollIndicator={false}
       >
-        {/* Profile card */}
         <View style={[styles.profileCard, { paddingTop: topPad + 20, borderBottomColor: colors.border }]}>
           <UserAvatar initials={currentUser.initials} color={currentUser.color} size={80} fontSize={28} />
-          <Text style={[styles.name, { color: colors.foreground }]}>{currentUser.name}</Text>
+          <View style={styles.nameRow}>
+            <Text style={[styles.name, { color: colors.foreground }]}>{currentUser.name}</Text>
+            {checkingPro ? (
+              <ActivityIndicator size="small" color={colors.gold} style={{ marginLeft: 8 }} />
+            ) : isPro ? (
+              <View style={[styles.proBadge, { backgroundColor: colors.gold + "22", borderColor: colors.gold + "60" }]}>
+                <Text style={[styles.proBadgeText, { color: colors.gold }]}>PRO</Text>
+              </View>
+            ) : null}
+          </View>
           <View style={styles.statsRow}>
             {[
               { value: myEvents.length.toString(), label: "Events" },
@@ -86,7 +235,6 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* My Events */}
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.foreground }]}>My Events</Text>
           <View style={styles.eventsGrid}>
@@ -104,7 +252,6 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* My Squads */}
         <View style={styles.section}>
           <View style={styles.squadsHeader}>
             <Text style={[styles.sectionTitle, { color: colors.foreground, marginBottom: 0 }]}>My Squads</Text>
@@ -140,7 +287,6 @@ export default function ProfileScreen() {
           )}
         </View>
 
-        {/* Settings */}
         {SETTINGS.map((group, gi) => (
           <View key={gi} style={styles.settingsGroup}>
             {group.map((item, ii) => (
@@ -173,7 +319,10 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   profileCard: { alignItems: "center", paddingHorizontal: 24, paddingBottom: 24, borderBottomWidth: 1 },
-  name: { fontSize: 22, fontWeight: "800", marginTop: 12, marginBottom: 16 },
+  nameRow: { flexDirection: "row", alignItems: "center", marginTop: 12, marginBottom: 16 },
+  name: { fontSize: 22, fontWeight: "800" },
+  proBadge: { marginLeft: 8, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8, borderWidth: 1 },
+  proBadgeText: { fontSize: 10, fontWeight: "900", letterSpacing: 1 },
   statsRow: { flexDirection: "row", gap: 32 },
   stat: { alignItems: "center", gap: 2 },
   statValue: { fontSize: 18, fontWeight: "800" },
