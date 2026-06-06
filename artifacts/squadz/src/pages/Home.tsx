@@ -375,9 +375,14 @@ function ActivityTab() {
   );
 }
 
-function CheckoutSuccessBanner({ onDismiss }: { onDismiss: () => void }) {
+const PRO_FEATURES = [
+  { key: "events", icon: "🗓️", label: "Unlimited Events" },
+  { key: "vault", icon: "📷", label: "Photo Vault" },
+] as const;
+
+function CheckoutSuccessBanner({ onDismiss, onFeaturePress }: { onDismiss: () => void; onFeaturePress: (key: string) => void }) {
   React.useEffect(() => {
-    const t = setTimeout(onDismiss, 5000);
+    const t = setTimeout(onDismiss, 8000);
     return () => clearTimeout(t);
   }, [onDismiss]);
 
@@ -388,26 +393,45 @@ function CheckoutSuccessBanner({ onDismiss }: { onDismiss: () => void }) {
       borderRadius: 14,
       padding: "14px 16px",
       marginBottom: 20,
-      display: "flex",
-      alignItems: "flex-start",
-      gap: 12,
       animation: "fadeSlideIn 0.35s ease",
     }}>
-      <div style={{ fontSize: 28, lineHeight: 1, flexShrink: 0 }}>🎉</div>
-      <div style={{ flex: 1 }}>
-        <div style={{ fontFamily: font, fontWeight: 800, fontSize: 15, color: T.green, marginBottom: 2 }}>
-          Welcome to Squadz Pro!
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 12 }}>
+        <div style={{ fontSize: 28, lineHeight: 1, flexShrink: 0 }}>🎉</div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontFamily: font, fontWeight: 800, fontSize: 15, color: T.green, marginBottom: 2 }}>
+            Welcome to Squadz Pro!
+          </div>
+          <div style={{ fontSize: 13, color: T.textSub, fontFamily: font, lineHeight: 1.4 }}>
+            Your upgrade is confirmed. Tap a feature below to explore what's unlocked.
+          </div>
         </div>
-        <div style={{ fontSize: 13, color: T.textSub, fontFamily: font, lineHeight: 1.4 }}>
-          Your upgrade is confirmed. Unlimited events, photo vault, and calendar sync are now unlocked.
-        </div>
+        <button onClick={onDismiss} style={{ background: "none", border: "none", color: T.textDim, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 0, flexShrink: 0 }}>×</button>
       </div>
-      <button onClick={onDismiss} style={{ background: "none", border: "none", color: T.textDim, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 0, flexShrink: 0 }}>×</button>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {PRO_FEATURES.map(f => (
+          <button
+            key={f.key}
+            onClick={() => { onFeaturePress(f.key); onDismiss(); }}
+            style={{
+              display: "flex", alignItems: "center", gap: 5,
+              background: T.green + "18", border: `1px solid ${T.green}40`,
+              borderRadius: 20, padding: "5px 11px",
+              cursor: "pointer", fontFamily: font, fontSize: 12, fontWeight: 700,
+              color: T.green, transition: "background 0.15s",
+            }}
+            onMouseEnter={e => (e.currentTarget.style.background = T.green + "30")}
+            onMouseLeave={e => (e.currentTarget.style.background = T.green + "18")}
+          >
+            <span>{f.icon}</span>
+            <span>{f.label}</span>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
 
-function ProfileTab({ go, displayName, checkoutSuccess }: { go: (s: string) => void; displayName?: string | null; checkoutSuccess?: boolean }) {
+function ProfileTab({ go, setTab, displayName, checkoutSuccess }: { go: (s: string) => void; setTab?: (t: string) => void; displayName?: string | null; checkoutSuccess?: boolean }) {
   const [notifs, setNotifs] = useState(true);
   const [calSync, setCalSync] = useState(true);
   const [darkMode, setDarkMode] = useState(true);
@@ -471,7 +495,13 @@ function ProfileTab({ go, displayName, checkoutSuccess }: { go: (s: string) => v
     <div style={{ flex: 1, overflowY: "auto" }}>
       <div style={{ padding: "20px 20px 40px" }}>
         {showSuccessBanner && (
-          <CheckoutSuccessBanner onDismiss={() => setShowSuccessBanner(false)} />
+          <CheckoutSuccessBanner
+            onDismiss={() => setShowSuccessBanner(false)}
+            onFeaturePress={(key) => {
+              if (key === "events") { go("create-event"); }
+              else if (key === "vault") { setTab?.("squads"); }
+            }}
+          />
         )}
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 24 }}>
           <div style={{ position: "relative", marginBottom: 12 }}>
@@ -598,7 +628,7 @@ export default function Home() {
     messages: <MessagesTab go={go} />,
     discover: <DiscoverTab go={go} />,
     activity: <ActivityTab />,
-    profile: <ProfileTab go={go} displayName={displayName} checkoutSuccess={checkoutSuccess} />,
+    profile: <ProfileTab go={go} setTab={setTab} displayName={displayName} checkoutSuccess={checkoutSuccess} />,
   };
 
   return (

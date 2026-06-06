@@ -232,16 +232,39 @@ export default function ProfileScreen() {
       >
         {showSuccessBanner && (
           <Animated.View style={[styles.successBanner, { backgroundColor: colors.green + "18", borderColor: colors.green + "50", opacity: bannerOpacity, marginTop: topPad + 12 }]}>
-            <Text style={styles.successEmoji}>🎉</Text>
             <View style={{ flex: 1 }}>
-              <Text style={[styles.successTitle, { color: colors.green }]}>Welcome to Squadz Pro!</Text>
-              <Text style={[styles.successBody, { color: colors.mutedForeground }]}>
-                Your upgrade is confirmed. Unlimited events, photo vault, and calendar sync are now unlocked.
-              </Text>
+              <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12, marginBottom: 10 }}>
+                <Text style={styles.successEmoji}>🎉</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.successTitle, { color: colors.green }]}>Welcome to Squadz Pro!</Text>
+                  <Text style={[styles.successBody, { color: colors.mutedForeground }]}>
+                    Your upgrade is confirmed. Tap a feature to explore what's unlocked.
+                  </Text>
+                </View>
+                <TouchableOpacity onPress={() => setShowSuccessBanner(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Ionicons name="close" size={18} color={colors.mutedForeground} />
+                </TouchableOpacity>
+              </View>
+              <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                {([
+                  { key: "events", icon: "🗓️", label: "Unlimited Events", route: "/(tabs)/events" },
+                  { key: "vault", icon: "📷", label: "Photo Vault", route: "/(tabs)/squads" },
+                ] as const).map((f) => (
+                  <TouchableOpacity
+                    key={f.key}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      setShowSuccessBanner(false);
+                      router.push(f.route as never);
+                    }}
+                    style={[styles.featureChip, { backgroundColor: colors.green + "18", borderColor: colors.green + "40" }]}
+                  >
+                    <Text style={styles.featureChipIcon}>{f.icon}</Text>
+                    <Text style={[styles.featureChipLabel, { color: colors.green }]}>{f.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
             </View>
-            <TouchableOpacity onPress={() => setShowSuccessBanner(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Ionicons name="close" size={18} color={colors.mutedForeground} />
-            </TouchableOpacity>
           </Animated.View>
         )}
         <View style={[styles.profileCard, { paddingTop: showSuccessBanner ? 16 : topPad + 20, borderBottomColor: colors.border }]}>
@@ -381,8 +404,11 @@ const styles = StyleSheet.create({
   settingLast: { borderBottomLeftRadius: 14, borderBottomRightRadius: 14 },
   settingLabel: { fontSize: 15 },
   settingValue: { fontSize: 13, fontWeight: "700" },
-  successBanner: { flexDirection: "row", alignItems: "flex-start", gap: 12, marginHorizontal: 20, marginBottom: 4, padding: 14, borderRadius: 14, borderWidth: 1 },
+  successBanner: { marginHorizontal: 20, marginBottom: 4, padding: 14, borderRadius: 14, borderWidth: 1 },
   successEmoji: { fontSize: 26, lineHeight: 32 },
   successTitle: { fontSize: 15, fontWeight: "800", marginBottom: 3 },
   successBody: { fontSize: 13, lineHeight: 18 },
+  featureChip: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 20, borderWidth: 1, paddingHorizontal: 11, paddingVertical: 5 },
+  featureChipIcon: { fontSize: 13 },
+  featureChipLabel: { fontSize: 12, fontWeight: "700" },
 });
