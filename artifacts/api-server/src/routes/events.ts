@@ -44,7 +44,7 @@ const UpdateEventBody = z.object({
 });
 
 const SetRsvpBody = z.object({
-  userId: z.string(),
+  userId: z.string().optional(),
   status: z.enum(["going", "maybe", "notgoing"]),
 });
 
@@ -70,12 +70,12 @@ const AddPollBody = z.object({
 });
 
 const VotePollBody = z.object({
-  userId: z.string(),
+  userId: z.string().optional(),
   optionId: z.string(),
 });
 
 const SendMessageBody = z.object({
-  senderId: z.string(),
+  senderId: z.string().optional(),
   text: z.string().min(1),
 });
 
@@ -292,7 +292,7 @@ router.post("/events/:id/rsvp", requireAuth, async (req: Request, res: Response)
   }
   const existing = await getEventAsMember(id, userId, res);
   if (!existing) return;
-  const rsvps = { ...(existing.rsvps as Record<string, string>), [parsed.data.userId]: parsed.data.status };
+  const rsvps = { ...(existing.rsvps as Record<string, string>), [userId]: parsed.data.status };
   const [event] = await db.update(eventsTable).set({ rsvps }).where(eq(eventsTable.id, id)).returning();
   res.json(event);
 });
@@ -392,7 +392,7 @@ router.post("/events/:id/polls/:pollId/vote", requireAuth, async (req: Request, 
   }
   const existing = await getEventAsMember(id, userId, res);
   if (!existing) return;
-  const { userId: voteUserId, optionId } = parsed.data;
+  const { optionId } = parsed.data;
   const polls = (
     existing.polls as Array<{ id: string; question: string; options: Array<{ id: string; label: string; voterIds: string[] }> }>
   ).map((poll) =>
@@ -404,8 +404,8 @@ router.post("/events/:id/polls/:pollId/vote", requireAuth, async (req: Request, 
             ...o,
             voterIds:
               o.id === optionId
-                ? Array.from(new Set([...o.voterIds, voteUserId]))
-                : o.voterIds.filter((v) => v !== voteUserId),
+                ? Array.from(new Set([...o.voterIds, userId]))
+                : o.voterIds.filter((v) => v !== userId),
           })),
         },
   );
@@ -425,7 +425,7 @@ router.post("/events/:id/messages", requireAuth, async (req: Request, res: Respo
   if (!existing) return;
   const messages = [
     ...(existing.messages as unknown[]),
-    { id: `m${Date.now()}`, senderId: parsed.data.senderId, text: parsed.data.text, time: "Just now" },
+    { id: `m${Date.now()}`, senderId: userId, text: parsed.data.text, time: "Just now" },
   ];
   const [event] = await db.update(eventsTable).set({ messages }).where(eq(eventsTable.id, id)).returning();
   res.json(event);
