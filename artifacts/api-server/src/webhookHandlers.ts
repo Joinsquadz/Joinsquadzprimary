@@ -35,6 +35,10 @@ export class WebhookHandlers {
     let customerId: string | null = null;
     let subscriptionId: string | null = null;
     let isCheckoutCompleted = false;
+    let invoicePaymentSucceededId: string | null = null;
+    let invoicePaymentSucceededCustomerId: string | null = null;
+    let invoicePaymentFailedId: string | null = null;
+    let invoicePaymentFailedCustomerId: string | null = null;
 
     try {
       const webhookSecret = await getManagedWebhookSecret();
@@ -63,6 +67,36 @@ export class WebhookHandlers {
           customerId = session.customer;
           subscriptionId = session.subscription;
           isCheckoutCompleted = true;
+        } else if (event.type === 'invoice.payment_succeeded') {
+          const invoice = event.data.object as unknown as {
+            id: string;
+            customer: string | { id: string } | null;
+            subscription: string | null;
+            billing_reason: string | null;
+          };
+          const cid = invoice.customer;
+          const resolvedCustomerId = cid
+            ? (typeof cid === 'string' ? cid : cid.id)
+            : null;
+          // Only send renewal receipts, not the initial subscription invoice
+          // (which is covered by the checkout.session.completed welcome email)
+          if (invoice.billing_reason === 'subscription_cycle' && resolvedCustomerId) {
+            invoicePaymentSucceededId = invoice.id;
+            invoicePaymentSucceededCustomerId = resolvedCustomerId;
+          }
+        } else if (event.type === 'invoice.payment_failed') {
+          const invoice = event.data.object as {
+            id: string;
+            customer: string | { id: string } | null;
+          };
+          const cid = invoice.customer;
+          const resolvedCustomerId = cid
+            ? (typeof cid === 'string' ? cid : cid.id)
+            : null;
+          if (resolvedCustomerId) {
+            invoicePaymentFailedId = invoice.id;
+            invoicePaymentFailedCustomerId = resolvedCustomerId;
+          }
         }
       }
     } catch (err) {
@@ -89,6 +123,22 @@ export class WebhookHandlers {
     // This runs after sync.processWebhook so subscription/price data are in the DB.
     if (isCheckoutCompleted && subscriptionId && customerId) {
       await emailService.sendProWelcome(subscriptionId, customerId);
+    }
+
+    // Send renewal receipt on successful subscription renewal payment.
+    if (invoicePaymentSucceededId && invoicePaymentSucceededCustomerId) {
+      await emailService.sendRenewalReceipt(
+        invoicePaymentSucceededId,
+        invoicePaymentSucceededCustomerId
+      );
+    }
+
+    // Send payment failure warning so the user can update their card.
+    if (invoicePaymentFailedId && invoicePaymentFailedCustomerId) {
+      await emailService.sendPaymentFailed(
+        invoicePaymentFailedId,
+        invoicePaymentFailedCustomerId
+      );
     }
   }
 }
