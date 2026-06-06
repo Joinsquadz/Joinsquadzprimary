@@ -86,7 +86,7 @@ export default function HomeScreen() {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={[styles.sectionTitle, { color: colors.foreground }]}>My Squads</Text>
-            <TouchableOpacity>
+            <TouchableOpacity onPress={() => router.push("/(tabs)/profile")}>
               <Text style={[styles.seeAll, { color: colors.primary }]}>Manage →</Text>
             </TouchableOpacity>
           </View>

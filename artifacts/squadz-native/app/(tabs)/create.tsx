@@ -9,6 +9,7 @@ import {
   Platform,
   Alert,
 } from "react-native";
+import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -36,7 +37,7 @@ export default function CreateEventScreen() {
     }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     Alert.alert("Event created!", `${selectedEmoji} ${title} has been created. Your squad will be notified.`, [
-      { text: "View Event", style: "default" },
+      { text: "View Event", style: "default", onPress: () => router.push("/event/e1" as never) },
     ]);
   };
 

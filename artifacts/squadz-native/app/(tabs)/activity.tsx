@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Platform,
+  Alert,
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -54,8 +55,8 @@ export default function ActivityScreen() {
                 {t === "reminders" ? "Reminders" : "Feed"}
               </Text>
               {t === "reminders" && (
-                <View style={[styles.tabBadge, { backgroundColor: tab === t ? "#fff30" : colors.primary }]}>
-                  <Text style={[styles.tabBadgeText, { color: tab === t ? colors.primary : "#fff" }]}>4</Text>
+                <View style={[styles.tabBadge, { backgroundColor: tab === t ? "rgba(255,255,255,0.25)" : colors.primary }]}>
+                  <Text style={[styles.tabBadgeText, { color: tab === t ? "#fff" : "#fff" }]}>4</Text>
                 </View>
               )}
             </TouchableOpacity>
@@ -80,7 +81,14 @@ export default function ActivityScreen() {
                 <TouchableOpacity
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    if (r.eventId) router.push(`/event/${r.eventId}` as never);
+                    if (r.eventId) {
+                      router.push(`/event/${r.eventId}` as never);
+                    } else {
+                      Alert.alert("Join Request", "Alex Chen wants to join The Usual Suspects.", [
+                        { text: "Decline", style: "cancel" },
+                        { text: "Approve", style: "default" },
+                      ]);
+                    }
                   }}
                   style={[styles.reminderAction, { backgroundColor: r.color + "20", borderColor: r.color + "40" }]}
                 >

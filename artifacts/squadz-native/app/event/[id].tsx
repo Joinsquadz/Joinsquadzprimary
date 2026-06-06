@@ -28,6 +28,7 @@ export default function EventDetailScreen() {
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
+  const btnTop = topPad + 8;
 
   const event = getEventById(id ?? "e1");
 
@@ -56,12 +57,12 @@ export default function EventDetailScreen() {
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       {/* Hero */}
       <View style={[styles.hero, { paddingTop: topPad + 8 }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+        <TouchableOpacity onPress={() => router.back()} style={[styles.backBtn, { top: btnTop }]}>
           <Ionicons name="chevron-back" size={24} color="#fff" />
         </TouchableOpacity>
         <TouchableOpacity
           onPress={() => Share.share({ message: `Join ${event.title}! Code: ${event.inviteCode}` })}
-          style={styles.shareBtn}
+          style={[styles.shareBtn, { top: btnTop }]}
         >
           <Ionicons name="share-outline" size={22} color="#fff" />
         </TouchableOpacity>

@@ -22,6 +22,7 @@ export default function SquadDetailScreen() {
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
+  const btnTop = topPad + 8;
 
   const squad = getSquadById(id ?? "s1");
 
@@ -40,7 +41,7 @@ export default function SquadDetailScreen() {
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       {/* Hero */}
       <View style={[styles.hero, { backgroundColor: squad.color, paddingTop: topPad + 8 }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+        <TouchableOpacity onPress={() => router.back()} style={[styles.backBtn, { top: btnTop }]}>
           <Ionicons name="chevron-back" size={24} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.heroEmoji}>{squad.emoji}</Text>
