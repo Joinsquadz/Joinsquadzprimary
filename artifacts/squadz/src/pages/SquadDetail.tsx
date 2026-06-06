@@ -9,6 +9,64 @@ const SQUAD_TAB_KEY = "squadz:squad-detail-tab";
 const SQUAD_PHOTOS_SCROLL_KEY = "squadz:photos-scroll-y";
 const VALID_TABS = ["events", "photos", "members", "polls", "settings"];
 
+const skeletonKeyframes = `
+@keyframes skeletonPulse {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.9; }
+}
+`;
+
+function SkeletonBlock({ width, height, borderRadius = 8, style = {} }: { width?: number | string; height: number; borderRadius?: number; style?: React.CSSProperties }) {
+  return (
+    <div style={{
+      width: width ?? "100%",
+      height,
+      borderRadius,
+      background: `linear-gradient(90deg, ${T.surfaceHigh}, ${T.surfaceUp}, ${T.surfaceHigh})`,
+      animation: "skeletonPulse 1.4s ease-in-out infinite",
+      flexShrink: 0,
+      ...style,
+    }} />
+  );
+}
+
+function SquadHeaderSkeleton() {
+  return (
+    <div style={{ textAlign: "center", paddingBottom: 20 }}>
+      <style>{skeletonKeyframes}</style>
+      <div style={{ width: 48, height: 48, borderRadius: 24, background: `linear-gradient(90deg, rgba(255,255,255,0.15), rgba(255,255,255,0.3), rgba(255,255,255,0.15))`, animation: "skeletonPulse 1.4s ease-in-out infinite", margin: "0 auto 12px" }} />
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}>
+        <SkeletonBlock width="60%" height={26} borderRadius={10} style={{ background: `linear-gradient(90deg, rgba(255,255,255,0.15), rgba(255,255,255,0.3), rgba(255,255,255,0.15))` }} />
+      </div>
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
+        <SkeletonBlock width="40%" height={13} borderRadius={8} style={{ background: `linear-gradient(90deg, rgba(255,255,255,0.1), rgba(255,255,255,0.22), rgba(255,255,255,0.1))` }} />
+      </div>
+      <div style={{ display: "flex", justifyContent: "center", gap: 0 }}>
+        {[0, 1, 2, 3, 4].map((i) => (
+          <div key={i} style={{ width: 30, height: 30, borderRadius: 15, background: `rgba(255,255,255,0.2)`, animation: "skeletonPulse 1.4s ease-in-out infinite", border: `2px solid rgba(255,255,255,0.3)`, marginLeft: i > 0 ? -8 : 0 }} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SquadMembersSkeleton() {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      <style>{skeletonKeyframes}</style>
+      {[0, 1, 2, 3, 4].map((i) => (
+        <div key={i} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 0", borderBottom: `1px solid ${T.border}` }}>
+          <SkeletonBlock width={44} height={44} borderRadius={22} />
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+            <SkeletonBlock width="50%" height={14} borderRadius={8} />
+            <SkeletonBlock width="30%" height={11} borderRadius={6} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function SquadDetail() {
   const [, setLocation] = useLocation();
   const [tab, setTab] = useState<string>(() => {
@@ -22,6 +80,12 @@ export default function SquadDetail() {
   const [showInvite, setShowInvite] = useState(false);
   const [copied, setCopied] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const t = setTimeout(() => setIsLoading(false), 1200);
+    return () => clearTimeout(t);
+  }, []);
 
   const contentRef = useRef<HTMLDivElement>(null);
   const prevTabRef = useRef(tab);
@@ -71,17 +135,19 @@ export default function SquadDetail() {
             <div style={{ flex: 1 }} />
             <button onClick={() => switchTab("settings")} style={{ background: "rgba(255,255,255,0.15)", border: "none", color: "#fff", borderRadius: 10, width: 32, height: 32, cursor: "pointer", fontSize: 16 }}>⚙️</button>
           </div>
-          <div style={{ textAlign: "center", paddingBottom: 20 }}>
-            <div style={{ fontSize: 48, marginBottom: 8 }}>🔥</div>
-            <div style={{ fontFamily: "'Georgia', serif", fontSize: 24, fontWeight: 700, color: "#fff" }}>The Usual Suspects</div>
-            <div style={{ fontSize: 13, color: "rgba(255,255,255,0.8)", marginTop: 4 }}>7 members · 12-week streak</div>
-            <div style={{ display: "flex", justifyContent: "center", gap: -8, marginTop: 12 }}>
-              {MEMBERS.slice(0, 5).map((m, i) => (
-                <div key={m.name} style={{ width: 30, height: 30, borderRadius: 15, background: T.accentDim, border: `2px solid ${T.accent}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 800, color: "#000", marginLeft: i > 0 ? -8 : 0 }}>{m.name[0]}</div>
-              ))}
-              <div style={{ marginLeft: 8, fontSize: 12, color: "rgba(255,255,255,0.8)", alignSelf: "center" }}>+2</div>
+          {isLoading ? <SquadHeaderSkeleton /> : (
+            <div style={{ textAlign: "center", paddingBottom: 20 }}>
+              <div style={{ fontSize: 48, marginBottom: 8 }}>🔥</div>
+              <div style={{ fontFamily: "'Georgia', serif", fontSize: 24, fontWeight: 700, color: "#fff" }}>The Usual Suspects</div>
+              <div style={{ fontSize: 13, color: "rgba(255,255,255,0.8)", marginTop: 4 }}>7 members · 12-week streak</div>
+              <div style={{ display: "flex", justifyContent: "center", gap: -8, marginTop: 12 }}>
+                {MEMBERS.slice(0, 5).map((m, i) => (
+                  <div key={m.name} style={{ width: 30, height: 30, borderRadius: 15, background: T.accentDim, border: `2px solid ${T.accent}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 800, color: "#000", marginLeft: i > 0 ? -8 : 0 }}>{m.name[0]}</div>
+                ))}
+                <div style={{ marginLeft: 8, fontSize: 12, color: "rgba(255,255,255,0.8)", alignSelf: "center" }}>+2</div>
+              </div>
             </div>
-          </div>
+          )}
           <div style={{ display: "flex", overflowX: "auto" }}>
             {["events", "photos", "members", "polls", "settings"].map(t => (
               <button key={t} onClick={() => switchTab(t)} style={{ flex: 1, background: "none", border: "none", padding: "10px 0", cursor: "pointer", fontFamily: font, fontWeight: 700, fontSize: 12, color: tab === t ? "#fff" : "rgba(255,255,255,0.6)", borderBottom: `2px solid ${tab === t ? "#fff" : "transparent"}`, textTransform: "capitalize", flexShrink: 0, minWidth: 60 }}>{t}</button>
@@ -180,19 +246,28 @@ export default function SquadDetail() {
             )}
             {tab === "members" && (
               <>
-                <SectionLabel>7 Members</SectionLabel>
-                <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                  {MEMBERS.map(m => (
-                    <div key={m.name} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 0", borderBottom: `1px solid ${T.border}` }}>
-                      <Avatar name={m.name} size={44} />
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontFamily: font, fontWeight: 700, fontSize: 15, color: T.text }}>{m.name}</div>
-                        <div style={{ fontSize: 12, color: T.textDim }}>{m.role}</div>
-                      </div>
-                      <span style={{ color: T.textDim, fontSize: 16 }}>›</span>
+                {isLoading ? (
+                  <>
+                    <SkeletonBlock width="35%" height={12} borderRadius={6} style={{ marginBottom: 14 }} />
+                    <SquadMembersSkeleton />
+                  </>
+                ) : (
+                  <>
+                    <SectionLabel>7 Members</SectionLabel>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                      {MEMBERS.map(m => (
+                        <div key={m.name} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 0", borderBottom: `1px solid ${T.border}` }}>
+                          <Avatar name={m.name} size={44} />
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontFamily: font, fontWeight: 700, fontSize: 15, color: T.text }}>{m.name}</div>
+                            <div style={{ fontSize: 12, color: T.textDim }}>{m.role}</div>
+                          </div>
+                          <span style={{ color: T.textDim, fontSize: 16 }}>›</span>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  </>
+                )}
                 <div style={{ marginTop: 16 }}>
                   <Btn variant="ghost" onPress={() => setShowInvite(!showInvite)}>+ Invite Members</Btn>
                   {showInvite && (
