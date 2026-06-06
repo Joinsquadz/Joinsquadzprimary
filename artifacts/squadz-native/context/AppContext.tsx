@@ -13,6 +13,12 @@ import {
 
 const AUTH_TOKEN_KEY = "@squadz/authToken";
 
+// All app-level AsyncStorage keys. Add new keys here so they are
+// automatically cleared on logout, preventing data leaking between accounts.
+const ALL_APP_STORAGE_KEYS: string[] = [
+  AUTH_TOKEN_KEY,
+];
+
 type ApiUser = {
   id: string;
   email: string | null;
@@ -302,7 +308,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [fetchApiUser]);
 
   const logout = useCallback(() => {
-    AsyncStorage.removeItem(AUTH_TOKEN_KEY).catch(() => {});
+    AsyncStorage.multiRemove(ALL_APP_STORAGE_KEYS).catch(() => {});
     setAuthToken(null);
     setApiUser(null);
     setEvents([]);
