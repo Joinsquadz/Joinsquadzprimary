@@ -137,8 +137,11 @@ export default function Signup() {
           {/* Auth buttons */}
           <div style={{ ...anim, display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
             <button onClick={() => setLocation("/onboarding")}
-              style={{ width: "100%", background: T.white, borderRadius: 14, border: "none", padding: "13px 18px", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, cursor: "pointer", fontFamily: font, fontWeight: 800, fontSize: 15, color: "#000" }}>
-              <span style={{ fontSize: 18 }}>🍎</span> Continue with Apple
+              style={{ width: "100%", background: "#1877F2", borderRadius: 14, border: "none", padding: "13px 18px", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, cursor: "pointer", fontFamily: font, fontWeight: 800, fontSize: 15, color: "#fff" }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
+                <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+              </svg>
+              Continue with Facebook
             </button>
             <button onClick={() => setLocation("/onboarding")}
               style={{ width: "100%", background: T.surfaceUp, border: `1.5px solid ${T.border}`, borderRadius: 14, padding: "13px 18px", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, cursor: "pointer", fontFamily: font, fontWeight: 700, fontSize: 15, color: T.text }}>
@@ -157,10 +160,8 @@ export default function Signup() {
               <div style={{ flex: 1, height: 1, background: T.border }} />
             </div>
 
-            <div style={{ display: "flex", gap: 10 }}>
-              <SocialBtn icon="✉️" label="Email" onPress={() => setScreen("email")} style={{ flex: 1 }} />
-              <SocialBtn icon="📱" label="Phone" onPress={() => setScreen("phone")} style={{ flex: 1 }} />
-            </div>
+            <SocialBtn icon="✉️" label="Continue with Email" onPress={() => setScreen("email")} />
+            <SocialBtn icon="📱" label="Continue with Phone" onPress={() => setScreen("phone")} />
           </div>
 
           {/* Feature preview */}
