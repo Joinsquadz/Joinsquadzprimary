@@ -22,6 +22,7 @@ export default function Login() {
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState(["", "", "", "", "", ""]);
   const [visible, setVisible] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
 
   useEffect(() => { setTimeout(() => setVisible(true), 80); }, [screen]);
   const anim = { opacity: visible ? 1 : 0, transform: visible ? "translateY(0)" : "translateY(16px)", transition: "all 0.45s cubic-bezier(0.34, 1.4, 0.64, 1)" };
@@ -122,6 +123,36 @@ export default function Login() {
     );
   }
 
+  // ── Forgot password screen ──────────────────────────────────────────
+  if (screen === "forgot") return (
+    <PhoneShell>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", background: T.bg, overflow: "hidden", position: "relative" }}>
+        <GlowBlobs />
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: "20px 24px", overflowY: "auto", position: "relative" }}>
+          <BackBtn to="email" />
+          <div style={{ fontSize: 40, marginBottom: 12, textAlign: "center" }}>🔑</div>
+          <div style={{ fontFamily: "'Georgia', serif", fontSize: 26, fontWeight: 700, color: T.white, marginBottom: 4, textAlign: "center" }}>Reset password</div>
+          <div style={{ fontSize: 14, color: T.textSub, marginBottom: 28, fontFamily: font, textAlign: "center" }}>We'll send a reset link to your email</div>
+          {!resetSent ? (
+            <>
+              <Field icon="✉️" placeholder="Email address" type="email" value={email} onChange={setEmail} />
+              <div style={{ marginTop: 16 }}>
+                <PrimaryBtn onPress={() => setResetSent(true)}>Send Reset Link →</PrimaryBtn>
+              </div>
+            </>
+          ) : (
+            <div style={{ background: T.green + "18", border: `1px solid ${T.green}40`, borderRadius: 14, padding: "18px 20px", textAlign: "center" }}>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>
+              <div style={{ fontFamily: font, fontWeight: 700, fontSize: 15, color: T.green, marginBottom: 4 }}>Check your inbox!</div>
+              <div style={{ fontSize: 13, color: T.textSub }}>A reset link was sent to {email || "your email"}.</div>
+              <button onClick={() => { setResetSent(false); goScreen("email"); }} style={{ marginTop: 16, background: "none", border: "none", color: T.accent, fontFamily: font, fontSize: 14, cursor: "pointer" }}>← Back to sign in</button>
+            </div>
+          )}
+        </div>
+      </div>
+    </PhoneShell>
+  );
+
   // ── Email screen ────────────────────────────────────────────────────
   if (screen === "email") return (
     <PhoneShell>
@@ -137,7 +168,7 @@ export default function Login() {
             <Field icon="🔒" placeholder="Password" type="password" value={pass} onChange={setPass} />
           </div>
           <div style={{ textAlign: "right", marginBottom: 20 }}>
-            <span style={{ fontSize: 13, color: T.accent, cursor: "pointer", fontFamily: font }}>Forgot password?</span>
+            <span onClick={() => goScreen("forgot", "email")} style={{ fontSize: 13, color: T.accent, cursor: "pointer", fontFamily: font }}>Forgot password?</span>
           </div>
           <PrimaryBtn onPress={() => goScreen("email-phone", "email")}>Continue →</PrimaryBtn>
         </div>

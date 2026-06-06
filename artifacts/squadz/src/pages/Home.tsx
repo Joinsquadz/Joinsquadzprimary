@@ -103,6 +103,33 @@ function HomeTab({ go }: { go: (s: string) => void }) {
   );
 }
 
+function JoinWithLinkPanel() {
+  const [open, setOpen] = useState(false);
+  const [code, setCode] = useState("");
+  const [joined, setJoined] = useState(false);
+  const join = () => { if (code.trim()) setJoined(true); };
+  if (joined) return (
+    <div style={{ background: T.green + "18", border: `1px solid ${T.green}40`, borderRadius: 14, padding: "14px 16px", textAlign: "center", fontFamily: font }}>
+      <div style={{ fontSize: 22, marginBottom: 4 }}>✅</div>
+      <div style={{ fontWeight: 700, fontSize: 14, color: T.green }}>Joined! Welcome to the squad.</div>
+    </div>
+  );
+  return (
+    <div>
+      <Btn variant="secondary" onPress={() => setOpen(!open)}>Join with Invite Link</Btn>
+      {open && (
+        <div style={{ marginTop: 10, background: T.surfaceUp, border: `1px solid ${T.border}`, borderRadius: 14, padding: "14px 16px" }}>
+          <div style={{ fontSize: 12, color: T.textSub, fontFamily: font, marginBottom: 8 }}>Paste your invite link or code:</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input value={code} onChange={e => setCode(e.target.value)} onKeyDown={e => e.key === "Enter" && join()} placeholder="getsquadz.com/join/…" style={{ flex: 1, background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 10, padding: "9px 12px", color: T.text, fontFamily: font, fontSize: 13, outline: "none" }} />
+            <button onClick={join} style={{ background: T.accent, border: "none", borderRadius: 10, color: "#fff", padding: "9px 16px", fontFamily: font, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>Join</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SquadsTab({ go }: { go: (s: string) => void }) {
   return (
     <div style={{ flex: 1, overflowY: "auto" }}>
@@ -124,7 +151,7 @@ function SquadsTab({ go }: { go: (s: string) => void }) {
             </div>
           ))}
           <Btn variant="ghost" onPress={() => go("create-squad")}>+ Create New Squad</Btn>
-          <Btn variant="secondary" onPress={() => {}}>Join with Invite Link</Btn>
+          <JoinWithLinkPanel />
         </div>
       </div>
     </div>
@@ -175,7 +202,17 @@ function MessagesTab({ go }: { go: (s: string) => void }) {
   );
 }
 
+const PUBLIC_EVENTS = [
+  { id: 1, emoji: "🎳", title: "Bowling Night", host: "Alex Chen", squad: "College Crew", date: "Sat Jun 14", going: 6, mutual: 3 },
+  { id: 2, emoji: "🎬", title: "Movie Marathon", host: "Sam Rivera", squad: "Westside Fam", date: "Sun Jun 15", going: 4, mutual: 2 },
+  { id: 3, emoji: "🏋️", title: "Morning Hike", host: "Priya Nair", squad: "Fitness Gang", date: "Sat Jun 21", going: 8, mutual: 5 },
+  { id: 4, emoji: "🍕", title: "Pizza & Board Games", host: "Chris Lee", squad: "Work Crew", date: "Fri Jun 20", going: 5, mutual: 1 },
+];
+
 function DiscoverTab({ go }: { go: (s: string) => void }) {
+  const [subTab, setSubTab] = useState("ideas");
+  const [requested, setRequested] = useState<Set<number>>(new Set());
+
   const ideas = [
     { emoji: "🎮", title: "Game Night", desc: "Board games, video games, trivia", color: T.purple },
     { emoji: "🍕", title: "Food Adventure", desc: "Try a new restaurant together", color: T.accent },
@@ -186,20 +223,60 @@ function DiscoverTab({ go }: { go: (s: string) => void }) {
     { emoji: "🎨", title: "Creative Night", desc: "Pottery, painting, craft night", color: "#FF8C42" },
     { emoji: "✈️", title: "Weekend Trip", desc: "Short getaway with the squad", color: "#42D4FF" },
   ];
+
+  const toggleRequest = (e: React.MouseEvent, id: number) => {
+    e.stopPropagation();
+    setRequested(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  };
+
   return (
-    <div style={{ flex: 1, overflowY: "auto" }}>
-      <div style={{ padding: "20px 20px 24px" }}>
-        <div style={{ fontFamily: "'Georgia', serif", fontSize: 24, fontWeight: 700, color: T.white, marginBottom: 4 }}>Discover Ideas</div>
-        <div style={{ fontSize: 13, color: T.textSub, marginBottom: 20, fontFamily: font }}>Pick a vibe and we'll help you plan it</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          {ideas.map(i => (
-            <div key={i.title} onClick={() => go("create-event")} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 18, padding: 16, cursor: "pointer", display: "flex", flexDirection: "column", gap: 8 }}>
-              <div style={{ width: 44, height: 44, borderRadius: 14, background: i.color + "22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>{i.emoji}</div>
-              <div style={{ fontFamily: font, fontWeight: 700, fontSize: 14, color: T.text }}>{i.title}</div>
-              <div style={{ fontSize: 12, color: T.textSub }}>{i.desc}</div>
-            </div>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div style={{ padding: "16px 20px 0", background: T.surface, flexShrink: 0 }}>
+        <div style={{ fontFamily: "'Georgia', serif", fontSize: 24, fontWeight: 700, color: T.white, marginBottom: 10 }}>Discover</div>
+        <div style={{ display: "flex", borderBottom: `1px solid ${T.border}` }}>
+          {[["ideas", "✦ Ideas"], ["events", "🗓 Events"]].map(([k, l]) => (
+            <button key={k} onClick={() => setSubTab(k)} style={{ flex: 1, background: "none", border: "none", padding: "10px 0", cursor: "pointer", fontFamily: font, fontWeight: 700, fontSize: 13, color: subTab === k ? T.accent : T.textDim, borderBottom: `2px solid ${subTab === k ? T.accent : "transparent"}`, marginBottom: -1 }}>{l}</button>
           ))}
         </div>
+      </div>
+
+      <div style={{ flex: 1, overflowY: "auto" }}>
+        {subTab === "ideas" && (
+          <div style={{ padding: "16px 20px 24px" }}>
+            <div style={{ fontSize: 13, color: T.textSub, marginBottom: 16, fontFamily: font }}>Pick a vibe and we'll help you plan it</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              {ideas.map(i => (
+                <div key={i.title} onClick={() => go("create-event")} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 18, padding: 16, cursor: "pointer", display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div style={{ width: 44, height: 44, borderRadius: 14, background: i.color + "22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>{i.emoji}</div>
+                  <div style={{ fontFamily: font, fontWeight: 700, fontSize: 14, color: T.text }}>{i.title}</div>
+                  <div style={{ fontSize: 12, color: T.textSub }}>{i.desc}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {subTab === "events" && (
+          <div style={{ padding: "16px 20px 24px" }}>
+            <div style={{ fontSize: 13, color: T.textSub, marginBottom: 16, fontFamily: font }}>Events friends opened up — request to join</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {PUBLIC_EVENTS.map(e => (
+                <div key={e.id} onClick={() => go("event")} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 18, padding: 16, cursor: "pointer" }}>
+                  <div style={{ display: "flex", gap: 12, alignItems: "flex-start", marginBottom: 12 }}>
+                    <div style={{ width: 48, height: 48, borderRadius: 14, background: T.accent + "22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, flexShrink: 0 }}>{e.emoji}</div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontFamily: font, fontWeight: 700, fontSize: 15, color: T.text }}>{e.title}</div>
+                      <div style={{ fontSize: 12, color: T.textSub, marginTop: 2 }}>{e.date} · by {e.host}</div>
+                      <div style={{ fontSize: 11, color: T.textDim, marginTop: 2 }}>{e.squad} · {e.going} going · {e.mutual} mutual friends</div>
+                    </div>
+                  </div>
+                  <button onClick={ev => toggleRequest(ev, e.id)} style={{ width: "100%", padding: "9px 0", borderRadius: 12, border: `1.5px solid ${requested.has(e.id) ? T.green : T.accent}`, background: requested.has(e.id) ? T.green + "18" : T.accent + "18", color: requested.has(e.id) ? T.green : T.accent, fontFamily: font, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+                    {requested.has(e.id) ? "✓ Requested" : "Request to Join"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

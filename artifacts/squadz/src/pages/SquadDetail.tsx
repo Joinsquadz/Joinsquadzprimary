@@ -7,6 +7,11 @@ import { T, font, fontMono, MEMBERS } from "@/lib/data";
 export default function SquadDetail() {
   const [, setLocation] = useLocation();
   const [tab, setTab] = useState("events");
+  const [showInvite, setShowInvite] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [confirmLeave, setConfirmLeave] = useState(false);
+
+  const copyLink = () => { setCopied(true); setTimeout(() => setCopied(false), 2000); };
   const events = [
     { title: "Rooftop BBQ", date: "Sat Jun 7", emoji: "🔥", going: 5 },
     { title: "Game Night", date: "Sat Jun 14", emoji: "🎮", going: 4 },
@@ -28,7 +33,7 @@ export default function SquadDetail() {
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
             <button onClick={() => setLocation("/home")} style={{ background: "rgba(255,255,255,0.15)", border: "none", color: "#fff", borderRadius: 10, width: 32, height: 32, cursor: "pointer", fontSize: 16 }}>←</button>
             <div style={{ flex: 1 }} />
-            <button onClick={() => setLocation("/squad-settings")} style={{ background: "rgba(255,255,255,0.15)", border: "none", color: "#fff", borderRadius: 10, width: 32, height: 32, cursor: "pointer", fontSize: 16 }}>⚙️</button>
+            <button onClick={() => setTab("settings")} style={{ background: "rgba(255,255,255,0.15)", border: "none", color: "#fff", borderRadius: 10, width: 32, height: 32, cursor: "pointer", fontSize: 16 }}>⚙️</button>
           </div>
           <div style={{ textAlign: "center", paddingBottom: 20 }}>
             <div style={{ fontSize: 48, marginBottom: 8 }}>🔥</div>
@@ -93,7 +98,20 @@ export default function SquadDetail() {
                     </div>
                   ))}
                 </div>
-                <div style={{ marginTop: 16 }}><Btn variant="ghost" onPress={() => {}}>+ Invite Members</Btn></div>
+                <div style={{ marginTop: 16 }}>
+                  <Btn variant="ghost" onPress={() => setShowInvite(!showInvite)}>+ Invite Members</Btn>
+                  {showInvite && (
+                    <div style={{ marginTop: 10, background: T.surfaceUp, border: `1px solid ${T.border}`, borderRadius: 14, padding: "14px 16px" }}>
+                      <div style={{ fontSize: 12, color: T.textSub, fontFamily: font, marginBottom: 8 }}>Share this link to invite people:</div>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <div style={{ flex: 1, background: T.surface, borderRadius: 10, padding: "9px 12px", fontFamily: "'DM Mono', monospace", fontSize: 12, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>getsquadz.com/join/abc123</div>
+                        <button onClick={copyLink} style={{ background: copied ? T.green + "22" : T.accent + "22", border: `1px solid ${copied ? T.green : T.accent}`, color: copied ? T.green : T.accent, borderRadius: 10, padding: "8px 14px", fontFamily: font, fontWeight: 700, fontSize: 13, cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap" as const }}>
+                          {copied ? "✓ Copied" : "Copy"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </>
             )}
             {tab === "polls" && (
@@ -134,7 +152,19 @@ export default function SquadDetail() {
                     <span style={{ color: T.textDim }}>›</span>
                   </div>
                 ))}
-                <div style={{ marginTop: 24 }}><Btn variant="danger" onPress={() => {}}>Leave Squad</Btn></div>
+                <div style={{ marginTop: 24, position: "relative" }}>
+                  {confirmLeave && (
+                    <div style={{ background: T.surfaceUp, border: `1px solid #FF4444`, borderRadius: 14, padding: "16px", marginBottom: 10 }}>
+                      <div style={{ fontFamily: font, fontWeight: 700, fontSize: 14, color: T.text, marginBottom: 4 }}>Leave The Usual Suspects?</div>
+                      <div style={{ fontSize: 13, color: T.textSub, marginBottom: 12 }}>You'll need a new invite link to rejoin.</div>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button onClick={() => setLocation("/home")} style={{ flex: 1, background: "#FF4444", border: "none", borderRadius: 10, color: "#fff", padding: "10px 0", fontFamily: font, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>Leave</button>
+                        <button onClick={() => setConfirmLeave(false)} style={{ flex: 1, background: T.surfaceHigh, border: "none", borderRadius: 10, color: T.textSub, padding: "10px 0", fontFamily: font, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>Cancel</button>
+                      </div>
+                    </div>
+                  )}
+                  <Btn variant="danger" onPress={() => setConfirmLeave(!confirmLeave)}>Leave Squad</Btn>
+                </div>
               </>
             )}
           </div>
