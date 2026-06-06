@@ -419,6 +419,25 @@ export default function EventDetailScreen() {
               <Text style={[styles.cardTitle, { color: colors.mutedForeground }]}>Squad</Text>
               <Text style={[styles.cardBody, { color: colors.foreground }]}>{squadName}</Text>
             </View>
+
+            {/* Invite code — visible to all members */}
+            <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Text style={[styles.cardTitle, { color: colors.mutedForeground }]}>Invite friends</Text>
+              <Text style={[styles.inviteCode, { color: colors.primary, marginBottom: 4 }]}>{event.inviteCode}</Text>
+              <Text style={[styles.inviteLink, { color: colors.mutedForeground, marginBottom: 12 }]}>
+                getsquadz.com/join/{event.inviteCode}
+              </Text>
+              <TouchableOpacity
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  Share.share({ message: `Join ${event.title}! getsquadz.com/join/${event.inviteCode}` });
+                }}
+                style={[styles.shareInviteBtn, { backgroundColor: colors.primary + "20", borderColor: colors.primary + "40" }]}
+              >
+                <Ionicons name="share-outline" size={16} color={colors.primary} />
+                <Text style={[styles.shareInviteText, { color: colors.primary }]}>Share invite link</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         )}
 

@@ -34,6 +34,17 @@ function EventOverviewTab({
   isPro: boolean;
   event: EventData | null;
 }) {
+  const [codeCopied, setCodeCopied] = useState(false);
+
+  const copyInviteCode = () => {
+    if (!event) return;
+    const text = `getsquadz.com/invite/${event.inviteCode}`;
+    navigator.clipboard.writeText(text).then(() => {
+      setCodeCopied(true);
+      setTimeout(() => setCodeCopied(false), 2000);
+    });
+  };
+
   const initTasks = [
     { id: 1, label: "Book the rooftop", done: true, owner: "Marcus" as string | null },
     { id: 2, label: "Buy drinks ($38)", done: true, owner: "Jordan" as string | null },
@@ -92,12 +103,23 @@ function EventOverviewTab({
           ["📅", event?.date ?? "TBD"],
           ["📍", event?.location ?? "TBD"],
           ["👥", event?.squadName ?? "—"],
-          ["🔗", event ? `getsquadz.com/invite/${event.inviteCode}` : "—"],
         ].map(([icon, val]) => (
           <div key={icon} style={{ display: "flex", gap: 10, padding: "8px 0", borderTop: `1px solid ${T.border}`, fontSize: 13, color: T.textSub, fontFamily: font }}>
             <span>{icon}</span><span style={{ flex: 1 }}>{val}</span>
           </div>
         ))}
+        <div style={{ display: "flex", gap: 10, padding: "8px 0", borderTop: `1px solid ${T.border}`, fontSize: 13, color: T.textSub, fontFamily: font, alignItems: "center" }}>
+          <span>🔗</span>
+          <span style={{ flex: 1 }}>{event ? `getsquadz.com/invite/${event.inviteCode}` : "—"}</span>
+          {event && (
+            <button
+              onClick={copyInviteCode}
+              style={{ background: codeCopied ? T.green + "22" : T.surfaceUp, border: `1px solid ${codeCopied ? T.green + "60" : T.border}`, borderRadius: 8, padding: "4px 10px", fontFamily: font, fontWeight: 700, fontSize: 11, color: codeCopied ? T.green : T.textSub, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, whiteSpace: "nowrap", transition: "all 0.2s" }}
+            >
+              {codeCopied ? "✓ Copied" : "Copy"}
+            </button>
+          )}
+        </div>
       </Card>
 
       <div style={{ marginTop: 20 }}>
