@@ -7,6 +7,7 @@ import {
   FlatList,
   Platform,
 } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -17,6 +18,11 @@ import { EventCard } from "@/components/EventCard";
 import { UserAvatar } from "@/components/UserAvatar";
 import { goingCount } from "@/data/mock";
 
+const AI_SUGGESTIONS = [
+  { emoji: "🎳", title: "Bowling night this weekend", why: "Your squad hasn't hung out in 12 days", color: "#A855F7", type: "Event" },
+  { emoji: "🍕", title: "Friday pizza run", why: "3 members nearby right now", color: "#FF5C3A", type: "Food" },
+];
+
 export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -24,16 +30,18 @@ export default function HomeScreen() {
   const { events, squads } = useData();
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
-  const memberCount = new Set(squads.flatMap((s) => s.memberIds)).size;
+  const upNext = events[0] ?? null;
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       {/* Header */}
       <View style={[styles.header, { paddingTop: topPad + 8, borderBottomColor: colors.border }]}>
         <View>
-          <Text style={[styles.logoText, { color: colors.primary }]}>SquadZ</Text>
-          <Text style={[styles.greeting, { color: colors.mutedForeground }]}>
+          <Text style={[styles.greeting, { color: colors.foreground }]}>
             Hey, {currentUser.name.split(" ")[0]} 👋
+          </Text>
+          <Text style={[styles.subGreeting, { color: colors.mutedForeground }]}>
+            {squads.length} squad{squads.length !== 1 ? "s" : ""} · {events.length} event{events.length !== 1 ? "s" : ""} this week
           </Text>
         </View>
         <View style={styles.headerRight}>
@@ -42,11 +50,11 @@ export default function HomeScreen() {
             style={[styles.bellBtn, { backgroundColor: colors.card }]}
           >
             <Ionicons name="notifications-outline" size={22} color={colors.foreground} />
-            <View style={[styles.badge, { backgroundColor: colors.primary }]}>
+            <View style={[styles.badge, { backgroundColor: colors.primary, borderColor: colors.background }]}>
               <Text style={styles.badgeText}>4</Text>
             </View>
           </TouchableOpacity>
-          <UserAvatar initials={currentUser.initials} color={currentUser.color} size={38} fontSize={13} />
+          <UserAvatar initials={currentUser.initials} color={currentUser.color} size={44} fontSize={14} />
         </View>
       </View>
 
@@ -55,6 +63,99 @@ export default function HomeScreen() {
         contentContainerStyle={{ paddingBottom: insets.bottom + (Platform.OS === "web" ? 84 : 100) }}
         showsVerticalScrollIndicator={false}
       >
+        {/* Hero "Up Next" card */}
+        {upNext && (
+          <View style={styles.section}>
+            <TouchableOpacity
+              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push(`/event/${upNext.id}`); }}
+              activeOpacity={0.92}
+            >
+              <LinearGradient
+                colors={["#FF5C3A", "#FF8C3A"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.heroCard}
+              >
+                {/* Decorative circle */}
+                <View style={styles.heroCircle} />
+                <View style={[styles.heroTag, { backgroundColor: "rgba(255,255,255,0.25)" }]}>
+                  <Text style={styles.heroTagText}>⚡ Up Next</Text>
+                </View>
+                <Text style={styles.heroTitle}>{upNext.emoji} {upNext.title}</Text>
+                <Text style={styles.heroSub}>{upNext.location} · {upNext.date}</Text>
+                <View style={styles.heroFooter}>
+                  <View style={styles.heroPeople}>
+                    {["J", "M", "K", "T", "R"].slice(0, Math.min(goingCount(upNext), 5)).map((l, i) => (
+                      <View key={i} style={[styles.heroPip, { marginLeft: i > 0 ? -8 : 0, backgroundColor: "#fff3" }]}>
+                        <Text style={styles.heroPipText}>{l}</Text>
+                      </View>
+                    ))}
+                  </View>
+                  <Text style={styles.heroGoingText}>{goingCount(upNext)} going</Text>
+                </View>
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Streak banner */}
+        <View style={styles.section}>
+          <View style={[styles.streakBanner, { backgroundColor: colors.card, borderColor: "#FFB54740" }]}>
+            <Text style={styles.streakFire}>🔥</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.streakTitle, { color: "#FFB547" }]}>12-week squad streak!</Text>
+              <Text style={[styles.streakSub, { color: colors.mutedForeground }]}>Your crew has hung out every week</Text>
+            </View>
+            <View style={[styles.streakBadge, { backgroundColor: "#FFB54722" }]}>
+              <Text style={{ fontSize: 16 }}>🏆</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* My Squads */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={[styles.sectionTitle, { color: colors.foreground }]}>My SquadZ</Text>
+            <TouchableOpacity onPress={() => router.push("/(tabs)/profile")}>
+              <Text style={[styles.seeAll, { color: colors.primary }]}>See all →</Text>
+            </TouchableOpacity>
+          </View>
+          <FlatList
+            data={squads}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            keyExtractor={(s) => s.id}
+            contentContainerStyle={{ gap: 10, paddingRight: 20 }}
+            ListFooterComponent={
+              <TouchableOpacity
+                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push("/squad/create"); }}
+                style={[styles.squadBubble, styles.newSquadBubble, { borderColor: colors.primary + "50" }]}
+              >
+                <View style={[styles.squadEmoji, { backgroundColor: colors.primary + "20" }]}>
+                  <Ionicons name="add" size={26} color={colors.primary} />
+                </View>
+                <Text style={[styles.squadName, { color: colors.primary }]}>New</Text>
+              </TouchableOpacity>
+            }
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push(`/squad/${item.id}`); }}
+                style={[styles.squadBubble, { backgroundColor: colors.card, borderColor: colors.border }]}
+              >
+                <View style={[styles.squadEmoji, { backgroundColor: item.color + "20" }]}>
+                  <Text style={styles.squadEmojiText}>{item.emoji}</Text>
+                </View>
+                <Text style={[styles.squadName, { color: colors.foreground }]} numberOfLines={1}>
+                  {item.name}
+                </Text>
+                <Text style={[styles.squadCount, { color: colors.mutedForeground }]}>
+                  {item.memberIds.length} members
+                </Text>
+              </TouchableOpacity>
+            )}
+          />
+        </View>
+
         {/* Upcoming Events */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
@@ -84,67 +185,39 @@ export default function HomeScreen() {
           />
         </View>
 
-        {/* My Squads */}
+        {/* AI Suggestions */}
         <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={[styles.sectionTitle, { color: colors.foreground }]}>My Squads</Text>
-            <TouchableOpacity onPress={() => router.push("/(tabs)/profile")}>
-              <Text style={[styles.seeAll, { color: colors.primary }]}>Manage →</Text>
-            </TouchableOpacity>
-          </View>
-          <FlatList
-            data={squads}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            keyExtractor={(s) => s.id}
-            contentContainerStyle={{ gap: 12, paddingRight: 20 }}
-            ListFooterComponent={
+          <Text style={[styles.sectionTitle, { color: colors.foreground, marginBottom: 12 }]}>✦ AI Suggestions</Text>
+          <View style={{ gap: 10 }}>
+            {AI_SUGGESTIONS.map((s) => (
               <TouchableOpacity
-                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push("/squad/create"); }}
-                style={[styles.squadBubble, styles.newSquadBubble, { borderColor: colors.primary + "50" }]}
+                key={s.title}
+                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push("/(tabs)/create"); }}
+                style={[styles.suggestionCard, { backgroundColor: colors.card, borderColor: colors.border }]}
               >
-                <View style={[styles.squadEmoji, { backgroundColor: colors.primary + "20" }]}>
-                  <Ionicons name="add" size={26} color={colors.primary} />
+                <View style={[styles.suggestionIcon, { backgroundColor: s.color + "22" }]}>
+                  <Text style={{ fontSize: 22 }}>{s.emoji}</Text>
                 </View>
-                <Text style={[styles.squadName, { color: colors.primary }]}>New squad</Text>
-              </TouchableOpacity>
-            }
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push(`/squad/${item.id}`); }}
-                style={[styles.squadBubble, { backgroundColor: colors.card, borderColor: colors.border }]}
-              >
-                <View style={[styles.squadEmoji, { backgroundColor: item.color + "20" }]}>
-                  <Text style={styles.squadEmojiText}>{item.emoji}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.suggestionTitle, { color: colors.foreground }]}>{s.title}</Text>
+                  <Text style={[styles.suggestionSub, { color: colors.mutedForeground }]}>{s.why}</Text>
                 </View>
-                <Text style={[styles.squadName, { color: colors.foreground }]} numberOfLines={1}>
-                  {item.name}
-                </Text>
-                <Text style={[styles.squadCount, { color: colors.mutedForeground }]}>
-                  {item.memberIds.length} members
-                </Text>
+                <View style={[styles.suggestionTag, { backgroundColor: s.color + "22" }]}>
+                  <Text style={[styles.suggestionTagText, { color: s.color }]}>{s.type}</Text>
+                </View>
               </TouchableOpacity>
-            )}
-          />
-        </View>
-
-        {/* Quick stats */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.foreground, marginBottom: 12 }]}>This Month</Text>
-          <View style={styles.statsRow}>
-            {[
-              { value: events.length.toString(), label: "Events", color: colors.primary },
-              { value: squads.length.toString(), label: "Squads", color: colors.blue },
-              { value: memberCount.toString(), label: "Members", color: colors.green },
-            ].map((s) => (
-              <View key={s.label} style={[styles.statCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                <Text style={[styles.statValue, { color: s.color }]}>{s.value}</Text>
-                <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>{s.label}</Text>
-              </View>
             ))}
           </View>
         </View>
       </ScrollView>
+
+      {/* FAB */}
+      <TouchableOpacity
+        onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push("/(tabs)/create"); }}
+        style={[styles.fab, { backgroundColor: colors.primary, shadowColor: colors.primary }]}
+      >
+        <Text style={styles.fabText}>+</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -152,30 +225,61 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
+    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+    paddingHorizontal: 20, paddingBottom: 12, borderBottomWidth: 1,
   },
-  logoText: { fontSize: 22, fontWeight: "900", letterSpacing: -0.5 },
-  greeting: { fontSize: 13, marginTop: 1 },
+  greeting: { fontSize: 24, fontWeight: "800", letterSpacing: -0.3 },
+  subGreeting: { fontSize: 13, marginTop: 2 },
   headerRight: { flexDirection: "row", alignItems: "center", gap: 12 },
-  bellBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", position: "relative" },
+  bellBtn: {
+    width: 40, height: 40, borderRadius: 20,
+    alignItems: "center", justifyContent: "center", position: "relative",
+  },
   badge: {
     position: "absolute", top: -2, right: -2,
     width: 18, height: 18, borderRadius: 9,
-    alignItems: "center", justifyContent: "center",
+    alignItems: "center", justifyContent: "center", borderWidth: 2,
   },
   badgeText: { fontSize: 10, fontWeight: "800", color: "#fff" },
   body: { flex: 1 },
-  section: { paddingHorizontal: 20, paddingTop: 24 },
+  section: { paddingHorizontal: 20, paddingTop: 20 },
   sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 14 },
   sectionTitle: { fontSize: 18, fontWeight: "800" },
   seeAll: { fontSize: 13, fontWeight: "600" },
+  heroCard: {
+    borderRadius: 22, padding: 20, overflow: "hidden",
+  },
+  heroCircle: {
+    position: "absolute", right: -30, top: -30,
+    width: 160, height: 160, borderRadius: 80,
+    backgroundColor: "rgba(255,255,255,0.1)",
+  },
+  heroTag: {
+    alignSelf: "flex-start", borderRadius: 20,
+    paddingHorizontal: 10, paddingVertical: 4, marginBottom: 8,
+  },
+  heroTagText: { fontSize: 12, fontWeight: "700", color: "#fff" },
+  heroTitle: { fontSize: 22, fontWeight: "800", color: "#fff", marginBottom: 4 },
+  heroSub: { fontSize: 13, color: "rgba(255,255,255,0.8)", marginBottom: 14 },
+  heroFooter: { flexDirection: "row", alignItems: "center" },
+  heroPeople: { flexDirection: "row" },
+  heroPip: {
+    width: 28, height: 28, borderRadius: 14,
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 2, borderColor: "#FF5C3A",
+  },
+  heroPipText: { fontSize: 11, fontWeight: "800", color: "#fff" },
+  heroGoingText: { marginLeft: 8, fontSize: 12, color: "rgba(255,255,255,0.8)" },
+  streakBanner: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    borderRadius: 14, borderWidth: 1, padding: 14,
+  },
+  streakFire: { fontSize: 28 },
+  streakTitle: { fontSize: 14, fontWeight: "700" },
+  streakSub: { fontSize: 12, marginTop: 2 },
+  streakBadge: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   squadBubble: {
-    borderRadius: 16, borderWidth: 1, padding: 14, width: 140,
+    borderRadius: 16, borderWidth: 1, padding: 14, width: 130,
     alignItems: "center", gap: 8,
   },
   newSquadBubble: { borderStyle: "dashed", justifyContent: "center" },
@@ -183,8 +287,20 @@ const styles = StyleSheet.create({
   squadEmojiText: { fontSize: 24 },
   squadName: { fontSize: 13, fontWeight: "700", textAlign: "center" },
   squadCount: { fontSize: 12, textAlign: "center" },
-  statsRow: { flexDirection: "row", gap: 10 },
-  statCard: { flex: 1, borderRadius: 14, borderWidth: 1, padding: 16, alignItems: "center", gap: 4 },
-  statValue: { fontSize: 26, fontWeight: "900" },
-  statLabel: { fontSize: 12 },
+  suggestionCard: {
+    flexDirection: "row", alignItems: "center", gap: 14,
+    borderRadius: 16, borderWidth: 1, padding: 14,
+  },
+  suggestionIcon: { width: 44, height: 44, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+  suggestionTitle: { fontSize: 15, fontWeight: "700" },
+  suggestionSub: { fontSize: 12, marginTop: 2 },
+  suggestionTag: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
+  suggestionTagText: { fontSize: 11, fontWeight: "700" },
+  fab: {
+    position: "absolute", bottom: 90, right: 24,
+    width: 56, height: 56, borderRadius: 28,
+    alignItems: "center", justifyContent: "center",
+    shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.4, shadowRadius: 16, elevation: 8,
+  },
+  fabText: { fontSize: 26, color: "#fff", lineHeight: 30 },
 });

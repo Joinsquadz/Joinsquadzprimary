@@ -8,15 +8,42 @@ import {
   Platform,
   ScrollView,
 } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AppContext";
+import { GradientButton } from "@/components/GradientButton";
 
-const AVATAR_COLORS = ["#FF5C3A", "#4A9EFF", "#2ECC8A", "#A855F7", "#FFB547", "#FF6B9D"];
-const INTERESTS = ["Music", "Food", "Sports", "Gaming", "Travel", "Art", "Outdoors", "Film"];
+const AVATARS = ["🐶", "🦊", "🐻", "🐼", "🦁", "🐯", "🦝", "🐸", "🐙", "🦋", "🌈", "⚡"];
+const INTERESTS = [
+  { icon: "🍕", label: "Food" },
+  { icon: "🏖️", label: "Outdoors" },
+  { icon: "🎮", label: "Gaming" },
+  { icon: "🎬", label: "Movies" },
+  { icon: "🎵", label: "Music" },
+  { icon: "🏋️", label: "Fitness" },
+  { icon: "🎨", label: "Arts" },
+  { icon: "✈️", label: "Travel" },
+  { icon: "🍺", label: "Bars" },
+  { icon: "🎤", label: "Live Events" },
+  { icon: "🧩", label: "Board Games" },
+  { icon: "🍳", label: "Cooking" },
+];
+const SQUAD_EMOJIS = ["🔥", "💼", "🎓", "🏡", "✈️", "🎮", "🍕", "🎉", "💪", "🌊", "🎵", "🦄"];
+const SQUAD_CHIPS = ["Friend Group", "Coworkers", "Family", "College", "Roommates", "Sports"];
+
+const GLOW_COLORS = ["#FF5C3A", "#A855F7", "#FFB547", "#2ECC8A", "#4A9EFF"];
+const STEP_ICONS = ["👋", "😊", "✨", "🔥", "⚡"];
+const STEP_TITLES = ["What should we call you?", "Pick your vibe", "What do you love?", "Name your squad", "Choose your plan"];
+const STEP_DESCS = [
+  "How your squad will see you",
+  "Express yourself with an avatar",
+  "Helps us suggest the best events (pick 3+)",
+  "Create your first group to start planning",
+  "You can upgrade or downgrade anytime",
+];
 
 export default function OnboardingScreen() {
   const colors = useColors();
@@ -26,12 +53,16 @@ export default function OnboardingScreen() {
 
   const [step, setStep] = useState(0);
   const [name, setName] = useState("");
-  const [avatarColor, setAvatarColor] = useState(AVATAR_COLORS[0]);
-  const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
+  const [avatar, setAvatar] = useState<string | null>(null);
+  const [interests, setInterests] = useState<Set<string>>(new Set());
+  const [squadEmoji, setSquadEmoji] = useState("🔥");
+  const [squadName, setSquadName] = useState("");
   const [plan, setPlan] = useState<"free" | "pro" | null>(null);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
+
+  const glow = GLOW_COLORS[step];
 
   const handleComplete = () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -43,223 +74,276 @@ export default function OnboardingScreen() {
     }
   };
 
-  const StepDots = () => (
-    <View style={styles.dots}>
-      {[0, 1, 2, 3, 4].map((i) => (
-        <View
-          key={i}
-          style={[
-            styles.dot,
-            { backgroundColor: i === step ? colors.primary : colors.border },
-            i === step && styles.dotActive,
-          ]}
-        />
-      ))}
-    </View>
-  );
-
-  const Btn = ({
-    label,
-    onPress,
-    disabled = false,
-  }: {
-    label: string;
-    onPress: () => void;
-    disabled?: boolean;
-  }) => (
-    <TouchableOpacity
-      onPress={onPress}
-      disabled={disabled}
-      style={[
-        styles.btn,
-        { backgroundColor: disabled ? colors.border : colors.primary },
-      ]}
-    >
-      <Text style={[styles.btnText, { color: disabled ? colors.textDim : "#fff" }]}>{label}</Text>
-    </TouchableOpacity>
-  );
-
-  if (step === 0) {
-    return (
-      <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: topPad }]}>
-        <StepDots />
-        <View style={styles.content}>
-          <Text style={styles.stepLabel}>Step 1 of 5</Text>
-          <Text style={[styles.h1, { color: colors.foreground }]}>What's your name?</Text>
-          <Text style={[styles.sub, { color: colors.mutedForeground }]}>
-            How should your squad know you?
-          </Text>
-          <TextInput
-            placeholder="Your name"
-            placeholderTextColor={colors.textDim}
-            value={name}
-            onChangeText={setName}
-            autoFocus
-            style={[
-              styles.nameInput,
-              { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground },
-            ]}
-          />
-        </View>
-        <View style={[styles.footer, { paddingBottom: botPad + 16 }]}>
-          <Btn label="Continue →" onPress={() => setStep(1)} disabled={!name.trim()} />
-        </View>
-      </View>
-    );
-  }
-
-  if (step === 1) {
-    const initials = name.trim().split(" ").map((p) => p[0]?.toUpperCase() ?? "").join("").slice(0, 2);
-    return (
-      <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: topPad }]}>
-        <StepDots />
-        <View style={styles.content}>
-          <Text style={styles.stepLabel}>Step 2 of 5</Text>
-          <Text style={[styles.h1, { color: colors.foreground }]}>Pick your vibe</Text>
-          <Text style={[styles.sub, { color: colors.mutedForeground }]}>Choose your avatar color</Text>
-          <View style={[styles.avatarPreview, { backgroundColor: avatarColor }]}>
-            <Text style={styles.avatarInitials}>{initials || "JP"}</Text>
-          </View>
-          <View style={styles.colorGrid}>
-            {AVATAR_COLORS.map((c) => (
-              <TouchableOpacity
-                key={c}
-                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setAvatarColor(c); }}
-                style={[
-                  styles.colorSwatch,
-                  { backgroundColor: c, borderWidth: avatarColor === c ? 3 : 0, borderColor: "#fff" },
-                ]}
-              />
-            ))}
-          </View>
-        </View>
-        <View style={[styles.footer, { paddingBottom: botPad + 16 }]}>
-          <Btn label="Continue →" onPress={() => setStep(2)} />
-        </View>
-      </View>
-    );
-  }
-
-  if (step === 2) {
-    const toggle = (interest: string) => {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      setSelectedInterests((prev) =>
-        prev.includes(interest) ? prev.filter((i) => i !== interest) : [...prev, interest]
-      );
-    };
-    return (
-      <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: topPad }]}>
-        <StepDots />
-        <View style={styles.content}>
-          <Text style={styles.stepLabel}>Step 3 of 5</Text>
-          <Text style={[styles.h1, { color: colors.foreground }]}>What's your scene?</Text>
-          <Text style={[styles.sub, { color: colors.mutedForeground }]}>Pick interests to find events you'll love</Text>
-          <View style={styles.interestGrid}>
-            {INTERESTS.map((interest) => {
-              const active = selectedInterests.includes(interest);
-              return (
-                <TouchableOpacity
-                  key={interest}
-                  onPress={() => toggle(interest)}
-                  style={[
-                    styles.interestChip,
-                    {
-                      backgroundColor: active ? colors.primary : colors.card,
-                      borderColor: active ? colors.primary : colors.border,
-                    },
-                  ]}
-                >
-                  <Text style={[styles.interestText, { color: active ? "#fff" : colors.mutedForeground }]}>
-                    {interest}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </View>
-        <View style={[styles.footer, { paddingBottom: botPad + 16 }]}>
-          <Btn label="Continue →" onPress={() => setStep(3)} />
-        </View>
-      </View>
-    );
-  }
-
-  if (step === 3) {
-    return (
-      <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: topPad }]}>
-        <StepDots />
-        <View style={styles.content}>
-          <Text style={styles.stepLabel}>Step 4 of 5</Text>
-          <Text style={[styles.h1, { color: colors.foreground }]}>Find your squad</Text>
-          <Text style={[styles.sub, { color: colors.mutedForeground }]}>
-            You can create or join squads after signing up
-          </Text>
-          <View style={[styles.squadCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <View style={[styles.squadIcon, { backgroundColor: colors.primary + "20" }]}>
-              <Ionicons name="people-outline" size={28} color={colors.primary} />
-            </View>
-            <Text style={[styles.squadCardTitle, { color: colors.foreground }]}>Your squads are waiting</Text>
-            <Text style={[styles.squadCardSub, { color: colors.mutedForeground }]}>
-              Create a squad with friends or join one with an invite code
-            </Text>
-          </View>
-        </View>
-        <View style={[styles.footer, { paddingBottom: botPad + 16 }]}>
-          <Btn label="Continue →" onPress={() => setStep(4)} />
-        </View>
-      </View>
-    );
-  }
+  const stepIcon = step === 1 ? (avatar ?? STEP_ICONS[1]) : STEP_ICONS[step];
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: topPad }]}>
-      <StepDots />
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        <Text style={styles.stepLabel}>Step 5 of 5</Text>
-        <Text style={[styles.h1, { color: colors.foreground }]}>Choose your plan</Text>
-        <Text style={[styles.sub, { color: colors.mutedForeground }]}>You can always upgrade later</Text>
+      {/* Background glow orbs */}
+      <View style={[styles.glowTopRight, { backgroundColor: glow }]} pointerEvents="none" />
+      <View style={[styles.glowBottomLeft, { backgroundColor: step % 2 === 0 ? "#A855F7" : "#4A9EFF" }]} pointerEvents="none" />
 
+      {/* Step dots + back */}
+      <View style={styles.topBar}>
         <TouchableOpacity
-          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setPlan("free"); }}
-          style={[styles.planCard, { backgroundColor: colors.card, borderColor: plan === "free" ? colors.primary : colors.border }]}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            step > 0 ? setStep(step - 1) : router.back();
+          }}
+          style={[styles.backBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
         >
-          <View style={styles.planHeader}>
-            <Text style={[styles.planName, { color: colors.foreground }]}>Free</Text>
-            <Text style={[styles.planPrice, { color: colors.foreground }]}>$0</Text>
-          </View>
-          {["Up to 3 squads", "10 events/month", "Basic task lists"].map((f) => (
-            <View key={f} style={styles.planFeature}>
-              <Ionicons name="checkmark" size={16} color={colors.green} />
-              <Text style={[styles.planFeatureText, { color: colors.mutedForeground }]}>{f}</Text>
-            </View>
-          ))}
+          <Text style={[styles.backArrow, { color: colors.mutedForeground }]}>←</Text>
         </TouchableOpacity>
+        <View style={styles.dots}>
+          {[0, 1, 2, 3, 4].map((i) => (
+            <View
+              key={i}
+              style={[
+                styles.dot,
+                {
+                  backgroundColor: i === step ? glow : i < step ? glow + "70" : colors.border,
+                  width: i === step ? 24 : 14,
+                },
+              ]}
+            />
+          ))}
+        </View>
+        <Text style={[styles.stepCounter, { color: colors.mutedForeground }]}>{step + 1} of 5</Text>
+      </View>
 
-        <TouchableOpacity
-          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setPlan("pro"); }}
-          style={[styles.planCard, { backgroundColor: colors.card, borderColor: plan === "pro" ? colors.gold : colors.border }]}
-        >
-          <View style={[styles.bestValue, { backgroundColor: colors.gold }]}>
-            <Text style={styles.bestValueText}>BEST VALUE</Text>
-          </View>
-          <View style={styles.planHeader}>
-            <Text style={[styles.planName, { color: colors.foreground }]}>Pro</Text>
-            <Text style={[styles.planPrice, { color: colors.gold }]}>$20/yr</Text>
-          </View>
-          {["Unlimited squads & events", "Photo vault (forever)", "AI best-time finder", "Split costs auto"].map((f) => (
-            <View key={f} style={styles.planFeature}>
-              <Ionicons name="checkmark-circle" size={16} color={colors.green} />
-              <Text style={[styles.planFeatureText, { color: colors.mutedForeground }]}>{f}</Text>
+      {/* Content */}
+      <ScrollView style={styles.body} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        {/* Step icon */}
+        <View style={[styles.iconBox, { backgroundColor: glow + "22", borderColor: glow + "40" }]}>
+          <Text style={styles.iconEmoji}>{stepIcon}</Text>
+        </View>
+
+        <Text style={[styles.h1, { color: colors.foreground }]}>{STEP_TITLES[step]}</Text>
+        <Text style={[styles.desc, { color: colors.mutedForeground }]}>{STEP_DESCS[step]}</Text>
+
+        {/* Step 0 — Name */}
+        {step === 0 && (
+          <View style={{ gap: 10 }}>
+            <TextInput
+              placeholder="First name"
+              placeholderTextColor={colors.mutedForeground}
+              value={name}
+              onChangeText={setName}
+              autoFocus
+              style={[styles.input, { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
+            />
+            <TextInput
+              placeholder="Last name (optional)"
+              placeholderTextColor={colors.mutedForeground}
+              style={[styles.input, { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
+            />
+            <View style={[styles.photoRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Text style={styles.photoIcon}>📷</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.photoTitle, { color: colors.foreground }]}>Upload a photo</Text>
+                <Text style={[styles.photoSub, { color: colors.mutedForeground }]}>Optional · JPG, PNG</Text>
+              </View>
+              <View style={[styles.chooseBtn, { backgroundColor: colors.card }]}>
+                <Text style={[styles.chooseBtnText, { color: colors.mutedForeground }]}>Choose</Text>
+              </View>
             </View>
-          ))}
-        </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Step 1 — Avatar emoji */}
+        {step === 1 && (
+          <View style={styles.emojiGrid}>
+            {AVATARS.map((a) => (
+              <TouchableOpacity
+                key={a}
+                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setAvatar(a); }}
+                style={[
+                  styles.emojiCell,
+                  {
+                    backgroundColor: avatar === a ? "#A855F722" : colors.card,
+                    borderColor: avatar === a ? "#A855F7" : colors.border,
+                    borderWidth: avatar === a ? 2 : 1,
+                    shadowColor: avatar === a ? "#A855F7" : "transparent",
+                    shadowOpacity: avatar === a ? 0.3 : 0,
+                    shadowRadius: 10,
+                    elevation: avatar === a ? 4 : 0,
+                  },
+                ]}
+              >
+                <Text style={styles.emojiCellText}>{a}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
+        {/* Step 2 — Interests */}
+        {step === 2 && (
+          <View>
+            <View style={styles.chipsWrap}>
+              {INTERESTS.map(({ icon, label }) => {
+                const on = interests.has(label);
+                return (
+                  <TouchableOpacity
+                    key={label}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      const s = new Set(interests);
+                      s.has(label) ? s.delete(label) : s.add(label);
+                      setInterests(s);
+                    }}
+                    style={[
+                      styles.interestChip,
+                      {
+                        backgroundColor: on ? "#FFB54718" : colors.card,
+                        borderColor: on ? "#FFB547" : colors.border,
+                        borderWidth: on ? 1.5 : 1,
+                      },
+                    ]}
+                  >
+                    <Text style={styles.interestIcon}>{icon}</Text>
+                    <Text style={[styles.interestLabel, { color: on ? "#FFB547" : colors.mutedForeground }]}>{label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            {interests.size > 0 && interests.size < 3 && (
+              <Text style={{ color: "#FFB547", fontSize: 12, marginTop: 8 }}>{3 - interests.size} more to go!</Text>
+            )}
+            {interests.size >= 3 && (
+              <Text style={{ color: colors.green, fontSize: 12, marginTop: 8 }}>Nice picks! You're all set.</Text>
+            )}
+          </View>
+        )}
+
+        {/* Step 3 — Squad name */}
+        {step === 3 && (
+          <View style={{ gap: 12 }}>
+            <View style={styles.emojiGridSmall}>
+              {SQUAD_EMOJIS.map((e) => (
+                <TouchableOpacity
+                  key={e}
+                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSquadEmoji(e); }}
+                  style={[
+                    styles.squadEmojiCell,
+                    {
+                      backgroundColor: squadEmoji === e ? "#2ECC8A22" : colors.card,
+                      borderColor: squadEmoji === e ? "#2ECC8A" : colors.border,
+                      borderWidth: squadEmoji === e ? 2 : 1,
+                    },
+                  ]}
+                >
+                  <Text style={styles.squadEmojiText}>{e}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <TextInput
+              placeholder="Squad name, e.g. The Usual Suspects"
+              placeholderTextColor={colors.mutedForeground}
+              value={squadName}
+              onChangeText={setSquadName}
+              style={[styles.input, { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
+            />
+            <View style={styles.chipsWrap}>
+              {SQUAD_CHIPS.map((chip) => (
+                <TouchableOpacity
+                  key={chip}
+                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSquadName(chip + " Squad"); }}
+                  style={[styles.chipSmall, { backgroundColor: colors.card, borderColor: colors.border }]}
+                >
+                  <Text style={[styles.chipSmallText, { color: colors.mutedForeground }]}>{chip}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
+
+        {/* Step 4 — Plan */}
+        {step === 4 && (
+          <View style={{ gap: 12 }}>
+            {/* Free */}
+            <TouchableOpacity
+              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setPlan("free"); }}
+              style={[styles.planCard, { backgroundColor: colors.card, borderColor: plan === "free" ? "#FF5C3A" : colors.border, borderWidth: plan === "free" ? 2 : 1 }]}
+            >
+              <View style={styles.planHeader}>
+                <Text style={[styles.planName, { color: colors.foreground }]}>Free</Text>
+                <Text style={[styles.planPrice, { color: colors.mutedForeground }]}>$0</Text>
+              </View>
+              {["Up to 3 events per year", "30-day photo storage", "Basic squad features", "In-app messaging"].map((f) => (
+                <View key={f} style={styles.planFeature}>
+                  <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>·</Text>
+                  <Text style={[styles.planFeatureText, { color: colors.mutedForeground }]}>{f}</Text>
+                </View>
+              ))}
+              {plan === "free" && <Text style={{ marginTop: 10, fontSize: 12, color: "#FF5C3A", fontWeight: "700" }}>✓ Selected</Text>}
+            </TouchableOpacity>
+
+            {/* Pro */}
+            <TouchableOpacity
+              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setPlan("pro"); }}
+              style={[styles.planCard, { backgroundColor: plan === "pro" ? "#FF5C3A18" : colors.card, borderColor: plan === "pro" ? "#FF5C3A" : colors.border, borderWidth: plan === "pro" ? 2 : 1 }]}
+            >
+              <View style={[styles.bestValueBadge, { backgroundColor: "#FF5C3A" }]}>
+                <Text style={styles.bestValueText}>BEST VALUE</Text>
+              </View>
+              <View style={styles.planHeader}>
+                <Text style={[styles.planName, { color: colors.foreground }]}>Pro ⚡</Text>
+                <View style={{ flexDirection: "row", alignItems: "baseline", gap: 2 }}>
+                  <Text style={[styles.planPrice, { color: colors.foreground }]}>$20</Text>
+                  <Text style={{ fontSize: 12, color: colors.mutedForeground }}>/year</Text>
+                </View>
+              </View>
+              {["Unlimited events per year", "Permanent photo vault", "Calendar sync & AI scheduling", "Custom invite codes", "Priority support"].map((f) => (
+                <View key={f} style={styles.planFeature}>
+                  <Text style={{ color: colors.green, fontWeight: "700", fontSize: 12 }}>✓</Text>
+                  <Text style={[styles.planFeatureText, { color: colors.foreground }]}>{f}</Text>
+                </View>
+              ))}
+              {plan === "pro" && <Text style={{ marginTop: 10, fontSize: 12, color: "#FF5C3A", fontWeight: "700" }}>✓ Selected</Text>}
+            </TouchableOpacity>
+
+            <Text style={{ fontSize: 12, color: colors.mutedForeground, textAlign: "center" }}>
+              No credit card required for free plan · Cancel Pro anytime
+            </Text>
+          </View>
+        )}
+
+        <View style={{ height: 32 }} />
       </ScrollView>
-      <View style={[styles.footer, { paddingBottom: botPad + 16 }]}>
-        <Btn
-          label={plan === "pro" ? "Start Pro — $20/year →" : plan === "free" ? "Start Free →" : "Choose a plan to continue"}
-          onPress={handleComplete}
-          disabled={!plan}
-        />
+
+      {/* Footer CTA */}
+      <View style={[styles.footer, { paddingBottom: botPad + 16, borderTopColor: colors.border + "80" }]}>
+        {step === 0 && (
+          <GradientButton
+            label={name.trim() ? `Nice to meet you, ${name.trim().split(" ")[0]}! →` : "Enter your name to continue"}
+            onPress={() => setStep(1)}
+            disabled={!name.trim()}
+          />
+        )}
+        {step === 1 && (
+          <GradientButton label="Looking good! Next →" onPress={() => setStep(2)} />
+        )}
+        {step === 2 && (
+          <GradientButton label="Perfect picks! Next →" onPress={() => setStep(3)} disabled={interests.size < 3} />
+        )}
+        {step === 3 && (
+          <View style={{ gap: 8 }}>
+            <GradientButton
+              label={squadName.trim() ? "Next: Choose Your Plan →" : "Name your squad first"}
+              onPress={() => setStep(4)}
+              disabled={!squadName.trim()}
+            />
+            <TouchableOpacity onPress={() => setStep(4)} style={{ alignItems: "center", padding: 4 }}>
+              <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>Skip squad for now</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        {step === 4 && (
+          <GradientButton
+            label={plan === "pro" ? "Start Pro — $20/year →" : plan === "free" ? "Start Free →" : "Choose a plan to continue"}
+            onPress={handleComplete}
+            disabled={!plan}
+          />
+        )}
       </View>
     </View>
   );
@@ -267,34 +351,91 @@ export default function OnboardingScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  dots: { flexDirection: "row", gap: 6, paddingHorizontal: 24, paddingTop: 16, paddingBottom: 8 },
-  dot: { width: 6, height: 6, borderRadius: 3 },
-  dotActive: { width: 20 },
-  stepLabel: { fontSize: 12, color: "#555566", fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 8 },
-  content: { flex: 1, paddingHorizontal: 24, paddingTop: 12 },
-  h1: { fontSize: 28, fontWeight: "800", marginBottom: 8 },
-  sub: { fontSize: 14, lineHeight: 20, marginBottom: 28 },
-  footer: { paddingHorizontal: 24 },
-  btn: { borderRadius: 14, padding: 15, alignItems: "center" },
-  btnText: { fontSize: 16, fontWeight: "800" },
-  nameInput: { borderRadius: 13, borderWidth: 1.5, paddingHorizontal: 16, fontSize: 17, height: 54 },
-  avatarPreview: { width: 96, height: 96, borderRadius: 30, alignItems: "center", justifyContent: "center", alignSelf: "center", marginBottom: 24 },
-  avatarInitials: { fontSize: 36, fontWeight: "800", color: "#fff" },
-  colorGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
-  colorSwatch: { width: 48, height: 48, borderRadius: 24 },
-  interestGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  interestChip: { borderRadius: 20, borderWidth: 1.5, paddingHorizontal: 16, paddingVertical: 8 },
-  interestText: { fontSize: 14, fontWeight: "600" },
-  squadCard: { borderRadius: 16, borderWidth: 1, padding: 24, alignItems: "center", gap: 12 },
-  squadIcon: { width: 64, height: 64, borderRadius: 20, alignItems: "center", justifyContent: "center" },
-  squadCardTitle: { fontSize: 18, fontWeight: "800", textAlign: "center" },
-  squadCardSub: { fontSize: 14, textAlign: "center", lineHeight: 20 },
-  planCard: { borderRadius: 16, borderWidth: 2, padding: 18, marginBottom: 12, position: "relative" },
-  planHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 14 },
-  planName: { fontSize: 20, fontWeight: "800" },
-  planPrice: { fontSize: 20, fontWeight: "800" },
-  planFeature: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 },
-  planFeatureText: { fontSize: 14 },
-  bestValue: { position: "absolute", top: -10, left: 16, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 3 },
-  bestValueText: { fontSize: 10, fontWeight: "800", color: "#000" },
+  glowTopRight: {
+    position: "absolute", top: -60, right: -40,
+    width: 240, height: 240, borderRadius: 120,
+    opacity: 0.13,
+  },
+  glowBottomLeft: {
+    position: "absolute", bottom: -40, left: -40,
+    width: 200, height: 200, borderRadius: 100,
+    opacity: 0.08,
+  },
+  topBar: {
+    flexDirection: "row", alignItems: "center",
+    gap: 12, paddingHorizontal: 22, paddingTop: 16, paddingBottom: 8,
+  },
+  backBtn: {
+    borderRadius: 10, borderWidth: 1,
+    paddingHorizontal: 12, paddingVertical: 7,
+  },
+  backArrow: { fontSize: 16 },
+  dots: { flexDirection: "row", gap: 6, flex: 1 },
+  dot: { height: 4, borderRadius: 2 },
+  stepCounter: { fontSize: 12, fontWeight: "700" },
+  body: { flex: 1, paddingHorizontal: 22 },
+  iconBox: {
+    width: 64, height: 64, borderRadius: 20,
+    borderWidth: 1, alignItems: "center", justifyContent: "center",
+    marginBottom: 14, marginTop: 4,
+  },
+  iconEmoji: { fontSize: 30 },
+  h1: { fontSize: 24, fontWeight: "800", marginBottom: 4, lineHeight: 30 },
+  desc: { fontSize: 13, marginBottom: 20, lineHeight: 18 },
+  input: {
+    borderRadius: 13, borderWidth: 1.5,
+    paddingHorizontal: 16, paddingVertical: 13, fontSize: 15,
+  },
+  photoRow: {
+    borderRadius: 13, borderWidth: 1,
+    padding: 12, flexDirection: "row", alignItems: "center", gap: 10,
+  },
+  photoIcon: { fontSize: 20 },
+  photoTitle: { fontSize: 13, fontWeight: "700" },
+  photoSub: { fontSize: 11, marginTop: 1 },
+  chooseBtn: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 8 },
+  chooseBtnText: { fontSize: 12 },
+  emojiGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  emojiCell: {
+    width: "22%", aspectRatio: 1, borderRadius: 18,
+    alignItems: "center", justifyContent: "center",
+  },
+  emojiCellText: { fontSize: 28 },
+  chipsWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  interestChip: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 22,
+  },
+  interestIcon: { fontSize: 14 },
+  interestLabel: { fontSize: 13, fontWeight: "600" },
+  emojiGridSmall: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  squadEmojiCell: {
+    width: "14%", aspectRatio: 1, borderRadius: 13,
+    alignItems: "center", justifyContent: "center",
+  },
+  squadEmojiText: { fontSize: 20 },
+  chipSmall: {
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1,
+  },
+  chipSmallText: { fontSize: 12 },
+  planCard: {
+    borderRadius: 16, padding: 18, position: "relative", overflow: "hidden",
+  },
+  planHeader: {
+    flexDirection: "row", justifyContent: "space-between",
+    alignItems: "center", marginBottom: 14,
+  },
+  planName: { fontSize: 16, fontWeight: "800" },
+  planPrice: { fontSize: 18, fontWeight: "800" },
+  planFeature: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 5 },
+  planFeatureText: { fontSize: 13 },
+  bestValueBadge: {
+    position: "absolute", top: 14, right: 14,
+    borderRadius: 20, paddingHorizontal: 10, paddingVertical: 3,
+  },
+  bestValueText: { fontSize: 10, fontWeight: "800", color: "#fff" },
+  footer: {
+    paddingHorizontal: 22, paddingTop: 14, borderTopWidth: 1,
+    gap: 8,
+  },
 });
