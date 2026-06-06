@@ -1,3 +1,6 @@
 - [Squadz design parity](squadz-design-parity.md) — web app is the visual source of truth; mobile mirrors it via SquadzIcon SVG + GradientButton, not PNG logo / flat buttons.
+- [Squad photo roll-up](squad-photo-rollup.md) — curated per-squad vault via photos.squadId+sharedToSquad; member-only routes, share only your OWN photos; web SquadDetail is mock, mobile is functional.
+- [Object storage ACL gap](object-storage-acl-gap.md) — /api/storage/objects/* serves bytes with NO auth; vault "members only" is enforced on metadata only, not files.
+- [Auth provider constraints](auth-provider-constraints.md) — app uses Replit Auth; Clerk migration unsupported + Clerk has no SMS/Facebook; Google+Facebook+SMS OTP = custom build.
 - [Squadz native-module web safety](squadz-native-module-web-safety.md) — Expo-web preview crashes on top-level native imports; guard + dynamic-import native modules, web uses pure-web path.
 - [Stripe connector key names](stripe-connector-key-names.md) — Replit Stripe connector uses `settings.secret` not `settings.secret_key`; template is wrong.

@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { eventsTable } from "./events";
@@ -8,6 +8,8 @@ export const photosTable = pgTable("photos", {
   eventId: text("event_id").references(() => eventsTable.id, { onDelete: "cascade" }),
   uploaderId: text("uploader_id").notNull(),
   url: text("url").notNull(),
+  squadId: text("squad_id"),
+  sharedToSquad: boolean("shared_to_squad").notNull().default(false),
   uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

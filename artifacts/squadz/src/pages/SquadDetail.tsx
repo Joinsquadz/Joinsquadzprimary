@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
 import { PhoneShell } from "@/components/PhoneShell";
 import { Avatar, Tag, SectionLabel, Btn } from "@/components/shared";
-import { T, font, fontMono, MEMBERS, EVENT_PHOTOS } from "@/lib/data";
+import { T, font, fontMono, MEMBERS, EVENT_PHOTOS, getAvatarColor } from "@/lib/data";
 import { useProStatus } from "@/hooks/useProStatus";
 
 const SQUAD_TAB_KEY = "squadz:squad-detail-tab";
@@ -81,6 +81,9 @@ export default function SquadDetail() {
   const [copied, setCopied] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [rollupMode, setRollupMode] = useState(false);
+  const [selectedPhotos, setSelectedPhotos] = useState<Set<number>>(new Set());
+  const [sharedCount, setSharedCount] = useState(0);
 
   useEffect(() => {
     const t = setTimeout(() => setIsLoading(false), 1200);
@@ -112,6 +115,41 @@ export default function SquadDetail() {
   }, [tab]);
 
   const copyLink = () => { setCopied(true); setTimeout(() => setCopied(false), 2000); };
+
+  const squadVault = [
+    { em: "🌅", uploader: "Alex", date: "Jun 3" },
+    { em: "🔥", uploader: "Marcus", date: "Jun 3" },
+    { em: "🥩", uploader: "Marcus", date: "Jun 3" },
+    { em: "🍺", uploader: "Kira", date: "Jun 1" },
+    { em: "😄", uploader: "Jordan", date: "May 28" },
+    { em: "🌃", uploader: "Tasha", date: "May 28" },
+  ];
+
+  const myPhotos = [
+    { id: 0, em: "📸", date: "Jun 8" },
+    { id: 1, em: "🎉", date: "Jun 7" },
+    { id: 2, em: "🌮", date: "Jun 7" },
+    { id: 3, em: "🏖️", date: "Jun 2" },
+    { id: 4, em: "🎂", date: "May 30" },
+    { id: 5, em: "🎸", date: "May 25" },
+  ];
+
+  const toggleSelected = (id: number) => {
+    setSelectedPhotos(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const exitRollup = () => { setRollupMode(false); setSelectedPhotos(new Set()); };
+
+  const shareSelected = () => {
+    setSharedCount(selectedPhotos.size);
+    exitRollup();
+    setTimeout(() => setSharedCount(0), 2600);
+  };
+
   const events = [
     { title: "Rooftop BBQ", date: "Sat Jun 7", emoji: "🔥", going: 5 },
     { title: "Game Night", date: "Sat Jun 14", emoji: "🎮", going: 4 },
@@ -195,24 +233,69 @@ export default function SquadDetail() {
                   }
                 </div>
                 {isPro ? (
+                  rollupMode ? (
+                    <>
+                      <div style={{ background: T.surfaceUp, border: `1px solid ${T.border}`, borderRadius: 14, padding: "12px 14px", marginBottom: 12, display: "flex", alignItems: "center", gap: 10 }}>
+                        <span style={{ fontSize: 18 }}>✨</span>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontFamily: font, fontWeight: 700, fontSize: 13, color: T.text }}>Pick your best shots</div>
+                          <div style={{ fontFamily: font, fontSize: 11, color: T.textSub, marginTop: 1 }}>Only the ones you tap get rolled up to the squad.</div>
+                        </div>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 12 }}>
+                        {myPhotos.map((photo) => {
+                          const bgColors = [T.accent, T.purple, T.gold, T.blue, T.green, T.pink];
+                          const isSel = selectedPhotos.has(photo.id);
+                          return (
+                            <div key={photo.id} onClick={() => toggleSelected(photo.id)} style={{ position: "relative", aspectRatio: "1", borderRadius: 12, background: `linear-gradient(135deg, ${bgColors[photo.id % bgColors.length]}22, ${bgColors[(photo.id + 2) % bgColors.length]}44)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, border: `2px solid ${isSel ? T.accent : T.border}`, cursor: "pointer", transition: "all 0.12s", boxShadow: isSel ? `0 0 0 2px ${T.accent}40` : "none" }}>
+                              <span style={{ opacity: isSel ? 1 : 0.85 }}>{photo.em}</span>
+                              <div style={{ position: "absolute", top: 6, right: 6, width: 20, height: 20, borderRadius: 10, background: isSel ? T.accent : "rgba(0,0,0,0.45)", border: `1.5px solid ${isSel ? T.accent : "rgba(255,255,255,0.5)"}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "#fff", fontWeight: 800 }}>
+                                {isSel ? "✓" : ""}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button onClick={exitRollup} style={{ flex: "0 0 auto", background: T.surfaceUp, border: `1.5px solid ${T.border}`, color: T.textSub, borderRadius: 14, padding: "14px 18px", fontFamily: font, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>Cancel</button>
+                        <div style={{ flex: 1 }}>
+                          <Btn variant={selectedPhotos.size > 0 ? "primary" : "secondary"} onPress={selectedPhotos.size > 0 ? shareSelected : () => {}} style={selectedPhotos.size > 0 ? {} : { opacity: 0.5, cursor: "default" }}>
+                            {selectedPhotos.size > 0 ? `Share ${selectedPhotos.size} to squad vault` : "Select photos to share"}
+                          </Btn>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
                   <>
+                    {sharedCount > 0 && (
+                      <div style={{ background: `${T.green}18`, border: `1px solid ${T.green}40`, borderRadius: 14, padding: "12px 16px", marginBottom: 12, display: "flex", alignItems: "center", gap: 10 }}>
+                        <span style={{ fontSize: 18 }}>🎉</span>
+                        <div style={{ flex: 1, fontSize: 13, color: T.green, fontFamily: font, fontWeight: 700 }}>Rolled up {sharedCount} photo{sharedCount > 1 ? "s" : ""} to the squad vault</div>
+                      </div>
+                    )}
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 12 }}>
-                      {EVENT_PHOTOS.map((photo, i) => {
+                      {squadVault.map((photo, i) => {
                         const bgColors = [T.accent, T.purple, T.gold, T.blue, T.green, T.accent];
                         const bgColors2 = [T.accent, T.purple, T.gold, T.blue, T.green, T.purple];
+                        const uColor = getAvatarColor(photo.uploader);
                         return (
-                          <div key={i} style={{ position: "relative", aspectRatio: "1", borderRadius: 12, background: `linear-gradient(135deg, ${bgColors[i % bgColors.length]}22, ${bgColors2[i % bgColors2.length]}44)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, border: `1px solid ${T.border}` }}>
+                          <div key={i} style={{ position: "relative", aspectRatio: "1", borderRadius: 12, overflow: "hidden", background: `linear-gradient(135deg, ${bgColors[i % bgColors.length]}22, ${bgColors2[i % bgColors2.length]}44)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, border: `1px solid ${T.border}` }}>
                             <span>{photo.em}</span>
+                            <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: "10px 6px 4px", background: "linear-gradient(to top, rgba(0,0,0,0.75), transparent)", display: "flex", alignItems: "center", gap: 4 }}>
+                              <div style={{ width: 14, height: 14, borderRadius: 7, background: uColor, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 800, color: "#000", flexShrink: 0 }}>{photo.uploader[0]}</div>
+                              <div style={{ fontFamily: font, fontSize: 9, fontWeight: 700, color: "#fff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{photo.uploader} · {photo.date}</div>
+                            </div>
                           </div>
                         );
                       })}
                     </div>
                     <div style={{ background: `${T.green}18`, border: `1px solid ${T.green}40`, borderRadius: 14, padding: "12px 16px", marginBottom: 10, display: "flex", alignItems: "center", gap: 10 }}>
-                      <span style={{ fontSize: 18 }}>✅</span>
-                      <div style={{ flex: 1, fontSize: 13, color: T.green, fontFamily: font, fontWeight: 700 }}>Photos saved to your permanent vault</div>
+                      <span style={{ fontSize: 18 }}>🔒</span>
+                      <div style={{ flex: 1, fontSize: 13, color: T.green, fontFamily: font, fontWeight: 700 }}>Curated by the squad · saved forever</div>
                     </div>
-                    <Btn variant="ghost" onPress={() => {}}>+ Add Photos</Btn>
+                    <Btn variant="ghost" onPress={() => setRollupMode(true)}>✨ Roll up your best photos</Btn>
                   </>
+                  )
                 ) : (
                   <>
                     <div style={{ background: T.surface, borderRadius: 20, border: `1px solid ${T.border}`, padding: 24, display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 16 }}>

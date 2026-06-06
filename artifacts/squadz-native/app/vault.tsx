@@ -10,6 +10,7 @@ import {
   NativeSyntheticEvent,
   NativeScrollEvent,
   Alert,
+  Modal,
 } from "react-native";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -45,15 +46,37 @@ interface VaultPhoto {
   eventId?: string | null;
 }
 
+interface SquadVaultPhoto {
+  id: number;
+  url: string;
+  eventId?: string | null;
+  uploaderId: string;
+  uploadedAt: string;
+  uploaderFirstName?: string | null;
+  uploaderLastName?: string | null;
+  uploaderImageUrl?: string | null;
+}
+
 export default function VaultScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { authToken } = useAuth();
+  const { authToken, currentUser } = useAuth();
+  const currentUserId = currentUser?.id ?? null;
   const [isPro, setIsPro] = useState<boolean | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [photos, setPhotos] = useState<VaultPhoto[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+
+  // Squad vault state (only used when squadId is present)
+  const [squadPhotos, setSquadPhotos] = useState<SquadVaultPhoto[]>([]);
+  const [squadLoading, setSquadLoading] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerPhotos, setPickerPhotos] = useState<VaultPhoto[]>([]);
+  const [pickerSelected, setPickerSelected] = useState<Set<number>>(new Set());
+  const [pickerLoading, setPickerLoading] = useState(false);
+  const [pickerRequiresPro, setPickerRequiresPro] = useState(false);
+  const [isSharing, setIsSharing] = useState(false);
 
   const initialized = useRef(false);
   const scrollRef = useRef<ScrollView>(null);
@@ -68,6 +91,7 @@ export default function VaultScreen() {
   }>();
 
   const isContextual = !!(squadId || eventId);
+  const isSquadVault = !!squadId;
 
   const filterLabel = eventName
     ? decodeURIComponent(eventName)
@@ -221,8 +245,116 @@ export default function VaultScreen() {
     }
   }, [authHeaders, fetchPhotos]);
 
+  const fetchSquadVault = useCallback(async () => {
+    if (!squadId) return;
+    setSquadLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/squads/${squadId}/vault`, { headers: authHeaders() });
+      if (!res.ok) return;
+      const data = await res.json() as { photos: SquadVaultPhoto[] };
+      setSquadPhotos(data.photos ?? []);
+    } catch {
+      // silently fail
+    } finally {
+      setSquadLoading(false);
+    }
+  }, [squadId, authHeaders]);
+
+  useEffect(() => {
+    if (squadId) fetchSquadVault();
+  }, [squadId, fetchSquadVault]);
+
+  const openPicker = useCallback(async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setPickerSelected(new Set());
+    setPickerRequiresPro(false);
+    setPickerPhotos([]);
+    setPickerOpen(true);
+    setPickerLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/vault/photos`, { headers: authHeaders() });
+      if (res.status === 403) {
+        setPickerRequiresPro(true);
+        return;
+      }
+      if (!res.ok) return;
+      const data = await res.json() as { photos: VaultPhoto[] };
+      setPickerPhotos(data.photos ?? []);
+    } catch {
+      // silently fail
+    } finally {
+      setPickerLoading(false);
+    }
+  }, [authHeaders]);
+
+  const togglePick = useCallback((id: number) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setPickerSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const handleShare = useCallback(async () => {
+    if (!squadId || pickerSelected.size === 0) return;
+    setIsSharing(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      const res = await fetch(`${API_BASE}/api/squads/${squadId}/vault`, {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ photoIds: Array.from(pickerSelected) }),
+      });
+      if (res.ok) {
+        await fetchSquadVault();
+        setPickerOpen(false);
+        setPickerSelected(new Set());
+      }
+    } catch {
+      Alert.alert("Couldn't share", "Could not roll up photos. Please try again.");
+    } finally {
+      setIsSharing(false);
+    }
+  }, [squadId, pickerSelected, authHeaders, fetchSquadVault]);
+
+  const handleRemoveShared = useCallback(async (photoId: number) => {
+    if (!squadId) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      const res = await fetch(`${API_BASE}/api/squads/${squadId}/vault/${photoId}`, {
+        method: "DELETE",
+        headers: authHeaders(),
+      });
+      if (res.ok || res.status === 204) {
+        setSelected(null);
+        await fetchSquadVault();
+      }
+    } catch {
+      Alert.alert("Couldn't remove", "Could not remove the photo. Please try again.");
+    }
+  }, [squadId, authHeaders, fetchSquadVault]);
+
   const selectedPhoto = photos.find(p => p.id === selected) ?? null;
+  const selectedSquadPhoto = squadPhotos.find(p => p.id === selected) ?? null;
   const imageUrl = (objectPath: string) => `${API_BASE}/api/storage${objectPath}`;
+
+  const uploaderName = (p: SquadVaultPhoto): string => {
+    const name = [p.uploaderFirstName, p.uploaderLastName].filter(Boolean).join(" ").trim();
+    return name || "Squad member";
+  };
+
+  const uploaderInitial = (p: SquadVaultPhoto): string => {
+    const base = p.uploaderFirstName || p.uploaderLastName || "?";
+    return base.slice(0, 1).toUpperCase();
+  };
+
+  const shortDate = (iso: string): string => {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -250,7 +382,89 @@ export default function VaultScreen() {
         )}
       </View>
 
-      {isPro === null ? (
+      {isSquadVault ? (
+        <ScrollView
+          contentContainerStyle={[styles.scroll, { paddingBottom: botPad + 24 }]}
+          showsVerticalScrollIndicator={false}
+        >
+          <Text style={[styles.countLabel, { color: colors.mutedForeground }]}>
+            {squadPhotos.length} {squadPhotos.length === 1 ? "photo" : "photos"} · curated by your squad
+          </Text>
+
+          {squadLoading && squadPhotos.length === 0 ? (
+            <View style={styles.center}>
+              <ActivityIndicator color={colors.primary} size="large" />
+            </View>
+          ) : squadPhotos.length > 0 ? (
+            <View style={styles.grid}>
+              {squadPhotos.map(p => (
+                <TouchableOpacity
+                  key={p.id}
+                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSelected(selected === p.id ? null : p.id); }}
+                  style={[styles.gridCell, { borderWidth: 2, borderColor: selected === p.id ? colors.primary : "transparent" }]}
+                  activeOpacity={0.8}
+                >
+                  <Image
+                    source={{ uri: imageUrl(p.url) }}
+                    style={styles.gridImage}
+                    contentFit="cover"
+                  />
+                  <View style={styles.attrOverlay}>
+                    <View style={[styles.attrAvatar, { backgroundColor: colors.primary }]}>
+                      <Text style={styles.attrAvatarText}>{uploaderInitial(p)}</Text>
+                    </View>
+                    <Text style={styles.attrText} numberOfLines={1}>
+                      {(p.uploaderFirstName || uploaderName(p)).split(" ")[0]} · {shortDate(p.uploadedAt)}
+                    </Text>
+                  </View>
+                  {selected === p.id && (
+                    <View style={[styles.checkBadge, { backgroundColor: colors.primary }]}>
+                      <Ionicons name="checkmark" size={10} color="#fff" />
+                    </View>
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : (
+            <View style={[styles.emptyState, { borderColor: colors.border }]}>
+              <Text style={styles.emptyIcon}>📸</Text>
+              <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>No photos rolled up yet</Text>
+              <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>Roll up your best photos to start the squad vault</Text>
+            </View>
+          )}
+
+          {selectedSquadPhoto && (
+            <View style={[styles.detailCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Text style={[styles.detailTitle, { color: colors.foreground }]}>
+                {uploaderName(selectedSquadPhoto)}
+              </Text>
+              <Text style={[styles.detailMeta, { color: colors.mutedForeground }]}>
+                {new Date(selectedSquadPhoto.uploadedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                {selectedSquadPhoto.eventId ? ` · Event ${selectedSquadPhoto.eventId}` : ""}
+              </Text>
+              {currentUserId && selectedSquadPhoto.uploaderId === currentUserId && (
+                <TouchableOpacity
+                  style={[styles.removeBtn, { borderColor: colors.destructive + "60" }]}
+                  activeOpacity={0.7}
+                  onPress={() => handleRemoveShared(selectedSquadPhoto.id)}
+                >
+                  <Ionicons name="trash-outline" size={15} color={colors.destructive} />
+                  <Text style={[styles.removeBtnText, { color: colors.destructive }]}>Remove from squad vault</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+
+          <TouchableOpacity
+            style={[styles.rollUpBtn, { backgroundColor: colors.primary }]}
+            activeOpacity={0.85}
+            onPress={openPicker}
+          >
+            <Ionicons name="sparkles" size={18} color="#fff" />
+            <Text style={styles.rollUpBtnText}>Roll up your best photos</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      ) : isPro === null ? (
         <View style={styles.center}>
           <ActivityIndicator color={colors.primary} size="large" />
         </View>
@@ -371,6 +585,97 @@ export default function VaultScreen() {
           <Text style={[styles.toastText, { color: colors.foreground }]}>{toast}</Text>
         </View>
       )}
+
+      <Modal
+        visible={pickerOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setPickerOpen(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalSheet, { backgroundColor: colors.background, borderColor: colors.border, paddingBottom: botPad + 16 }]}>
+            <View style={styles.modalHeader}>
+              <View style={styles.modalHeaderText}>
+                <Text style={[styles.modalTitle, { color: colors.foreground }]}>Roll up your best photos</Text>
+                <Text style={[styles.modalSubtitle, { color: colors.mutedForeground }]}>Pick from your photos to share with the squad</Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setPickerOpen(false); }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="close" size={24} color={colors.foreground} />
+              </TouchableOpacity>
+            </View>
+
+            {pickerLoading ? (
+              <View style={styles.modalCenter}>
+                <ActivityIndicator color={colors.primary} size="large" />
+              </View>
+            ) : pickerRequiresPro ? (
+              <View style={[styles.proHint, { backgroundColor: colors.gold + "18", borderColor: colors.gold + "40" }]}>
+                <Text style={styles.proHintIcon}>⚡</Text>
+                <Text style={[styles.proHintText, { color: colors.gold }]}>Upgrade to Pro to add your photos</Text>
+              </View>
+            ) : pickerPhotos.length > 0 ? (
+              <ScrollView
+                contentContainerStyle={styles.modalScroll}
+                showsVerticalScrollIndicator={false}
+              >
+                <View style={styles.grid}>
+                  {pickerPhotos.map(p => {
+                    const picked = pickerSelected.has(p.id);
+                    return (
+                      <TouchableOpacity
+                        key={p.id}
+                        onPress={() => togglePick(p.id)}
+                        style={[styles.gridCell, { borderWidth: 2, borderColor: picked ? colors.primary : "transparent" }]}
+                        activeOpacity={0.8}
+                      >
+                        <Image
+                          source={{ uri: imageUrl(p.url) }}
+                          style={styles.gridImage}
+                          contentFit="cover"
+                        />
+                        {picked && (
+                          <>
+                            <View style={[styles.pickOverlay, { backgroundColor: colors.primary + "33" }]} />
+                            <View style={[styles.checkBadge, { backgroundColor: colors.primary }]}>
+                              <Ionicons name="checkmark" size={10} color="#fff" />
+                            </View>
+                          </>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </ScrollView>
+            ) : (
+              <View style={styles.modalCenter}>
+                <Text style={styles.emptyIcon}>📷</Text>
+                <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>No photos to share</Text>
+                <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>Upload photos to your vault first</Text>
+              </View>
+            )}
+
+            {pickerSelected.size > 0 && (
+              <TouchableOpacity
+                style={[styles.shareBar, { backgroundColor: colors.primary }]}
+                activeOpacity={0.85}
+                onPress={handleShare}
+                disabled={isSharing}
+              >
+                {isSharing ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.shareBarText}>
+                    Share {pickerSelected.size} to vault
+                  </Text>
+                )}
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -477,4 +782,85 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   toastText: { fontSize: 14, fontWeight: "600", fontFamily: "Inter_600SemiBold" },
+  attrOverlay: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 6,
+    paddingVertical: 5,
+    backgroundColor: "rgba(0,0,0,0.55)",
+  },
+  attrAvatar: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  attrAvatarText: { fontSize: 9, fontWeight: "800", color: "#fff", fontFamily: "Inter_700Bold" },
+  attrText: { flex: 1, fontSize: 9, color: "#fff", fontFamily: "Inter_600SemiBold" },
+  removeBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 10,
+    marginTop: 14,
+  },
+  removeBtnText: { fontSize: 13, fontWeight: "700", fontFamily: "Inter_700Bold" },
+  rollUpBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderRadius: 14,
+    padding: 16,
+    marginTop: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  rollUpBtnText: { color: "#fff", fontFamily: "Inter_700Bold", fontSize: 15, fontWeight: "800" },
+  modalOverlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.6)" },
+  modalSheet: {
+    maxHeight: "85%",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderWidth: 1,
+    paddingTop: 20,
+    paddingHorizontal: 20,
+  },
+  modalHeader: { flexDirection: "row", alignItems: "flex-start", gap: 12, marginBottom: 16 },
+  modalHeaderText: { flex: 1 },
+  modalTitle: { fontSize: 19, fontWeight: "700", fontFamily: "Inter_700Bold" },
+  modalSubtitle: { fontSize: 13, fontFamily: "Inter_400Regular", marginTop: 2 },
+  modalCenter: { alignItems: "center", justifyContent: "center", paddingVertical: 60, gap: 6 },
+  modalScroll: { paddingBottom: 8 },
+  pickOverlay: { ...StyleSheet.absoluteFillObject },
+  proHint: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 16,
+  },
+  proHintIcon: { fontSize: 18 },
+  proHintText: { flex: 1, fontSize: 14, fontWeight: "700", fontFamily: "Inter_700Bold" },
+  shareBar: {
+    borderRadius: 14,
+    padding: 16,
+    alignItems: "center",
+    marginTop: 12,
+  },
+  shareBarText: { color: "#fff", fontFamily: "Inter_700Bold", fontSize: 15, fontWeight: "800" },
 });

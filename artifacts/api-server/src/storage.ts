@@ -1,5 +1,5 @@
 import { usersTable, eventsTable, photosTable } from '@workspace/db/schema';
-import { eq, sql, count, and, gte, lt, desc } from 'drizzle-orm';
+import { eq, sql, count, and, gte, lt, desc, inArray } from 'drizzle-orm';
 import { db } from '@workspace/db';
 
 export class Storage {
@@ -151,6 +151,48 @@ export class Storage {
       .values({ uploaderId, url, eventId: eventId ?? null })
       .returning();
     return photo;
+  }
+
+  async getSquadVaultPhotos(squadId: string) {
+    return db
+      .select({
+        id: photosTable.id,
+        url: photosTable.url,
+        eventId: photosTable.eventId,
+        uploaderId: photosTable.uploaderId,
+        uploadedAt: photosTable.uploadedAt,
+        uploaderFirstName: usersTable.firstName,
+        uploaderLastName: usersTable.lastName,
+        uploaderImageUrl: usersTable.profileImageUrl,
+      })
+      .from(photosTable)
+      .leftJoin(usersTable, eq(photosTable.uploaderId, usersTable.id))
+      .where(and(eq(photosTable.squadId, squadId), eq(photosTable.sharedToSquad, true)))
+      .orderBy(desc(photosTable.uploadedAt));
+  }
+
+  async setPhotosSharedToSquad(photoIds: number[], uploaderId: string, squadId: string) {
+    if (photoIds.length === 0) return [];
+    return db
+      .update(photosTable)
+      .set({ sharedToSquad: true, squadId })
+      .where(and(inArray(photosTable.id, photoIds), eq(photosTable.uploaderId, uploaderId)))
+      .returning();
+  }
+
+  async unsharePhotoFromSquad(photoId: number, uploaderId: string, squadId: string) {
+    const [photo] = await db
+      .update(photosTable)
+      .set({ sharedToSquad: false, squadId: null })
+      .where(
+        and(
+          eq(photosTable.id, photoId),
+          eq(photosTable.uploaderId, uploaderId),
+          eq(photosTable.squadId, squadId),
+        ),
+      )
+      .returning();
+    return photo ?? null;
   }
 }
 
