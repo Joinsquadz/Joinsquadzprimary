@@ -12,7 +12,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
-import { router, useLocalSearchParams } from "expo-router";
+import { router } from "expo-router";
 import Constants from "expo-constants";
 
 import { useColors } from "@/hooks/useColors";
@@ -32,68 +32,22 @@ function resolveApiBase(): string {
 
 const API_BASE = resolveApiBase();
 
-export default function VaultScreen() {
+export default function PhotosTab() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { authToken } = useAuth();
   const [isPro, setIsPro] = useState<boolean | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [activeFilter, setActiveFilter] = useState("All");
-  const [downloadingId, setDownloadingId] = useState<number | null>(null);
+  const [downloadingId, setDownloadingId] = useState<number | "all" | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
-  const { squadId, squadName, eventId, eventName } = useLocalSearchParams<{
-    squadId?: string;
-    squadName?: string;
-    eventId?: string;
-    eventName?: string;
-  }>();
-
-  const filterLabel = eventName
-    ? decodeURIComponent(eventName)
-    : squadName
-    ? decodeURIComponent(squadName)
-    : null;
-
-  const decodedSquadName = squadName ? decodeURIComponent(squadName as string) : "";
-  const decodedEventName = eventName ? decodeURIComponent(eventName as string) : "";
-
-  const filteredPhotos = PLACEHOLDER_PHOTOS.filter((p) => {
-    if (eventId) {
-      if (decodedEventName) {
-        const hasExactMatch = PLACEHOLDER_PHOTOS.some(
-          (ph) => ph.label.toLowerCase() === decodedEventName.toLowerCase(),
-        );
-        if (hasExactMatch) return p.label.toLowerCase() === decodedEventName.toLowerCase();
-        const hasPartialMatch = PLACEHOLDER_PHOTOS.some(
-          (ph) =>
-            ph.label.toLowerCase().includes(decodedEventName.toLowerCase()) ||
-            decodedEventName.toLowerCase().includes(ph.label.toLowerCase()),
-        );
-        if (hasPartialMatch) {
-          return (
-            p.label.toLowerCase().includes(decodedEventName.toLowerCase()) ||
-            decodedEventName.toLowerCase().includes(p.label.toLowerCase())
-          );
-        }
-      }
-      const hash = [...(eventId as string)].reduce((acc, c) => acc + c.charCodeAt(0), 0);
-      return p.id % 3 === hash % 3;
-    }
-    if (squadId) {
-      if (decodedSquadName && PLACEHOLDER_PHOTOS.some((ph) => ph.squad === decodedSquadName)) {
-        return p.squad === decodedSquadName;
-      }
-      return true;
-    }
-    if (activeFilter !== "All") return p.squad === activeFilter;
-    return true;
-  });
-
-  const activeFilters = eventId || squadId ? [] : FILTERS;
-
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
-  const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
+  const botPad = insets.bottom + 96;
+
+  const filteredPhotos = PLACEHOLDER_PHOTOS.filter(
+    (p) => activeFilter === "All" || p.squad === activeFilter,
+  );
 
   const authHeaders = useCallback((): HeadersInit => {
     return authToken ? { Authorization: `Bearer ${authToken}` } : {};
@@ -138,25 +92,40 @@ export default function VaultScreen() {
     [downloadingId, showToast],
   );
 
+  const handleDownloadAll = useCallback(async () => {
+    if (downloadingId !== null) return;
+    setDownloadingId("all");
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    let saved = 0;
+    let denied = false;
+    for (const photo of filteredPhotos) {
+      const result = await downloadPhoto(photo.url, photoFilename(photo));
+      if (result === "saved") saved += 1;
+      if (result === "denied") {
+        denied = true;
+        break;
+      }
+    }
+    setDownloadingId(null);
+    if (denied) {
+      showToast("Photo library permission needed");
+    } else if (saved > 0) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      showToast(`Saved ${saved} photo${saved === 1 ? "" : "s"}`);
+    } else {
+      showToast("Couldn't download photos");
+    }
+  }, [downloadingId, filteredPhotos, showToast]);
+
   const selectedPhoto = filteredPhotos.find((p) => p.id === selected) ?? null;
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: topPad + 16, borderBottomColor: colors.border }]}>
-        <TouchableOpacity
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            router.back();
-          }}
-          style={styles.backBtn}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <Ionicons name="chevron-back" size={24} color={colors.foreground} />
-        </TouchableOpacity>
         <View style={styles.headerText}>
-          <Text style={[styles.title, { color: colors.foreground }]}>📷 Photo Vault</Text>
+          <Text style={[styles.title, { color: colors.foreground }]}>📷 Photos</Text>
           <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
-            {filterLabel ? filterLabel : "Private squad memories"}
+            Every memory from your squadz & events
           </Text>
         </View>
         {isPro && (
@@ -172,18 +141,18 @@ export default function VaultScreen() {
         </View>
       ) : !isPro ? (
         <ScrollView
-          contentContainerStyle={[styles.scroll, { paddingBottom: botPad + 24 }]}
+          contentContainerStyle={[styles.scroll, { paddingBottom: botPad }]}
           showsVerticalScrollIndicator={false}
         >
           <View style={[styles.lockCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <Text style={styles.lockIcon}>🔒</Text>
-            <Text style={[styles.lockTitle, { color: colors.foreground }]}>Photo Vault is a Pro feature</Text>
+            <Text style={[styles.lockTitle, { color: colors.foreground }]}>Your photo gallery is a Pro feature</Text>
             <Text style={[styles.lockBody, { color: colors.mutedForeground }]}>
-              Upload unlimited squad photos. They're private, organized by event, and downloadable to
-              your device anytime — only visible to squad members.
+              See every photo from all your squadz and events in one place — and download any of them
+              to your device, anytime.
             </Text>
             <View style={styles.featurePills}>
-              {["🖼️ Private gallery", "📁 By event", "⬇️ Download anytime"].map((f) => (
+              {["🖼️ All in one place", "⬇️ Download anytime", "🔐 Private to you"].map((f) => (
                 <View key={f} style={[styles.pill, { backgroundColor: colors.background, borderColor: colors.border }]}>
                   <Text style={[styles.pillText, { color: colors.mutedForeground }]}>{f}</Text>
                 </View>
@@ -205,7 +174,7 @@ export default function VaultScreen() {
           <TouchableOpacity
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              router.back();
+              router.push("/profile" as never);
             }}
             style={[styles.upgradeBtn, { backgroundColor: colors.primary }]}
             activeOpacity={0.85}
@@ -215,52 +184,56 @@ export default function VaultScreen() {
         </ScrollView>
       ) : (
         <ScrollView
-          contentContainerStyle={[styles.scroll, { paddingBottom: botPad + 24 }]}
+          contentContainerStyle={[styles.scroll, { paddingBottom: botPad }]}
           showsVerticalScrollIndicator={false}
         >
-          <Text style={[styles.countLabel, { color: colors.mutedForeground }]}>
-            {filteredPhotos.length} photos · tap to view details
-          </Text>
-
-          {activeFilters.length > 0 && (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={styles.filterRow}
-              contentContainerStyle={{ gap: 8 }}
+          <View style={styles.countRow}>
+            <Text style={[styles.countLabel, { color: colors.mutedForeground }]}>
+              {filteredPhotos.length} photo{filteredPhotos.length === 1 ? "" : "s"} · tap to view
+            </Text>
+            <TouchableOpacity
+              onPress={handleDownloadAll}
+              disabled={downloadingId !== null || filteredPhotos.length === 0}
+              style={[styles.downloadAllBtn, { borderColor: colors.border, opacity: downloadingId !== null ? 0.5 : 1 }]}
+              activeOpacity={0.7}
             >
-              {activeFilters.map((f) => (
-                <TouchableOpacity
-                  key={f}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    setActiveFilter(f);
-                  }}
-                  style={[
-                    styles.filterChip,
-                    {
-                      backgroundColor: activeFilter === f ? colors.primary : colors.card,
-                      borderColor: activeFilter === f ? colors.primary : colors.border,
-                    },
-                  ]}
-                >
-                  <Text style={[styles.filterChipText, { color: activeFilter === f ? "#fff" : colors.mutedForeground }]}>
-                    {f}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          )}
+              {downloadingId === "all" ? (
+                <ActivityIndicator color={colors.primary} size="small" />
+              ) : (
+                <Ionicons name="download-outline" size={16} color={colors.primary} />
+              )}
+              <Text style={[styles.downloadAllText, { color: colors.primary }]}>Download all</Text>
+            </TouchableOpacity>
+          </View>
 
-          {filterLabel && (
-            <View style={[styles.filterBadge, { backgroundColor: colors.primary + "18", borderColor: colors.primary + "40" }]}>
-              <Ionicons name={eventId ? "calendar-outline" : "people-outline"} size={14} color={colors.primary} />
-              <Text style={[styles.filterBadgeText, { color: colors.primary }]}>{filterLabel}</Text>
-              <TouchableOpacity onPress={() => router.push("/vault" as never)}>
-                <Ionicons name="close" size={14} color={colors.primary} />
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.filterRow}
+            contentContainerStyle={{ gap: 8 }}
+          >
+            {FILTERS.map((f) => (
+              <TouchableOpacity
+                key={f}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setActiveFilter(f);
+                  setSelected(null);
+                }}
+                style={[
+                  styles.filterChip,
+                  {
+                    backgroundColor: activeFilter === f ? colors.primary : colors.card,
+                    borderColor: activeFilter === f ? colors.primary : colors.border,
+                  },
+                ]}
+              >
+                <Text style={[styles.filterChipText, { color: activeFilter === f ? "#fff" : colors.mutedForeground }]}>
+                  {f}
+                </Text>
               </TouchableOpacity>
-            </View>
-          )}
+            ))}
+          </ScrollView>
 
           <View style={styles.grid}>
             {filteredPhotos.map((p) => (
@@ -321,21 +294,11 @@ export default function VaultScreen() {
               </View>
             </View>
           )}
-
-          <TouchableOpacity
-            style={[styles.uploadBtn, { borderColor: colors.border }]}
-            activeOpacity={0.7}
-            onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}
-          >
-            <Ionicons name="add" size={28} color={colors.mutedForeground} />
-            <Text style={[styles.uploadLabel, { color: colors.mutedForeground }]}>Upload photos</Text>
-            <Text style={[styles.uploadSub, { color: colors.mutedForeground }]}>Add memories from your last event</Text>
-          </TouchableOpacity>
         </ScrollView>
       )}
 
       {toast && (
-        <View style={[styles.toast, { bottom: botPad + 32, backgroundColor: colors.card, borderColor: colors.border }]}>
+        <View style={[styles.toast, { bottom: botPad - 56, backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={[styles.toastText, { color: colors.foreground }]}>{toast}</Text>
         </View>
       )}
@@ -353,10 +316,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     gap: 12,
   },
-  backBtn: { marginBottom: 2, marginRight: 4 },
   headerText: { flex: 1 },
-  title: { fontSize: 22, fontWeight: "700", fontFamily: "Inter_700Bold" },
-  subtitle: { fontSize: 13, fontFamily: "Inter_400Regular", marginTop: 1 },
+  title: { fontSize: 26, fontWeight: "700", fontFamily: "Inter_700Bold" },
+  subtitle: { fontSize: 13, fontFamily: "Inter_400Regular", marginTop: 2 },
   proBadge: { borderWidth: 1, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2, marginBottom: 4 },
   proBadgeText: { fontSize: 10, fontWeight: "900", fontFamily: "Inter_700Bold", letterSpacing: 0.8 },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
@@ -380,23 +342,14 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   upgradeBtnText: { color: "#fff", fontFamily: "Inter_700Bold", fontSize: 15, fontWeight: "800" },
-  countLabel: { fontSize: 13, fontFamily: "Inter_400Regular", marginBottom: 12 },
+  countRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 14 },
+  countLabel: { fontSize: 13, fontFamily: "Inter_400Regular" },
+  downloadAllBtn: { flexDirection: "row", alignItems: "center", gap: 6, borderWidth: 1, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 7 },
+  downloadAllText: { fontSize: 13, fontWeight: "700", fontFamily: "Inter_600SemiBold" },
   filterRow: { marginBottom: 16, flexGrow: 0 },
-  filterBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    borderRadius: 20,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    marginBottom: 14,
-    alignSelf: "flex-start",
-  },
-  filterBadgeText: { fontSize: 13, fontWeight: "700" },
   filterChip: { borderRadius: 20, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 7, flexShrink: 0 },
   filterChipText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
-  grid: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 16 },
+  grid: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   gridCell: {
     width: "31.8%",
     aspectRatio: 1,
@@ -428,30 +381,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  detailCard: { borderRadius: 18, borderWidth: 1, overflow: "hidden", marginBottom: 16 },
+  detailCard: { borderRadius: 18, borderWidth: 1, overflow: "hidden", marginTop: 18 },
   detailImage: { width: "100%", height: 220 },
   detailBody: { padding: 16 },
   detailTitle: { fontSize: 16, fontWeight: "700", fontFamily: "Inter_700Bold", marginBottom: 4 },
   detailMeta: { fontSize: 13, fontFamily: "Inter_400Regular", marginBottom: 14 },
-  detailDownloadBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    borderRadius: 12,
-    paddingVertical: 12,
-  },
+  detailDownloadBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 12, paddingVertical: 12 },
   detailDownloadText: { color: "#fff", fontWeight: "700", fontFamily: "Inter_700Bold", fontSize: 14 },
-  uploadBtn: {
-    borderWidth: 1.5,
-    borderStyle: "dashed",
-    borderRadius: 16,
-    padding: 28,
-    alignItems: "center",
-    gap: 6,
-  },
-  uploadLabel: { fontSize: 14, fontWeight: "700", fontFamily: "Inter_700Bold" },
-  uploadSub: { fontSize: 12, fontFamily: "Inter_400Regular" },
   toast: {
     position: "absolute",
     alignSelf: "center",

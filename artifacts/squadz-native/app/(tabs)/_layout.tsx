@@ -28,6 +28,10 @@ function NativeTabLayout() {
         <Icon sf={{ default: "plus.circle", selected: "plus.circle.fill" }} />
         <Label>Create</Label>
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="photos">
+        <Icon sf={{ default: "photo.on.rectangle", selected: "photo.fill.on.rectangle.fill" }} />
+        <Label>Photos</Label>
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="activity">
         <Icon sf={{ default: "bell", selected: "bell.fill" }} />
         <Label>Activity</Label>
@@ -120,6 +124,18 @@ function ClassicTabLayout() {
               <SymbolView name="plus.circle" tintColor={color} size={24} />
             ) : (
               <Ionicons name="add-circle-outline" size={24} color={color} />
+            ),
+        }}
+      />
+      <Tabs.Screen
+        name="photos"
+        options={{
+          title: "Photos",
+          tabBarIcon: ({ color }) =>
+            isIOS ? (
+              <SymbolView name="photo.on.rectangle" tintColor={color} size={24} />
+            ) : (
+              <Ionicons name="images-outline" size={22} color={color} />
             ),
         }}
       />
