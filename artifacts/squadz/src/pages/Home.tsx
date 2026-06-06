@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { PhoneShell } from "@/components/PhoneShell";
 import { Avatar, Tag, SectionLabel, Card, SwitchToggle, Btn } from "@/components/shared";
 import { T, font, fontMono, SQUADS, MEMBERS, ACTIVITY_FEED, SUGGESTIONS, MESSAGES, getAvatarColor } from "@/lib/data";
+import { useCurrentUser } from "@/hooks/useCurrentUser";
 
 function BottomTab({ active, setActive }: { active: string; setActive: (t: string) => void }) {
   const tabs = [
@@ -36,7 +37,7 @@ function BottomTab({ active, setActive }: { active: string; setActive: (t: strin
   );
 }
 
-function HomeTab({ go, onBellPress }: { go: (s: string) => void; onBellPress: () => void }) {
+function HomeTab({ go, onBellPress, firstName }: { go: (s: string) => void; onBellPress: () => void; firstName?: string | null }) {
   const [showBanner, setShowBanner] = useState(true);
   return (
     <div style={{ flex: 1, overflowY: "auto" }}>
@@ -54,7 +55,7 @@ function HomeTab({ go, onBellPress }: { go: (s: string) => void; onBellPress: ()
       <div style={{ padding: "20px 20px 24px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
           <div>
-            <div style={{ fontFamily: "'Georgia', serif", fontSize: 26, fontWeight: 700, color: T.white }}>Hey, Jordan 👋</div>
+            <div style={{ fontFamily: "'Georgia', serif", fontSize: 26, fontWeight: 700, color: T.white }}>{firstName ? `Hey, ${firstName} 👋` : "Hey there 👋"}</div>
             <div style={{ fontSize: 13, color: T.textSub, fontFamily: font }}>4 SquadZ · 1 event this week</div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -374,7 +375,7 @@ function ActivityTab() {
   );
 }
 
-function ProfileTab({ go }: { go: (s: string) => void }) {
+function ProfileTab({ go, displayName }: { go: (s: string) => void; displayName?: string | null }) {
   const [notifs, setNotifs] = useState(true);
   const [calSync, setCalSync] = useState(true);
   const [darkMode, setDarkMode] = useState(true);
@@ -442,11 +443,13 @@ function ProfileTab({ go }: { go: (s: string) => void }) {
       <div style={{ padding: "20px 20px 40px" }}>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 24 }}>
           <div style={{ position: "relative", marginBottom: 12 }}>
-            <div style={{ width: 80, height: 80, borderRadius: 40, background: `linear-gradient(135deg, ${T.accent}, ${T.gold})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 36, fontWeight: 800, color: "#000" }}>J</div>
+            <div style={{ width: 80, height: 80, borderRadius: 40, background: `linear-gradient(135deg, ${T.accent}, ${T.gold})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: displayName ? 28 : 36, fontWeight: 800, color: "#000" }}>
+              {displayName ? displayName.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase() : "?"}
+            </div>
             <div onClick={() => go("edit-profile")} style={{ position: "absolute", bottom: 0, right: 0, width: 26, height: 26, borderRadius: 13, background: T.surfaceHigh, border: `2px solid ${T.bg}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 13 }}>✏️</div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ fontFamily: "'Georgia', serif", fontSize: 20, fontWeight: 700, color: T.white }}>Jordan Kim</div>
+            <div style={{ fontFamily: "'Georgia', serif", fontSize: 20, fontWeight: 700, color: T.white }}>{displayName ?? "My Profile"}</div>
             {isPro && (
               <div style={{ background: T.gold + "22", border: `1px solid ${T.gold}60`, borderRadius: 6, padding: "1px 7px", fontSize: 10, fontWeight: 900, color: T.gold, letterSpacing: "0.08em", fontFamily: fontMono }}>PRO</div>
             )}
@@ -534,6 +537,7 @@ function ProfileTab({ go }: { go: (s: string) => void }) {
 export default function Home() {
   const [tab, setTab] = useState("home");
   const [, setLocation] = useLocation();
+  const { firstName, displayName } = useCurrentUser();
 
   const go = (screen: string) => {
     if (screen === "/" || screen === "splash") { setLocation("/"); return; }
@@ -547,12 +551,12 @@ export default function Home() {
   };
 
   const tabContent: Record<string, React.ReactElement> = {
-    home: <HomeTab go={go} onBellPress={() => setTab("activity")} />,
+    home: <HomeTab go={go} onBellPress={() => setTab("activity")} firstName={firstName} />,
     squads: <SquadsTab go={go} />,
     messages: <MessagesTab go={go} />,
     discover: <DiscoverTab go={go} />,
     activity: <ActivityTab />,
-    profile: <ProfileTab go={go} />,
+    profile: <ProfileTab go={go} displayName={displayName} />,
   };
 
   return (

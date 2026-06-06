@@ -15,7 +15,6 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useAuth, useData } from "@/context/AppContext";
 import { UserAvatar } from "@/components/UserAvatar";
-import { ME } from "@/data/mock";
 import { router } from "expo-router";
 import { useState, useEffect, useCallback } from "react";
 import Constants from "expo-constants";
@@ -73,7 +72,7 @@ export default function ProfileScreen() {
   const botPad = insets.bottom + (Platform.OS === "web" ? 84 : 100);
 
   const myEvents = events.filter(
-    (e) => e.hostId === ME.id || e.rsvps[ME.id] === "going" || e.rsvps[ME.id] === "maybe",
+    (e) => e.hostId === currentUser.id || e.rsvps[currentUser.id] === "going" || e.rsvps[currentUser.id] === "maybe",
   );
   const mySquads = squads;
 

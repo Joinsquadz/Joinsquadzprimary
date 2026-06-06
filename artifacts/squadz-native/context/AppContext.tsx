@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Platform } from "react-native";
+import Constants from "expo-constants";
 import {
   ME,
   EVENTS,
@@ -12,6 +14,50 @@ import {
 } from "@/data/mock";
 
 const AUTH_TOKEN_KEY = "@squadz/authToken";
+
+type ApiUser = {
+  id: string;
+  email: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  profileImageUrl: string | null;
+};
+
+const USER_COLORS = [
+  "#FF5C3A", "#A855F7", "#2ECC8A", "#FFB547", "#4A9EFF",
+  "#E91E8C", "#00BCD4", "#FF9800", "#8BC34A", "#9C27B0",
+];
+
+function colorFromId(id: string): string {
+  let hash = 0;
+  for (const c of id) hash = (hash * 31 + c.charCodeAt(0)) & 0xffffffff;
+  return USER_COLORS[Math.abs(hash) % USER_COLORS.length];
+}
+
+function getInitials(u: ApiUser): string {
+  if (u.firstName && u.lastName) return `${u.firstName[0]}${u.lastName[0]}`.toUpperCase();
+  if (u.firstName) return u.firstName.slice(0, 2).toUpperCase();
+  if (u.email) return u.email.slice(0, 2).toUpperCase();
+  return "U?";
+}
+
+function getUserName(u: ApiUser): string {
+  if (u.firstName && u.lastName) return `${u.firstName} ${u.lastName}`;
+  if (u.firstName) return u.firstName;
+  return u.email ?? "Unknown User";
+}
+
+function resolveApiBase(): string {
+  if (process.env.EXPO_PUBLIC_API_URL) return process.env.EXPO_PUBLIC_API_URL;
+  const extra = Constants.expoConfig?.extra as Record<string, string> | undefined;
+  if (extra?.apiBase) return extra.apiBase;
+  if (Platform.OS === "web") return "";
+  const devDomain = process.env.REPLIT_DEV_DOMAIN;
+  if (devDomain) return `https://${devDomain}`;
+  return "";
+}
+
+const API_BASE = resolveApiBase();
 
 export type InviteCtx = {
   code: string;
@@ -118,6 +164,7 @@ function randomCode(): string {
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [authToken, setAuthToken] = useState<string | null>(null);
+  const [apiUser, setApiUser] = useState<ApiUser | null>(null);
   const [inviteCtx, setInviteCtx] = useState<InviteCtx | null>(null);
   const [events, setEvents] = useState<Event[]>(() =>
     EVENTS.map((e) => ({ ...e, rsvps: { ...e.rsvps } })),
@@ -135,23 +182,42 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setFriends((prev) => prev.filter((id) => id !== userId));
   }, []);
 
+  const fetchApiUser = useCallback(async (token: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/user`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const { user } = await res.json() as { user: ApiUser | null };
+      if (user) setApiUser(user);
+    } catch {
+      // Network unavailable — fall back to mock identity
+    }
+  }, []);
+
   useEffect(() => {
     AsyncStorage.getItem(AUTH_TOKEN_KEY).then(token => {
-      if (token) { setAuthToken(token); setIsLoggedIn(true); }
+      if (token) {
+        setAuthToken(token);
+        setIsLoggedIn(true);
+        void fetchApiUser(token);
+      }
     }).catch(() => {});
-  }, []);
+  }, [fetchApiUser]);
 
   const login = useCallback((token?: string) => {
     if (token) {
       AsyncStorage.setItem(AUTH_TOKEN_KEY, token).catch(() => {});
       setAuthToken(token);
+      void fetchApiUser(token);
     }
     setIsLoggedIn(true);
-  }, []);
+  }, [fetchApiUser]);
 
   const logout = useCallback(() => {
     AsyncStorage.removeItem(AUTH_TOKEN_KEY).catch(() => {});
     setAuthToken(null);
+    setApiUser(null);
     setIsLoggedIn(false);
   }, []);
 
@@ -337,11 +403,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setSquads((prev) => prev.filter((s) => s.id !== sid));
   }, []);
 
+  const currentUser = apiUser
+    ? {
+        id: apiUser.id,
+        name: getUserName(apiUser),
+        initials: getInitials(apiUser),
+        color: colorFromId(apiUser.id),
+        avatar: getInitials(apiUser),
+      }
+    : ME;
+
   return (
     <AppContext.Provider
       value={{
         isLoggedIn,
-        currentUser: ME,
+        currentUser,
         inviteCtx,
         authToken,
         login,
