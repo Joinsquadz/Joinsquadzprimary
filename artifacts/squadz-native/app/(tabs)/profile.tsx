@@ -262,7 +262,7 @@ export default function ProfileScreen() {
               <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
                 {([
                   { key: "events", icon: "🗓️", label: "Unlimited Events", route: "/(tabs)/events" },
-                  { key: "vault", icon: "📷", label: "Photo Vault", route: "/(tabs)/squads" },
+                  { key: "vault", icon: "📷", label: "Photo Vault", route: "/vault" },
                 ] as const).map((f) => (
                   <TouchableOpacity
                     key={f.key}

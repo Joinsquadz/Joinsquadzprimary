@@ -13,6 +13,7 @@ function BottomTab({ active, setActive }: { active: string; setActive: (t: strin
     { key: "squads", icon: "👥", label: "SquadZ" },
     { key: "messages", icon: "💬", label: "Messages" },
     { key: "discover", icon: "✦", label: "Discover" },
+    { key: "vault", icon: "📷", label: "Vault" },
     { key: "activity", icon: "◎", label: "Activity", badge: 4 },
     { key: "profile", icon: "◉", label: "You" },
   ];
@@ -386,6 +387,131 @@ const PRO_FEATURES = [
   { key: "vault", icon: "📷", label: "Photo Vault" },
 ] as const;
 
+const VAULT_PLACEHOLDER_PHOTOS = [
+  { id: 1, emoji: "🔥", label: "Rooftop BBQ", squad: "The Usual Suspects", date: "Jun 7", color: "#FF6B3A" },
+  { id: 2, emoji: "🎳", label: "Bowling Night", squad: "College Crew", date: "May 24", color: "#7B6EF6" },
+  { id: 3, emoji: "🍕", label: "Pizza Friday", squad: "Work Crew", date: "May 17", color: "#F5A623" },
+  { id: 4, emoji: "🏖️", label: "Beach Day", squad: "Westside Fam", date: "Apr 30", color: "#4ECDC4" },
+  { id: 5, emoji: "🎮", label: "Game Night", squad: "The Usual Suspects", date: "Apr 19", color: "#A78BFA" },
+  { id: 6, emoji: "🍳", label: "Brunch Run", squad: "College Crew", date: "Apr 5", color: "#FB923C" },
+];
+
+function PhotoVaultTab({ onUpgrade }: { onUpgrade?: () => void }) {
+  const [isPro, setIsPro] = React.useState<boolean | null>(null);
+  const [selected, setSelected] = React.useState<number | null>(null);
+
+  React.useEffect(() => {
+    fetch('/api/subscription', { credentials: 'include' })
+      .then(r => r.json())
+      .then((d: { isPro?: boolean }) => setIsPro(!!d.isPro))
+      .catch(() => setIsPro(false));
+  }, []);
+
+  if (isPro === null) {
+    return (
+      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ width: 32, height: 32, borderRadius: 16, border: `3px solid ${T.accent}`, borderTopColor: "transparent", animation: "spin 0.8s linear infinite" }} />
+      </div>
+    );
+  }
+
+  if (!isPro) {
+    return (
+      <div style={{ flex: 1, overflowY: "auto" }}>
+        <div style={{ padding: "20px 20px 40px" }}>
+          <div style={{ fontFamily: "'Georgia', serif", fontSize: 24, fontWeight: 700, color: T.white, marginBottom: 4 }}>📷 Photo Vault</div>
+          <div style={{ fontSize: 13, color: T.textSub, marginBottom: 24, fontFamily: font }}>Private squad memories</div>
+
+          <div style={{
+            background: `linear-gradient(135deg, ${T.purple}22, ${T.blue}18)`,
+            border: `1px solid ${T.purple}40`,
+            borderRadius: 20,
+            padding: "32px 24px",
+            textAlign: "center",
+            marginBottom: 24,
+          }}>
+            <div style={{ fontSize: 56, marginBottom: 16 }}>🔒</div>
+            <div style={{ fontFamily: "'Georgia', serif", fontSize: 20, fontWeight: 700, color: T.white, marginBottom: 8 }}>
+              Photo Vault is a Pro feature
+            </div>
+            <div style={{ fontSize: 14, color: T.textSub, fontFamily: font, lineHeight: 1.5, marginBottom: 24 }}>
+              Upload unlimited squad photos. They're private, organized by event, and stored securely — only visible to squad members.
+            </div>
+            <div style={{ display: "flex", gap: 12, justifyContent: "center", marginBottom: 24 }}>
+              {["🖼️ Private gallery", "📁 By event", "🔐 Members only"].map(f => (
+                <div key={f} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 20, padding: "5px 12px", fontSize: 12, color: T.textSub, fontFamily: font, fontWeight: 600 }}>{f}</div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4, borderRadius: 14, overflow: "hidden", filter: "blur(3px) brightness(0.5)", pointerEvents: "none", marginBottom: 24 }}>
+            {VAULT_PLACEHOLDER_PHOTOS.map(p => (
+              <div key={p.id} style={{ aspectRatio: "1", background: `${p.color}30`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28 }}>{p.emoji}</div>
+            ))}
+          </div>
+
+          <button
+            onClick={onUpgrade}
+            style={{ width: "100%", borderRadius: 14, border: "none", background: `linear-gradient(135deg, ${T.accent}, #FF8050)`, color: "#fff", fontFamily: font, fontWeight: 800, fontSize: 15, padding: "14px 20px", cursor: "pointer", boxShadow: `0 6px 20px ${T.accent}40` }}
+          >
+            ⚡ Upgrade to Pro — $20/year
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ flex: 1, overflowY: "auto" }}>
+      <div style={{ padding: "20px 20px 40px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+          <div style={{ fontFamily: "'Georgia', serif", fontSize: 24, fontWeight: 700, color: T.white }}>📷 Photo Vault</div>
+          <div style={{ background: T.gold + "22", border: `1px solid ${T.gold}60`, borderRadius: 6, padding: "2px 8px", fontSize: 10, fontWeight: 900, color: T.gold, letterSpacing: "0.08em", fontFamily: fontMono }}>PRO</div>
+        </div>
+        <div style={{ fontSize: 13, color: T.textSub, marginBottom: 20, fontFamily: font }}>Private squad memories · 6 photos</div>
+
+        <div style={{ display: "flex", gap: 8, marginBottom: 20, overflowX: "auto", paddingBottom: 4 }}>
+          {["All", "The Usual Suspects", "College Crew", "Work Crew"].map(f => (
+            <button key={f} style={{ flexShrink: 0, background: f === "All" ? T.accent : T.surface, border: `1px solid ${f === "All" ? T.accent : T.border}`, borderRadius: 20, padding: "6px 14px", fontSize: 12, color: f === "All" ? "#fff" : T.textSub, fontFamily: font, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" as const }}>{f}</button>
+          ))}
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4, borderRadius: 14, overflow: "hidden", marginBottom: 20 }}>
+          {VAULT_PLACEHOLDER_PHOTOS.map(p => (
+            <div
+              key={p.id}
+              onClick={() => setSelected(selected === p.id ? null : p.id)}
+              style={{ aspectRatio: "1", background: `${p.color}30`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontSize: 28, cursor: "pointer", position: "relative", border: selected === p.id ? `2px solid ${T.accent}` : "2px solid transparent", transition: "border-color 0.15s" }}>
+              {p.emoji}
+              {selected === p.id && (
+                <div style={{ position: "absolute", bottom: 4, right: 4, width: 18, height: 18, background: T.accent, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#fff" }}>✓</div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {selected !== null && (() => {
+          const p = VAULT_PLACEHOLDER_PHOTOS.find(x => x.id === selected);
+          if (!p) return null;
+          return (
+            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 16, padding: "14px 16px", marginBottom: 20 }}>
+              <div style={{ fontFamily: font, fontWeight: 700, fontSize: 15, color: T.text, marginBottom: 4 }}>{p.emoji} {p.label}</div>
+              <div style={{ fontSize: 12, color: T.textSub }}>{p.squad} · {p.date}</div>
+            </div>
+          );
+        })()}
+
+        <div style={{ border: `1.5px dashed ${T.border}`, borderRadius: 16, padding: "24px 20px", textAlign: "center", cursor: "pointer" }}
+          onClick={() => {}}>
+          <div style={{ fontSize: 28, marginBottom: 8 }}>+</div>
+          <div style={{ fontFamily: font, fontWeight: 700, fontSize: 14, color: T.textSub, marginBottom: 4 }}>Upload photos</div>
+          <div style={{ fontSize: 12, color: T.textDim }}>Add memories from your last event</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CheckoutSuccessBanner({ onDismiss, onFeaturePress }: { onDismiss: () => void; onFeaturePress: (key: string) => void }) {
   React.useEffect(() => {
     const t = setTimeout(onDismiss, 8000);
@@ -506,7 +632,7 @@ function ProfileTab({ go, setTab, displayName, checkoutSuccess }: { go: (s: stri
             onDismiss={() => setShowSuccessBanner(false)}
             onFeaturePress={(key) => {
               if (key === "events") { go("create-event"); }
-              else if (key === "vault") { setTab?.("squads"); }
+              else if (key === "vault") { setTab?.("vault"); }
             }}
           />
         )}
@@ -674,6 +800,7 @@ export default function Home() {
     squads: <SquadsTab go={go} squads={squads} />,
     messages: <MessagesTab go={go} />,
     discover: <DiscoverTab go={go} />,
+    vault: <PhotoVaultTab onUpgrade={() => setTab("profile")} />,
     activity: <ActivityTab />,
     profile: <ProfileTab go={go} setTab={setTab} displayName={displayName} checkoutSuccess={checkoutSuccess} />,
   };

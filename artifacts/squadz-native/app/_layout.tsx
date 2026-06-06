@@ -53,6 +53,7 @@ function RootLayoutNav() {
         <Stack.Screen name="squad/[id]" />
         <Stack.Screen name="squad/create" />
         <Stack.Screen name="friends" />
+        <Stack.Screen name="vault" />
       </Stack>
     </>
   );
