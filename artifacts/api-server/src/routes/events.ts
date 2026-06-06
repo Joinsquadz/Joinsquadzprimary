@@ -83,6 +83,23 @@ const JoinEventBody = z.object({
   inviteCode: z.string().min(1),
 });
 
+async function getEventAsMember(
+  id: string,
+  userId: string,
+  res: Response,
+): Promise<(typeof eventsTable.$inferSelect) | null> {
+  const [event] = await db.select().from(eventsTable).where(eq(eventsTable.id, id));
+  if (!event) {
+    res.status(404).json({ error: "Event not found" });
+    return null;
+  }
+  const rsvps = (event.rsvps ?? {}) as Record<string, string>;
+  if (event.hostId !== userId && !(userId in rsvps)) {
+    res.status(403).json({ error: "Access denied" });
+    return null;
+  }
+  return event;
+}
 
 // GET /events/count — requires auth, returns user's event count vs free limit
 router.get("/events/count", requireAuth, async (req: Request, res: Response): Promise<void> => {
@@ -254,35 +271,31 @@ router.delete("/events/:id", requireAuth, async (req: Request, res: Response): P
   res.sendStatus(204);
 });
 
-router.post("/events/:id/rsvp", async (req: Request, res: Response): Promise<void> => {
+router.post("/events/:id/rsvp", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const id = parseId(req.params.id);
+  const userId = (req.user as { id: string }).id;
   const parsed = SetRsvpBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const [existing] = await db.select().from(eventsTable).where(eq(eventsTable.id, id));
-  if (!existing) {
-    res.status(404).json({ error: "Event not found" });
-    return;
-  }
+  const existing = await getEventAsMember(id, userId, res);
+  if (!existing) return;
   const rsvps = { ...(existing.rsvps as Record<string, string>), [parsed.data.userId]: parsed.data.status };
   const [event] = await db.update(eventsTable).set({ rsvps }).where(eq(eventsTable.id, id)).returning();
   res.json(event);
 });
 
-router.post("/events/:id/tasks", async (req: Request, res: Response): Promise<void> => {
+router.post("/events/:id/tasks", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const id = parseId(req.params.id);
+  const userId = (req.user as { id: string }).id;
   const parsed = AddTaskBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const [existing] = await db.select().from(eventsTable).where(eq(eventsTable.id, id));
-  if (!existing) {
-    res.status(404).json({ error: "Event not found" });
-    return;
-  }
+  const existing = await getEventAsMember(id, userId, res);
+  if (!existing) return;
   const tasks = [
     ...(existing.tasks as unknown[]),
     { id: `t${Date.now()}`, title: parsed.data.title, assigneeId: null, done: false },
@@ -291,19 +304,17 @@ router.post("/events/:id/tasks", async (req: Request, res: Response): Promise<vo
   res.json(event);
 });
 
-router.patch("/events/:id/tasks/:taskId", async (req: Request, res: Response): Promise<void> => {
+router.patch("/events/:id/tasks/:taskId", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const id = parseId(req.params.id);
   const taskId = parseId(req.params.taskId);
+  const userId = (req.user as { id: string }).id;
   const parsed = PatchTaskBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const [existing] = await db.select().from(eventsTable).where(eq(eventsTable.id, id));
-  if (!existing) {
-    res.status(404).json({ error: "Event not found" });
-    return;
-  }
+  const existing = await getEventAsMember(id, userId, res);
+  if (!existing) return;
   const tasks = (existing.tasks as Array<{ id: string; done: boolean; assigneeId: string | null; title: string }>).map(
     (t) => (t.id === taskId ? { ...t, ...parsed.data } : t),
   );
@@ -311,8 +322,9 @@ router.patch("/events/:id/tasks/:taskId", async (req: Request, res: Response): P
   res.json(event);
 });
 
-router.post("/events/:id/costs", async (req: Request, res: Response): Promise<void> => {
+router.post("/events/:id/costs", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const id = parseId(req.params.id);
+  const userId = (req.user as { id: string }).id;
   const parsed = AddCostBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -325,11 +337,8 @@ router.post("/events/:id/costs", async (req: Request, res: Response): Promise<vo
     res.status(400).json({ error: "Invalid cost: amount must be positive and shares must sum to total" });
     return;
   }
-  const [existing] = await db.select().from(eventsTable).where(eq(eventsTable.id, id));
-  if (!existing) {
-    res.status(404).json({ error: "Event not found" });
-    return;
-  }
+  const existing = await getEventAsMember(id, userId, res);
+  if (!existing) return;
   const costs = [
     ...(existing.costs as unknown[]),
     { id: `c${Date.now()}`, ...parsed.data },
@@ -338,18 +347,16 @@ router.post("/events/:id/costs", async (req: Request, res: Response): Promise<vo
   res.json(event);
 });
 
-router.post("/events/:id/polls", async (req: Request, res: Response): Promise<void> => {
+router.post("/events/:id/polls", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const id = parseId(req.params.id);
+  const userId = (req.user as { id: string }).id;
   const parsed = AddPollBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const [existing] = await db.select().from(eventsTable).where(eq(eventsTable.id, id));
-  if (!existing) {
-    res.status(404).json({ error: "Event not found" });
-    return;
-  }
+  const existing = await getEventAsMember(id, userId, res);
+  if (!existing) return;
   const pollId = `p${Date.now()}`;
   const polls = [
     ...(existing.polls as unknown[]),
@@ -363,20 +370,18 @@ router.post("/events/:id/polls", async (req: Request, res: Response): Promise<vo
   res.json(event);
 });
 
-router.post("/events/:id/polls/:pollId/vote", async (req: Request, res: Response): Promise<void> => {
+router.post("/events/:id/polls/:pollId/vote", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const id = parseId(req.params.id);
   const pollId = parseId(req.params.pollId);
+  const userId = (req.user as { id: string }).id;
   const parsed = VotePollBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const [existing] = await db.select().from(eventsTable).where(eq(eventsTable.id, id));
-  if (!existing) {
-    res.status(404).json({ error: "Event not found" });
-    return;
-  }
-  const { userId, optionId } = parsed.data;
+  const existing = await getEventAsMember(id, userId, res);
+  if (!existing) return;
+  const { userId: voteUserId, optionId } = parsed.data;
   const polls = (
     existing.polls as Array<{ id: string; question: string; options: Array<{ id: string; label: string; voterIds: string[] }> }>
   ).map((poll) =>
@@ -388,8 +393,8 @@ router.post("/events/:id/polls/:pollId/vote", async (req: Request, res: Response
             ...o,
             voterIds:
               o.id === optionId
-                ? Array.from(new Set([...o.voterIds, userId]))
-                : o.voterIds.filter((v) => v !== userId),
+                ? Array.from(new Set([...o.voterIds, voteUserId]))
+                : o.voterIds.filter((v) => v !== voteUserId),
           })),
         },
   );
@@ -397,18 +402,16 @@ router.post("/events/:id/polls/:pollId/vote", async (req: Request, res: Response
   res.json(event);
 });
 
-router.post("/events/:id/messages", async (req: Request, res: Response): Promise<void> => {
+router.post("/events/:id/messages", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const id = parseId(req.params.id);
+  const userId = (req.user as { id: string }).id;
   const parsed = SendMessageBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const [existing] = await db.select().from(eventsTable).where(eq(eventsTable.id, id));
-  if (!existing) {
-    res.status(404).json({ error: "Event not found" });
-    return;
-  }
+  const existing = await getEventAsMember(id, userId, res);
+  if (!existing) return;
   const messages = [
     ...(existing.messages as unknown[]),
     { id: `m${Date.now()}`, senderId: parsed.data.senderId, text: parsed.data.text, time: "Just now" },
