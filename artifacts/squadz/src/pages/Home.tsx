@@ -10,7 +10,7 @@ function BottomTab({ active, setActive }: { active: string; setActive: (t: strin
     { key: "squads", icon: "👥", label: "SquadZ" },
     { key: "messages", icon: "💬", label: "Messages" },
     { key: "discover", icon: "✦", label: "Discover" },
-    { key: "activity", icon: "◎", label: "Activity" },
+    { key: "activity", icon: "◎", label: "Activity", badge: 4 },
     { key: "profile", icon: "◉", label: "You" },
   ];
   return (
@@ -21,7 +21,14 @@ function BottomTab({ active, setActive }: { active: string; setActive: (t: strin
           display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
           color: active === tab.key ? T.accent : T.textDim, transition: "color 0.15s",
         }}>
-          <div style={{ fontSize: 20, lineHeight: 1 }}>{tab.icon}</div>
+          <div style={{ position: "relative", display: "inline-block" }}>
+            <div style={{ fontSize: 20, lineHeight: 1 }}>{tab.icon}</div>
+            {"badge" in tab && (tab as { badge: number }).badge > 0 && (
+              <div style={{ position: "absolute", top: -4, right: -6, width: 15, height: 15, borderRadius: 8, background: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, color: "#fff", fontWeight: 900, fontFamily: font, border: `2px solid ${T.surface}` }}>
+                {(tab as { badge: number }).badge}
+              </div>
+            )}
+          </div>
           <div style={{ fontSize: 9, fontFamily: font, fontWeight: 600, letterSpacing: "0.03em" }}>{tab.label}</div>
         </button>
       ))}
@@ -29,18 +36,36 @@ function BottomTab({ active, setActive }: { active: string; setActive: (t: strin
   );
 }
 
-function HomeTab({ go }: { go: (s: string) => void }) {
+function HomeTab({ go, onBellPress }: { go: (s: string) => void; onBellPress: () => void }) {
+  const [showBanner, setShowBanner] = useState(true);
   return (
     <div style={{ flex: 1, overflowY: "auto" }}>
+      {showBanner && (
+        <div style={{ background: `linear-gradient(135deg, ${T.purple}22, ${T.blue}18)`, borderBottom: `1px solid ${T.purple}30`, padding: "10px 16px", display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 20 }}>🔔</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontFamily: font, fontWeight: 700, fontSize: 13, color: T.text }}>Enable push reminders</div>
+            <div style={{ fontSize: 11, color: T.textSub }}>Get notified before your events</div>
+          </div>
+          <button onClick={() => setShowBanner(false)} style={{ background: T.purple, border: "none", borderRadius: 8, padding: "5px 10px", color: "#fff", fontFamily: font, fontWeight: 700, fontSize: 11, cursor: "pointer" }}>Allow</button>
+          <button onClick={() => setShowBanner(false)} style={{ background: "none", border: "none", color: T.textDim, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: "0 2px" }}>×</button>
+        </div>
+      )}
       <div style={{ padding: "20px 20px 24px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
           <div>
             <div style={{ fontFamily: "'Georgia', serif", fontSize: 26, fontWeight: 700, color: T.white }}>Hey, Jordan 👋</div>
             <div style={{ fontSize: 13, color: T.textSub, fontFamily: font }}>4 SquadZ · 1 event this week</div>
           </div>
-          <div style={{ position: "relative", cursor: "pointer" }} onClick={() => go("profile")}>
-            <Avatar name="Jordan" size={44} color={T.accent} />
-            <div style={{ position: "absolute", top: 0, right: 0, width: 14, height: 14, background: T.green, borderRadius: "50%", border: `2px solid ${T.bg}` }} />
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div onClick={onBellPress} style={{ position: "relative", cursor: "pointer", width: 38, height: 38, borderRadius: 13, background: T.surface, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <span style={{ fontSize: 18 }}>🔔</span>
+              <div style={{ position: "absolute", top: -3, right: -3, width: 15, height: 15, borderRadius: 8, background: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: "#fff", fontWeight: 900, fontFamily: font, border: `2px solid ${T.bg}` }}>4</div>
+            </div>
+            <div style={{ position: "relative", cursor: "pointer" }} onClick={() => go("profile")}>
+              <Avatar name="Jordan" size={44} color={T.accent} />
+              <div style={{ position: "absolute", top: 0, right: 0, width: 14, height: 14, background: T.green, borderRadius: "50%", border: `2px solid ${T.bg}` }} />
+            </div>
           </div>
         </div>
 
@@ -282,29 +307,68 @@ function DiscoverTab({ go }: { go: (s: string) => void }) {
   );
 }
 
+const REMINDERS = [
+  { id: 1, icon: "🔥", title: "Rooftop BBQ is tomorrow!", body: "Sat Jun 7 · 5:00 PM · Marcus's Place · RSVP now", time: "9:41 AM", color: T.accent, action: "RSVP" },
+  { id: 2, icon: "📋", title: "2 tasks still open", body: "Get ice · Make a playlist — Rooftop BBQ", time: "2h ago", color: T.gold, action: "View" },
+  { id: 3, icon: "🎮", title: "Game Night in 3 days", body: "Tue Jun 10 · 7:00 PM · The Usual Suspects", time: "Yesterday", color: T.purple, action: "View" },
+  { id: 4, icon: "👋", title: "Alex Chen wants to join", body: "Bowling Night · requested to attend your event", time: "1h ago", color: T.blue, action: "Review" },
+];
+
 function ActivityTab() {
+  const [subTab, setSubTab] = useState<"reminders" | "feed">("reminders");
   return (
-    <div style={{ flex: 1, overflowY: "auto" }}>
-      <div style={{ padding: "20px 20px 24px" }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div style={{ padding: "20px 20px 0", flexShrink: 0 }}>
         <div style={{ fontFamily: "'Georgia', serif", fontSize: 24, fontWeight: 700, color: T.white, marginBottom: 4 }}>Activity</div>
-        <div style={{ fontSize: 13, color: T.textSub, marginBottom: 20, fontFamily: font }}>What's happening across your squads</div>
-        <div style={{ display: "flex", flexDirection: "column" }}>
-          {ACTIVITY_FEED.map((item, i) => (
-            <div key={i} style={{ display: "flex", gap: 12, paddingBottom: 16, position: "relative" }}>
-              {i < ACTIVITY_FEED.length - 1 && <div style={{ position: "absolute", left: 19, top: 40, bottom: 0, width: 1, background: T.border }} />}
-              <Avatar name={item.who} size={40} />
-              <div style={{ flex: 1, paddingTop: 4 }}>
-                <div style={{ fontFamily: font, fontSize: 14, color: T.text, lineHeight: 1.5 }}>
-                  <span style={{ fontWeight: 700 }}>{item.who}</span>
-                  <span style={{ color: T.textSub }}> {item.action} </span>
-                  <span style={{ fontWeight: 600, color: T.blue }}>{item.detail}</span>
-                </div>
-                <div style={{ fontSize: 11, color: T.textDim, marginTop: 2 }}>{item.time}</div>
-              </div>
-              <div style={{ fontSize: 18 }}>{item.emoji}</div>
-            </div>
+        <div style={{ fontSize: 13, color: T.textSub, marginBottom: 14, fontFamily: font }}>Reminders & squad updates</div>
+        <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
+          {(["reminders", "feed"] as const).map(t => (
+            <button key={t} onClick={() => setSubTab(t)} style={{ padding: "7px 16px", borderRadius: 20, border: `1.5px solid ${subTab === t ? T.accent : T.border}`, background: subTab === t ? T.accentDim : "transparent", color: subTab === t ? T.accent : T.textSub, fontFamily: font, fontWeight: 700, fontSize: 13, cursor: "pointer", position: "relative" }}>
+              {t === "reminders" ? "🔔 Reminders" : "Feed"}
+              {t === "reminders" && <span style={{ marginLeft: 6, background: T.accent, borderRadius: 8, padding: "1px 6px", fontSize: 10, color: "#fff", fontWeight: 900 }}>4</span>}
+            </button>
           ))}
         </div>
+      </div>
+
+      <div style={{ flex: 1, overflowY: "auto", padding: "0 20px 24px" }}>
+        {subTab === "reminders" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {REMINDERS.map(r => (
+              <div key={r.id} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 16, padding: "14px 16px", display: "flex", gap: 12, alignItems: "flex-start" }}>
+                <div style={{ width: 42, height: 42, borderRadius: 13, background: r.color + "20", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>{r.icon}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontFamily: font, fontWeight: 700, fontSize: 14, color: T.text, marginBottom: 3 }}>{r.title}</div>
+                  <div style={{ fontSize: 12, color: T.textSub, lineHeight: 1.4, marginBottom: 8 }}>{r.body}</div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <button style={{ padding: "5px 14px", borderRadius: 8, border: `1.5px solid ${r.color}`, background: r.color + "18", color: r.color, fontFamily: font, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>{r.action}</button>
+                    <span style={{ fontSize: 11, color: T.textDim, fontFamily: font }}>{r.time}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {subTab === "feed" && (
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            {ACTIVITY_FEED.map((item, i) => (
+              <div key={i} style={{ display: "flex", gap: 12, paddingBottom: 16, position: "relative" }}>
+                {i < ACTIVITY_FEED.length - 1 && <div style={{ position: "absolute", left: 19, top: 40, bottom: 0, width: 1, background: T.border }} />}
+                <Avatar name={item.who} size={40} />
+                <div style={{ flex: 1, paddingTop: 4 }}>
+                  <div style={{ fontFamily: font, fontSize: 14, color: T.text, lineHeight: 1.5 }}>
+                    <span style={{ fontWeight: 700 }}>{item.who}</span>
+                    <span style={{ color: T.textSub }}> {item.action} </span>
+                    <span style={{ fontWeight: 600, color: T.blue }}>{item.detail}</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: T.textDim, marginTop: 2 }}>{item.time}</div>
+                </div>
+                <div style={{ fontSize: 18 }}>{item.emoji}</div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -391,7 +455,7 @@ export default function Home() {
   };
 
   const tabContent: Record<string, React.ReactElement> = {
-    home: <HomeTab go={go} />,
+    home: <HomeTab go={go} onBellPress={() => setTab("activity")} />,
     squads: <SquadsTab go={go} />,
     messages: <MessagesTab go={go} />,
     discover: <DiscoverTab go={go} />,

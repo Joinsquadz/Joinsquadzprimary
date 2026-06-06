@@ -3,12 +3,14 @@ import { useLocation } from "wouter";
 import { PhoneShell } from "@/components/PhoneShell";
 import { Btn, Input, SectionLabel, Card, SwitchToggle } from "@/components/shared";
 import { T, font, fontMono, SQUADS } from "@/lib/data";
+import { UpgradeModal } from "@/components/UpgradeModal";
 
 export default function CreateEvent() {
   const [, setLocation] = useLocation();
   const [step, setStep] = useState(0);
   const [name, setName] = useState("");
   const [sections, setSections] = useState(new Set(["food", "budget"]));
+  const [upgradeModal, setUpgradeModal] = useState<"calendar" | "events" | null>(null);
 
   const steps = ["Type", "When", "Where", "Who", "Sections", "Review"];
   const types = [
@@ -70,7 +72,7 @@ export default function CreateEvent() {
                 <div style={{ background: T.surfaceUp, border: `1px solid ${T.border}`, borderRadius: 14, padding: 14, marginBottom: 16 }}>
                   <div style={{ fontFamily: font, fontWeight: 700, fontSize: 13, color: T.text, marginBottom: 8 }}>⚡ AI Best Time Finder</div>
                   <div style={{ fontSize: 12, color: T.textSub, marginBottom: 12 }}>Sync calendars to find when everyone is free</div>
-                  <Btn small variant="ghost" onPress={() => {}}>Sync Google Calendar</Btn>
+                  <Btn small variant="ghost" onPress={() => setUpgradeModal("calendar")}>Sync Google Calendar</Btn>
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
                   <div style={{ flex: 1 }}><Btn small variant="secondary" onPress={() => {}}>Add End Time</Btn></div>
@@ -153,6 +155,14 @@ export default function CreateEvent() {
             : <Btn onPress={() => setLocation("/event")} style={{ background: T.green }}>Publish Event</Btn>
           }
         </div>
+
+        {upgradeModal && (
+          <UpgradeModal
+            trigger={upgradeModal}
+            onClose={() => setUpgradeModal(null)}
+            onUpgrade={() => setUpgradeModal(null)}
+          />
+        )}
       </div>
     </PhoneShell>
   );

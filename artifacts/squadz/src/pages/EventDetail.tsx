@@ -3,8 +3,9 @@ import { useLocation } from "wouter";
 import { PhoneShell } from "@/components/PhoneShell";
 import { Avatar, Tag, SectionLabel, Card, SwitchToggle, Btn } from "@/components/shared";
 import { T, font, fontMono, MEMBERS, FOOD_ITEMS as INIT_FOOD, EXPENSES } from "@/lib/data";
+import { UpgradeModal } from "@/components/UpgradeModal";
 
-function EventOverviewTab() {
+function EventOverviewTab({ onVaultPress }: { onVaultPress: () => void }) {
   const initTasks = [
     { id: 1, label: "Book the rooftop", done: true, owner: "Marcus" as string | null },
     { id: 2, label: "Buy drinks ($38)", done: true, owner: "Jordan" as string | null },
@@ -65,6 +66,31 @@ function EventOverviewTab() {
           </div>
         ))}
       </Card>
+
+      <div style={{ marginTop: 20 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <SectionLabel>📸 Event Photos</SectionLabel>
+          <Tag color={T.textDim}>30-day limit · Free</Tag>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 12 }}>
+          {["🌅", "🔥", "🥩", "🍺", "😄", "🌃"].map((em, i) => (
+            <div key={i} style={{ aspectRatio: "1", borderRadius: 12, background: `linear-gradient(135deg, ${[T.accent, T.purple, T.gold, T.blue, T.green, T.accent][i]}22, ${[T.accent, T.purple, T.gold, T.blue, T.green, T.purple][i]}44)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, border: `1px solid ${T.border}` }}>
+              {em}
+            </div>
+          ))}
+        </div>
+        <div style={{ background: T.surfaceUp, border: `1px solid ${T.border}`, borderRadius: 14, padding: "12px 16px", marginBottom: 10 }}>
+          <div style={{ fontSize: 12, color: T.textSub, fontFamily: font, marginBottom: 8 }}>
+            📅 Photos expire <strong style={{ color: T.gold }}>Jun 20</strong> (30-day free limit)
+          </div>
+          <button onClick={onVaultPress} style={{ width: "100%", borderRadius: 10, border: "none", background: `linear-gradient(135deg, ${T.accent}, ${T.gold})`, color: "#fff", fontFamily: font, fontWeight: 800, fontSize: 13, padding: "10px 16px", cursor: "pointer" }}>
+            💾 Save to Vault — Keep Forever →
+          </button>
+        </div>
+        <div style={{ fontSize: 11, color: T.textDim, fontFamily: font, textAlign: "center" }}>
+          Pro members keep photos forever · $20/year
+        </div>
+      </div>
     </div>
   );
 }
@@ -409,6 +435,7 @@ export default function EventDetail() {
   const [tab, setTab] = useState("overview");
   const [myRsvp, setMyRsvp] = useState("going");
   const [shareToast, setShareToast] = useState(false);
+  const [upgradeModal, setUpgradeModal] = useState<"photos" | null>(null);
   const tabs = ["overview", "food", "budget", "polls", "chat", "admin"];
 
   const handleShare = () => { setShareToast(true); setTimeout(() => setShareToast(false), 2500); };
@@ -459,7 +486,7 @@ export default function EventDetail() {
 
         <div style={{ flex: 1, overflowY: "auto" }}>
           <div style={{ padding: "16px 18px 24px" }}>
-            {tab === "overview" && <EventOverviewTab />}
+            {tab === "overview" && <EventOverviewTab onVaultPress={() => setUpgradeModal("photos")} />}
             {tab === "food" && <EventFoodTab />}
             {tab === "budget" && <EventBudgetTab />}
             {tab === "polls" && <EventPollsTab />}
@@ -468,6 +495,14 @@ export default function EventDetail() {
           </div>
         </div>
       </div>
+
+      {upgradeModal && (
+        <UpgradeModal
+          trigger={upgradeModal}
+          onClose={() => setUpgradeModal(null)}
+          onUpgrade={() => setUpgradeModal(null)}
+        />
+      )}
     </PhoneShell>
   );
 }

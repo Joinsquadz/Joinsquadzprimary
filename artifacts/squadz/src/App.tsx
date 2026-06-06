@@ -15,6 +15,7 @@ import DMChat from "@/pages/DMChat";
 import EventThread from "@/pages/EventThread";
 import EditProfile from "@/pages/EditProfile";
 import CreateSquad from "@/pages/CreateSquad";
+import InvitePage from "@/pages/InvitePage";
 
 const queryClient = new QueryClient();
 
@@ -33,6 +34,7 @@ function Router() {
       <Route path="/event-thread" component={EventThread} />
       <Route path="/edit-profile" component={EditProfile} />
       <Route path="/create-squad" component={CreateSquad} />
+      <Route path="/invite" component={InvitePage} />
       <Route component={NotFound} />
     </Switch>
   );

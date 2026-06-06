@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { PhoneShell } from "@/components/PhoneShell";
-import { T, font } from "@/lib/data";
+import { T, font, fontMono } from "@/lib/data";
 
 function StepDots({ total, current }: { total: number; current: number }) {
   return (
@@ -46,6 +46,9 @@ export default function Onboarding() {
   const [interests, setInterests] = useState(new Set<string>());
   const [squadName, setSquadName] = useState("");
   const [squadEmoji, setSquadEmoji] = useState("🔥");
+  const [plan, setPlan] = useState<"free" | "pro" | null>(null);
+
+  const TOTAL_STEPS = 5;
 
   const goTo = (n: number) => {
     setVisible(false);
@@ -67,28 +70,34 @@ export default function Onboarding() {
     { icon: "🎤", label: "Live Events" }, { icon: "🧩", label: "Board Games" }, { icon: "🍳", label: "Cooking" },
   ];
   const emojis = ["🔥", "💼", "🎓", "🏡", "✈️", "🎮", "🍕", "🎉", "💪", "🌊", "🎵", "🦄"];
-  const glowColors = [T.accent, T.purple, T.gold, T.green];
+  const glowColors = [T.accent, T.purple, T.gold, T.green, T.blue];
+
+  const stepIcons = ["👋", avatar || "😊", "✨", squadEmoji, "⚡"];
+  const stepTitles = ["What should we call you?", "Pick your vibe", "What do you love?", "Name your squad", "Choose your plan"];
+  const stepDescs = [
+    "How your squad will see you",
+    "Express yourself with an avatar",
+    "Helps us suggest the best events (pick 3+)",
+    "Create your first group to start planning",
+    "You can upgrade or downgrade anytime",
+  ];
 
   return (
     <PhoneShell>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", background: T.bg, position: "relative", overflow: "hidden" }}>
-        {/* Ambient glow */}
         <div style={{ position: "absolute", top: -60, right: -40, width: 240, height: 240, borderRadius: "50%", background: glowColors[step], opacity: 0.13, filter: "blur(65px)", pointerEvents: "none", transition: "background 0.6s" }} />
         <div style={{ position: "absolute", bottom: -40, left: -40, width: 200, height: 200, borderRadius: "50%", background: step % 2 === 0 ? T.purple : T.blue, opacity: 0.08, filter: "blur(55px)", pointerEvents: "none" }} />
 
-        {/* Header */}
         <div style={{ padding: "16px 22px 0", flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
             <button onClick={() => step > 0 ? goTo(step - 1) : setLocation("/signup")} style={{ background: T.surfaceUp, border: `1px solid ${T.border}`, borderRadius: 10, padding: "7px 12px", color: T.textSub, fontSize: 16, cursor: "pointer", fontFamily: font }}>←</button>
-            <StepDots total={4} current={step} />
-            <div style={{ marginLeft: "auto", fontSize: 12, color: T.textDim, fontFamily: font, fontWeight: 700 }}>{step + 1} of 4</div>
+            <StepDots total={TOTAL_STEPS} current={step} />
+            <div style={{ marginLeft: "auto", fontSize: 12, color: T.textDim, fontFamily: font, fontWeight: 700 }}>{step + 1} of {TOTAL_STEPS}</div>
           </div>
         </div>
 
-        {/* Main content */}
         <div style={{ flex: 1, overflowY: "auto", padding: "0 22px" }}>
           <div style={anim}>
-            {/* Step icon */}
             <div style={{
               width: 64, height: 64, borderRadius: 20,
               background: glowColors[step] + "22", border: `1px solid ${glowColors[step]}40`,
@@ -97,14 +106,14 @@ export default function Onboarding() {
               boxShadow: `0 6px 28px ${glowColors[step]}28`,
               transition: "background 0.4s",
             }}>
-              {step === 0 ? "👋" : step === 1 ? (avatar || "😊") : step === 2 ? "✨" : squadEmoji}
+              {stepIcons[step]}
             </div>
 
             <div style={{ fontFamily: "'Georgia', serif", fontSize: 24, fontWeight: 700, color: T.white, marginBottom: 4, lineHeight: 1.2 }}>
-              {step === 0 ? "What should we call you?" : step === 1 ? "Pick your vibe" : step === 2 ? "What do you love?" : "Name your squad"}
+              {stepTitles[step]}
             </div>
             <div style={{ fontSize: 13, color: T.textSub, marginBottom: 20, fontFamily: font }}>
-              {step === 0 ? "How your squad will see you" : step === 1 ? "Express yourself with an avatar" : step === 2 ? "Helps us suggest the best events (pick 3+)" : "Create your first group to start planning"}
+              {stepDescs[step]}
             </div>
 
             {/* Step 0 — Name */}
@@ -177,10 +186,72 @@ export default function Onboarding() {
                 </div>
               </div>
             )}
+
+            {/* Step 4 — Plan Selection */}
+            {step === 4 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {/* Free plan */}
+                <div
+                  onClick={() => setPlan("free")}
+                  style={{
+                    background: plan === "free" ? T.surfaceUp : T.surface,
+                    border: `2px solid ${plan === "free" ? T.accent : T.border}`,
+                    borderRadius: 18, padding: "18px 20px", cursor: "pointer",
+                    transition: "all 0.15s",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                    <div style={{ fontFamily: font, fontWeight: 800, fontSize: 16, color: T.white }}>Free</div>
+                    <div style={{ fontFamily: fontMono, fontWeight: 800, fontSize: 18, color: T.textSub }}>$0</div>
+                  </div>
+                  {["Up to 3 events per year", "30-day photo storage", "Basic squad features", "In-app messaging"].map(f => (
+                    <div key={f} style={{ display: "flex", gap: 8, marginBottom: 5 }}>
+                      <span style={{ color: T.textDim, fontSize: 12 }}>·</span>
+                      <span style={{ fontSize: 13, color: T.textSub, fontFamily: font }}>{f}</span>
+                    </div>
+                  ))}
+                  {plan === "free" && (
+                    <div style={{ marginTop: 10, fontSize: 12, color: T.accent, fontFamily: font, fontWeight: 700 }}>✓ Selected</div>
+                  )}
+                </div>
+
+                {/* Pro plan */}
+                <div
+                  onClick={() => setPlan("pro")}
+                  style={{
+                    background: plan === "pro" ? `linear-gradient(135deg, ${T.accent}22, ${T.gold}16)` : T.surface,
+                    border: `2px solid ${plan === "pro" ? T.accent : T.border}`,
+                    borderRadius: 18, padding: "18px 20px", cursor: "pointer",
+                    position: "relative", overflow: "hidden", transition: "all 0.15s",
+                  }}
+                >
+                  <div style={{ position: "absolute", top: 14, right: 14, background: `linear-gradient(135deg, ${T.accent}, ${T.gold})`, borderRadius: 20, padding: "3px 10px", fontSize: 10, color: "#fff", fontFamily: font, fontWeight: 800, letterSpacing: "0.05em" }}>BEST VALUE</div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                    <div style={{ fontFamily: font, fontWeight: 800, fontSize: 16, color: T.white }}>Pro ⚡</div>
+                    <div>
+                      <span style={{ fontFamily: fontMono, fontWeight: 800, fontSize: 18, color: T.white }}>$20</span>
+                      <span style={{ fontSize: 12, color: T.textSub, fontFamily: font }}>/year</span>
+                    </div>
+                  </div>
+                  {["Unlimited events per year", "Permanent photo vault", "Calendar sync & AI scheduling", "Custom invite codes", "Priority support"].map(f => (
+                    <div key={f} style={{ display: "flex", gap: 8, marginBottom: 5 }}>
+                      <span style={{ color: T.green, fontWeight: 700, fontSize: 12 }}>✓</span>
+                      <span style={{ fontSize: 13, color: T.text, fontFamily: font }}>{f}</span>
+                    </div>
+                  ))}
+                  {plan === "pro" && (
+                    <div style={{ marginTop: 10, fontSize: 12, color: T.accent, fontFamily: font, fontWeight: 700 }}>✓ Selected</div>
+                  )}
+                </div>
+
+                <div style={{ fontSize: 12, color: T.textDim, fontFamily: font, textAlign: "center" }}>
+                  No credit card required for free plan · Cancel Pro anytime
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Bottom CTA — always visible */}
         <div style={{ padding: "14px 22px 28px", flexShrink: 0, borderTop: `1px solid ${T.border + "80"}`, display: "flex", flexDirection: "column", gap: 8 }}>
           {step < 3 ? (
             <PrimaryBtn
@@ -191,14 +262,25 @@ export default function Onboarding() {
                step === 1 ? "Looking good! Next →" :
                "Perfect picks! Next →"}
             </PrimaryBtn>
+          ) : step === 3 ? (
+            <>
+              <PrimaryBtn disabled={!squadName.trim()} onPress={() => goTo(4)}>
+                {squadName.trim() ? "Next: Choose Your Plan →" : "Name your squad first"}
+              </PrimaryBtn>
+              <button onClick={() => goTo(4)} style={{ background: "none", border: "none", color: T.textDim, fontFamily: font, fontSize: 13, cursor: "pointer", padding: "4px" }}>
+                Skip squad for now
+              </button>
+            </>
           ) : (
             <>
-              <PrimaryBtn disabled={!squadName.trim()} onPress={() => setLocation("/home")}>
-                Create Squad & Start Planning →
+              <PrimaryBtn disabled={!plan} onPress={() => setLocation("/home")}>
+                {plan === "pro" ? "Start Pro — $20/year →" : plan === "free" ? "Start Free →" : "Choose a plan to continue"}
               </PrimaryBtn>
-              <button onClick={() => setLocation("/home")} style={{ background: "none", border: "none", color: T.textDim, fontFamily: font, fontSize: 13, cursor: "pointer", padding: "4px" }}>
-                Skip for now
-              </button>
+              {plan === "pro" && (
+                <div style={{ fontSize: 11, color: T.textDim, fontFamily: font, textAlign: "center" }}>
+                  You'll be asked for payment on the next screen
+                </div>
+              )}
             </>
           )}
         </div>
