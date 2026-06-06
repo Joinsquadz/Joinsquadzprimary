@@ -20,7 +20,6 @@ import { useData } from "@/context/AppContext";
 import { UserAvatar } from "@/components/UserAvatar";
 import {
   getUserById,
-  getSquadById,
   goingCount,
   ME,
   type RsvpStatus,
@@ -52,6 +51,7 @@ export default function EventDetailScreen() {
     addPoll,
     votePoll,
     sendMessage,
+    getSquad,
   } = useData();
 
   const [tab, setTab] = useState<EventTab>("overview");
@@ -98,8 +98,9 @@ export default function EventDetailScreen() {
 
   const host = getUserById(event.hostId);
   const isHost = event.hostId === ME.id;
-  const squad = getSquadById(event.squadId);
+  const squad = getSquad(event.squadId);
   const squadMembers = squad ? squad.memberIds.map(getUserById) : [getUserById(ME.id)];
+  const squadName = squad?.name ?? event.squadName;
   const myRsvp = event.rsvps[ME.id] ?? null;
 
   const spent = event.costs.reduce((s, c) => s + c.amount, 0);
@@ -416,7 +417,7 @@ export default function EventDetailScreen() {
             </View>
             <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <Text style={[styles.cardTitle, { color: colors.mutedForeground }]}>Squad</Text>
-              <Text style={[styles.cardBody, { color: colors.foreground }]}>{event.squadName}</Text>
+              <Text style={[styles.cardBody, { color: colors.foreground }]}>{squadName}</Text>
             </View>
           </View>
         )}
