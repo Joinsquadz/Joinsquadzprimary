@@ -8,6 +8,7 @@ import {
   Platform,
   ScrollView,
 } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -15,7 +16,7 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { GradientButton } from "@/components/GradientButton";
 
-type Screen = "options" | "email" | "otp";
+type Screen = "options" | "social-phone" | "email" | "otp";
 
 export default function SignupScreen() {
   const colors = useColors();
@@ -29,6 +30,9 @@ export default function SignupScreen() {
   }>();
 
   const [screen, setScreen] = useState<Screen>("options");
+  const [prevScreen, setPrevScreen] = useState<Screen>("options");
+  const [provider, setProvider] = useState<"facebook" | "google" | null>(null);
+  const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
@@ -57,10 +61,124 @@ export default function SignupScreen() {
     }
   };
 
+  const goSocial = (p: "facebook" | "google") => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setProvider(p);
+    setScreen("social-phone");
+  };
+
+  const goToOtp = (from: Screen) => {
+    setPrevScreen(from);
+    setScreen("otp");
+  };
+
+  // ── Social-phone screen ────────────────────────────────────────────────
+  if (screen === "social-phone") {
+    const isFB = provider === "facebook";
+    const providerColor = isFB ? "#1877F2" : "#4285F4";
+    const mockEmail = isFB ? "alex.johnson@facebook.com" : "alex.johnson@gmail.com";
+
+    const HeaderWrapper = ({ children }: { children: React.ReactNode }) =>
+      isFB ? (
+        <View style={[styles.socialHeader, { paddingTop: topPad + 16, backgroundColor: "#1877F2" }]}>
+          {children}
+        </View>
+      ) : (
+        <LinearGradient
+          colors={["#4285F4", "#34A853"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[styles.socialHeader, { paddingTop: topPad + 16 }]}
+        >
+          {children}
+        </LinearGradient>
+      );
+
+    return (
+      <View style={[styles.screen, bg]}>
+        <HeaderWrapper>
+          <TouchableOpacity onPress={() => setScreen("options")} style={styles.socialHeaderBack}>
+            <Text style={{ color: "rgba(255,255,255,0.9)", fontSize: 20, fontWeight: "700" }}>←</Text>
+          </TouchableOpacity>
+          <View style={{ alignItems: "center", paddingBottom: 20 }}>
+            <Text style={styles.providerLabel}>
+              {isFB ? "Facebook" : "Google"} connected ✓
+            </Text>
+            <Text style={[styles.serifH, { color: "#fff", textAlign: "center" }]}>
+              Almost there, Alex!
+            </Text>
+          </View>
+        </HeaderWrapper>
+
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{ padding: 24 }}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* Profile card */}
+          <View style={[styles.profileCard, cardBg]}>
+            <View style={{ position: "relative" }}>
+              <View style={[styles.avatarCircle, { backgroundColor: providerColor }]}>
+                <Text style={styles.avatarInitials}>AJ</Text>
+              </View>
+              <View style={[styles.providerBadge, { backgroundColor: providerColor }]}>
+                <Ionicons
+                  name={isFB ? "logo-facebook" : "logo-google"}
+                  size={10}
+                  color="#fff"
+                />
+              </View>
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 15, marginBottom: 2 }}>
+                Alex Johnson
+              </Text>
+              <Text style={{ color: colors.textDim, fontSize: 12 }} numberOfLines={1}>
+                {mockEmail}
+              </Text>
+            </View>
+            <View style={[styles.verifiedBadge, { backgroundColor: colors.green + "18" }]}>
+              <Text style={{ color: colors.green, fontSize: 11, fontWeight: "700" }}>✓ Verified</Text>
+            </View>
+          </View>
+
+          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Add your phone number</Text>
+          <Text style={[styles.sectionSub, { color: colors.mutedForeground }]}>
+            We'll send a one-time code to verify it's really you.
+          </Text>
+
+          <View style={styles.phoneRow}>
+            <View style={[styles.countryCode, cardBg]}>
+              <Text style={{ color: colors.foreground, fontSize: 15, fontWeight: "700" }}>+1</Text>
+            </View>
+            <TextInput
+              placeholder="(555) 000-0000"
+              placeholderTextColor={colors.textDim}
+              keyboardType="phone-pad"
+              value={phone}
+              onChangeText={setPhone}
+              style={[styles.phoneInput, cardBg, { color: colors.foreground }]}
+            />
+          </View>
+
+          <GradientButton
+            onPress={() => goToOtp("social-phone")}
+            label="Send Verification Code →"
+          />
+
+          <Text style={{ fontSize: 12, color: colors.textDim, textAlign: "center", marginTop: 12, lineHeight: 18 }}>
+            Standard SMS rates may apply. Your number is never shared.
+          </Text>
+        </ScrollView>
+      </View>
+    );
+  }
+
+  // ── OTP screen ────────────────────────────────────────────────────────
   if (screen === "otp") {
     return (
       <View style={[styles.screen, bg, { paddingTop: topPad }]}>
-        <TouchableOpacity onPress={() => setScreen("email")} style={styles.back}>
+        <TouchableOpacity onPress={() => setScreen(prevScreen)} style={styles.back}>
           <Ionicons name="chevron-back" size={24} color={colors.foreground} />
         </TouchableOpacity>
         <View style={styles.center}>
@@ -100,6 +218,7 @@ export default function SignupScreen() {
     );
   }
 
+  // ── Email screen ──────────────────────────────────────────────────────
   if (screen === "email") {
     return (
       <View style={[styles.screen, bg, { paddingTop: topPad }]}>
@@ -132,12 +251,13 @@ export default function SignupScreen() {
               style={[styles.input, { color: colors.foreground }]}
             />
           </View>
-          <GradientButton onPress={() => setScreen("otp")} label="Create Account →" style={styles.btnSpacing} />
+          <GradientButton onPress={() => goToOtp("email")} label="Create Account →" style={styles.btnSpacing} />
         </ScrollView>
       </View>
     );
   }
 
+  // ── Options screen (default) ──────────────────────────────────────────
   return (
     <View style={[styles.screen, bg]}>
       <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "center" }} keyboardShouldPersistTaps="handled">
@@ -165,7 +285,7 @@ export default function SignupScreen() {
 
         <View style={[styles.authSection, { paddingBottom: botPad + 16 }]}>
           <TouchableOpacity
-            onPress={handleVerify}
+            onPress={() => goSocial("facebook")}
             style={[styles.socialBtn, { backgroundColor: "#1877F2" }]}
           >
             <Ionicons name="logo-facebook" size={20} color="#fff" />
@@ -173,7 +293,7 @@ export default function SignupScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            onPress={handleVerify}
+            onPress={() => goSocial("google")}
             style={[styles.socialBtn, { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border }]}
           >
             <Ionicons name="logo-google" size={20} color={colors.foreground} />
@@ -227,19 +347,113 @@ export default function SignupScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   back: { padding: 16, width: 56 },
-  center: { flex: 1, paddingHorizontal: 24, justifyContent: "center" },
-  form: { paddingHorizontal: 24, paddingTop: 16 },
+
+  // Social-phone header
+  socialHeader: {
+    paddingHorizontal: 20,
+    paddingBottom: 0,
+    position: "relative",
+  },
+  socialHeaderBack: {
+    position: "absolute",
+    top: 16,
+    left: 16,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  providerLabel: {
+    fontSize: 11,
+    color: "rgba(255,255,255,0.75)",
+    fontWeight: "600",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    marginBottom: 6,
+  },
+  serifH: {
+    fontFamily: Platform.OS === "ios" ? "Georgia" : "serif",
+    fontSize: 22,
+    fontWeight: "700",
+    marginBottom: 0,
+  },
+
+  // Profile card
+  profileCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 16,
+    marginBottom: 20,
+  },
+  avatarCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarInitials: { color: "#fff", fontSize: 20, fontWeight: "800" },
+  providerBadge: {
+    position: "absolute",
+    bottom: -2,
+    right: -2,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: "#1A1A26",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  verifiedBadge: {
+    borderRadius: 20,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+
+  // Section labels
+  sectionTitle: { fontSize: 15, fontWeight: "700", marginBottom: 4 },
+  sectionSub: { fontSize: 13, marginBottom: 16, lineHeight: 20 },
+
+  // Phone input
+  phoneRow: { flexDirection: "row", gap: 10, marginBottom: 20 },
+  countryCode: { borderRadius: 13, borderWidth: 1.5, paddingHorizontal: 14, justifyContent: "center", height: 52 },
+  phoneInput: { flex: 1, borderRadius: 13, borderWidth: 1.5, paddingHorizontal: 14, fontSize: 15, height: 52 },
+
+  // Logo section
   logoSection: { paddingHorizontal: 24, paddingBottom: 28 },
   logoText: { fontSize: 40, fontWeight: "800", marginBottom: 6 },
   logoSub: { fontSize: 28, fontWeight: "800", lineHeight: 34, marginBottom: 6 },
   logoMeta: { fontSize: 14 },
   authSection: { paddingHorizontal: 24 },
+
+  // OTP
+  center: { flex: 1, paddingHorizontal: 24, justifyContent: "center" },
+  form: { paddingHorizontal: 24, paddingTop: 16 },
   iconBox: {
     width: 72, height: 72, borderRadius: 22, borderWidth: 1,
     alignItems: "center", justifyContent: "center", marginBottom: 20, alignSelf: "center",
   },
   h1: { fontSize: 26, fontWeight: "800", marginBottom: 8, textAlign: "center" },
   sub: { fontSize: 14, marginBottom: 32, textAlign: "center", lineHeight: 20 },
+  otpRow: { flexDirection: "row", gap: 8, marginBottom: 32 },
+  otpBox: {
+    width: 44, height: 54, borderRadius: 13, borderWidth: 2,
+    fontSize: 22, fontWeight: "700", textAlign: "center",
+  },
+  btnSpacing: { marginTop: 12 },
+
+  // Email form
+  inputRow: {
+    flexDirection: "row", alignItems: "center", borderRadius: 13,
+    borderWidth: 1.5, paddingHorizontal: 14, marginBottom: 12, height: 52, gap: 10,
+  },
+  input: { flex: 1, fontSize: 15, height: 50 },
+
+  // Social buttons
   socialBtn: {
     flexDirection: "row", alignItems: "center", justifyContent: "center",
     gap: 10, borderRadius: 14, padding: 15, marginBottom: 10,
@@ -248,20 +462,12 @@ const styles = StyleSheet.create({
   divider: { flexDirection: "row", alignItems: "center", gap: 10, marginVertical: 6 },
   divLine: { flex: 1, height: 1 },
   divText: { fontSize: 12 },
-  otpRow: { flexDirection: "row", gap: 8, marginBottom: 32 },
-  otpBox: {
-    width: 44, height: 54, borderRadius: 13, borderWidth: 2,
-    fontSize: 22, fontWeight: "700", textAlign: "center",
-  },
-  btnSpacing: { marginTop: 12 },
-  inputRow: {
-    flexDirection: "row", alignItems: "center", borderRadius: 13,
-    borderWidth: 1.5, paddingHorizontal: 14, marginBottom: 12, height: 52, gap: 10,
-  },
-  input: { flex: 1, fontSize: 15, height: 50 },
+
+  // Feature box
   featureBox: { borderRadius: 16, borderWidth: 1, padding: 16, marginTop: 10, gap: 10 },
   featureRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   featureText: { fontSize: 13, flex: 1 },
+
   signupRow: { alignItems: "center", marginTop: 20 },
   terms: { textAlign: "center", fontSize: 12, marginTop: 12, lineHeight: 18 },
   inviteBanner: {

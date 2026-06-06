@@ -9,6 +9,7 @@ import {
   StatusBar,
   ScrollView,
 } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -18,7 +19,7 @@ import { useAuth } from "@/context/AppContext";
 import { SquadzIcon } from "@/components/SquadzIcon";
 import { GradientButton } from "@/components/GradientButton";
 
-type Screen = "splash" | "options" | "email" | "phone" | "otp";
+type Screen = "splash" | "options" | "social-phone" | "email" | "phone" | "otp";
 
 const AVATAR_FACES = [
   { letter: "M", color: "#FF5C3A" },
@@ -50,6 +51,9 @@ export default function LoginScreen() {
 
   const hasInvite = !!params.inviteCode;
   const [screen, setScreen] = useState<Screen>(hasInvite ? "options" : "splash");
+  const [prevScreen, setPrevScreen] = useState<Screen>("options");
+  const [provider, setProvider] = useState<"facebook" | "google" | null>(null);
+  const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
@@ -69,12 +73,126 @@ export default function LoginScreen() {
     }
   };
 
+  const goSocial = (p: "facebook" | "google") => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setProvider(p);
+    setScreen("social-phone");
+  };
+
+  const goToOtp = (from: Screen) => {
+    setPrevScreen(from);
+    setScreen("otp");
+  };
+
+  // ── Social-phone screen ────────────────────────────────────────────────
+  if (screen === "social-phone") {
+    const isFB = provider === "facebook";
+    const providerColor = isFB ? "#1877F2" : "#4285F4";
+    const mockEmail = isFB ? "alex.johnson@facebook.com" : "alex.johnson@gmail.com";
+
+    const HeaderWrapper = ({ children }: { children: React.ReactNode }) =>
+      isFB ? (
+        <View style={[styles.socialHeader, { paddingTop: topPad + 16, backgroundColor: "#1877F2" }]}>
+          {children}
+        </View>
+      ) : (
+        <LinearGradient
+          colors={["#4285F4", "#34A853"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[styles.socialHeader, { paddingTop: topPad + 16 }]}
+        >
+          {children}
+        </LinearGradient>
+      );
+
+    return (
+      <View style={[styles.screen, bg]}>
+        <GlowBlobs />
+        <HeaderWrapper>
+          <TouchableOpacity onPress={() => setScreen("options")} style={styles.socialHeaderBack}>
+            <Text style={{ color: "rgba(255,255,255,0.9)", fontSize: 20, fontWeight: "700" }}>←</Text>
+          </TouchableOpacity>
+          <View style={{ alignItems: "center", paddingBottom: 20 }}>
+            <Text style={styles.providerLabel}>
+              {isFB ? "Facebook" : "Google"} connected ✓
+            </Text>
+            <Text style={[styles.serifHeading, { color: "#fff", marginBottom: 0, textAlign: "center" }]}>
+              Welcome back, Alex!
+            </Text>
+          </View>
+        </HeaderWrapper>
+
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{ padding: 24 }}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* Profile card */}
+          <View style={[styles.profileCard, cardBg]}>
+            <View style={{ position: "relative" }}>
+              <View style={[styles.avatarCircle, { backgroundColor: providerColor }]}>
+                <Text style={styles.avatarInitials}>AJ</Text>
+              </View>
+              <View style={[styles.providerBadge, { backgroundColor: providerColor }]}>
+                <Ionicons
+                  name={isFB ? "logo-facebook" : "logo-google"}
+                  size={10}
+                  color="#fff"
+                />
+              </View>
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={[{ color: colors.foreground, fontWeight: "700", fontSize: 15, marginBottom: 2 }]}>
+                Alex Johnson
+              </Text>
+              <Text style={[{ color: colors.textDim, fontSize: 12 }]} numberOfLines={1}>
+                {mockEmail}
+              </Text>
+            </View>
+            <View style={[styles.verifiedBadge, { backgroundColor: colors.green + "18" }]}>
+              <Text style={{ color: colors.green, fontSize: 11, fontWeight: "700" }}>✓ Verified</Text>
+            </View>
+          </View>
+
+          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Verify it's you</Text>
+          <Text style={[styles.sectionSub, { color: colors.mutedForeground }]}>
+            We'll send a one-time code to your registered phone number.
+          </Text>
+
+          <View style={styles.phoneRow}>
+            <View style={[styles.countryCode, cardBg]}>
+              <Text style={{ color: colors.foreground, fontSize: 15, fontWeight: "700" }}>+1</Text>
+            </View>
+            <TextInput
+              placeholder="(555) 000-0000"
+              placeholderTextColor={colors.textDim}
+              keyboardType="phone-pad"
+              value={phone}
+              onChangeText={setPhone}
+              style={[styles.phoneInput, cardBg, { color: colors.foreground }]}
+            />
+          </View>
+
+          <GradientButton
+            onPress={() => goToOtp("social-phone")}
+            label="Send Verification Code →"
+          />
+
+          <Text style={[{ fontSize: 12, color: colors.textDim, textAlign: "center", marginTop: 12, lineHeight: 18 }]}>
+            Standard SMS rates may apply.
+          </Text>
+        </ScrollView>
+      </View>
+    );
+  }
+
   // ── OTP screen ────────────────────────────────────────────────────────
   if (screen === "otp") {
     return (
       <View style={[styles.screen, bg, { paddingTop: topPad }]}>
         <GlowBlobs />
-        <TouchableOpacity onPress={() => setScreen("phone")} style={styles.back}>
+        <TouchableOpacity onPress={() => setScreen(prevScreen)} style={styles.back}>
           <Text style={[styles.backArrow, { color: colors.mutedForeground }]}>←</Text>
         </TouchableOpacity>
         <View style={styles.center}>
@@ -152,10 +270,12 @@ export default function LoginScreen() {
               placeholder="(555) 000-0000"
               placeholderTextColor={colors.textDim}
               keyboardType="phone-pad"
+              value={phone}
+              onChangeText={setPhone}
               style={[styles.phoneInput, cardBg, { color: colors.foreground }]}
             />
           </View>
-          <GradientButton onPress={() => setScreen("otp")} label="Send Code →" />
+          <GradientButton onPress={() => goToOtp("phone")} label="Send Code →" />
         </View>
       </View>
     );
@@ -241,7 +361,7 @@ export default function LoginScreen() {
 
           <View style={{ paddingHorizontal: 24, gap: 10 }}>
             <TouchableOpacity
-              onPress={handleVerify}
+              onPress={() => goSocial("facebook")}
               style={[styles.socialBtn, { backgroundColor: "#1877F2" }]}
             >
               <Ionicons name="logo-facebook" size={20} color="#fff" />
@@ -249,7 +369,7 @@ export default function LoginScreen() {
             </TouchableOpacity>
 
             <TouchableOpacity
-              onPress={handleVerify}
+              onPress={() => goSocial("google")}
               style={[styles.socialBtn, { backgroundColor: colors.surfaceUp, borderWidth: 1.5, borderColor: colors.border }]}
             >
               <Ionicons name="logo-google" size={20} color={colors.foreground} />
@@ -293,7 +413,6 @@ export default function LoginScreen() {
     <View style={[styles.screen, bg]}>
       <StatusBar barStyle="light-content" />
 
-      {/* Glow blobs */}
       <View style={[styles.blob, { top: -80, right: -50, width: 280, height: 280, backgroundColor: "#FF5C3A", opacity: 0.13 }]} />
       <View style={[styles.blob, { top: 200, left: -80, width: 220, height: 220, backgroundColor: "#A855F7", opacity: 0.09 }]} />
       <View style={[styles.blob, { bottom: 160, right: -30, width: 180, height: 180, backgroundColor: "#FFB547", opacity: 0.08 }]} />
@@ -302,29 +421,23 @@ export default function LoginScreen() {
         contentContainerStyle={{ flexGrow: 1, justifyContent: "center", paddingTop: topPad + 20, paddingBottom: botPad + 20 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* Logo section */}
         <View style={styles.logoSection}>
           <View style={styles.iconWrapper}>
             <View style={[styles.iconGlow, { backgroundColor: "#FF5C3A" }]} />
             <SquadzIcon size={92} style={styles.appIcon} />
           </View>
-
           <Text style={styles.wordmark}>squadz</Text>
           <Text style={[styles.tagline, { color: colors.mutedForeground }]}>
             Stop texting. Start actually hanging.
           </Text>
         </View>
 
-        {/* Social proof */}
         <View style={[styles.socialProof, { backgroundColor: colors.surfaceUp, borderColor: colors.border }]}>
           <View style={styles.avatarStack}>
             {AVATAR_FACES.map((a, i) => (
               <View
                 key={a.letter}
-                style={[
-                  styles.avatarBubble,
-                  { backgroundColor: a.color, marginLeft: i > 0 ? -9 : 0, zIndex: 5 - i },
-                ]}
+                style={[styles.avatarBubble, { backgroundColor: a.color, marginLeft: i > 0 ? -9 : 0, zIndex: 5 - i }]}
               >
                 <Text style={styles.avatarLetter}>{a.letter}</Text>
               </View>
@@ -335,27 +448,19 @@ export default function LoginScreen() {
           </Text>
         </View>
 
-        {/* Feature pills */}
         <View style={styles.pillsWrap}>
           {PILLS.map((p) => (
-            <View
-              key={p.label}
-              style={[styles.pill, { backgroundColor: p.color + "18", borderColor: p.color + "38" }]}
-            >
-              <Text style={[styles.pillText, { color: p.color }]}>
-                {p.icon}{"  "}{p.label}
-              </Text>
+            <View key={p.label} style={[styles.pill, { backgroundColor: p.color + "18", borderColor: p.color + "38" }]}>
+              <Text style={[styles.pillText, { color: p.color }]}>{p.icon}{"  "}{p.label}</Text>
             </View>
           ))}
         </View>
 
-        {/* CTAs */}
         <View style={styles.ctaSection}>
           <GradientButton
             label="Get Started — It's Free ✨"
             onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push("/signup"); }}
           />
-
           <TouchableOpacity
             onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setScreen("options"); }}
             style={[styles.secondaryBtn, { borderColor: colors.border }]}
@@ -364,7 +469,6 @@ export default function LoginScreen() {
               I already have an account
             </Text>
           </TouchableOpacity>
-
           <Text style={[styles.freeNote, { color: colors.textDim }]}>
             Free forever · No credit card needed
           </Text>
@@ -387,9 +491,71 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   back: { paddingHorizontal: 20, paddingVertical: 12, width: 60 },
   backArrow: { fontSize: 24 },
-
-  // Glow blob
   blob: { position: "absolute", borderRadius: 999 },
+
+  // Social-phone header
+  socialHeader: {
+    paddingHorizontal: 20,
+    paddingBottom: 0,
+    position: "relative",
+  },
+  socialHeaderBack: {
+    position: "absolute",
+    top: 16,
+    left: 16,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  providerLabel: {
+    fontSize: 11,
+    color: "rgba(255,255,255,0.75)",
+    fontWeight: "600",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    marginBottom: 6,
+  },
+
+  // Profile card
+  profileCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 16,
+    marginBottom: 20,
+  },
+  avatarCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarInitials: { color: "#fff", fontSize: 20, fontWeight: "800" },
+  providerBadge: {
+    position: "absolute",
+    bottom: -2,
+    right: -2,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: "#1A1A26",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  verifiedBadge: {
+    borderRadius: 20,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+
+  // Section labels
+  sectionTitle: { fontSize: 15, fontWeight: "700", marginBottom: 4 },
+  sectionSub: { fontSize: 13, marginBottom: 16, lineHeight: 20 },
 
   // Logo / splash
   logoSection: { alignItems: "center", marginBottom: 20, paddingHorizontal: 24 },
@@ -421,13 +587,9 @@ const styles = StyleSheet.create({
   },
   avatarStack: { flexDirection: "row" },
   avatarBubble: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "#1A1A26",
+    width: 26, height: 26, borderRadius: 13,
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 2, borderColor: "#1A1A26",
   },
   avatarLetter: { fontSize: 10, fontWeight: "800", color: "#000" },
   socialProofText: { fontSize: 13 },
@@ -454,6 +616,11 @@ const styles = StyleSheet.create({
   divLine: { flex: 1, height: 1 },
   divText: { fontSize: 12 },
 
+  // Phone input
+  phoneRow: { flexDirection: "row", gap: 10, marginBottom: 20 },
+  countryCode: { borderRadius: 13, borderWidth: 1.5, paddingHorizontal: 14, justifyContent: "center", height: 52 },
+  phoneInput: { flex: 1, borderRadius: 13, borderWidth: 1.5, paddingHorizontal: 14, fontSize: 15, height: 52 },
+
   // Shared
   serifHeading: {
     fontFamily: Platform.OS === "ios" ? "Georgia" : "serif",
@@ -479,9 +646,6 @@ const styles = StyleSheet.create({
     width: 44, height: 54, borderRadius: 13, borderWidth: 2,
     fontSize: 22, fontWeight: "700", textAlign: "center",
   },
-  phoneRow: { flexDirection: "row", gap: 10, marginBottom: 20 },
-  countryCode: { borderRadius: 13, borderWidth: 1.5, paddingHorizontal: 14, justifyContent: "center", height: 52 },
-  phoneInput: { flex: 1, borderRadius: 13, borderWidth: 1.5, paddingHorizontal: 14, fontSize: 15, height: 52 },
   inputRow: {
     flexDirection: "row", alignItems: "center", borderRadius: 13,
     borderWidth: 1.5, paddingHorizontal: 14, marginBottom: 12, height: 52, gap: 10,
