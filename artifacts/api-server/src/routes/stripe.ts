@@ -76,8 +76,8 @@ router.post('/checkout', requireAuth, async (req, res): Promise<void> => {
     const session = await stripeService.createCheckoutSession(
       customerId!,
       priceId,
-      `${baseUrl}/?checkout=success`,
-      `${baseUrl}/?checkout=cancel`,
+      `${baseUrl}/home?checkout=success`,
+      `${baseUrl}/home?checkout=cancel`,
     );
 
     res.json({ url: session.url });

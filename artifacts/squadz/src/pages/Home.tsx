@@ -375,22 +375,51 @@ function ActivityTab() {
   );
 }
 
-function ProfileTab({ go, displayName }: { go: (s: string) => void; displayName?: string | null }) {
+function CheckoutSuccessBanner({ onDismiss }: { onDismiss: () => void }) {
+  React.useEffect(() => {
+    const t = setTimeout(onDismiss, 5000);
+    return () => clearTimeout(t);
+  }, [onDismiss]);
+
+  return (
+    <div style={{
+      background: `linear-gradient(135deg, ${T.green}22, ${T.green}10)`,
+      border: `1px solid ${T.green}50`,
+      borderRadius: 14,
+      padding: "14px 16px",
+      marginBottom: 20,
+      display: "flex",
+      alignItems: "flex-start",
+      gap: 12,
+      animation: "fadeSlideIn 0.35s ease",
+    }}>
+      <div style={{ fontSize: 28, lineHeight: 1, flexShrink: 0 }}>🎉</div>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontFamily: font, fontWeight: 800, fontSize: 15, color: T.green, marginBottom: 2 }}>
+          Welcome to Squadz Pro!
+        </div>
+        <div style={{ fontSize: 13, color: T.textSub, fontFamily: font, lineHeight: 1.4 }}>
+          Your upgrade is confirmed. Unlimited events, photo vault, and calendar sync are now unlocked.
+        </div>
+      </div>
+      <button onClick={onDismiss} style={{ background: "none", border: "none", color: T.textDim, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 0, flexShrink: 0 }}>×</button>
+    </div>
+  );
+}
+
+function ProfileTab({ go, displayName, checkoutSuccess }: { go: (s: string) => void; displayName?: string | null; checkoutSuccess?: boolean }) {
   const [notifs, setNotifs] = useState(true);
   const [calSync, setCalSync] = useState(true);
   const [darkMode, setDarkMode] = useState(true);
-  const [isPro, setIsPro] = useState(false);
+  const [isPro, setIsPro] = useState(!!checkoutSuccess);
   const [upgradeLoading, setUpgradeLoading] = useState(false);
   const [upgradeError, setUpgradeError] = useState<string | null>(null);
+  const [showSuccessBanner, setShowSuccessBanner] = useState(!!checkoutSuccess);
   const stats = [{ n: "24", l: "Events" }, { n: "4", l: "SquadZ" }, { n: "🔥12", l: "Streak" }];
 
-  // Check subscription status on mount and after checkout redirect.
+  // Check subscription status on mount.
   // Server resolves the current user from the session cookie — no userId in the request.
   React.useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("checkout") === "success") {
-      window.history.replaceState({}, "", window.location.pathname);
-    }
     fetch('/api/subscription', { credentials: 'include' })
       .then(r => r.json())
       .then((d: { isPro?: boolean }) => { if (d.isPro) setIsPro(true); })
@@ -441,6 +470,9 @@ function ProfileTab({ go, displayName }: { go: (s: string) => void; displayName?
   return (
     <div style={{ flex: 1, overflowY: "auto" }}>
       <div style={{ padding: "20px 20px 40px" }}>
+        {showSuccessBanner && (
+          <CheckoutSuccessBanner onDismiss={() => setShowSuccessBanner(false)} />
+        )}
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 24 }}>
           <div style={{ position: "relative", marginBottom: 12 }}>
             <div style={{ width: 80, height: 80, borderRadius: 40, background: `linear-gradient(135deg, ${T.accent}, ${T.gold})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: displayName ? 28 : 36, fontWeight: 800, color: "#000" }}>
@@ -538,6 +570,16 @@ export default function Home() {
   const [tab, setTab] = useState("home");
   const [, setLocation] = useLocation();
   const { firstName, displayName } = useCurrentUser();
+  const [checkoutSuccess, setCheckoutSuccess] = useState(false);
+
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("checkout") === "success") {
+      window.history.replaceState({}, "", window.location.pathname);
+      setCheckoutSuccess(true);
+      setTab("profile");
+    }
+  }, []);
 
   const go = (screen: string) => {
     if (screen === "/" || screen === "splash") { setLocation("/"); return; }
@@ -556,7 +598,7 @@ export default function Home() {
     messages: <MessagesTab go={go} />,
     discover: <DiscoverTab go={go} />,
     activity: <ActivityTab />,
-    profile: <ProfileTab go={go} displayName={displayName} />,
+    profile: <ProfileTab go={go} displayName={displayName} checkoutSuccess={checkoutSuccess} />,
   };
 
   return (

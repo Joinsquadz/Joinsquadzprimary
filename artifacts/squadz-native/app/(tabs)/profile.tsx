@@ -8,6 +8,7 @@ import {
   Alert,
   Linking,
   ActivityIndicator,
+  Animated,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -15,8 +16,8 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useAuth, useData } from "@/context/AppContext";
 import { UserAvatar } from "@/components/UserAvatar";
-import { router } from "expo-router";
-import { useState, useEffect, useCallback } from "react";
+import { router, useLocalSearchParams } from "expo-router";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Constants from "expo-constants";
 
 /**
@@ -63,10 +64,15 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const { currentUser, logout, authToken } = useAuth();
   const { events, squads } = useData();
+  const params = useLocalSearchParams<{ checkout?: string }>();
 
-  const [isPro, setIsPro] = useState(false);
+  const didCheckoutSuccess = params.checkout === "success";
+  const bannerOpacity = useRef(new Animated.Value(0)).current;
+
+  const [isPro, setIsPro] = useState(didCheckoutSuccess);
   const [checkingPro, setCheckingPro] = useState(false);
   const [upgradeLoading, setUpgradeLoading] = useState(false);
+  const [showSuccessBanner, setShowSuccessBanner] = useState(didCheckoutSuccess);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 84 : 100);
@@ -100,6 +106,19 @@ export default function ProfileScreen() {
   useEffect(() => {
     void checkSubscription();
   }, [checkSubscription]);
+
+  useEffect(() => {
+    if (!showSuccessBanner) return;
+    Animated.timing(bannerOpacity, { toValue: 1, duration: 300, useNativeDriver: true }).start();
+    // Clear the query param from the URL (web only) without re-rendering
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+    const t = setTimeout(() => {
+      Animated.timing(bannerOpacity, { toValue: 0, duration: 300, useNativeDriver: true }).start(() => setShowSuccessBanner(false));
+    }, 5000);
+    return () => clearTimeout(t);
+  }, [showSuccessBanner, bannerOpacity]);
 
   async function handleUpgrade() {
     setUpgradeLoading(true);
@@ -211,7 +230,21 @@ export default function ProfileScreen() {
         contentContainerStyle={{ paddingBottom: botPad }}
         showsVerticalScrollIndicator={false}
       >
-        <View style={[styles.profileCard, { paddingTop: topPad + 20, borderBottomColor: colors.border }]}>
+        {showSuccessBanner && (
+          <Animated.View style={[styles.successBanner, { backgroundColor: colors.green + "18", borderColor: colors.green + "50", opacity: bannerOpacity, marginTop: topPad + 12 }]}>
+            <Text style={styles.successEmoji}>🎉</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.successTitle, { color: colors.green }]}>Welcome to Squadz Pro!</Text>
+              <Text style={[styles.successBody, { color: colors.mutedForeground }]}>
+                Your upgrade is confirmed. Unlimited events, photo vault, and calendar sync are now unlocked.
+              </Text>
+            </View>
+            <TouchableOpacity onPress={() => setShowSuccessBanner(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="close" size={18} color={colors.mutedForeground} />
+            </TouchableOpacity>
+          </Animated.View>
+        )}
+        <View style={[styles.profileCard, { paddingTop: showSuccessBanner ? 16 : topPad + 20, borderBottomColor: colors.border }]}>
           <UserAvatar initials={currentUser.initials} color={currentUser.color} size={80} fontSize={28} />
           <View style={styles.nameRow}>
             <Text style={[styles.name, { color: colors.foreground }]}>{currentUser.name}</Text>
@@ -348,4 +381,8 @@ const styles = StyleSheet.create({
   settingLast: { borderBottomLeftRadius: 14, borderBottomRightRadius: 14 },
   settingLabel: { fontSize: 15 },
   settingValue: { fontSize: 13, fontWeight: "700" },
+  successBanner: { flexDirection: "row", alignItems: "flex-start", gap: 12, marginHorizontal: 20, marginBottom: 4, padding: 14, borderRadius: 14, borderWidth: 1 },
+  successEmoji: { fontSize: 26, lineHeight: 32 },
+  successTitle: { fontSize: 15, fontWeight: "800", marginBottom: 3 },
+  successBody: { fontSize: 13, lineHeight: 18 },
 });
