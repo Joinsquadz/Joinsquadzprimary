@@ -4,8 +4,6 @@ import { Platform } from "react-native";
 import Constants from "expo-constants";
 import {
   ME,
-  EVENTS,
-  SQUADS,
   type Event,
   type Squad,
   type RsvpStatus,
@@ -128,7 +126,7 @@ const AppContext = createContext<AppContextType>({
   login: noop,
   logout: noop,
   setInviteCtx: noop,
-  events: EVENTS,
+  events: [],
   getEvent: () => undefined,
   setRsvp: noop,
   addEvent: asyncNoop,
@@ -141,7 +139,7 @@ const AppContext = createContext<AppContextType>({
   addPoll: noop,
   votePoll: noop,
   sendMessage: noop,
-  squads: SQUADS,
+  squads: [],
   getSquad: () => undefined,
   addSquad: asyncNoop,
   updateSquad: noop,
@@ -189,12 +187,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [apiUser, setApiUser] = useState<ApiUser | null>(null);
   const [inviteCtx, setInviteCtx] = useState<InviteCtx | null>(null);
-  const [events, setEvents] = useState<Event[]>(() =>
-    EVENTS.map((e) => ({ ...e, rsvps: { ...e.rsvps } })),
-  );
-  const [squads, setSquads] = useState<Squad[]>(() =>
-    SQUADS.map((s) => ({ ...s, memberIds: [...s.memberIds] })),
-  );
+  const [events, setEvents] = useState<Event[]>([]);
+  const [squads, setSquads] = useState<Squad[]>([]);
   const [friends, setFriends] = useState<string[]>(INITIAL_FRIENDS);
   const currentUserIdRef = useRef<string>(ME.id);
 
@@ -236,14 +230,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const fetchEvents = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/events`);
+      const res = await apiFetch(`/api/events`);
       if (!res.ok) return;
       const data = await res.json() as Record<string, unknown>[];
       setEvents(data.map(dbEventToEvent));
     } catch {
       // Network unavailable — keep mock data
     }
-  }, []);
+  }, [apiFetch]);
 
   const fetchSquads = useCallback(async () => {
     try {
