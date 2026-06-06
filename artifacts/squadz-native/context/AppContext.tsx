@@ -272,6 +272,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [fetchSquads]);
 
   useEffect(() => {
+    if (authToken) {
+      void fetchEvents();
+      void fetchSquads();
+    }
+  }, [authToken, fetchEvents, fetchSquads]);
+
+  useEffect(() => {
     AsyncStorage.getItem(AUTH_TOKEN_KEY).then(token => {
       if (token) {
         setAuthToken(token);
