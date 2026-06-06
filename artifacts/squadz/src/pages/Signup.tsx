@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { PhoneShell } from "@/components/PhoneShell";
 import { T, font } from "@/lib/data";
+import { inviteStore } from "@/lib/inviteStore";
 
 function GlowBlobs() {
   return (
@@ -23,8 +24,23 @@ function SocialBtn({ icon, label, onPress, style = {} }: { icon: string; label: 
   );
 }
 
+function InviteBanner({ emoji, title, host }: { emoji: string; title: string; host: string }) {
+  return (
+    <div style={{ background: `linear-gradient(135deg, ${T.accent}20, ${T.gold}12)`, border: `1px solid ${T.accent}40`, borderRadius: 14, padding: "12px 16px", marginBottom: 20, display: "flex", alignItems: "center", gap: 12 }}>
+      <div style={{ width: 44, height: 44, borderRadius: 12, background: T.accent + "20", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0 }}>{emoji}</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 10, color: T.accent, fontFamily: font, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 2 }}>You've been invited to join</div>
+        <div style={{ fontSize: 15, fontWeight: 800, color: T.white, fontFamily: font, marginBottom: 1 }}>{title}</div>
+        <div style={{ fontSize: 12, color: T.textSub, fontFamily: font }}>Hosted by {host}</div>
+      </div>
+      <div style={{ fontSize: 18 }}>🎉</div>
+    </div>
+  );
+}
+
 export default function Signup() {
   const [, setLocation] = useLocation();
+  const [invCtx] = useState(() => inviteStore.get());
   const [screen, setScreen] = useState("options");
   const [prevScreen, setPrevScreen] = useState("options");
   const [socialProvider, setSocialProvider] = useState<"facebook" | "google" | null>(null);
@@ -213,15 +229,29 @@ export default function Signup() {
         <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: "20px 24px", overflowY: "auto", position: "relative" }}>
           <button onClick={() => setLocation("/")} style={{ background: "none", border: "none", color: T.textSub, fontSize: 22, cursor: "pointer", padding: 0, marginBottom: 20, textAlign: "left", width: "fit-content" }}>←</button>
 
-          {/* Header */}
-          <div style={{ ...anim, textAlign: "center", marginBottom: 28 }}>
-            <div style={{ fontFamily: "'Georgia', serif", fontSize: 32, fontWeight: 700, color: T.white, lineHeight: 1.1, marginBottom: 6 }}>
-              Your squad<br />awaits. 🎉
+          {/* Invite banner or header */}
+          {invCtx ? (
+            <>
+              <InviteBanner emoji={invCtx.emoji} title={invCtx.title} host={invCtx.host} />
+              <div style={{ ...anim, textAlign: "center", marginBottom: 28 }}>
+                <div style={{ fontFamily: "'Georgia', serif", fontSize: 30, fontWeight: 700, color: T.white, lineHeight: 1.1, marginBottom: 6 }}>
+                  Create your account
+                </div>
+                <div style={{ fontSize: 14, color: T.textSub, fontFamily: font }}>
+                  Join {invCtx.title} and start planning together
+                </div>
+              </div>
+            </>
+          ) : (
+            <div style={{ ...anim, textAlign: "center", marginBottom: 28 }}>
+              <div style={{ fontFamily: "'Georgia', serif", fontSize: 32, fontWeight: 700, color: T.white, lineHeight: 1.1, marginBottom: 6 }}>
+                Your squad<br />awaits. 🎉
+              </div>
+              <div style={{ fontSize: 14, color: T.textSub, fontFamily: font }}>
+                Join 50,000+ friend groups planning smarter
+              </div>
             </div>
-            <div style={{ fontSize: 14, color: T.textSub, fontFamily: font }}>
-              Join 50,000+ friend groups planning smarter
-            </div>
-          </div>
+          )}
 
           {/* Auth buttons */}
           <div style={{ ...anim, display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>

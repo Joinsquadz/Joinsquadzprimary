@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { PhoneShell } from "@/components/PhoneShell";
 import { T, font } from "@/lib/data";
+import { inviteStore } from "@/lib/inviteStore";
 
 function GlowBlobs() {
   return (
@@ -12,8 +13,23 @@ function GlowBlobs() {
   );
 }
 
+function InviteBanner({ emoji, title, host }: { emoji: string; title: string; host: string }) {
+  return (
+    <div style={{ background: `linear-gradient(135deg, ${T.accent}20, ${T.gold}12)`, border: `1px solid ${T.accent}40`, borderRadius: 14, padding: "12px 16px", marginBottom: 20, display: "flex", alignItems: "center", gap: 12 }}>
+      <div style={{ width: 44, height: 44, borderRadius: 12, background: T.accent + "20", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0 }}>{emoji}</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 10, color: T.accent, fontFamily: font, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 2 }}>You've been invited to join</div>
+        <div style={{ fontSize: 15, fontWeight: 800, color: T.white, fontFamily: font, marginBottom: 1 }}>{title}</div>
+        <div style={{ fontSize: 12, color: T.textSub, fontFamily: font }}>Hosted by {host}</div>
+      </div>
+      <div style={{ fontSize: 18 }}>🎉</div>
+    </div>
+  );
+}
+
 export default function Login() {
   const [, setLocation] = useLocation();
+  const [invCtx] = useState(() => inviteStore.get());
   const [screen, setScreen] = useState("options");
   const [prevScreen, setPrevScreen] = useState("options");
   const [provider, setProvider] = useState<"facebook" | "google" | null>(null);
@@ -222,8 +238,17 @@ export default function Login() {
                 }} className="login-otp" style={{ width: 44, height: 54, borderRadius: 13, background: c ? T.accentDim : T.surfaceUp, border: `2px solid ${c ? T.accent : T.border}`, color: T.white, fontFamily: "'DM Mono', monospace", fontSize: 22, fontWeight: 700, textAlign: "center", outline: "none", transition: "all 0.15s" }} />
               ))}
             </div>
-            <button onClick={() => setLocation("/home")} style={{ width: "100%", borderRadius: 14, border: "none", background: `linear-gradient(135deg, ${T.accent}, #FF8050)`, color: "#fff", fontFamily: font, fontWeight: 800, fontSize: 16, padding: "14px 20px", cursor: "pointer", boxShadow: `0 8px 28px ${T.accent}45`, marginBottom: 14 }}>
-              Verify & Sign In →
+            {invCtx && (
+              <div style={{ background: `${T.accent}18`, border: `1px solid ${T.accent}35`, borderRadius: 12, padding: "10px 14px", marginBottom: 20, display: "flex", alignItems: "center", gap: 10, width: "100%", boxSizing: "border-box" }}>
+                <span style={{ fontSize: 20 }}>{invCtx.emoji}</span>
+                <div>
+                  <div style={{ fontSize: 11, color: T.accent, fontFamily: font, fontWeight: 700 }}>After sign in, you'll join</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: T.white, fontFamily: font }}>{invCtx.title}</div>
+                </div>
+              </div>
+            )}
+            <button onClick={() => { const dest = inviteStore.get()?.dest; inviteStore.clear(); setLocation(dest ?? "/home"); }} style={{ width: "100%", borderRadius: 14, border: "none", background: `linear-gradient(135deg, ${T.accent}, #FF8050)`, color: "#fff", fontFamily: font, fontWeight: 800, fontSize: 16, padding: "14px 20px", cursor: "pointer", boxShadow: `0 8px 28px ${T.accent}45`, marginBottom: 14 }}>
+              {invCtx ? `Join ${invCtx.title} →` : "Verify & Sign In →"}
             </button>
             <div style={{ fontSize: 13, color: T.textSub, fontFamily: font }}>
               Didn't get it? <span style={{ color: T.accent, cursor: "pointer" }}>Resend code</span>
@@ -242,9 +267,16 @@ export default function Login() {
         <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: "20px 24px", overflowY: "auto", position: "relative" }}>
           <button onClick={() => setLocation("/")} style={{ background: "none", border: "none", color: T.textSub, fontSize: 22, cursor: "pointer", padding: 0, marginBottom: 24, textAlign: "left", width: "fit-content" }}>←</button>
 
+          {invCtx && (
+            <InviteBanner emoji={invCtx.emoji} title={invCtx.title} host={invCtx.host} />
+          )}
           <div style={{ ...anim, textAlign: "center", marginBottom: 32 }}>
-            <div style={{ fontFamily: "'Georgia', serif", fontSize: 30, fontWeight: 700, color: T.white, lineHeight: 1.15, marginBottom: 6 }}>Welcome back 👋</div>
-            <div style={{ fontSize: 14, color: T.textSub, fontFamily: font }}>Sign in to your squad</div>
+            <div style={{ fontFamily: "'Georgia', serif", fontSize: 30, fontWeight: 700, color: T.white, lineHeight: 1.15, marginBottom: 6 }}>
+              {invCtx ? "Sign in to join →" : "Welcome back 👋"}
+            </div>
+            <div style={{ fontSize: 14, color: T.textSub, fontFamily: font }}>
+              {invCtx ? `Sign in to accept your invite to ${invCtx.title}` : "Sign in to your squad"}
+            </div>
           </div>
 
           <div style={{ ...anim, display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>

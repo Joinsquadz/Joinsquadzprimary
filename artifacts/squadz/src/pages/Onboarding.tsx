@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { PhoneShell } from "@/components/PhoneShell";
 import { T, font, fontMono } from "@/lib/data";
+import { inviteStore } from "@/lib/inviteStore";
 
 function StepDots({ total, current }: { total: number; current: number }) {
   return (
@@ -273,7 +274,7 @@ export default function Onboarding() {
             </>
           ) : (
             <>
-              <PrimaryBtn disabled={!plan} onPress={() => setLocation("/home")}>
+              <PrimaryBtn disabled={!plan} onPress={() => { const dest = inviteStore.get()?.dest; inviteStore.clear(); setLocation(dest ?? "/home"); }}>
                 {plan === "pro" ? "Start Pro — $20/year →" : plan === "free" ? "Start Free →" : "Choose a plan to continue"}
               </PrimaryBtn>
               {plan === "pro" && (

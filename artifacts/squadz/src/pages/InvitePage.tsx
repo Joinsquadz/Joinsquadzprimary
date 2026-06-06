@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { PhoneShell } from "@/components/PhoneShell";
 import { T, font, fontMono } from "@/lib/data";
+import { inviteStore } from "@/lib/inviteStore";
 
 export default function InvitePage() {
   const [, setLocation] = useLocation();
@@ -234,7 +235,10 @@ export default function InvitePage() {
 
           <div style={{ display: "flex", gap: 10 }}>
             <button
-              onClick={() => setLocation("/signup")}
+              onClick={() => {
+                inviteStore.set({ code: invite.code, title: invite.title, emoji: invite.emoji, host: invite.host, type: "event", dest: "/event" });
+                setLocation("/signup");
+              }}
               style={{
                 flex: 1,
                 borderRadius: 12,
@@ -251,7 +255,10 @@ export default function InvitePage() {
               Create Account
             </button>
             <button
-              onClick={() => setLocation("/login")}
+              onClick={() => {
+                inviteStore.set({ code: invite.code, title: invite.title, emoji: invite.emoji, host: invite.host, type: "event", dest: "/event" });
+                setLocation("/login");
+              }}
               style={{
                 flex: 1,
                 borderRadius: 12,
