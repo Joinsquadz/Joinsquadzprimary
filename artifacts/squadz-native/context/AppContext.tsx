@@ -83,6 +83,9 @@ type AppContextType = {
   logout: () => void;
   setInviteCtx: (ctx: InviteCtx | null) => void;
 
+  eventsLoading: boolean;
+  squadsLoading: boolean;
+
   events: Event[];
   getEvent: (id: string) => Event | undefined;
   setRsvp: (eventId: string, status: RsvpStatus) => void;
@@ -126,6 +129,8 @@ const AppContext = createContext<AppContextType>({
   login: noop,
   logout: noop,
   setInviteCtx: noop,
+  eventsLoading: true,
+  squadsLoading: true,
   events: [],
   getEvent: () => undefined,
   setRsvp: noop,
@@ -189,6 +194,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [inviteCtx, setInviteCtx] = useState<InviteCtx | null>(null);
   const [events, setEvents] = useState<Event[]>([]);
   const [squads, setSquads] = useState<Squad[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(true);
+  const [squadsLoading, setSquadsLoading] = useState(true);
   const [friends, setFriends] = useState<string[]>(INITIAL_FRIENDS);
   const currentUserIdRef = useRef<string>(ME.id);
 
@@ -229,6 +236,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const fetchEvents = useCallback(async () => {
+    setEventsLoading(true);
     try {
       const res = await apiFetch(`/api/events`);
       if (!res.ok) return;
@@ -236,10 +244,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setEvents(data.map(dbEventToEvent));
     } catch {
       // Network unavailable — keep mock data
+    } finally {
+      setEventsLoading(false);
     }
   }, [apiFetch]);
 
   const fetchSquads = useCallback(async () => {
+    setSquadsLoading(true);
     try {
       const res = await apiFetch("/api/squads");
       if (!res.ok) return;
@@ -247,6 +258,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setSquads(data.map(dbSquadToSquad));
     } catch {
       // Network unavailable — keep mock data
+    } finally {
+      setSquadsLoading(false);
     }
   }, [apiFetch]);
 
@@ -631,6 +644,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         login,
         logout,
         setInviteCtx,
+        eventsLoading,
+        squadsLoading,
         events,
         getEvent,
         setRsvp,

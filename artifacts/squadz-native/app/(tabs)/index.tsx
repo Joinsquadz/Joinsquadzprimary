@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   FlatList,
   Platform,
+  ActivityIndicator,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
@@ -27,10 +28,19 @@ export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { currentUser } = useAuth();
-  const { events, squads } = useData();
+  const { events, squads, eventsLoading, squadsLoading } = useData();
+  const isLoading = eventsLoading || squadsLoading;
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const upNext = events[0] ?? null;
+
+  if (isLoading) {
+    return (
+      <View style={[styles.screen, styles.centered, { backgroundColor: colors.background }]}>
+        <ActivityIndicator size="large" color={colors.primary} />
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -230,6 +240,7 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
+  centered: { alignItems: "center", justifyContent: "center" },
   header: {
     flexDirection: "row", justifyContent: "space-between", alignItems: "center",
     paddingHorizontal: 20, paddingBottom: 12, borderBottomWidth: 1,

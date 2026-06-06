@@ -7,6 +7,7 @@ import {
   TextInput,
   TouchableOpacity,
   Platform,
+  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -21,7 +22,7 @@ const FILTERS = ["All", "This Week", "Hosting", "Going", "Maybe"];
 export default function EventsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { events, currentUser } = useData();
+  const { events, currentUser, eventsLoading } = useData();
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
 
@@ -109,13 +110,19 @@ export default function EventsScreen() {
         }}
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={
-          <View style={styles.empty}>
-            <Ionicons name="calendar-outline" size={48} color={colors.textDim} />
-            <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No events found</Text>
-            <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>
-              Try a different search or filter
-            </Text>
-          </View>
+          eventsLoading ? (
+            <View style={styles.empty}>
+              <ActivityIndicator size="large" color={colors.primary} />
+            </View>
+          ) : (
+            <View style={styles.empty}>
+              <Ionicons name="calendar-outline" size={48} color={colors.textDim} />
+              <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No events found</Text>
+              <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>
+                Try a different search or filter
+              </Text>
+            </View>
+          )
         }
         renderItem={({ item }) => (
           <EventCard
