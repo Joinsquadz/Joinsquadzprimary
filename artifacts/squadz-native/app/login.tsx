@@ -299,7 +299,7 @@ export default function LoginScreen() {
       <View style={[styles.blob, { bottom: 160, right: -30, width: 180, height: 180, backgroundColor: "#FFB547", opacity: 0.08 }]} />
 
       <ScrollView
-        contentContainerStyle={{ flexGrow: 1, paddingTop: topPad + 20, paddingBottom: botPad + 20 }}
+        contentContainerStyle={{ flexGrow: 1, justifyContent: "center", paddingTop: topPad + 20, paddingBottom: botPad + 20 }}
         showsVerticalScrollIndicator={false}
       >
         {/* Logo section */}

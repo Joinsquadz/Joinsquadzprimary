@@ -140,7 +140,7 @@ export default function SignupScreen() {
 
   return (
     <View style={[styles.screen, bg]}>
-      <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "center" }} keyboardShouldPersistTaps="handled">
         <View style={[styles.logoSection, { paddingTop: topPad }]}>
           <Text style={[styles.logoText, { color: colors.primary }]}>SquadZ</Text>
           <Text style={[styles.logoSub, { color: colors.foreground }]}>
