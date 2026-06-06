@@ -1,6 +1,7 @@
 import { useLocation } from "wouter";
 import { T, font } from "@/lib/data";
 import { PhoneShell } from "@/components/PhoneShell";
+import { SquadzIcon } from "@/components/SquadzIcon";
 
 const avatarFaces = [
   { letter: "M", color: T.accent }, { letter: "K", color: T.purple },
@@ -64,14 +65,9 @@ export default function Splash() {
 
         {/* Logo */}
         <div className="splash-a1" style={{ textAlign: "center", marginBottom: 18, paddingTop: 30 }}>
-          <div style={{
-            width: 88, height: 88, borderRadius: 28,
-            background: `linear-gradient(145deg, ${T.accent} 0%, #FF8040 65%, ${T.gold} 100%)`,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            margin: "0 auto 18px",
-            boxShadow: `0 0 0 1px rgba(255,255,255,0.10) inset, 0 20px 60px ${T.accent}55`,
-          }}>
-            <span style={{ fontSize: 44 }}>⚡</span>
+          <div style={{ margin: "0 auto 18px", display: "flex", alignItems: "center", justifyContent: "center", position: "relative" }}>
+            <div style={{ position: "absolute", inset: -12, borderRadius: 40, background: `radial-gradient(circle, ${T.accent}40 0%, transparent 70%)`, filter: "blur(12px)" }} />
+            <SquadzIcon size={92} style={{ borderRadius: 26, boxShadow: `0 0 0 1px rgba(255,255,255,0.08) inset, 0 20px 60px ${T.accent}50`, position: "relative" }} />
           </div>
           <div style={{ fontFamily: "'Georgia', serif", fontSize: 48, fontWeight: 700, color: T.white, letterSpacing: "-0.05em", lineHeight: 0.95 }}>squadz</div>
           <div style={{ fontSize: 15, color: T.textSub, marginTop: 9, fontFamily: font }}>Stop texting. Start actually hanging.</div>
