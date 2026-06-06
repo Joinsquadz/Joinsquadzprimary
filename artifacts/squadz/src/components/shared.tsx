@@ -20,8 +20,8 @@ export function Btn({ children, variant = "primary", onPress, style = {}, small 
       background: "transparent", color: T.accent,
       border: `1.5px solid ${T.accent}`,
     },
-    apple: {
-      background: T.white, color: T.bg, border: "none",
+    facebook: {
+      background: "#1877F2", color: "#fff", border: "none",
     },
     google: {
       background: T.surfaceUp, color: T.text,
