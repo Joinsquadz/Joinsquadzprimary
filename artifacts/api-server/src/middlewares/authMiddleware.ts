@@ -5,7 +5,9 @@ import {
   clearSession,
   getOidcConfig,
   getSessionId,
+  getBearerToken,
   getSession,
+  getUserFromAccessToken,
   updateSession,
   type SessionData,
 } from "../lib/auth";
@@ -62,7 +64,9 @@ export async function authMiddleware(
     return this.user != null;
   } as Request["isAuthenticated"];
 
+  const bearerToken = getBearerToken(req);
   const sid = getSessionId(req);
+
   if (!sid) {
     next();
     return;
@@ -70,13 +74,32 @@ export async function authMiddleware(
 
   const session = await getSession(sid);
   if (!session?.user?.id) {
-    await clearSession(res, sid);
+    if (bearerToken) {
+      // Bearer token not found as a session ID — try it as an OIDC access token
+      const user = await getUserFromAccessToken(bearerToken);
+      if (user) {
+        req.user = user;
+        next();
+        return;
+      }
+    } else {
+      await clearSession(res, sid);
+    }
     next();
     return;
   }
 
   const refreshed = await refreshIfExpired(sid, session);
   if (!refreshed) {
+    if (bearerToken) {
+      // Session expired and couldn't refresh — try the stored access token via OIDC userinfo
+      const user = await getUserFromAccessToken(session.access_token);
+      if (user) {
+        req.user = user;
+        next();
+        return;
+      }
+    }
     await clearSession(res, sid);
     next();
     return;

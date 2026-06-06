@@ -1,7 +1,7 @@
 import * as client from "openid-client";
 import crypto from "crypto";
 import { type Request, type Response } from "express";
-import { db, sessionsTable } from "@workspace/db";
+import { db, sessionsTable, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import type { AuthUser } from "@workspace/api-zod";
 
@@ -83,4 +83,64 @@ export function getSessionId(req: Request): string | undefined {
     return authHeader.slice(7);
   }
   return req.cookies?.[SESSION_COOKIE];
+}
+
+export function getBearerToken(req: Request): string | undefined {
+  const authHeader = req.headers["authorization"];
+  if (authHeader?.startsWith("Bearer ")) {
+    return authHeader.slice(7);
+  }
+  return undefined;
+}
+
+export async function getUserFromAccessToken(
+  token: string,
+): Promise<AuthUser | null> {
+  try {
+    const config = await getOidcConfig();
+    const userInfo = await client.fetchUserInfo(
+      config,
+      token,
+      client.skipSubjectCheck,
+    );
+    if (!userInfo.sub) return null;
+
+    const userData = {
+      id: userInfo.sub,
+      email: (userInfo.email as string) ?? null,
+      firstName:
+        ((userInfo as Record<string, unknown>).first_name as string) ??
+        (userInfo.given_name as string) ??
+        null,
+      lastName:
+        ((userInfo as Record<string, unknown>).last_name as string) ??
+        (userInfo.family_name as string) ??
+        null,
+      profileImageUrl:
+        ((userInfo as Record<string, unknown>).profile_image_url as string) ??
+        (userInfo.picture as string) ??
+        null,
+    };
+
+    const [user] = await db
+      .insert(usersTable)
+      .values(userData)
+      .onConflictDoUpdate({
+        target: usersTable.id,
+        set: { ...userData, updatedAt: new Date() },
+      })
+      .returning();
+
+    return user
+      ? {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          profileImageUrl: user.profileImageUrl,
+        }
+      : null;
+  } catch {
+    return null;
+  }
 }
