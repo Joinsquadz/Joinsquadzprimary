@@ -194,27 +194,83 @@ function HomeTab({ go, onBellPress, firstName, squads, events, eventsLoading, sq
   );
 }
 
-function JoinWithLinkPanel() {
+function extractInviteCode(raw: string): string {
+  const trimmed = raw.trim();
+  const match = trimmed.match(/[A-Z0-9]{2}-[A-Z0-9]{4}$/i);
+  if (match) return match[0].toUpperCase();
+  return trimmed.toUpperCase();
+}
+
+function JoinWithLinkPanel({ refetch }: { refetch: () => void }) {
   const [open, setOpen] = useState(false);
   const [code, setCode] = useState("");
-  const [joined, setJoined] = useState(false);
-  const join = () => { if (code.trim()) setJoined(true); };
-  if (joined) return (
+  const [status, setStatus] = useState<"idle" | "loading" | "joined" | "error">("idle");
+  const [errorMsg, setErrorMsg] = useState("");
+
+  const join = async () => {
+    const inviteCode = extractInviteCode(code);
+    if (!inviteCode) return;
+    setStatus("loading");
+    setErrorMsg("");
+    try {
+      const res = await fetch("/api/events/join", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inviteCode }),
+      });
+      if (res.status === 404) {
+        setStatus("error");
+        setErrorMsg("Code not found. Double-check it and try again.");
+        return;
+      }
+      if (!res.ok) {
+        setStatus("error");
+        setErrorMsg("Something went wrong. Please try again.");
+        return;
+      }
+      setStatus("joined");
+      refetch();
+    } catch {
+      setStatus("error");
+      setErrorMsg("Network error. Please try again.");
+    }
+  };
+
+  if (status === "joined") return (
     <div style={{ background: T.green + "18", border: `1px solid ${T.green}40`, borderRadius: 14, padding: "14px 16px", textAlign: "center", fontFamily: font }}>
       <div style={{ fontSize: 22, marginBottom: 4 }}>✅</div>
-      <div style={{ fontWeight: 700, fontSize: 14, color: T.green }}>Joined! Welcome to the squad.</div>
+      <div style={{ fontWeight: 700, fontSize: 14, color: T.green }}>You're in! The event was added to your list.</div>
     </div>
   );
+
   return (
     <div>
-      <Btn variant="secondary" onPress={() => setOpen(!open)}>Join with Invite Link</Btn>
+      <Btn variant="secondary" onPress={() => setOpen(!open)}>🔗 Join with Invite Code</Btn>
       {open && (
         <div style={{ marginTop: 10, background: T.surfaceUp, border: `1px solid ${T.border}`, borderRadius: 14, padding: "14px 16px" }}>
-          <div style={{ fontSize: 12, color: T.textSub, fontFamily: font, marginBottom: 8 }}>Paste your invite link or code:</div>
+          <div style={{ fontSize: 12, color: T.textSub, fontFamily: font, marginBottom: 8 }}>Enter your invite code (e.g. SQ-AB12):</div>
           <div style={{ display: "flex", gap: 8 }}>
-            <input value={code} onChange={e => setCode(e.target.value)} onKeyDown={e => e.key === "Enter" && join()} placeholder="getsquadz.com/join/…" style={{ flex: 1, background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 10, padding: "9px 12px", color: T.text, fontFamily: font, fontSize: 13, outline: "none" }} />
-            <button onClick={join} style={{ background: T.accent, border: "none", borderRadius: 10, color: "#fff", padding: "9px 16px", fontFamily: font, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>Join</button>
+            <input
+              value={code}
+              onChange={e => { setCode(e.target.value); setErrorMsg(""); }}
+              onKeyDown={e => e.key === "Enter" && void join()}
+              placeholder="SQ-AB12"
+              style={{ flex: 1, background: T.surface, border: `1.5px solid ${errorMsg ? T.accent : T.border}`, borderRadius: 10, padding: "9px 12px", color: T.text, fontFamily: font, fontSize: 13, outline: "none", textTransform: "uppercase" as const, letterSpacing: "0.05em" }}
+            />
+            <button
+              onClick={() => void join()}
+              disabled={status === "loading" || !code.trim()}
+              style={{ background: T.accent, border: "none", borderRadius: 10, color: "#fff", padding: "9px 16px", fontFamily: font, fontWeight: 700, fontSize: 13, cursor: status === "loading" ? "not-allowed" : "pointer", opacity: status === "loading" || !code.trim() ? 0.6 : 1 }}
+            >
+              {status === "loading" ? "…" : "Join"}
+            </button>
           </div>
+          {errorMsg && (
+            <div style={{ marginTop: 8, fontSize: 12, color: T.accent, fontFamily: font, fontWeight: 600 }}>
+              ⚠ {errorMsg}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -233,7 +289,7 @@ function SquadRowSkeleton() {
   );
 }
 
-function SquadsTab({ go, squads, squadsLoading }: { go: (s: string) => void; squads: ApiSquad[]; squadsLoading: boolean }) {
+function SquadsTab({ go, squads, squadsLoading, refetch }: { go: (s: string) => void; squads: ApiSquad[]; squadsLoading: boolean; refetch: () => void }) {
   return (
     <div style={{ flex: 1, overflowY: "auto" }}>
       <style>{skeletonKeyframes}</style>
@@ -260,7 +316,7 @@ function SquadsTab({ go, squads, squadsLoading }: { go: (s: string) => void; squ
             ))
           )}
           <Btn variant="ghost" onPress={() => go("create-squad")}>+ Create New Squad</Btn>
-          <JoinWithLinkPanel />
+          <JoinWithLinkPanel refetch={refetch} />
         </div>
       </div>
     </div>
@@ -887,7 +943,7 @@ export default function Home() {
   const [, setLocation] = useLocation();
   const { firstName, displayName } = useCurrentUser();
   const [checkoutSuccess, setCheckoutSuccess] = useState(false);
-  const { events, loading: eventsLoading } = useEvents();
+  const { events, loading: eventsLoading, refetch } = useEvents();
   const { squads, loading: squadsLoading } = useSquads();
 
   React.useEffect(() => {
@@ -912,7 +968,7 @@ export default function Home() {
 
   const tabContent: Record<string, React.ReactElement> = {
     home: <HomeTab go={go} onBellPress={() => setTab("activity")} firstName={firstName} squads={squads} events={events} eventsLoading={eventsLoading} squadsLoading={squadsLoading} />,
-    squads: <SquadsTab go={go} squads={squads} squadsLoading={squadsLoading} />,
+    squads: <SquadsTab go={go} squads={squads} squadsLoading={squadsLoading} refetch={refetch} />,
     messages: <MessagesTab go={go} />,
     discover: <DiscoverTab go={go} />,
     vault: <PhotoVaultTab onUpgrade={() => setTab("profile")} />,

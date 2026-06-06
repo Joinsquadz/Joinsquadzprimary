@@ -94,6 +94,7 @@ type AppContextType = {
     eventId: string,
     patch: Partial<Pick<Event, "title" | "description" | "date" | "location" | "emoji" | "budget">>,
   ) => void;
+  joinEvent: (inviteCode: string) => Promise<{ error?: string }>;
   cancelEvent: (eventId: string) => void;
   toggleTask: (eventId: string, taskId: string) => void;
   claimTask: (eventId: string, taskId: string) => void;
@@ -136,6 +137,7 @@ const AppContext = createContext<AppContextType>({
   setRsvp: noop,
   addEvent: asyncNoop,
   updateEvent: noop,
+  joinEvent: async () => ({}),
   cancelEvent: noop,
   toggleTask: noop,
   claimTask: noop,
@@ -397,6 +399,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     },
     [apiFetch, applyEventUpdate],
   );
+
+  const joinEvent = useCallback(async (inviteCode: string): Promise<{ error?: string }> => {
+    try {
+      const res = await apiFetch("/api/events/join", {
+        method: "POST",
+        body: JSON.stringify({ inviteCode: inviteCode.trim().toUpperCase() }),
+      });
+      if (res.status === 404) return { error: "Code not found. Double-check it and try again." };
+      if (!res.ok) return { error: "Something went wrong. Please try again." };
+      const event = await res.json() as Record<string, unknown>;
+      const mapped = dbEventToEvent(event);
+      setEvents((prev) => {
+        if (prev.some((e) => e.id === mapped.id)) {
+          return prev.map((e) => (e.id === mapped.id ? mapped : e));
+        }
+        return [mapped, ...prev];
+      });
+      return {};
+    } catch {
+      return { error: "Network error. Please try again." };
+    }
+  }, [apiFetch]);
 
   const cancelEvent = useCallback((eventId: string) => {
     // Optimistic removal
@@ -662,6 +686,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setRsvp,
         addEvent,
         updateEvent,
+        joinEvent,
         cancelEvent,
         toggleTask,
         claimTask,
