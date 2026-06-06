@@ -1,5 +1,5 @@
-import { usersTable } from '@workspace/db/schema';
-import { eq, sql } from 'drizzle-orm';
+import { usersTable, eventsTable } from '@workspace/db/schema';
+import { eq, sql, count } from 'drizzle-orm';
 import { db } from '@workspace/db';
 
 export class Storage {
@@ -95,6 +95,22 @@ export class Storage {
       .where(eq(usersTable.id, userId))
       .returning();
     return user;
+  }
+
+  async countUserEvents(hostId: string): Promise<number> {
+    const [row] = await db
+      .select({ total: count() })
+      .from(eventsTable)
+      .where(eq(eventsTable.hostId, hostId));
+    return row?.total ?? 0;
+  }
+
+  async createEvent(hostId: string, title: string) {
+    const [event] = await db
+      .insert(eventsTable)
+      .values({ hostId, title })
+      .returning();
+    return event;
   }
 }
 

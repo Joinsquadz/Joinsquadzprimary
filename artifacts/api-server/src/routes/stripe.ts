@@ -65,6 +65,21 @@ router.post('/checkout', requireAuth, async (req, res): Promise<void> => {
       user = await storage.upsertUser(userId, email ?? '');
     }
 
+    // Block checkout if user already has an active subscription
+    if (user.stripeSubscriptionId) {
+      const existingSub = await storage.getSubscription(user.stripeSubscriptionId);
+      if (existingSub?.status === 'active' || existingSub?.status === 'trialing') {
+        res.status(400).json({ error: 'You already have an active Squadz Pro subscription' });
+        return;
+      }
+    } else if (user.stripeCustomerId) {
+      const existingSub = await storage.getActiveSubscriptionByCustomerId(user.stripeCustomerId);
+      if (existingSub) {
+        res.status(400).json({ error: 'You already have an active Squadz Pro subscription' });
+        return;
+      }
+    }
+
     let customerId = user.stripeCustomerId;
     if (!customerId) {
       const customer = await stripeService.createCustomer(email ?? userId, userId);
@@ -123,6 +138,33 @@ router.get('/subscription', requireAuth, async (req, res): Promise<void> => {
   } catch (err) {
     logger.error({ err }, 'Error fetching subscription');
     res.status(500).json({ error: 'Failed to fetch subscription' });
+  }
+});
+
+router.get('/calendar-sync', requireAuth, async (req, res): Promise<void> => {
+  try {
+    const { id: userId } = req.user!;
+
+    const user = await storage.getUser(userId);
+    let isPro = false;
+
+    if (user?.stripeSubscriptionId) {
+      const sub = await storage.getSubscription(user.stripeSubscriptionId);
+      isPro = sub?.status === 'active' || sub?.status === 'trialing';
+    } else if (user?.stripeCustomerId) {
+      const sub = await storage.getActiveSubscriptionByCustomerId(user.stripeCustomerId);
+      isPro = !!sub;
+    }
+
+    if (!isPro) {
+      res.status(403).json({ error: 'Calendar sync requires Squadz Pro', requiresPro: true });
+      return;
+    }
+
+    res.json({ synced: true, calendars: [] });
+  } catch (err) {
+    logger.error({ err }, 'Error in calendar sync');
+    res.status(500).json({ error: 'Calendar sync failed' });
   }
 });
 

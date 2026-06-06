@@ -1,9 +1,12 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { PhoneShell } from "@/components/PhoneShell";
 import { Btn, Input, SectionLabel, Card, SwitchToggle } from "@/components/shared";
 import { T, font, fontMono, SQUADS } from "@/lib/data";
 import { UpgradeModal } from "@/components/UpgradeModal";
+import { useProStatus } from "@/hooks/useProStatus";
+
+const FREE_EVENT_LIMIT = 3;
 
 export default function CreateEvent() {
   const [, setLocation] = useLocation();
@@ -11,6 +14,22 @@ export default function CreateEvent() {
   const [name, setName] = useState("");
   const [sections, setSections] = useState(new Set(["food", "budget"]));
   const [upgradeModal, setUpgradeModal] = useState<"calendar" | "events" | null>(null);
+  const [calendarSynced, setCalendarSynced] = useState(false);
+  const [calendarLoading, setCalendarLoading] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [eventCount, setEventCount] = useState<number | null>(null);
+
+  const { isPro, loading: proLoading } = useProStatus();
+
+  useEffect(() => {
+    fetch("/api/events/count")
+      .then(r => r.ok ? r.json() : null)
+      .then((data: { count: number } | null) => { if (data) setEventCount(data.count); })
+      .catch(() => {});
+  }, []);
+
+  const totalEventCount = eventCount ?? 0;
+  const atLimit = !isPro && totalEventCount >= FREE_EVENT_LIMIT;
 
   const steps = ["Type", "When", "Where", "Who", "Sections", "Review"];
   const types = [
@@ -33,6 +52,52 @@ export default function CreateEvent() {
     setSections(s);
   };
 
+  async function handleCalendarSync() {
+    if (!isPro) {
+      setUpgradeModal("calendar");
+      return;
+    }
+    setCalendarLoading(true);
+    try {
+      const res = await fetch("/api/calendar-sync");
+      if (res.ok) {
+        setCalendarSynced(true);
+      } else if (res.status === 403) {
+        setUpgradeModal("calendar");
+      } else {
+        setCalendarSynced(true);
+      }
+    } catch {
+      setCalendarSynced(true);
+    } finally {
+      setCalendarLoading(false);
+    }
+  }
+
+  async function handlePublish() {
+    if (publishing) return;
+    setPublishing(true);
+    try {
+      const res = await fetch("/api/events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: name.trim() || "New Event" }),
+      });
+      if (res.status === 403) {
+        const body = await res.json() as { requiresPro?: boolean };
+        if (body.requiresPro) setUpgradeModal("events");
+        return;
+      }
+      if (!res.ok) return;
+      setEventCount(c => (c ?? 0) + 1);
+      setLocation("/event");
+    } catch {
+      setLocation("/event");
+    } finally {
+      setPublishing(false);
+    }
+  }
+
   return (
     <PhoneShell>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -46,6 +111,18 @@ export default function CreateEvent() {
             {steps.map((_, i) => <div key={i} style={{ flex: 1, height: 3, borderRadius: 2, background: i <= step ? T.accent : T.surfaceHigh, transition: "background 0.3s" }} />)}
           </div>
         </div>
+
+        {!isPro && !proLoading && (
+          <div style={{ background: `linear-gradient(90deg, ${T.gold}22, ${T.accent}18)`, borderBottom: `1px solid ${T.gold}40`, padding: "8px 16px", display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+            <span style={{ fontSize: 14 }}>⚡</span>
+            <div style={{ flex: 1, fontSize: 12, color: T.gold, fontFamily: font }}>
+              <strong>Free plan:</strong> {totalEventCount}/{FREE_EVENT_LIMIT} events used this year
+            </div>
+            <button onClick={() => setUpgradeModal("events")} style={{ background: "none", border: `1px solid ${T.gold}60`, borderRadius: 8, padding: "3px 10px", color: T.gold, fontFamily: font, fontWeight: 700, fontSize: 11, cursor: "pointer" }}>
+              Upgrade
+            </button>
+          </div>
+        )}
 
         <div style={{ flex: 1, overflowY: "auto" }}>
           <div style={{ padding: "20px 20px" }}>
@@ -72,7 +149,16 @@ export default function CreateEvent() {
                 <div style={{ background: T.surfaceUp, border: `1px solid ${T.border}`, borderRadius: 14, padding: 14, marginBottom: 16 }}>
                   <div style={{ fontFamily: font, fontWeight: 700, fontSize: 13, color: T.text, marginBottom: 8 }}>⚡ AI Best Time Finder</div>
                   <div style={{ fontSize: 12, color: T.textSub, marginBottom: 12 }}>Sync calendars to find when everyone is free</div>
-                  <Btn small variant="ghost" onPress={() => setUpgradeModal("calendar")}>Sync Google Calendar</Btn>
+                  {calendarSynced ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, background: T.greenDim, border: `1px solid ${T.green}40`, borderRadius: 10, padding: "9px 14px" }}>
+                      <span style={{ fontSize: 14 }}>✅</span>
+                      <span style={{ fontSize: 13, color: T.green, fontFamily: font, fontWeight: 700 }}>Google Calendar synced!</span>
+                    </div>
+                  ) : (
+                    <Btn small variant="ghost" onPress={handleCalendarSync} style={{ opacity: calendarLoading ? 0.6 : 1 }}>
+                      {calendarLoading ? "Connecting…" : isPro ? "Sync Google Calendar" : "🔒 Sync Google Calendar (Pro)"}
+                    </Btn>
+                  )}
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
                   <div style={{ flex: 1 }}><Btn small variant="secondary" onPress={() => {}}>Add End Time</Btn></div>
@@ -138,6 +224,15 @@ export default function CreateEvent() {
                     </div>
                   ))}
                 </Card>
+                {atLimit && (
+                  <div style={{ background: `${T.accent}18`, border: `1px solid ${T.accent}50`, borderRadius: 14, padding: "12px 16px", marginBottom: 16, display: "flex", gap: 10, alignItems: "flex-start" }}>
+                    <span style={{ fontSize: 18 }}>🎉</span>
+                    <div>
+                      <div style={{ fontFamily: font, fontWeight: 700, fontSize: 13, color: T.accent, marginBottom: 3 }}>You've hit the free limit</div>
+                      <div style={{ fontSize: 12, color: T.textSub }}>You've planned {totalEventCount} events this year. Upgrade to Pro to publish this event.</div>
+                    </div>
+                  </div>
+                )}
                 <SectionLabel>Notify via</SectionLabel>
                 <div style={{ display: "flex", gap: 8 }}>
                   {["Push", "iMessage", "Email"].map(b => (
@@ -152,7 +247,19 @@ export default function CreateEvent() {
         <div style={{ padding: "12px 20px 32px", flexShrink: 0, borderTop: `1px solid ${T.border}` }}>
           {step < steps.length - 1
             ? <Btn onPress={() => setStep(step + 1)}>Next →</Btn>
-            : <Btn onPress={() => setLocation("/event")} style={{ background: T.green }}>Publish Event</Btn>
+            : (
+              <Btn
+                onPress={handlePublish}
+                style={{
+                  background: atLimit
+                    ? `linear-gradient(135deg, ${T.accent}, #FF8050)`
+                    : T.green,
+                  opacity: publishing ? 0.7 : 1,
+                }}
+              >
+                {publishing ? "Publishing…" : atLimit ? "Upgrade to Publish →" : "Publish Event"}
+              </Btn>
+            )
           }
         </div>
 

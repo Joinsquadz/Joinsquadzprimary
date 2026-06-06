@@ -67,6 +67,20 @@ export const SUGGESTIONS = [
   { title: "Movie Night", emoji: "🎬", why: "New releases are dropping", color: T.blue, type: "Indoor" },
 ];
 
+export const EVENT_PHOTOS = [
+  { em: "🌅", uploadedAt: new Date("2026-04-02") },
+  { em: "🔥", uploadedAt: new Date("2026-04-02") },
+  { em: "🥩", uploadedAt: new Date("2026-04-03") },
+  { em: "🍺", uploadedAt: new Date("2026-06-01") },
+  { em: "😄", uploadedAt: new Date("2026-06-02") },
+  { em: "🌃", uploadedAt: new Date("2026-06-05") },
+];
+
+export const USER_EVENTS = [
+  { id: "ue1", title: "Lake House Weekend", date: "2026-03-22" },
+  { id: "ue2", title: "Game Night", date: "2026-05-10" },
+];
+
 export const MESSAGES = [
   { type: "event", name: "Rooftop BBQ", squad: "The Usual Suspects", emoji: "🔥", preview: "Marcus: Rooftop is ready!", time: "2m", unread: 3 },
   { type: "dm", who: "Marcus", online: true, preview: "watermelon would be fire", time: "15m", unread: 1 },

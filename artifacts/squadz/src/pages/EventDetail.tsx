@@ -2,10 +2,11 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { PhoneShell } from "@/components/PhoneShell";
 import { Avatar, Tag, SectionLabel, Card, SwitchToggle, Btn } from "@/components/shared";
-import { T, font, fontMono, MEMBERS, FOOD_ITEMS as INIT_FOOD, EXPENSES } from "@/lib/data";
+import { T, font, fontMono, MEMBERS, FOOD_ITEMS as INIT_FOOD, EXPENSES, EVENT_PHOTOS } from "@/lib/data";
 import { UpgradeModal } from "@/components/UpgradeModal";
+import { useProStatus } from "@/hooks/useProStatus";
 
-function EventOverviewTab({ onVaultPress }: { onVaultPress: () => void }) {
+function EventOverviewTab({ onVaultPress, isPro }: { onVaultPress: () => void; isPro: boolean }) {
   const initTasks = [
     { id: 1, label: "Book the rooftop", done: true, owner: "Marcus" as string | null },
     { id: 2, label: "Buy drinks ($38)", done: true, owner: "Jordan" as string | null },
@@ -70,26 +71,63 @@ function EventOverviewTab({ onVaultPress }: { onVaultPress: () => void }) {
       <div style={{ marginTop: 20 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
           <SectionLabel>📸 Event Photos</SectionLabel>
-          <Tag color={T.textDim}>30-day limit · Free</Tag>
+          {isPro
+            ? <Tag color={T.green}>🔒 Vault · Forever</Tag>
+            : <Tag color={T.gold}>30-day limit · Free</Tag>
+          }
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 12 }}>
-          {["🌅", "🔥", "🥩", "🍺", "😄", "🌃"].map((em, i) => (
-            <div key={i} style={{ aspectRatio: "1", borderRadius: 12, background: `linear-gradient(135deg, ${[T.accent, T.purple, T.gold, T.blue, T.green, T.accent][i]}22, ${[T.accent, T.purple, T.gold, T.blue, T.green, T.purple][i]}44)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, border: `1px solid ${T.border}` }}>
-              {em}
-            </div>
-          ))}
-        </div>
-        <div style={{ background: T.surfaceUp, border: `1px solid ${T.border}`, borderRadius: 14, padding: "12px 16px", marginBottom: 10 }}>
-          <div style={{ fontSize: 12, color: T.textSub, fontFamily: font, marginBottom: 8 }}>
-            📅 Photos expire <strong style={{ color: T.gold }}>Jun 20</strong> (30-day free limit)
+        <div style={{ position: "relative", marginBottom: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 }}>
+            {(() => {
+              const bgColors = [T.accent, T.purple, T.gold, T.blue, T.green, T.accent];
+              const bgColors2 = [T.accent, T.purple, T.gold, T.blue, T.green, T.purple];
+              const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+              return EVENT_PHOTOS.map((photo, i) => {
+                const isExpired = photo.uploadedAt < thirtyDaysAgo;
+                const isLocked = !isPro && isExpired;
+                return (
+                  <div key={i} style={{ position: "relative", aspectRatio: "1", borderRadius: 12, background: `linear-gradient(135deg, ${bgColors[i]}22, ${bgColors2[i]}44)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, border: `1px solid ${T.border}`, overflow: "hidden" }}>
+                    <span style={{ filter: isLocked ? "blur(3px)" : "none", opacity: isLocked ? 0.4 : 1 }}>{photo.em}</span>
+                    {isLocked && (
+                      <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.45)" }}>
+                        <span style={{ fontSize: 20 }}>🔒</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              });
+            })()}
           </div>
-          <button onClick={onVaultPress} style={{ width: "100%", borderRadius: 10, border: "none", background: `linear-gradient(135deg, ${T.accent}, ${T.gold})`, color: "#fff", fontFamily: font, fontWeight: 800, fontSize: 13, padding: "10px 16px", cursor: "pointer" }}>
-            💾 Save to Vault — Keep Forever →
-          </button>
+          {!isPro && (() => {
+            const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+            const lockedCount = EVENT_PHOTOS.filter(p => p.uploadedAt < thirtyDaysAgo).length;
+            return lockedCount > 0 ? (
+              <div style={{ marginTop: 8, background: `${T.gold}18`, border: `1px solid ${T.gold}40`, borderRadius: 10, padding: "8px 12px", fontSize: 11, color: T.gold, fontFamily: font, textAlign: "center" }}>
+                {lockedCount} photo{lockedCount !== 1 ? "s" : ""} locked — uploaded more than 30 days ago · upgrade to unlock
+              </div>
+            ) : null;
+          })()}
         </div>
-        <div style={{ fontSize: 11, color: T.textDim, fontFamily: font, textAlign: "center" }}>
-          Pro members keep photos forever · $20/year
-        </div>
+        {isPro ? (
+          <div style={{ background: `${T.green}18`, border: `1px solid ${T.green}40`, borderRadius: 14, padding: "12px 16px", marginBottom: 10, display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 18 }}>✅</span>
+            <div style={{ flex: 1, fontSize: 13, color: T.green, fontFamily: font, fontWeight: 700 }}>Photos saved to your permanent vault</div>
+          </div>
+        ) : (
+          <div style={{ background: T.surfaceUp, border: `1px solid ${T.border}`, borderRadius: 14, padding: "12px 16px", marginBottom: 10 }}>
+            <div style={{ fontSize: 12, color: T.textSub, fontFamily: font, marginBottom: 8 }}>
+              📅 Photos expire <strong style={{ color: T.gold }}>Jun 20</strong> (30-day free limit)
+            </div>
+            <button onClick={onVaultPress} style={{ width: "100%", borderRadius: 10, border: "none", background: `linear-gradient(135deg, ${T.accent}, ${T.gold})`, color: "#fff", fontFamily: font, fontWeight: 800, fontSize: 13, padding: "10px 16px", cursor: "pointer" }}>
+              💾 Save to Vault — Keep Forever →
+            </button>
+          </div>
+        )}
+        {!isPro && (
+          <div style={{ fontSize: 11, color: T.textDim, fontFamily: font, textAlign: "center" }}>
+            Pro members keep photos forever · $20/year
+          </div>
+        )}
       </div>
     </div>
   );
@@ -438,6 +476,8 @@ export default function EventDetail() {
   const [upgradeModal, setUpgradeModal] = useState<"photos" | null>(null);
   const tabs = ["overview", "food", "budget", "polls", "chat", "admin"];
 
+  const { isPro } = useProStatus();
+
   const handleShare = () => { setShareToast(true); setTimeout(() => setShareToast(false), 2500); };
 
   return (
@@ -486,7 +526,7 @@ export default function EventDetail() {
 
         <div style={{ flex: 1, overflowY: "auto" }}>
           <div style={{ padding: "16px 18px 24px" }}>
-            {tab === "overview" && <EventOverviewTab onVaultPress={() => setUpgradeModal("photos")} />}
+            {tab === "overview" && <EventOverviewTab onVaultPress={() => setUpgradeModal("photos")} isPro={isPro} />}
             {tab === "food" && <EventFoodTab />}
             {tab === "budget" && <EventBudgetTab />}
             {tab === "polls" && <EventPollsTab />}

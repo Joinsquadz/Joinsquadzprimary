@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   Platform,
   Alert,
   Modal,
+  Linking,
 } from "react-native";
 import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { LinearGradient } from "expo-linear-gradient";
@@ -17,10 +18,24 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
-import { useData } from "@/context/AppContext";
+import { useData, useAuth } from "@/context/AppContext";
+import { ME } from "@/data/mock";
+import Constants from "expo-constants";
 
 const EMOJIS = ["🔥", "🎉", "🎮", "🏖️", "🍕", "🎸", "⚽", "🎬", "🍻", "🎊"];
 const TAB_BAR_H = Platform.select({ ios: 49, android: 56, default: 49 }) ?? 49;
+const FREE_EVENT_LIMIT = 3;
+
+function resolveApiBase(): string {
+  if (process.env.EXPO_PUBLIC_API_URL) return process.env.EXPO_PUBLIC_API_URL;
+  const extra = Constants.expoConfig?.extra as Record<string, string> | undefined;
+  if (extra?.apiBase) return extra.apiBase;
+  if (Platform.OS === "web") return "";
+  const devDomain = process.env.REPLIT_DEV_DOMAIN;
+  if (devDomain) return `https://${devDomain}`;
+  return "";
+}
+const API_BASE = resolveApiBase();
 
 function formatPickedDate(d: Date): string {
   const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -36,7 +51,8 @@ function formatPickedDate(d: Date): string {
 export default function CreateEventScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { addEvent, squads } = useData();
+  const { addEvent, squads, events } = useData();
+  const { authToken } = useAuth();
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + TAB_BAR_H;
 
@@ -47,7 +63,24 @@ export default function CreateEventScreen() {
   const [selectedSquad, setSelectedSquad] = useState<string | null>(null);
   const [selectedEmoji, setSelectedEmoji] = useState("🔥");
 
-  // Date picker state
+  const [isPro, setIsPro] = useState(false);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [upgradeLoading, setUpgradeLoading] = useState(false);
+
+  const myEventCount = events.filter(e => e.hostId === ME.id).length;
+  const atLimit = !isPro && myEventCount >= FREE_EVENT_LIMIT;
+
+  const authHeaders = useCallback((): HeadersInit => {
+    return authToken ? { "Authorization": `Bearer ${authToken}` } : {};
+  }, [authToken]);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/subscription`, { headers: authHeaders() })
+      .then(r => r.ok ? r.json() : { isPro: false })
+      .then((data: { isPro?: boolean }) => setIsPro(data.isPro ?? false))
+      .catch(() => setIsPro(false));
+  }, [authHeaders]);
+
   const [pickerDate, setPickerDate] = useState(new Date());
   const [pickerStep, setPickerStep] = useState<"date" | "time" | null>(null);
 
@@ -62,6 +95,10 @@ export default function CreateEventScreen() {
       Alert.alert("Missing info", "Please add an event title.");
       return;
     }
+    if (atLimit) {
+      setShowUpgradeModal(true);
+      return;
+    }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     const id = addEvent({
       title: title.trim(), emoji: selectedEmoji,
@@ -73,7 +110,6 @@ export default function CreateEventScreen() {
     ]);
   };
 
-  // ── Date picker logic ──────────────────────────────────────
   const openDatePicker = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setPickerStep("date");
@@ -94,7 +130,6 @@ export default function CreateEventScreen() {
     if (pickerStep === "date") {
       updated.setFullYear(d.getFullYear(), d.getMonth(), d.getDate());
       setPickerDate(updated);
-      // auto-advance to time
       setTimeout(() => setPickerStep("time"), 50);
     } else {
       updated.setHours(d.getHours(), d.getMinutes());
@@ -110,7 +145,38 @@ export default function CreateEventScreen() {
     setPickerDate(new Date());
   };
 
-  // ── Field component ────────────────────────────────────────
+  async function handleUpgrade() {
+    setUpgradeLoading(true);
+    try {
+      const productsRes = await fetch(`${API_BASE}/api/products-with-prices`);
+      const { data: products } = await productsRes.json() as {
+        data: Array<{ id: string; name: string; prices: Array<{ id: string; recurring: { interval: string } | null }> }>;
+      };
+      const pro = products.find(p => p.name === "Squadz Pro");
+      const yearlyPrice = pro?.prices.find(p => p.recurring?.interval === "year");
+      if (!yearlyPrice) {
+        Alert.alert("Squadz Pro", "Pro plan not found. Please try again later.");
+        return;
+      }
+      const checkoutRes = await fetch(`${API_BASE}/api/checkout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ priceId: yearlyPrice.id }),
+      });
+      const { url, error: apiError } = await checkoutRes.json() as { url?: string; error?: string };
+      if (apiError || !url) {
+        Alert.alert("Checkout Error", apiError ?? "Failed to start checkout.");
+        return;
+      }
+      setShowUpgradeModal(false);
+      await Linking.openURL(url);
+    } catch {
+      Alert.alert("Error", "Something went wrong. Please try again.");
+    } finally {
+      setUpgradeLoading(false);
+    }
+  }
+
   const Field = ({ icon, placeholder, value, onChangeText }: {
     icon: keyof typeof Ionicons.glyphMap;
     placeholder: string;
@@ -135,13 +201,24 @@ export default function CreateEventScreen() {
         <Text style={[styles.title, { color: colors.foreground }]}>New Event</Text>
       </View>
 
+      {atLimit && (
+        <View style={[styles.limitBanner, { backgroundColor: colors.primary + "18", borderBottomColor: colors.primary + "40" }]}>
+          <Ionicons name="flash" size={14} color={colors.primary} />
+          <Text style={[styles.limitBannerText, { color: colors.primary }]}>
+            Free plan: {myEventCount}/{FREE_EVENT_LIMIT} events used — upgrade for unlimited
+          </Text>
+          <TouchableOpacity onPress={() => setShowUpgradeModal(true)} style={[styles.limitBannerBtn, { borderColor: colors.primary + "60" }]}>
+            <Text style={[styles.limitBannerBtnText, { color: colors.primary }]}>Upgrade</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       <ScrollView
         style={styles.body}
         contentContainerStyle={{ paddingBottom: botPad + 80 }}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {/* Emoji picker */}
         <View style={styles.section}>
           <Text style={[styles.label, { color: colors.mutedForeground }]}>Event icon</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
@@ -160,16 +237,13 @@ export default function CreateEventScreen() {
           </ScrollView>
         </View>
 
-        {/* Event name */}
         <View style={styles.section}>
           <Text style={[styles.label, { color: colors.mutedForeground }]}>Event name</Text>
           <Field icon="text-outline" placeholder="What are you planning?" value={title} onChangeText={setTitle} />
         </View>
 
-        {/* Date & time — native picker */}
         <View style={styles.section}>
           <Text style={[styles.label, { color: colors.mutedForeground }]}>Date & time</Text>
-
           {Platform.OS === "web" ? (
             <Field icon="calendar-outline" placeholder="e.g. Sat, Jun 7 · 5:00 PM" value={date} onChangeText={setDate} />
           ) : date ? (
@@ -195,13 +269,11 @@ export default function CreateEventScreen() {
           )}
         </View>
 
-        {/* Location */}
         <View style={styles.section}>
           <Text style={[styles.label, { color: colors.mutedForeground }]}>Location</Text>
           <Field icon="location-outline" placeholder="Where is it happening?" value={location} onChangeText={setLocation} />
         </View>
 
-        {/* Description */}
         <View style={styles.section}>
           <Text style={[styles.label, { color: colors.mutedForeground }]}>Description</Text>
           <View style={[styles.field, styles.fieldMultiline, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -217,7 +289,6 @@ export default function CreateEventScreen() {
           </View>
         </View>
 
-        {/* Squad picker */}
         <View style={styles.section}>
           <Text style={[styles.label, { color: colors.mutedForeground }]}>Squad</Text>
           <View style={styles.squadList}>
@@ -249,7 +320,6 @@ export default function CreateEventScreen() {
         </View>
       </ScrollView>
 
-      {/* Create button */}
       <View style={[styles.bottomBar, { borderTopColor: colors.border, paddingBottom: botPad + 8, backgroundColor: colors.background }]}>
         <TouchableOpacity
           onPress={handleCreate}
@@ -258,9 +328,15 @@ export default function CreateEventScreen() {
           style={styles.createBtnWrap}
         >
           {title.trim() ? (
-            <LinearGradient colors={["#FF5C3A", "#FF8050"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.createBtn}>
-              <Ionicons name="add-circle-outline" size={20} color="#fff" />
-              <Text style={[styles.createBtnText, { color: "#fff" }]}>Create Event</Text>
+            <LinearGradient
+              colors={atLimit ? ["#FF5C3A", "#FF8050"] : ["#FF5C3A", "#FF8050"]}
+              start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+              style={styles.createBtn}
+            >
+              <Ionicons name={atLimit ? "lock-closed" : "add-circle-outline"} size={20} color="#fff" />
+              <Text style={[styles.createBtnText, { color: "#fff" }]}>
+                {atLimit ? "Upgrade to Create Event" : "Create Event"}
+              </Text>
             </LinearGradient>
           ) : (
             <View style={[styles.createBtn, { backgroundColor: colors.card }]}>
@@ -271,7 +347,6 @@ export default function CreateEventScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* ── iOS date/time picker modal ── */}
       {Platform.OS === "ios" && pickerStep !== null && (
         <Modal visible animationType="slide" transparent onRequestClose={() => setPickerStep(null)}>
           <View style={styles.pickerOverlay}>
@@ -303,7 +378,6 @@ export default function CreateEventScreen() {
         </Modal>
       )}
 
-      {/* ── Android date/time picker (native dialog, no modal needed) ── */}
       {Platform.OS === "android" && pickerStep !== null && (
         <DateTimePicker
           value={pickerDate}
@@ -313,6 +387,56 @@ export default function CreateEventScreen() {
           minimumDate={new Date()}
         />
       )}
+
+      <Modal visible={showUpgradeModal} animationType="slide" transparent onRequestClose={() => setShowUpgradeModal(false)}>
+        <View style={styles.upgradeOverlay}>
+          <View style={[styles.upgradeSheet, { backgroundColor: colors.card }]}>
+            <View style={[styles.upgradeIconWrap, { backgroundColor: colors.primary + "22" }]}>
+              <Text style={styles.upgradeIcon}>🎉</Text>
+            </View>
+            <Text style={[styles.upgradeTitle, { color: colors.foreground }]}>You're on a roll!</Text>
+            <Text style={[styles.upgradeBody, { color: colors.mutedForeground }]}>
+              You've planned {myEventCount} events this year — the free plan limit. Upgrade to keep the momentum going with unlimited events.
+            </Text>
+
+            <View style={[styles.upgradePriceBadge, { borderColor: colors.primary + "40", backgroundColor: colors.primary + "12" }]}>
+              <Text style={[styles.upgradePriceAmount, { color: colors.foreground }]}>$20</Text>
+              <Text style={[styles.upgradePriceSub, { color: colors.mutedForeground }]}>per year · less than $2/month · cancel anytime</Text>
+            </View>
+
+            {[
+              "Unlimited events per year",
+              "Permanent photo vault",
+              "Calendar sync & AI best-time finder",
+              "Custom invite codes",
+              "Priority support",
+            ].map(f => (
+              <View key={f} style={styles.upgradeFeatureRow}>
+                <View style={[styles.upgradeCheck, { backgroundColor: "#2ECC8A" }]}>
+                  <Text style={styles.upgradeCheckText}>✓</Text>
+                </View>
+                <Text style={[styles.upgradeFeatureText, { color: colors.foreground }]}>{f}</Text>
+              </View>
+            ))}
+
+            <TouchableOpacity
+              onPress={handleUpgrade}
+              disabled={upgradeLoading}
+              activeOpacity={0.9}
+              style={styles.upgradeCtaWrap}
+            >
+              <LinearGradient colors={["#FF5C3A", "#FF8050"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.upgradeCta}>
+                <Text style={styles.upgradeCtaText}>
+                  {upgradeLoading ? "Opening checkout…" : "Upgrade to Pro — $20/year →"}
+                </Text>
+              </LinearGradient>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setShowUpgradeModal(false)} style={styles.upgradeDismiss}>
+              <Text style={[styles.upgradeDismissText, { color: colors.textDim }]}>Maybe later</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -321,6 +445,13 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   header: { paddingHorizontal: 20, paddingBottom: 12, borderBottomWidth: 1 },
   title: { fontSize: 28, fontWeight: "900" },
+  limitBanner: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 1,
+  },
+  limitBannerText: { flex: 1, fontSize: 12, fontWeight: "600" },
+  limitBannerBtn: { borderRadius: 8, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 3 },
+  limitBannerBtnText: { fontSize: 11, fontWeight: "700" },
   body: { flex: 1, paddingHorizontal: 20 },
   section: { paddingTop: 20 },
   label: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 10 },
@@ -359,7 +490,6 @@ const styles = StyleSheet.create({
   createBtnWrap: { borderRadius: 15, overflow: "hidden" },
   createBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 15, paddingVertical: 15 },
   createBtnText: { fontSize: 16, fontWeight: "800" },
-  // Picker modal
   pickerOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
   pickerSheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24 },
   pickerToolbar: {
@@ -369,4 +499,22 @@ const styles = StyleSheet.create({
   pickerBtn: { minWidth: 60 },
   pickerBtnText: { fontSize: 16 },
   pickerTitle: { fontSize: 16, fontWeight: "700" },
+  upgradeOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.78)", justifyContent: "flex-end" },
+  upgradeSheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 28, paddingBottom: 44 },
+  upgradeIconWrap: { width: 56, height: 56, borderRadius: 18, alignItems: "center", justifyContent: "center", marginBottom: 16 },
+  upgradeIcon: { fontSize: 28 },
+  upgradeTitle: { fontSize: 22, fontWeight: "800", marginBottom: 8 },
+  upgradeBody: { fontSize: 14, lineHeight: 20, marginBottom: 20 },
+  upgradePriceBadge: { borderWidth: 1.5, borderRadius: 16, padding: 16, alignItems: "center", marginBottom: 18 },
+  upgradePriceAmount: { fontSize: 40, fontWeight: "900", lineHeight: 44 },
+  upgradePriceSub: { fontSize: 13, marginTop: 2 },
+  upgradeFeatureRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 },
+  upgradeCheck: { width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  upgradeCheckText: { fontSize: 11, color: "#000", fontWeight: "900" },
+  upgradeFeatureText: { fontSize: 14 },
+  upgradeCtaWrap: { borderRadius: 14, overflow: "hidden", marginTop: 6, marginBottom: 10 },
+  upgradeCta: { paddingVertical: 15, alignItems: "center" },
+  upgradeCtaText: { color: "#fff", fontSize: 15, fontWeight: "800" },
+  upgradeDismiss: { alignItems: "center", paddingVertical: 8 },
+  upgradeDismissText: { fontSize: 13 },
 });
