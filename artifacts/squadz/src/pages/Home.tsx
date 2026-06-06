@@ -461,6 +461,7 @@ function ActivityTab() {
 const PRO_FEATURES = [
   { key: "events", icon: "🗓️", label: "Unlimited Events" },
   { key: "vault", icon: "📷", label: "Photo Vault" },
+  { key: "calendar", icon: "📅", label: "Calendar Sync" },
 ] as const;
 
 const VAULT_PLACEHOLDER_PHOTOS = [
@@ -643,6 +644,7 @@ function ProfileTab({ go, setTab, displayName, checkoutSuccess }: { go: (s: stri
   const [notifs, setNotifs] = useState(true);
   const [calSync, setCalSync] = useState(true);
   const [darkMode, setDarkMode] = useState(true);
+  const [highlightCalSync, setHighlightCalSync] = useState(false);
   const [isPro, setIsPro] = useState(!!checkoutSuccess);
   const [upgradeLoading, setUpgradeLoading] = useState(false);
   const [upgradeError, setUpgradeError] = useState<string | null>(null);
@@ -726,6 +728,10 @@ function ProfileTab({ go, setTab, displayName, checkoutSuccess }: { go: (s: stri
             onFeaturePress={(key) => {
               if (key === "events") { go("create-event"); }
               else if (key === "vault") { setTab?.("vault"); }
+              else if (key === "calendar") {
+                setHighlightCalSync(true);
+                setTimeout(() => setHighlightCalSync(false), 3000);
+              }
             }}
           />
         )}
@@ -792,6 +798,10 @@ function ProfileTab({ go, setTab, displayName, checkoutSuccess }: { go: (s: stri
                         onClick={() => {
                           if (f.key === "events") { go("create-event"); }
                           else if (f.key === "vault") { setTab?.("squads"); }
+                          else if (f.key === "calendar") {
+                            setHighlightCalSync(true);
+                            setTimeout(() => setHighlightCalSync(false), 3000);
+                          }
                           setShowProFeatures(false);
                         }}
                         style={{
@@ -853,8 +863,9 @@ function ProfileTab({ go, setTab, displayName, checkoutSuccess }: { go: (s: stri
             <div style={{ background: T.surface, borderRadius: 16, border: `1px solid ${T.border}`, overflow: "hidden" }}>
               {group.items.map((item, i) => {
                 const pressable = "onPress" in item ? item.onPress as () => void : undefined;
+                const isCalSync = item.label === "Calendar Sync";
                 return (
-                <div key={item.label} onClick={pressable} style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", borderTop: i > 0 ? `1px solid ${T.border}` : "none", cursor: pressable ? "pointer" : "default" }}>
+                <div key={item.label} onClick={pressable} style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", borderTop: i > 0 ? `1px solid ${T.border}` : "none", cursor: pressable ? "pointer" : "default", background: isCalSync && highlightCalSync ? T.blue + "18" : undefined, transition: "background 0.4s ease" }}>
                   <span style={{ fontSize: 18 }}>{item.icon}</span>
                   <div style={{ flex: 1, fontFamily: font, fontSize: 14, color: T.text }}>{item.label}</div>
                   {"toggle" in item ? <SwitchToggle on={item.toggle as boolean} toggle={item.onToggle as () => void} /> : <span style={{ color: T.textDim, fontSize: 16 }}>›</span>}

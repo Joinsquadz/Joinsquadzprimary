@@ -3,6 +3,7 @@ import {
   Text,
   StyleSheet,
   ScrollView,
+  Switch,
   TouchableOpacity,
   Platform,
   Alert,
@@ -56,6 +57,9 @@ type SettingItem = {
   label: string;
   value?: string;
   color?: string;
+  toggle?: boolean;
+  onToggle?: (value: boolean) => void;
+  highlight?: boolean;
   onPress?: () => void;
 };
 
@@ -75,6 +79,8 @@ export default function ProfileScreen() {
   const [showSuccessBanner, setShowSuccessBanner] = useState(didCheckoutSuccess);
   const [eventCount, setEventCount] = useState<number | null>(null);
   const [eventLimit] = useState(3);
+  const [calSync, setCalSync] = useState(false);
+  const [highlightCalSync, setHighlightCalSync] = useState(false);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 84 : 100);
@@ -208,10 +214,11 @@ export default function ProfileScreen() {
           onPress: () =>
             Alert.alert(
               "What's included in Pro",
-              "🗓️  Unlimited Events — Create as many events as you like\n\n📷  Photo Vault — Store & share squad photos",
+              "🗓️  Unlimited Events — Create as many events as you like\n\n📷  Photo Vault — Store & share squad photos\n\n📅  Calendar Sync — Add squad events to Apple / Google Calendar",
               [
                 { text: "View Events", onPress: () => router.push("/(tabs)/events" as never) },
                 { text: "View Photo Vault", onPress: () => router.push("/(tabs)/squads" as never) },
+                { text: "Calendar Sync", onPress: () => { setHighlightCalSync(true); setTimeout(() => setHighlightCalSync(false), 3000); } },
                 { text: "Done", style: "cancel" },
               ]
             ),
@@ -239,6 +246,7 @@ export default function ProfileScreen() {
       { icon: "person-outline", label: "Edit Profile", onPress: () => Alert.alert("Edit Profile", "Profile editing isn't available in this preview yet.") },
       { icon: "people-outline", label: "Friends", value: String(friends.length), onPress: () => router.push("/friends" as never) },
       { icon: "notifications-outline", label: "Notifications", onPress: () => Alert.alert("Notifications", "You're all caught up — push notifications are on.") },
+      { icon: "calendar-outline", label: "Calendar Sync", toggle: calSync, onToggle: (v) => setCalSync(v), highlight: highlightCalSync },
       { icon: "lock-closed-outline", label: "Privacy", onPress: () => Alert.alert("Privacy", "Your squads and events are visible to members only.") },
     ],
     proSection,
@@ -282,13 +290,19 @@ export default function ProfileScreen() {
                 {([
                   { key: "events", icon: "🗓️", label: "Unlimited Events", route: "/(tabs)/events" },
                   { key: "vault", icon: "📷", label: "Photo Vault", route: "/vault" },
+                  { key: "calendar", icon: "📅", label: "Calendar Sync", route: "/(tabs)/profile" },
                 ] as const).map((f) => (
                   <TouchableOpacity
                     key={f.key}
                     onPress={() => {
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                       setShowSuccessBanner(false);
-                      router.push(f.route as never);
+                      if (f.key === "calendar") {
+                        setHighlightCalSync(true);
+                        setTimeout(() => setHighlightCalSync(false), 3000);
+                      } else {
+                        router.push(f.route as never);
+                      }
                     }}
                     style={[styles.featureChip, { backgroundColor: colors.green + "18", borderColor: colors.green + "40" }]}
                   >
@@ -406,21 +420,35 @@ export default function ProfileScreen() {
             {group.map((item, ii) => (
               <TouchableOpacity
                 key={ii}
-                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); item.onPress?.(); }}
+                onPress={() => {
+                  if (item.toggle !== undefined) return;
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  item.onPress?.();
+                }}
+                activeOpacity={item.toggle !== undefined ? 1 : 0.7}
                 style={[
                   styles.settingRow,
-                  { backgroundColor: colors.card, borderColor: colors.border },
+                  { backgroundColor: item.highlight ? colors.primary + "18" : colors.card, borderColor: item.highlight ? colors.primary + "60" : colors.border },
                   ii === 0 && styles.settingFirst,
                   ii === group.length - 1 && styles.settingLast,
                   ii > 0 && { borderTopWidth: 0 },
                 ]}
               >
-                <Ionicons name={item.icon} size={20} color={item.color ?? colors.foreground} />
-                <Text style={[styles.settingLabel, { color: item.color ?? colors.foreground, flex: 1 }]}>{item.label}</Text>
+                <Ionicons name={item.icon} size={20} color={item.highlight ? colors.primary : (item.color ?? colors.foreground)} />
+                <Text style={[styles.settingLabel, { color: item.highlight ? colors.primary : (item.color ?? colors.foreground), flex: 1 }]}>{item.label}</Text>
                 {item.value && (
                   <Text style={[styles.settingValue, { color: colors.gold }]}>{item.value}</Text>
                 )}
-                {!item.color && <Ionicons name="chevron-forward" size={16} color={colors.textDim} />}
+                {item.toggle !== undefined ? (
+                  <Switch
+                    value={item.toggle}
+                    onValueChange={(v) => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); item.onToggle?.(v); }}
+                    trackColor={{ false: colors.border, true: colors.primary + "80" }}
+                    thumbColor={item.toggle ? colors.primary : colors.mutedForeground}
+                  />
+                ) : !item.color ? (
+                  <Ionicons name="chevron-forward" size={16} color={colors.textDim} />
+                ) : null}
               </TouchableOpacity>
             ))}
           </View>
