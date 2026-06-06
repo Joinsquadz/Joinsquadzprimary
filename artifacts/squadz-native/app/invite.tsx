@@ -13,7 +13,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
-import { EVENTS, getUserById } from "@/data/mock";
+import { EVENTS, getUserById, goingCount } from "@/data/mock";
 
 export default function InviteScreen() {
   const colors = useColors();
@@ -83,7 +83,7 @@ export default function InviteScreen() {
             { icon: "person-outline" as const, text: `Hosted by ${host.name}` },
             { icon: "calendar-outline" as const, text: event.date },
             { icon: "location-outline" as const, text: event.location },
-            { icon: "people-outline" as const, text: `${event.attendeeIds.length} going · ${event.squadName}` },
+            { icon: "people-outline" as const, text: `${goingCount(event)} going · ${event.squadName}` },
           ].map((row, i) => (
             <View key={i} style={[styles.detailRow, i > 0 && { borderTopWidth: 1, borderTopColor: colors.border }]}>
               <Ionicons name={row.icon} size={18} color={colors.primary} />

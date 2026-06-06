@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
+import { useData } from "@/context/AppContext";
 import { SQUADS } from "@/data/mock";
 
 const EMOJIS = ["🔥", "🎉", "🎮", "🏖️", "🍕", "🎸", "⚽", "🎬", "🍻", "🎊"];
@@ -21,14 +22,25 @@ const EMOJIS = ["🔥", "🎉", "🎮", "🏖️", "🍕", "🎸", "⚽", "🎬"
 export default function CreateEventScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { addEvent } = useData();
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
 
   const [title, setTitle] = useState("");
   const [location, setLocation] = useState("");
   const [date, setDate] = useState("");
+  const [description, setDescription] = useState("");
   const [selectedSquad, setSelectedSquad] = useState<string | null>(null);
   const [selectedEmoji, setSelectedEmoji] = useState("🔥");
+
+  const resetForm = () => {
+    setTitle("");
+    setLocation("");
+    setDate("");
+    setDescription("");
+    setSelectedSquad(null);
+    setSelectedEmoji("🔥");
+  };
 
   const handleCreate = () => {
     if (!title.trim()) {
@@ -36,8 +48,16 @@ export default function CreateEventScreen() {
       return;
     }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    const id = addEvent({
+      title: title.trim(),
+      emoji: selectedEmoji,
+      date: date.trim(),
+      location: location.trim(),
+      description: description.trim(),
+      squadId: selectedSquad,
+    });
     Alert.alert("Event created!", `${selectedEmoji} ${title} has been created. Your squad will be notified.`, [
-      { text: "View Event", style: "default", onPress: () => router.push("/event/e1" as never) },
+      { text: "View Event", style: "default", onPress: () => { resetForm(); router.push(`/event/${id}` as never); } },
     ]);
   };
 
@@ -128,6 +148,22 @@ export default function CreateEventScreen() {
           />
         </View>
 
+        {/* Description */}
+        <View style={styles.section}>
+          <Text style={[styles.label, { color: colors.mutedForeground }]}>Description</Text>
+          <View style={[styles.field, styles.fieldMultiline, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Ionicons name="document-text-outline" size={20} color={colors.mutedForeground} style={{ marginTop: 2 }} />
+            <TextInput
+              placeholder="What's the plan? (optional)"
+              placeholderTextColor={colors.textDim}
+              value={description}
+              onChangeText={setDescription}
+              multiline
+              style={[styles.fieldInput, { color: colors.foreground, height: 80, textAlignVertical: "top", paddingTop: 2 }]}
+            />
+          </View>
+        </View>
+
         {/* Squad picker */}
         <View style={styles.section}>
           <Text style={[styles.label, { color: colors.mutedForeground }]}>Squad</Text>
@@ -187,6 +223,7 @@ const styles = StyleSheet.create({
     borderRadius: 13, borderWidth: 1.5, paddingHorizontal: 14, height: 52,
   },
   fieldInput: { flex: 1, fontSize: 15 },
+  fieldMultiline: { height: undefined, alignItems: "flex-start", paddingVertical: 12 },
   emojiOption: { width: 52, height: 52, borderRadius: 14, borderWidth: 2, alignItems: "center", justifyContent: "center" },
   emojiText: { fontSize: 24 },
   squadList: { gap: 8 },

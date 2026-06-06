@@ -12,22 +12,46 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
+import { useData } from "@/context/AppContext";
 import { EventCard } from "@/components/EventCard";
-import { EVENTS, Event } from "@/data/mock";
+import { Event, ME, goingCount, parseEventDate } from "@/data/mock";
 
-const FILTERS = ["All", "This Week", "Near Me", "Free", "Music"];
+const FILTERS = ["All", "This Week", "Hosting", "Going", "Maybe"];
 
 export default function EventsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { events } = useData();
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
 
-  const filtered: Event[] = EVENTS.filter((e) =>
-    e.title.toLowerCase().includes(search.toLowerCase()) ||
-    e.location.toLowerCase().includes(search.toLowerCase())
+  const now = new Date();
+  const weekFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+  const matchesFilter = (e: Event): boolean => {
+    switch (filter) {
+      case "This Week": {
+        const d = parseEventDate(e.date);
+        return !!d && d >= now && d <= weekFromNow;
+      }
+      case "Hosting":
+        return e.hostId === ME.id;
+      case "Going":
+        return e.rsvps[ME.id] === "going";
+      case "Maybe":
+        return e.rsvps[ME.id] === "maybe";
+      default:
+        return true;
+    }
+  };
+
+  const filtered: Event[] = events.filter(
+    (e) =>
+      matchesFilter(e) &&
+      (e.title.toLowerCase().includes(search.toLowerCase()) ||
+        e.location.toLowerCase().includes(search.toLowerCase())),
   );
 
   return (
@@ -101,7 +125,7 @@ export default function EventsScreen() {
             date={item.date}
             location={item.location}
             hostId={item.hostId}
-            attendeeCount={item.attendeeIds.length}
+            attendeeCount={goingCount(item)}
           />
         )}
       />

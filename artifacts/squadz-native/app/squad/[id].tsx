@@ -11,13 +11,15 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
+import { useData } from "@/context/AppContext";
 import { UserAvatar } from "@/components/UserAvatar";
 import { EventCard } from "@/components/EventCard";
-import { getSquadById, getUserById, EVENTS } from "@/data/mock";
+import { getSquadById, getUserById, goingCount } from "@/data/mock";
 
 export default function SquadDetailScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { events } = useData();
   const { id } = useLocalSearchParams<{ id: string }>();
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
@@ -35,7 +37,7 @@ export default function SquadDetailScreen() {
   }
 
   const members = squad.memberIds.map(getUserById);
-  const squadEvents = EVENTS.filter((e) => e.squadId === squad.id);
+  const squadEvents = events.filter((e) => e.squadId === squad.id);
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -92,7 +94,7 @@ export default function SquadDetailScreen() {
               date={e.date}
               location={e.location}
               hostId={e.hostId}
-              attendeeCount={e.attendeeIds.length}
+              attendeeCount={goingCount(e)}
             />
           ))
         )}

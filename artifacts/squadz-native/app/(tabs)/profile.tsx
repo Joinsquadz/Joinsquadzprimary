@@ -11,9 +11,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
-import { useAuth } from "@/context/AppContext";
+import { useAuth, useData } from "@/context/AppContext";
 import { UserAvatar } from "@/components/UserAvatar";
-import { EVENTS, SQUADS } from "@/data/mock";
+import { SQUADS, ME } from "@/data/mock";
 import { router } from "expo-router";
 
 type SettingItem = {
@@ -28,11 +28,14 @@ export default function ProfileScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { currentUser, logout } = useAuth();
+  const { events } = useData();
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 84 : 100);
 
-  const myEvents = EVENTS.filter((e) => e.attendeeIds.includes("me"));
+  const myEvents = events.filter(
+    (e) => e.hostId === ME.id || e.rsvps[ME.id] === "going" || e.rsvps[ME.id] === "maybe",
+  );
   const mySquads = SQUADS;
 
   const SETTINGS: SettingItem[][] = [

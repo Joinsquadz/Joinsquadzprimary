@@ -12,17 +12,19 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
-import { useAuth } from "@/context/AppContext";
+import { useAuth, useData } from "@/context/AppContext";
 import { EventCard } from "@/components/EventCard";
 import { UserAvatar } from "@/components/UserAvatar";
-import { EVENTS, SQUADS } from "@/data/mock";
+import { SQUADS, goingCount } from "@/data/mock";
 
 export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { currentUser } = useAuth();
+  const { events } = useData();
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
+  const memberCount = new Set(SQUADS.flatMap((s) => s.memberIds)).size;
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -62,7 +64,7 @@ export default function HomeScreen() {
             </TouchableOpacity>
           </View>
           <FlatList
-            data={EVENTS.slice(0, 3)}
+            data={events.slice(0, 3)}
             horizontal
             showsHorizontalScrollIndicator={false}
             keyExtractor={(e) => e.id}
@@ -75,7 +77,7 @@ export default function HomeScreen() {
                 date={item.date}
                 location={item.location}
                 hostId={item.hostId}
-                attendeeCount={item.attendeeIds.length}
+                attendeeCount={goingCount(item)}
                 horizontal
               />
             )}
@@ -120,9 +122,9 @@ export default function HomeScreen() {
           <Text style={[styles.sectionTitle, { color: colors.foreground, marginBottom: 12 }]}>This Month</Text>
           <View style={styles.statsRow}>
             {[
-              { value: "4", label: "Events", color: colors.primary },
-              { value: "3", label: "Squads", color: colors.blue },
-              { value: "12", label: "Members", color: colors.green },
+              { value: events.length.toString(), label: "Events", color: colors.primary },
+              { value: SQUADS.length.toString(), label: "Squads", color: colors.blue },
+              { value: memberCount.toString(), label: "Members", color: colors.green },
             ].map((s) => (
               <View key={s.label} style={[styles.statCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
                 <Text style={[styles.statValue, { color: s.color }]}>{s.value}</Text>

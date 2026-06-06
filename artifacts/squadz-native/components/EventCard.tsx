@@ -2,7 +2,7 @@ import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useColors } from "@/hooks/useColors";
-import { getUserById } from "@/data/mock";
+import { getUserById, ME } from "@/data/mock";
 
 interface EventCardProps {
   id: string;
@@ -27,6 +27,7 @@ export function EventCard({
 }: EventCardProps) {
   const colors = useColors();
   const host = getUserById(hostId);
+  const isHost = hostId === ME.id;
 
   return (
     <TouchableOpacity
@@ -45,9 +46,17 @@ export function EventCard({
         <Text style={styles.emoji}>{emoji}</Text>
       </View>
       <View style={styles.body}>
-        <Text style={[styles.title, { color: colors.foreground }]} numberOfLines={1}>
-          {title}
-        </Text>
+        <View style={styles.titleRow}>
+          <Text style={[styles.title, { color: colors.foreground }]} numberOfLines={1}>
+            {title}
+          </Text>
+          {isHost && (
+            <View style={[styles.hostBadge, { backgroundColor: colors.gold + "20", borderColor: colors.gold + "40" }]}>
+              <Ionicons name="star" size={9} color={colors.gold} />
+              <Text style={[styles.hostBadgeText, { color: colors.gold }]}>Host</Text>
+            </View>
+          )}
+        </View>
         <Text style={[styles.date, { color: colors.primary }]} numberOfLines={1}>
           {date}
         </Text>
@@ -88,7 +97,10 @@ const styles = StyleSheet.create({
   },
   emoji: { fontSize: 22 },
   body: { flex: 1, gap: 2 },
-  title: { fontSize: 15, fontWeight: "700" },
+  titleRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  title: { fontSize: 15, fontWeight: "700", flexShrink: 1 },
+  hostBadge: { flexDirection: "row", alignItems: "center", gap: 2, borderRadius: 10, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 1, flexShrink: 0 },
+  hostBadgeText: { fontSize: 9, fontWeight: "800" },
   date: { fontSize: 13, fontWeight: "600" },
   location: { fontSize: 12 },
   footer: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6 },
