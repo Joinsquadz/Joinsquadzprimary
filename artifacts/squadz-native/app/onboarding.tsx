@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -7,14 +7,34 @@ import {
   TextInput,
   Platform,
   ScrollView,
+  ActivityIndicator,
+  Alert,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
+import { Ionicons } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
-import { useAuth } from "@/context/AppContext";
+import { useAuth, useData } from "@/context/AppContext";
 import { GradientButton } from "@/components/GradientButton";
+
+type ContactItem = { id: string; name: string; phone: string };
+
+const MOCK_CONTACTS: ContactItem[] = [
+  { id: "mc1", name: "Aisha Williams", phone: "(555) 234-5678" },
+  { id: "mc2", name: "Brandon Torres", phone: "(555) 345-6789" },
+  { id: "mc3", name: "Carlos Reyes", phone: "(555) 456-7890" },
+  { id: "mc4", name: "Diana Park", phone: "(555) 567-8901" },
+  { id: "mc5", name: "Ethan Moore", phone: "(555) 678-9012" },
+  { id: "mc6", name: "Fiona Zhang", phone: "(555) 789-0123" },
+  { id: "mc7", name: "George Kim", phone: "(555) 890-1234" },
+  { id: "mc8", name: "Hannah Lee", phone: "(555) 901-2345" },
+  { id: "mc9", name: "Ivan Rodriguez", phone: "(555) 012-3456" },
+  { id: "mc10", name: "Julia Martinez", phone: "(555) 123-4567" },
+  { id: "mc11", name: "Kevin Brown", phone: "(555) 234-5679" },
+  { id: "mc12", name: "Layla Johnson", phone: "(555) 345-6780" },
+];
 
 const AVATARS = ["🐶", "🦊", "🐻", "🐼", "🦁", "🐯", "🦝", "🐸", "🐙", "🦋", "🌈", "⚡"];
 const INTERESTS = [
@@ -34,21 +54,24 @@ const INTERESTS = [
 const SQUAD_EMOJIS = ["🔥", "💼", "🎓", "🏡", "✈️", "🎮", "🍕", "🎉", "💪", "🌊", "🎵", "🦄"];
 const SQUAD_CHIPS = ["Friend Group", "Coworkers", "Family", "College", "Roommates", "Sports"];
 
-const GLOW_COLORS = ["#FF5C3A", "#A855F7", "#FFB547", "#2ECC8A", "#4A9EFF"];
-const STEP_ICONS = ["👋", "😊", "✨", "🔥", "⚡"];
-const STEP_TITLES = ["What should we call you?", "Pick your vibe", "What do you love?", "Name your squad", "Choose your plan"];
+const GLOW_COLORS = ["#FF5C3A", "#A855F7", "#FFB547", "#2ECC8A", "#4A9EFF", "#2ECC8A"];
+const STEP_ICONS = ["👋", "😊", "✨", "🔥", "⚡", "📲"];
+const STEP_TITLES = ["What should we call you?", "Pick your vibe", "What do you love?", "Name your squad", "Choose your plan", "Invite your people"];
 const STEP_DESCS = [
   "How your squad will see you",
   "Express yourself with an avatar",
   "Helps us suggest the best events (pick 3+)",
   "Create your first group to start planning",
   "You can upgrade or downgrade anytime",
+  "Let your crew know Squadz is where it's at",
 ];
+const TOTAL_STEPS = 6;
 
 export default function OnboardingScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { login } = useAuth();
+  const { friendCode } = useData();
   const params = useLocalSearchParams<{ inviteEventId?: string; inviteTitle?: string }>();
 
   const [step, setStep] = useState(0);
@@ -58,6 +81,73 @@ export default function OnboardingScreen() {
   const [squadEmoji, setSquadEmoji] = useState("🔥");
   const [squadName, setSquadName] = useState("");
   const [plan, setPlan] = useState<"free" | "pro" | null>(null);
+
+  const [contacts, setContacts] = useState<ContactItem[]>([]);
+  const [selectedPhones, setSelectedPhones] = useState<Set<string>>(new Set());
+  const [contactSearch, setContactSearch] = useState("");
+  const [contactsLoading, setContactsLoading] = useState(false);
+
+  useEffect(() => {
+    if (step !== 5) return;
+    void loadContacts();
+  }, [step]);
+
+  async function loadContacts() {
+    setContactsLoading(true);
+    try {
+      if (Platform.OS === "web") {
+        setContacts(MOCK_CONTACTS);
+        return;
+      }
+      const Contacts = await import("expo-contacts");
+      const { status } = await Contacts.requestPermissionsAsync();
+      if (status === "granted") {
+        const { data } = await Contacts.getContactsAsync({
+          fields: [Contacts.Fields.Name, Contacts.Fields.PhoneNumbers],
+          sort: Contacts.SortTypes.FirstName,
+        });
+        const items: ContactItem[] = data
+          .filter((c) => c.name && c.phoneNumbers && c.phoneNumbers.length > 0)
+          .slice(0, 60)
+          .map((c) => ({
+            id: c.id ?? String(Math.random()),
+            name: c.name ?? "",
+            phone: c.phoneNumbers![0].number ?? "",
+          }));
+        setContacts(items.length > 0 ? items : MOCK_CONTACTS);
+      } else {
+        setContacts(MOCK_CONTACTS);
+      }
+    } catch {
+      setContacts(MOCK_CONTACTS);
+    } finally {
+      setContactsLoading(false);
+    }
+  }
+
+  async function handleSendInvites() {
+    if (selectedPhones.size === 0) { handleComplete(); return; }
+    if (Platform.OS !== "web") {
+      try {
+        const SMS = await import("expo-sms");
+        const available = await SMS.isAvailableAsync();
+        if (available) {
+          const phones = Array.from(selectedPhones);
+          const msg = `Hey! I just joined Squadz — the app that actually gets people together 🎉 Add me as a friend with my code: ${friendCode}\nDownload the app: squadz.app`;
+          await SMS.sendSMSAsync(phones, msg);
+        }
+      } catch {
+        // user cancelled or unavailable — still complete onboarding
+      }
+    }
+    handleComplete();
+  }
+
+  const filteredContacts = contacts.filter(
+    (c) =>
+      c.name.toLowerCase().includes(contactSearch.toLowerCase()) ||
+      c.phone.includes(contactSearch),
+  );
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
@@ -94,20 +184,20 @@ export default function OnboardingScreen() {
           <Text style={[styles.backArrow, { color: colors.mutedForeground }]}>←</Text>
         </TouchableOpacity>
         <View style={styles.dots}>
-          {[0, 1, 2, 3, 4].map((i) => (
+          {Array.from({ length: TOTAL_STEPS }, (_, i) => (
             <View
               key={i}
               style={[
                 styles.dot,
                 {
                   backgroundColor: i === step ? glow : i < step ? glow + "70" : colors.border,
-                  width: i === step ? 24 : 14,
+                  width: i === step ? 24 : 10,
                 },
               ]}
             />
           ))}
         </View>
-        <Text style={[styles.stepCounter, { color: colors.mutedForeground }]}>{step + 1} of 5</Text>
+        <Text style={[styles.stepCounter, { color: colors.mutedForeground }]}>{step + 1} of {TOTAL_STEPS}</Text>
       </View>
 
       {/* Content */}
@@ -309,6 +399,96 @@ export default function OnboardingScreen() {
           </View>
         )}
 
+        {/* Step 5 — Invite contacts */}
+        {step === 5 && (
+          <View style={{ gap: 12 }}>
+            {/* Search + select controls */}
+            <View style={[styles.searchRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Ionicons name="search" size={16} color={colors.mutedForeground} style={{ marginLeft: 12 }} />
+              <TextInput
+                placeholder="Search contacts…"
+                placeholderTextColor={colors.textDim}
+                value={contactSearch}
+                onChangeText={setContactSearch}
+                style={[styles.searchInput, { color: colors.foreground }]}
+              />
+            </View>
+
+            <View style={styles.selectBar}>
+              <TouchableOpacity
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setSelectedPhones(new Set(filteredContacts.map((c) => c.phone)));
+                }}
+                style={[styles.selectBtn, { backgroundColor: colors.primary + "18", borderColor: colors.primary + "40" }]}
+              >
+                <Text style={[styles.selectBtnText, { color: colors.primary }]}>Select All</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSelectedPhones(new Set()); }}
+                style={[styles.selectBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+              >
+                <Text style={[styles.selectBtnText, { color: colors.mutedForeground }]}>Clear</Text>
+              </TouchableOpacity>
+              {selectedPhones.size > 0 && (
+                <Text style={[styles.selectedCount, { color: colors.primary }]}>
+                  {selectedPhones.size} selected
+                </Text>
+              )}
+            </View>
+
+            {contactsLoading ? (
+              <View style={{ alignItems: "center", paddingVertical: 32 }}>
+                <ActivityIndicator color={colors.primary} />
+                <Text style={[{ color: colors.mutedForeground, fontSize: 13, marginTop: 10 }]}>Loading contacts…</Text>
+              </View>
+            ) : (
+              filteredContacts.map((contact) => {
+                const selected = selectedPhones.has(contact.phone);
+                return (
+                  <TouchableOpacity
+                    key={contact.id}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      const next = new Set(selectedPhones);
+                      selected ? next.delete(contact.phone) : next.add(contact.phone);
+                      setSelectedPhones(next);
+                    }}
+                    style={[
+                      styles.contactRow,
+                      {
+                        backgroundColor: selected ? colors.primary + "14" : colors.card,
+                        borderColor: selected ? colors.primary + "50" : colors.border,
+                      },
+                    ]}
+                  >
+                    <View style={[styles.contactAvatar, { backgroundColor: colors.primary + "22" }]}>
+                      <Text style={[styles.contactInitial, { color: colors.primary }]}>
+                        {contact.name.charAt(0).toUpperCase()}
+                      </Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.contactName, { color: colors.foreground }]}>{contact.name}</Text>
+                      <Text style={[styles.contactPhone, { color: colors.mutedForeground }]}>{contact.phone}</Text>
+                    </View>
+                    <View
+                      style={[
+                        styles.checkbox,
+                        {
+                          backgroundColor: selected ? colors.primary : "transparent",
+                          borderColor: selected ? colors.primary : colors.border,
+                        },
+                      ]}
+                    >
+                      {selected && <Ionicons name="checkmark" size={13} color="#fff" />}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })
+            )}
+          </View>
+        )}
+
         <View style={{ height: 32 }} />
       </ScrollView>
 
@@ -341,10 +521,25 @@ export default function OnboardingScreen() {
         )}
         {step === 4 && (
           <GradientButton
-            label={plan === "pro" ? "Start Pro — $20/year →" : plan === "free" ? "Start Free →" : "Choose a plan to continue"}
-            onPress={handleComplete}
+            label={plan === "pro" ? "Start Pro — $20/year →" : plan === "free" ? "Next: Invite Friends →" : "Choose a plan to continue"}
+            onPress={() => setStep(5)}
             disabled={!plan}
           />
+        )}
+        {step === 5 && (
+          <View style={{ gap: 8 }}>
+            <GradientButton
+              label={
+                selectedPhones.size > 0
+                  ? `Send ${selectedPhones.size} Invite${selectedPhones.size !== 1 ? "s" : ""} via Text →`
+                  : "Skip for now →"
+              }
+              onPress={() => { void handleSendInvites(); }}
+            />
+            <TouchableOpacity onPress={handleComplete} style={{ alignItems: "center", padding: 4 }}>
+              <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>Skip — I'll invite friends later</Text>
+            </TouchableOpacity>
+          </View>
         )}
       </View>
     </View>
@@ -439,5 +634,30 @@ const styles = StyleSheet.create({
   footer: {
     paddingHorizontal: 22, paddingTop: 14, borderTopWidth: 1,
     gap: 8,
+  },
+  searchRow: {
+    flexDirection: "row", alignItems: "center", borderRadius: 13, borderWidth: 1,
+    height: 44, overflow: "hidden",
+  },
+  searchInput: { flex: 1, paddingHorizontal: 10, fontSize: 14, height: "100%" },
+  selectBar: { flexDirection: "row", alignItems: "center", gap: 8 },
+  selectBtn: {
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1,
+  },
+  selectBtnText: { fontSize: 12, fontWeight: "700" },
+  selectedCount: { fontSize: 12, fontWeight: "700", marginLeft: "auto" },
+  contactRow: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    borderRadius: 13, borderWidth: 1, padding: 12,
+  },
+  contactAvatar: {
+    width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center",
+  },
+  contactInitial: { fontSize: 15, fontWeight: "800" },
+  contactName: { fontSize: 14, fontWeight: "700", marginBottom: 2 },
+  contactPhone: { fontSize: 12 },
+  checkbox: {
+    width: 22, height: 22, borderRadius: 11, borderWidth: 1.5,
+    alignItems: "center", justifyContent: "center", flexShrink: 0,
   },
 });

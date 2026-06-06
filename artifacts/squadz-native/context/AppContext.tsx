@@ -61,9 +61,17 @@ type AppContextType = {
   addSquad: (input: { name: string; emoji: string; color: string }) => string;
   updateSquad: (id: string, patch: Partial<Pick<Squad, "name" | "emoji" | "color">>) => void;
   leaveSquad: (id: string) => void;
+
+  friends: string[];
+  friendCode: string;
+  addFriend: (userId: string) => void;
+  removeFriend: (userId: string) => void;
 };
 
 const noop = () => {};
+
+const MY_FRIEND_CODE = "SQ-JP42";
+const INITIAL_FRIENDS = ["u1", "u3"];
 
 const AppContext = createContext<AppContextType>({
   isLoggedIn: false,
@@ -91,6 +99,10 @@ const AppContext = createContext<AppContextType>({
   addSquad: () => "",
   updateSquad: noop,
   leaveSquad: noop,
+  friends: INITIAL_FRIENDS,
+  friendCode: MY_FRIEND_CODE,
+  addFriend: noop,
+  removeFriend: noop,
 });
 
 let idCounter = 1000;
@@ -113,6 +125,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [squads, setSquads] = useState<Squad[]>(() =>
     SQUADS.map((s) => ({ ...s, memberIds: [...s.memberIds] })),
   );
+  const [friends, setFriends] = useState<string[]>(INITIAL_FRIENDS);
+
+  const addFriend = useCallback((userId: string) => {
+    setFriends((prev) => Array.from(new Set([...prev, userId])));
+  }, []);
+
+  const removeFriend = useCallback((userId: string) => {
+    setFriends((prev) => prev.filter((id) => id !== userId));
+  }, []);
 
   useEffect(() => {
     AsyncStorage.getItem(AUTH_TOKEN_KEY).then(token => {
@@ -344,6 +365,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         addSquad,
         updateSquad,
         leaveSquad,
+        friends,
+        friendCode: MY_FRIEND_CODE,
+        addFriend,
+        removeFriend,
       }}
     >
       {children}

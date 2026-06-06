@@ -181,9 +181,12 @@ export default function ProfileScreen() {
         },
       ];
 
+  const { friends } = useData();
+
   const SETTINGS: SettingItem[][] = [
     [
       { icon: "person-outline", label: "Edit Profile", onPress: () => Alert.alert("Edit Profile", "Profile editing isn't available in this preview yet.") },
+      { icon: "people-outline", label: "Friends", value: String(friends.length), onPress: () => router.push("/friends" as never) },
       { icon: "notifications-outline", label: "Notifications", onPress: () => Alert.alert("Notifications", "You're all caught up — push notifications are on.") },
       { icon: "lock-closed-outline", label: "Privacy", onPress: () => Alert.alert("Privacy", "Your squads and events are visible to members only.") },
     ],
