@@ -40,12 +40,55 @@ function BottomTab({ active, setActive }: { active: string; setActive: (t: strin
   );
 }
 
-function HomeTab({ go, onBellPress, firstName, squads, events }: { go: (s: string) => void; onBellPress: () => void; firstName?: string | null; squads: ApiSquad[]; events: ApiEvent[] }) {
+const skeletonKeyframes = `
+@keyframes skeletonPulse {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.9; }
+}
+`;
+
+function SkeletonBlock({ width, height, borderRadius = 8, style = {} }: { width?: number | string; height: number; borderRadius?: number; style?: React.CSSProperties }) {
+  return (
+    <div style={{
+      width: width ?? "100%",
+      height,
+      borderRadius,
+      background: `linear-gradient(90deg, ${T.surfaceHigh}, ${T.surfaceUp}, ${T.surfaceHigh})`,
+      animation: "skeletonPulse 1.4s ease-in-out infinite",
+      flexShrink: 0,
+      ...style,
+    }} />
+  );
+}
+
+function EventCardSkeleton() {
+  return (
+    <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 22, padding: 20, marginBottom: 20, overflow: "hidden" }}>
+      <SkeletonBlock width={90} height={18} borderRadius={20} style={{ marginBottom: 10 }} />
+      <SkeletonBlock width="70%" height={26} borderRadius={10} style={{ marginBottom: 8 }} />
+      <SkeletonBlock width="50%" height={14} borderRadius={8} style={{ marginBottom: 14 }} />
+      <SkeletonBlock width={60} height={14} borderRadius={8} />
+    </div>
+  );
+}
+
+function SquadChipSkeleton() {
+  return (
+    <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 16, padding: "12px 14px", minWidth: 130, flexShrink: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+      <SkeletonBlock width={30} height={26} borderRadius={8} />
+      <SkeletonBlock width="80%" height={13} borderRadius={6} />
+      <SkeletonBlock width="50%" height={11} borderRadius={6} />
+    </div>
+  );
+}
+
+function HomeTab({ go, onBellPress, firstName, squads, events, eventsLoading, squadsLoading }: { go: (s: string) => void; onBellPress: () => void; firstName?: string | null; squads: ApiSquad[]; events: ApiEvent[]; eventsLoading: boolean; squadsLoading: boolean }) {
   const [showBanner, setShowBanner] = useState(true);
   const nextEvent = events[0] ?? null;
   const goingCount = nextEvent ? Object.values(nextEvent.rsvps).filter(v => v === "going").length : 0;
   return (
     <div style={{ flex: 1, overflowY: "auto" }}>
+      <style>{skeletonKeyframes}</style>
       {showBanner && (
         <div style={{ background: `linear-gradient(135deg, ${T.purple}22, ${T.blue}18)`, borderBottom: `1px solid ${T.purple}30`, padding: "10px 16px", display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ fontSize: 20 }}>🔔</span>
@@ -75,7 +118,9 @@ function HomeTab({ go, onBellPress, firstName, squads, events }: { go: (s: strin
           </div>
         </div>
 
-        {nextEvent ? (
+        {eventsLoading ? (
+          <EventCardSkeleton />
+        ) : nextEvent ? (
           <div onClick={() => go("event")} style={{ background: `linear-gradient(135deg, ${T.accent}, #FF8C3A)`, borderRadius: 22, padding: 20, marginBottom: 20, cursor: "pointer", position: "relative", overflow: "hidden" }}>
             <div style={{ position: "absolute", right: -30, top: -30, width: 160, height: 160, borderRadius: "50%", background: "rgba(255,255,255,0.1)" }} />
             <Tag color="#fff">⚡ Up Next · {nextEvent.date}</Tag>
@@ -106,17 +151,27 @@ function HomeTab({ go, onBellPress, firstName, squads, events }: { go: (s: strin
           <SectionLabel>My SquadZ</SectionLabel>
         </div>
         <div style={{ display: "flex", gap: 10, marginBottom: 24, overflowX: "auto", paddingBottom: 4 }}>
-          {squads.map(s => (
-            <div key={s.id} onClick={() => go("squad")} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 16, padding: "12px 14px", minWidth: 130, cursor: "pointer", flexShrink: 0 }}>
-              <div style={{ fontSize: 26, marginBottom: 6 }}>{s.emoji}</div>
-              <div style={{ fontFamily: font, fontWeight: 700, fontSize: 13, color: T.text, marginBottom: 2 }}>{s.name}</div>
-              <div style={{ fontSize: 11, color: T.textDim }}>{s.memberIds.length} members</div>
-            </div>
-          ))}
-          <div onClick={() => go("create-squad")} style={{ background: T.surfaceUp, border: `1.5px dashed ${T.border}`, borderRadius: 16, padding: "12px 14px", minWidth: 100, cursor: "pointer", flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4 }}>
-            <div style={{ fontSize: 24, color: T.textDim }}>+</div>
-            <div style={{ fontSize: 11, color: T.textDim, fontFamily: font }}>New Squad</div>
-          </div>
+          {squadsLoading ? (
+            <>
+              <SquadChipSkeleton />
+              <SquadChipSkeleton />
+              <SquadChipSkeleton />
+            </>
+          ) : (
+            <>
+              {squads.map(s => (
+                <div key={s.id} onClick={() => go("squad")} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 16, padding: "12px 14px", minWidth: 130, cursor: "pointer", flexShrink: 0 }}>
+                  <div style={{ fontSize: 26, marginBottom: 6 }}>{s.emoji}</div>
+                  <div style={{ fontFamily: font, fontWeight: 700, fontSize: 13, color: T.text, marginBottom: 2 }}>{s.name}</div>
+                  <div style={{ fontSize: 11, color: T.textDim }}>{s.memberIds.length} members</div>
+                </div>
+              ))}
+              <div onClick={() => go("create-squad")} style={{ background: T.surfaceUp, border: `1.5px dashed ${T.border}`, borderRadius: 16, padding: "12px 14px", minWidth: 100, cursor: "pointer", flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4 }}>
+                <div style={{ fontSize: 24, color: T.textDim }}>+</div>
+                <div style={{ fontSize: 11, color: T.textDim, fontFamily: font }}>New Squad</div>
+              </div>
+            </>
+          )}
         </div>
 
         <SectionLabel>✦ AI Suggestions</SectionLabel>
@@ -166,23 +221,44 @@ function JoinWithLinkPanel() {
   );
 }
 
-function SquadsTab({ go, squads }: { go: (s: string) => void; squads: ApiSquad[] }) {
+function SquadRowSkeleton() {
+  return (
+    <div style={{ background: T.surface, borderRadius: 18, border: `1px solid ${T.border}`, padding: 16, display: "flex", alignItems: "center", gap: 14 }}>
+      <SkeletonBlock width={52} height={52} borderRadius={18} />
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
+        <SkeletonBlock width="60%" height={15} borderRadius={6} />
+        <SkeletonBlock width="35%" height={12} borderRadius={6} />
+      </div>
+    </div>
+  );
+}
+
+function SquadsTab({ go, squads, squadsLoading }: { go: (s: string) => void; squads: ApiSquad[]; squadsLoading: boolean }) {
   return (
     <div style={{ flex: 1, overflowY: "auto" }}>
+      <style>{skeletonKeyframes}</style>
       <div style={{ padding: "20px 20px 24px" }}>
         <div style={{ fontFamily: "'Georgia', serif", fontSize: 24, fontWeight: 700, color: T.white, marginBottom: 4 }}>Your SquadZ</div>
-        <div style={{ fontSize: 13, color: T.textSub, marginBottom: 20, fontFamily: font }}>{squads.length} active group{squads.length !== 1 ? "s" : ""}</div>
+        <div style={{ fontSize: 13, color: T.textSub, marginBottom: 20, fontFamily: font }}>{squadsLoading ? "Loading…" : `${squads.length} active group${squads.length !== 1 ? "s" : ""}`}</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {squads.map(s => (
-            <div key={s.id} onClick={() => go("squad")} style={{ background: T.surface, borderRadius: 18, border: `1px solid ${T.border}`, padding: 16, cursor: "pointer", display: "flex", alignItems: "center", gap: 14 }}>
-              <div style={{ width: 52, height: 52, borderRadius: 18, background: s.color + "22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, border: `1px solid ${s.color}40` }}>{s.emoji}</div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontFamily: font, fontWeight: 700, fontSize: 15, color: T.text }}>{s.name}</div>
-                <div style={{ fontSize: 12, color: T.textSub, marginTop: 2 }}>{s.memberIds.length} members</div>
+          {squadsLoading ? (
+            <>
+              <SquadRowSkeleton />
+              <SquadRowSkeleton />
+              <SquadRowSkeleton />
+            </>
+          ) : (
+            squads.map(s => (
+              <div key={s.id} onClick={() => go("squad")} style={{ background: T.surface, borderRadius: 18, border: `1px solid ${T.border}`, padding: 16, cursor: "pointer", display: "flex", alignItems: "center", gap: 14 }}>
+                <div style={{ width: 52, height: 52, borderRadius: 18, background: s.color + "22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, border: `1px solid ${s.color}40` }}>{s.emoji}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontFamily: font, fontWeight: 700, fontSize: 15, color: T.text }}>{s.name}</div>
+                  <div style={{ fontSize: 12, color: T.textSub, marginTop: 2 }}>{s.memberIds.length} members</div>
+                </div>
+                <span style={{ color: T.textDim, fontSize: 20 }}>›</span>
               </div>
-              <span style={{ color: T.textDim, fontSize: 20 }}>›</span>
-            </div>
-          ))}
+            ))
+          )}
           <Btn variant="ghost" onPress={() => go("create-squad")}>+ Create New Squad</Btn>
           <JoinWithLinkPanel />
         </div>
@@ -800,8 +876,8 @@ export default function Home() {
   const [, setLocation] = useLocation();
   const { firstName, displayName } = useCurrentUser();
   const [checkoutSuccess, setCheckoutSuccess] = useState(false);
-  const { events } = useEvents();
-  const { squads } = useSquads();
+  const { events, loading: eventsLoading } = useEvents();
+  const { squads, loading: squadsLoading } = useSquads();
 
   React.useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -824,8 +900,8 @@ export default function Home() {
   };
 
   const tabContent: Record<string, React.ReactElement> = {
-    home: <HomeTab go={go} onBellPress={() => setTab("activity")} firstName={firstName} squads={squads} events={events} />,
-    squads: <SquadsTab go={go} squads={squads} />,
+    home: <HomeTab go={go} onBellPress={() => setTab("activity")} firstName={firstName} squads={squads} events={events} eventsLoading={eventsLoading} squadsLoading={squadsLoading} />,
+    squads: <SquadsTab go={go} squads={squads} squadsLoading={squadsLoading} />,
     messages: <MessagesTab go={go} />,
     discover: <DiscoverTab go={go} />,
     vault: <PhotoVaultTab onUpgrade={() => setTab("profile")} />,
