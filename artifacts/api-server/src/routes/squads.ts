@@ -23,23 +23,6 @@ const UpdateSquadBody = z.object({
   color: z.string().optional(),
 });
 
-const SEED_SQUADS = [
-  { id: "s1", name: "The Usual Suspects", emoji: "🔥", color: "#FF5C3A", memberIds: ["me", "u1", "u2", "u3", "u4", "u5"] },
-  { id: "s2", name: "College Squad", emoji: "🎓", color: "#4A9EFF", memberIds: ["me", "u2", "u3"] },
-  { id: "s3", name: "Work Crew", emoji: "💼", color: "#2ECC8A", memberIds: ["me", "u1", "u4"] },
-];
-
-let seeded = false;
-
-async function seedIfEmpty() {
-  if (seeded) return;
-  const existing = await db.select().from(squadsTable).limit(1);
-  if (existing.length === 0) {
-    await db.insert(squadsTable).values(SEED_SQUADS).onConflictDoNothing();
-  }
-  seeded = true;
-}
-
 router.get("/squads", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const userId = (req.user as { id: string }).id;
   const squads = await db
