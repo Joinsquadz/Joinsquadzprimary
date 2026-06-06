@@ -439,6 +439,7 @@ function ProfileTab({ go, setTab, displayName, checkoutSuccess }: { go: (s: stri
   const [upgradeLoading, setUpgradeLoading] = useState(false);
   const [upgradeError, setUpgradeError] = useState<string | null>(null);
   const [showSuccessBanner, setShowSuccessBanner] = useState(!!checkoutSuccess);
+  const [showProFeatures, setShowProFeatures] = useState(false);
   const stats = [{ n: "24", l: "Events" }, { n: "4", l: "SquadZ" }, { n: "🔥12", l: "Streak" }];
 
   // Check subscription status on mount.
@@ -536,6 +537,44 @@ function ProfileTab({ go, setTab, displayName, checkoutSuccess }: { go: (s: stri
                 <span style={{ fontSize: 18 }}>✅</span>
                 <div style={{ flex: 1, fontFamily: font, fontSize: 14, color: T.gold, fontWeight: 700 }}>Squadz Pro — Active</div>
               </div>
+              <div
+                onClick={() => setShowProFeatures(v => !v)}
+                style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", borderTop: `1px solid ${T.border}`, cursor: "pointer" }}
+                onMouseEnter={e => (e.currentTarget.style.background = T.surfaceHigh)}
+                onMouseLeave={e => (e.currentTarget.style.background = "")}
+              >
+                <span style={{ fontSize: 18 }}>🎁</span>
+                <div style={{ flex: 1, fontFamily: font, fontSize: 14, color: T.text }}>What's included in Pro</div>
+                <span style={{ color: T.textDim, fontSize: 14, transition: "transform 0.2s", display: "inline-block", transform: showProFeatures ? "rotate(90deg)" : "none" }}>›</span>
+              </div>
+              {showProFeatures && (
+                <div style={{ padding: "12px 16px 14px", borderTop: `1px solid ${T.border}`, background: T.surfaceHigh + "80" }}>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {PRO_FEATURES.map(f => (
+                      <button
+                        key={f.key}
+                        onClick={() => {
+                          if (f.key === "events") { go("create-event"); }
+                          else if (f.key === "vault") { setTab?.("squads"); }
+                          setShowProFeatures(false);
+                        }}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 5,
+                          background: T.gold + "15", border: `1px solid ${T.gold}40`,
+                          borderRadius: 20, padding: "5px 11px",
+                          cursor: "pointer", fontFamily: font, fontSize: 12, fontWeight: 700,
+                          color: T.gold, transition: "background 0.15s",
+                        }}
+                        onMouseEnter={e => (e.currentTarget.style.background = T.gold + "28")}
+                        onMouseLeave={e => (e.currentTarget.style.background = T.gold + "15")}
+                      >
+                        <span>{f.icon}</span>
+                        <span>{f.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div onClick={handlePortal} style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", borderTop: `1px solid ${T.border}`, cursor: "pointer" }}>
                 <span style={{ fontSize: 18 }}>⚙️</span>
                 <div style={{ flex: 1, fontFamily: font, fontSize: 14, color: T.text }}>Manage Subscription</div>

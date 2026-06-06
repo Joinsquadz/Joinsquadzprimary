@@ -184,6 +184,20 @@ export default function ProfileScreen() {
           onPress: () => Alert.alert("Squadz Pro", "You're on Pro! Manage your subscription below."),
         },
         {
+          icon: "gift-outline",
+          label: "What's included in Pro",
+          onPress: () =>
+            Alert.alert(
+              "What's included in Pro",
+              "🗓️  Unlimited Events — Create as many events as you like\n\n📷  Photo Vault — Store & share squad photos",
+              [
+                { text: "View Events", onPress: () => router.push("/(tabs)/events" as never) },
+                { text: "View Photo Vault", onPress: () => router.push("/(tabs)/squads" as never) },
+                { text: "Done", style: "cancel" },
+              ]
+            ),
+        },
+        {
           icon: "settings-outline",
           label: "Manage Subscription",
           onPress: handlePortal,
