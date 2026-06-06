@@ -45,13 +45,13 @@ export default function CreateSquadScreen() {
     setName((prev) => (prev.trim() ? prev : cat.name));
   };
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     if (!name.trim()) {
       Alert.alert("Missing info", "Give your squad a name.");
       return;
     }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    const id = addSquad({ name: name.trim(), emoji, color });
+    const id = await addSquad({ name: name.trim(), emoji, color });
     router.replace(`/squad/${id}` as never);
   };
 

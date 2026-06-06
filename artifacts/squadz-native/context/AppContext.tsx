@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 import Constants from "expo-constants";
@@ -88,7 +88,7 @@ type AppContextType = {
   events: Event[];
   getEvent: (id: string) => Event | undefined;
   setRsvp: (eventId: string, status: RsvpStatus) => void;
-  addEvent: (input: NewEventInput) => string;
+  addEvent: (input: NewEventInput) => Promise<string>;
   updateEvent: (
     eventId: string,
     patch: Partial<Pick<Event, "title" | "description" | "date" | "location" | "emoji" | "budget">>,
@@ -104,7 +104,7 @@ type AppContextType = {
 
   squads: Squad[];
   getSquad: (id: string) => Squad | undefined;
-  addSquad: (input: { name: string; emoji: string; color: string }) => string;
+  addSquad: (input: { name: string; emoji: string; color: string }) => Promise<string>;
   updateSquad: (id: string, patch: Partial<Pick<Squad, "name" | "emoji" | "color">>) => void;
   leaveSquad: (id: string) => void;
 
@@ -115,6 +115,7 @@ type AppContextType = {
 };
 
 const noop = () => {};
+const asyncNoop = async () => "";
 
 const MY_FRIEND_CODE = "SQ-JP42";
 const INITIAL_FRIENDS = ["u1", "u3"];
@@ -130,7 +131,7 @@ const AppContext = createContext<AppContextType>({
   events: EVENTS,
   getEvent: () => undefined,
   setRsvp: noop,
-  addEvent: () => "",
+  addEvent: asyncNoop,
   updateEvent: noop,
   cancelEvent: noop,
   toggleTask: noop,
@@ -142,7 +143,7 @@ const AppContext = createContext<AppContextType>({
   sendMessage: noop,
   squads: SQUADS,
   getSquad: () => undefined,
-  addSquad: () => "",
+  addSquad: asyncNoop,
   updateSquad: noop,
   leaveSquad: noop,
   friends: INITIAL_FRIENDS,
@@ -151,14 +152,36 @@ const AppContext = createContext<AppContextType>({
   removeFriend: noop,
 });
 
-let idCounter = 1000;
-const nextId = (prefix: string) => `${prefix}${++idCounter}`;
+function dbEventToEvent(e: Record<string, unknown>): Event {
+  return {
+    id: e.id as string,
+    emoji: e.emoji as string,
+    title: e.title as string,
+    date: e.date as string,
+    location: e.location as string,
+    squadId: e.squadId as string,
+    squadName: e.squadName as string,
+    hostId: e.hostId as string,
+    description: e.description as string,
+    inviteCode: e.inviteCode as string,
+    cancelled: (e.cancelled as boolean) ?? false,
+    budget: e.budget ? Number(e.budget) : undefined,
+    rsvps: (e.rsvps as Record<string, RsvpStatus>) ?? {},
+    tasks: (e.tasks as Event["tasks"]) ?? [],
+    costs: (e.costs as Event["costs"]) ?? [],
+    polls: (e.polls as Event["polls"]) ?? [],
+    messages: (e.messages as Event["messages"]) ?? [],
+  };
+}
 
-function randomCode(): string {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let out = "";
-  for (let i = 0; i < 4; i++) out += chars[Math.floor(Math.random() * chars.length)];
-  return `SQ-${out}`;
+function dbSquadToSquad(s: Record<string, unknown>): Squad {
+  return {
+    id: s.id as string,
+    name: s.name as string,
+    emoji: s.emoji as string,
+    color: s.color as string,
+    memberIds: (s.memberIds as string[]) ?? [],
+  };
 }
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
@@ -173,6 +196,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     SQUADS.map((s) => ({ ...s, memberIds: [...s.memberIds] })),
   );
   const [friends, setFriends] = useState<string[]>(INITIAL_FRIENDS);
+  const currentUserIdRef = useRef<string>(ME.id);
 
   const addFriend = useCallback((userId: string) => {
     setFriends((prev) => Array.from(new Set([...prev, userId])));
@@ -182,6 +206,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setFriends((prev) => prev.filter((id) => id !== userId));
   }, []);
 
+  const apiFetch = useCallback(
+    async (path: string, options?: RequestInit) => {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        ...(options?.headers as Record<string, string>),
+      };
+      if (authToken) headers.Authorization = `Bearer ${authToken}`;
+      return fetch(`${API_BASE}${path}`, { ...options, headers });
+    },
+    [authToken],
+  );
+
   const fetchApiUser = useCallback(async (token: string) => {
     try {
       const res = await fetch(`${API_BASE}/api/auth/user`, {
@@ -189,11 +225,41 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
       if (!res.ok) return;
       const { user } = await res.json() as { user: ApiUser | null };
-      if (user) setApiUser(user);
+      if (user) {
+        setApiUser(user);
+        currentUserIdRef.current = user.id;
+      }
     } catch {
       // Network unavailable — fall back to mock identity
     }
   }, []);
+
+  const fetchEvents = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/events`);
+      if (!res.ok) return;
+      const data = await res.json() as Record<string, unknown>[];
+      setEvents(data.map(dbEventToEvent));
+    } catch {
+      // Network unavailable — keep mock data
+    }
+  }, []);
+
+  const fetchSquads = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/squads`);
+      if (!res.ok) return;
+      const data = await res.json() as Record<string, unknown>[];
+      setSquads(data.map(dbSquadToSquad));
+    } catch {
+      // Network unavailable — keep mock data
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchEvents();
+    void fetchSquads();
+  }, [fetchEvents, fetchSquads]);
 
   useEffect(() => {
     AsyncStorage.getItem(AUTH_TOKEN_KEY).then(token => {
@@ -219,10 +285,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setAuthToken(null);
     setApiUser(null);
     setIsLoggedIn(false);
+    currentUserIdRef.current = ME.id;
   }, []);
 
-  const patchEvent = useCallback((eventId: string, fn: (e: Event) => Event) => {
-    setEvents((prev) => prev.map((e) => (e.id === eventId ? fn(e) : e)));
+  const applyEventUpdate = useCallback((updated: Record<string, unknown>) => {
+    setEvents((prev) =>
+      prev.map((e) => (e.id === updated.id ? dbEventToEvent(updated) : e)),
+    );
   }, []);
 
   const getEvent = useCallback(
@@ -232,151 +301,273 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const setRsvp = useCallback(
     (eventId: string, status: RsvpStatus) => {
-      const uid = apiUser?.id ?? ME.id;
-      patchEvent(eventId, (e) => ({
-        ...e,
-        rsvps: { ...e.rsvps, [uid]: status },
-      }));
+      const userId = apiUser?.id ?? currentUserIdRef.current;
+      // Optimistic update
+      setEvents((prev) =>
+        prev.map((e) =>
+          e.id === eventId ? { ...e, rsvps: { ...e.rsvps, [userId]: status } } : e,
+        ),
+      );
+      void apiFetch(`/api/events/${eventId}/rsvp`, {
+        method: "POST",
+        body: JSON.stringify({ userId, status }),
+      })
+        .then((res) => res.ok ? res.json() as Promise<Record<string, unknown>> : Promise.reject())
+        .then(applyEventUpdate)
+        .catch(() => {});
     },
-    [patchEvent, apiUser],
+    [apiFetch, applyEventUpdate, apiUser],
   );
 
-  const addEvent = useCallback((input: NewEventInput) => {
-    const uid = apiUser?.id ?? ME.id;
-    const id = nextId("e");
+  const addEvent = useCallback(async (input: NewEventInput): Promise<string> => {
     const squad = squads.find((s) => s.id === input.squadId);
-    const newEvent: Event = {
-      id,
+    const hostId = apiUser?.id ?? currentUserIdRef.current;
+    const body = {
       emoji: input.emoji,
       title: input.title,
       date: input.date || "Date TBD",
       location: input.location || "Location TBD",
       squadId: squad?.id ?? "",
       squadName: squad?.name ?? "Personal",
-      hostId: uid,
-      rsvps: { [uid]: "going" },
+      hostId,
       description: input.description ?? "",
-      inviteCode: randomCode(),
-      tasks: [],
-      costs: [],
-      polls: [],
-      messages: [],
     };
-    setEvents((prev) => [newEvent, ...prev]);
-    return id;
-  }, [squads, apiUser]);
+    try {
+      const res = await apiFetch("/api/events", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new Error("Failed to create event");
+      const event = await res.json() as Record<string, unknown>;
+      const mapped = dbEventToEvent(event);
+      // Add initial RSVP for the host
+      setEvents((prev) => [{ ...mapped, rsvps: { ...mapped.rsvps, [hostId]: "going" } }, ...prev]);
+      return mapped.id;
+    } catch {
+      // Fallback: local only
+      const id = `e${Date.now()}`;
+      const newEvent: Event = {
+        id,
+        emoji: input.emoji,
+        title: input.title,
+        date: input.date || "Date TBD",
+        location: input.location || "Location TBD",
+        squadId: squad?.id ?? "",
+        squadName: squad?.name ?? "Personal",
+        hostId,
+        rsvps: { [hostId]: "going" },
+        description: input.description ?? "",
+        inviteCode: `SQ-${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
+        tasks: [],
+        costs: [],
+        polls: [],
+        messages: [],
+      };
+      setEvents((prev) => [newEvent, ...prev]);
+      return id;
+    }
+  }, [squads, apiFetch, apiUser]);
 
   const updateEvent = useCallback(
     (eventId: string, patch: Partial<Pick<Event, "title" | "description" | "date" | "location" | "emoji" | "budget">>) => {
-      patchEvent(eventId, (e) => ({ ...e, ...patch }));
+      // Optimistic update
+      setEvents((prev) => prev.map((e) => (e.id === eventId ? { ...e, ...patch } : e)));
+      void apiFetch(`/api/events/${eventId}`, { method: "PATCH", body: JSON.stringify(patch) })
+        .then((res) => res.ok ? res.json() as Promise<Record<string, unknown>> : Promise.reject())
+        .then(applyEventUpdate)
+        .catch(() => {});
     },
-    [patchEvent],
+    [apiFetch, applyEventUpdate],
   );
 
   const cancelEvent = useCallback((eventId: string) => {
+    // Optimistic removal
     setEvents((prev) => prev.filter((e) => e.id !== eventId));
-  }, []);
+    void apiFetch(`/api/events/${eventId}`, { method: "DELETE" }).catch(() => {});
+  }, [apiFetch]);
 
   const toggleTask = useCallback(
     (eventId: string, taskId: string) => {
-      patchEvent(eventId, (e) => ({
-        ...e,
-        tasks: e.tasks.map((t) => (t.id === taskId ? { ...t, done: !t.done } : t)),
-      }));
+      const event = events.find((e) => e.id === eventId);
+      const task = event?.tasks.find((t) => t.id === taskId);
+      if (!task) return;
+      // Optimistic update
+      setEvents((prev) =>
+        prev.map((e) =>
+          e.id === eventId
+            ? { ...e, tasks: e.tasks.map((t) => (t.id === taskId ? { ...t, done: !t.done } : t)) }
+            : e,
+        ),
+      );
+      void apiFetch(`/api/events/${eventId}/tasks/${taskId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ done: !task.done }),
+      })
+        .then((res) => res.ok ? res.json() as Promise<Record<string, unknown>> : Promise.reject())
+        .then(applyEventUpdate)
+        .catch(() => {});
     },
-    [patchEvent],
+    [events, apiFetch, applyEventUpdate],
   );
 
   const claimTask = useCallback(
     (eventId: string, taskId: string) => {
-      const uid = apiUser?.id ?? ME.id;
-      patchEvent(eventId, (e) => ({
-        ...e,
-        tasks: e.tasks.map((t) => (t.id === taskId ? { ...t, assigneeId: uid } : t)),
-      }));
+      const userId = apiUser?.id ?? currentUserIdRef.current;
+      // Optimistic update
+      setEvents((prev) =>
+        prev.map((e) =>
+          e.id === eventId
+            ? { ...e, tasks: e.tasks.map((t) => (t.id === taskId ? { ...t, assigneeId: userId } : t)) }
+            : e,
+        ),
+      );
+      void apiFetch(`/api/events/${eventId}/tasks/${taskId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ assigneeId: userId }),
+      })
+        .then((res) => res.ok ? res.json() as Promise<Record<string, unknown>> : Promise.reject())
+        .then(applyEventUpdate)
+        .catch(() => {});
     },
-    [patchEvent, apiUser],
+    [apiFetch, applyEventUpdate, apiUser],
   );
 
   const addTask = useCallback(
     (eventId: string, title: string) => {
-      patchEvent(eventId, (e) => ({
-        ...e,
-        tasks: [...e.tasks, { id: nextId("t"), title, assigneeId: null, done: false }],
-      }));
+      // Optimistic update
+      const tempId = `t${Date.now()}`;
+      setEvents((prev) =>
+        prev.map((e) =>
+          e.id === eventId
+            ? { ...e, tasks: [...e.tasks, { id: tempId, title, assigneeId: null, done: false }] }
+            : e,
+        ),
+      );
+      void apiFetch(`/api/events/${eventId}/tasks`, {
+        method: "POST",
+        body: JSON.stringify({ title }),
+      })
+        .then((res) => res.ok ? res.json() as Promise<Record<string, unknown>> : Promise.reject())
+        .then(applyEventUpdate)
+        .catch(() => {});
     },
-    [patchEvent],
+    [apiFetch, applyEventUpdate],
   );
 
   const addCost = useCallback(
     (eventId: string, input: { description: string; amount: number; shares: CostShare[] }) => {
       const hasInvalid = input.shares.some((s) => s.amount < 0);
       const assigned = input.shares.reduce((sum, s) => sum + s.amount, 0);
-      if (input.amount <= 0 || hasInvalid || Math.abs(input.amount - assigned) >= 0.01) {
-        return;
-      }
+      if (input.amount <= 0 || hasInvalid || Math.abs(input.amount - assigned) >= 0.01) return;
+      const userId = apiUser?.id ?? currentUserIdRef.current;
       const cost: Cost = {
-        id: nextId("c"),
+        id: `c${Date.now()}`,
         description: input.description,
         amount: input.amount,
-        paidById: apiUser?.id ?? ME.id,
+        paidById: userId,
         shares: input.shares,
       };
-      patchEvent(eventId, (e) => ({ ...e, costs: [...e.costs, cost] }));
+      // Optimistic update
+      setEvents((prev) =>
+        prev.map((e) => (e.id === eventId ? { ...e, costs: [...e.costs, cost] } : e)),
+      );
+      void apiFetch(`/api/events/${eventId}/costs`, {
+        method: "POST",
+        body: JSON.stringify({ ...input, paidById: userId }),
+      })
+        .then((res) => res.ok ? res.json() as Promise<Record<string, unknown>> : Promise.reject())
+        .then(applyEventUpdate)
+        .catch(() => {});
     },
-    [patchEvent, apiUser],
+    [apiFetch, applyEventUpdate, apiUser],
   );
 
   const addPoll = useCallback(
     (eventId: string, question: string, options: string[]) => {
-      patchEvent(eventId, (e) => ({
-        ...e,
-        polls: [
-          ...e.polls,
-          {
-            id: nextId("p"),
-            question,
-            options: options.map((label) => ({ id: nextId("po"), label, voterIds: [] })),
-          },
-        ],
-      }));
+      // Optimistic update
+      setEvents((prev) =>
+        prev.map((e) =>
+          e.id === eventId
+            ? {
+                ...e,
+                polls: [
+                  ...e.polls,
+                  {
+                    id: `p${Date.now()}`,
+                    question,
+                    options: options.map((label, i) => ({ id: `po${Date.now()}${i}`, label, voterIds: [] })),
+                  },
+                ],
+              }
+            : e,
+        ),
+      );
+      void apiFetch(`/api/events/${eventId}/polls`, {
+        method: "POST",
+        body: JSON.stringify({ question, options }),
+      })
+        .then((res) => res.ok ? res.json() as Promise<Record<string, unknown>> : Promise.reject())
+        .then(applyEventUpdate)
+        .catch(() => {});
     },
-    [patchEvent],
+    [apiFetch, applyEventUpdate],
   );
 
   const votePoll = useCallback(
     (eventId: string, pollId: string, optionId: string) => {
-      const uid = apiUser?.id ?? ME.id;
-      patchEvent(eventId, (e) => ({
-        ...e,
-        polls: e.polls.map((poll) =>
-          poll.id !== pollId
-            ? poll
+      const userId = apiUser?.id ?? currentUserIdRef.current;
+      // Optimistic update
+      setEvents((prev) =>
+        prev.map((e) =>
+          e.id !== eventId
+            ? e
             : {
-                ...poll,
-                options: poll.options.map((o) => ({
-                  ...o,
-                  voterIds:
-                    o.id === optionId
-                      ? Array.from(new Set([...o.voterIds, uid]))
-                      : o.voterIds.filter((v) => v !== uid),
-                })),
+                ...e,
+                polls: e.polls.map((poll) =>
+                  poll.id !== pollId
+                    ? poll
+                    : {
+                        ...poll,
+                        options: poll.options.map((o) => ({
+                          ...o,
+                          voterIds:
+                            o.id === optionId
+                              ? Array.from(new Set([...o.voterIds, userId]))
+                              : o.voterIds.filter((v) => v !== userId),
+                        })),
+                      },
+                ),
               },
         ),
-      }));
+      );
+      void apiFetch(`/api/events/${eventId}/polls/${pollId}/vote`, {
+        method: "POST",
+        body: JSON.stringify({ userId, optionId }),
+      })
+        .then((res) => res.ok ? res.json() as Promise<Record<string, unknown>> : Promise.reject())
+        .then(applyEventUpdate)
+        .catch(() => {});
     },
-    [patchEvent, apiUser],
+    [apiFetch, applyEventUpdate, apiUser],
   );
 
   const sendMessage = useCallback(
     (eventId: string, text: string) => {
-      const uid = apiUser?.id ?? ME.id;
-      patchEvent(eventId, (e) => ({
-        ...e,
-        messages: [...e.messages, { id: nextId("m"), senderId: uid, text, time: "Just now" }],
-      }));
+      const senderId = apiUser?.id ?? currentUserIdRef.current;
+      // Optimistic update
+      setEvents((prev) =>
+        prev.map((e) =>
+          e.id === eventId
+            ? { ...e, messages: [...e.messages, { id: `m${Date.now()}`, senderId, text, time: "Just now" }] }
+            : e,
+        ),
+      );
+      void apiFetch(`/api/events/${eventId}/messages`, {
+        method: "POST",
+        body: JSON.stringify({ senderId, text }),
+      })
+        .then((res) => res.ok ? res.json() as Promise<Record<string, unknown>> : Promise.reject())
+        .then(applyEventUpdate)
+        .catch(() => {});
     },
-    [patchEvent, apiUser],
+    [apiFetch, applyEventUpdate, apiUser],
   );
 
   const getSquad = useCallback(
@@ -384,30 +575,44 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [squads],
   );
 
-  const addSquad = useCallback((input: { name: string; emoji: string; color: string }) => {
-    const uid = apiUser?.id ?? ME.id;
-    const id = nextId("s");
-    const newSquad: Squad = {
-      id,
-      name: input.name,
-      emoji: input.emoji,
-      color: input.color,
-      memberIds: [uid],
-    };
-    setSquads((prev) => [...prev, newSquad]);
-    return id;
-  }, [apiUser]);
+  const addSquad = useCallback(async (input: { name: string; emoji: string; color: string }): Promise<string> => {
+    const userId = apiUser?.id ?? currentUserIdRef.current;
+    try {
+      const res = await apiFetch("/api/squads", {
+        method: "POST",
+        body: JSON.stringify({ ...input, memberIds: [userId] }),
+      });
+      if (!res.ok) throw new Error("Failed to create squad");
+      const squad = await res.json() as Record<string, unknown>;
+      const mapped = dbSquadToSquad(squad);
+      setSquads((prev) => [...prev, mapped]);
+      return mapped.id;
+    } catch {
+      const id = `s${Date.now()}`;
+      const newSquad: Squad = { id, name: input.name, emoji: input.emoji, color: input.color, memberIds: [userId] };
+      setSquads((prev) => [...prev, newSquad]);
+      return id;
+    }
+  }, [apiFetch, apiUser]);
 
   const updateSquad = useCallback(
     (sid: string, patch: Partial<Pick<Squad, "name" | "emoji" | "color">>) => {
+      // Optimistic update
       setSquads((prev) => prev.map((s) => (s.id === sid ? { ...s, ...patch } : s)));
+      void apiFetch(`/api/squads/${sid}`, { method: "PATCH", body: JSON.stringify(patch) })
+        .then((res) => res.ok ? res.json() as Promise<Record<string, unknown>> : Promise.reject())
+        .then((updated) => {
+          setSquads((prev) => prev.map((s) => (s.id === sid ? dbSquadToSquad(updated) : s)));
+        })
+        .catch(() => {});
     },
-    [],
+    [apiFetch],
   );
 
   const leaveSquad = useCallback((sid: string) => {
     setSquads((prev) => prev.filter((s) => s.id !== sid));
-  }, []);
+    void apiFetch(`/api/squads/${sid}`, { method: "DELETE" }).catch(() => {});
+  }, [apiFetch]);
 
   const currentUser = apiUser
     ? {

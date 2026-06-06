@@ -90,7 +90,7 @@ export default function CreateEventScreen() {
     setPickerDate(new Date());
   };
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     if (!title.trim()) {
       Alert.alert("Missing info", "Please add an event title.");
       return;
@@ -100,7 +100,7 @@ export default function CreateEventScreen() {
       return;
     }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    const id = addEvent({
+    const id = await addEvent({
       title: title.trim(), emoji: selectedEmoji,
       date: date.trim(), location: location.trim(),
       description: description.trim(), squadId: selectedSquad,

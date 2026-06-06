@@ -11,8 +11,24 @@ export default function CreateSquad() {
   const [emoji, setEmoji] = useState("🔥");
   const [search, setSearch] = useState("");
   const [invited, setInvited] = useState(new Set<string>());
+  const [creating, setCreating] = useState(false);
   const emojis = ["🔥", "💼", "🎓", "🏡", "✈️", "🎮", "🍕", "🎉", "💪", "🌊", "🎵", "🦄"];
   const contacts = ["Alex Chen", "Tasha Williams", "Marcus Lee", "Kira Patel", "Rico Santos", "Priya Kumar", "Sam Johnson"];
+
+  const handleCreateAndInvite = async () => {
+    if (!name.trim()) return;
+    setCreating(true);
+    try {
+      await fetch("/api/squads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ name: name.trim(), emoji, color: "#FF5C3A", memberIds: [] }),
+      });
+    } catch { /* ignore network errors */ }
+    setCreating(false);
+    setStep(1);
+  };
 
   if (step === 1) {
     const filtered = contacts.filter(c => c.toLowerCase().includes(search.toLowerCase()));
@@ -80,7 +96,7 @@ export default function CreateSquad() {
           </div>
         </div>
         <div style={{ marginTop: "auto", paddingTop: 24, display: "flex", flexDirection: "column", gap: 10 }}>
-          <Btn onPress={() => setStep(1)} style={{ opacity: name ? 1 : 0.5 }}>Create Squad & Invite Friends →</Btn>
+          <Btn onPress={handleCreateAndInvite} style={{ opacity: name && !creating ? 1 : 0.5 }}>{creating ? "Creating…" : "Create Squad & Invite Friends →"}</Btn>
           <Btn variant="ghost" onPress={() => setLocation("/home")}>I'll invite later</Btn>
         </div>
       </div>

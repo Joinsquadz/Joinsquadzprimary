@@ -81,7 +81,14 @@ export default function CreateEvent() {
       const res = await fetch("/api/events", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: name.trim() || "New Event" }),
+        credentials: "include",
+        body: JSON.stringify({
+          title: name.trim() || "New Event",
+          emoji: "🎉",
+          date: "Date TBD",
+          location: "Location TBD",
+          description: "",
+        }),
       });
       if (res.status === 403) {
         const body = await res.json() as { requiresPro?: boolean };
