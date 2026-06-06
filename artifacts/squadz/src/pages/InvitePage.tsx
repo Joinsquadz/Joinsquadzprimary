@@ -3,11 +3,13 @@ import { useLocation } from "wouter";
 import { PhoneShell } from "@/components/PhoneShell";
 import { T, font, fontMono } from "@/lib/data";
 import { inviteStore } from "@/lib/inviteStore";
+import { toast } from "@/hooks/use-toast";
 
 export default function InvitePage() {
   const [, setLocation] = useLocation();
   const [accepted, setAccepted] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [joining, setJoining] = useState(false);
 
   const invite = {
     emoji: "🔥",
@@ -22,6 +24,29 @@ export default function InvitePage() {
   const copyCode = () => {
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleAccept = async () => {
+    setJoining(true);
+    try {
+      const res = await fetch("/api/events/join", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inviteCode: invite.code }),
+      });
+      if (res.ok) {
+        setAccepted(true);
+        return;
+      }
+      const body = await res.json() as { error?: string };
+      const message = body.error ?? "Something went wrong. Please try again.";
+      toast({ title: message, variant: "destructive" });
+    } catch {
+      toast({ title: "Could not connect. Please check your connection.", variant: "destructive" });
+    } finally {
+      setJoining(false);
+    }
   };
 
   if (accepted) return (
@@ -214,23 +239,27 @@ export default function InvitePage() {
           </div>
 
           <button
-            onClick={() => setAccepted(true)}
+            onClick={handleAccept}
+            disabled={joining}
             style={{
               width: "100%",
               borderRadius: 14,
               border: "none",
-              background: `linear-gradient(135deg, ${T.accent}, #FF8050)`,
+              background: joining
+                ? T.textDim
+                : `linear-gradient(135deg, ${T.accent}, #FF8050)`,
               color: "#fff",
               fontFamily: font,
               fontWeight: 800,
               fontSize: 15,
               padding: "14px 20px",
-              cursor: "pointer",
+              cursor: joining ? "not-allowed" : "pointer",
               marginBottom: 12,
-              boxShadow: `0 8px 28px ${T.accent}45`,
+              boxShadow: joining ? "none" : `0 8px 28px ${T.accent}45`,
+              opacity: joining ? 0.7 : 1,
             }}
           >
-            Accept Invite →
+            {joining ? "Joining…" : "Accept Invite →"}
           </button>
 
           <div style={{ display: "flex", gap: 10 }}>

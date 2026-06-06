@@ -202,10 +202,21 @@ router.post("/events/join", requireAuth, async (req: Request, res: Response): Pr
     return;
   }
 
-  const rsvps = { ...(existing.rsvps as Record<string, string>), [userId]: "going" };
+  if (existing.cancelled) {
+    res.status(410).json({ error: "This event has been cancelled" });
+    return;
+  }
+
+  const rsvps = (existing.rsvps ?? {}) as Record<string, string>;
+  if (userId in rsvps) {
+    res.status(409).json({ error: "You're already going to this event" });
+    return;
+  }
+
+  const updatedRsvps = { ...rsvps, [userId]: "going" };
   const [event] = await db
     .update(eventsTable)
-    .set({ rsvps })
+    .set({ rsvps: updatedRsvps })
     .where(eq(eventsTable.id, existing.id))
     .returning();
 

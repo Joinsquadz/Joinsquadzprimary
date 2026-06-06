@@ -7,21 +7,34 @@ import {
   Platform,
   ScrollView,
   Alert,
+  ActivityIndicator,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import Constants from "expo-constants";
 import { useColors } from "@/hooks/useColors";
 import { useData } from "@/context/AppContext";
 import { getUserById, goingCount } from "@/data/mock";
 
+function resolveApiBase(): string {
+  if (process.env.EXPO_PUBLIC_API_URL) return process.env.EXPO_PUBLIC_API_URL;
+  const extra = Constants.expoConfig?.extra as Record<string, string> | undefined;
+  if (extra?.apiBase) return extra.apiBase;
+  if (Platform.OS === "web") return "";
+  const devDomain = process.env.REPLIT_DEV_DOMAIN;
+  if (devDomain) return `https://${devDomain}`;
+  return "";
+}
+
 export default function InviteScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { events } = useData();
+  const { events, authToken } = useData();
   const params = useLocalSearchParams<{ eventId?: string; code?: string }>();
   const [accepted, setAccepted] = useState(false);
+  const [joining, setJoining] = useState(false);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
@@ -46,6 +59,33 @@ export default function InviteScreen() {
     inviteEmoji: event.emoji,
     inviteHost: host.name,
     inviteEventId: event.id,
+  };
+
+  const handleAccept = async () => {
+    setJoining(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      const apiBase = resolveApiBase();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (authToken) headers.Authorization = `Bearer ${authToken}`;
+      const res = await fetch(`${apiBase}/api/events/join`, {
+        method: "POST",
+        headers,
+        credentials: "include",
+        body: JSON.stringify({ inviteCode }),
+      });
+      if (res.ok) {
+        setAccepted(true);
+        return;
+      }
+      const body = await res.json() as { error?: string };
+      const message = body.error ?? "Something went wrong. Please try again.";
+      Alert.alert("Can't Join", message);
+    } catch {
+      Alert.alert("Can't Join", "Could not connect. Please check your connection.");
+    } finally {
+      setJoining(false);
+    }
   };
 
   if (accepted) {
@@ -110,13 +150,15 @@ export default function InviteScreen() {
         </View>
 
         <TouchableOpacity
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            setAccepted(true);
-          }}
-          style={[styles.btn, { backgroundColor: colors.primary }]}
+          onPress={handleAccept}
+          disabled={joining}
+          style={[styles.btn, { backgroundColor: joining ? colors.mutedForeground : colors.primary, opacity: joining ? 0.7 : 1 }]}
         >
-          <Text style={[styles.btnText, { color: "#fff" }]}>Accept Invite →</Text>
+          {joining ? (
+            <ActivityIndicator color="#fff" size="small" />
+          ) : (
+            <Text style={[styles.btnText, { color: "#fff" }]}>Accept Invite →</Text>
+          )}
         </TouchableOpacity>
 
         <View style={styles.altRow}>
