@@ -783,9 +783,41 @@ function CheckoutSuccessBanner({ onDismiss, onFeaturePress }: { onDismiss: () =>
   );
 }
 
+function IcsLinkModal({ icsUrl, onClose }: { icsUrl: string; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const webcalUrl = icsUrl.replace(/^https?:\/\//, "webcal://");
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20 }} onClick={onClose}>
+      <div style={{ background: T.surface, borderRadius: 18, border: `1px solid ${T.border}`, padding: 24, maxWidth: 340, width: "100%", boxShadow: "0 20px 60px rgba(0,0,0,0.4)" }} onClick={e => e.stopPropagation()}>
+        <div style={{ fontFamily: font, fontWeight: 800, fontSize: 16, color: T.white, marginBottom: 6 }}>📅 Calendar Sync</div>
+        <div style={{ fontFamily: font, fontSize: 13, color: T.textSub, marginBottom: 16, lineHeight: 1.5 }}>
+          Add this link to Google Calendar (Other calendars → From URL) or Apple Calendar (File → New Calendar Subscription).
+        </div>
+        <div style={{ background: T.surfaceHigh, borderRadius: 10, border: `1px solid ${T.border}`, padding: "10px 12px", fontFamily: fontMono, fontSize: 11, color: T.textSub, wordBreak: "break-all", marginBottom: 12 }}>
+          {webcalUrl}
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            onClick={() => { void navigator.clipboard.writeText(webcalUrl).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); }); }}
+            style={{ flex: 1, background: T.accent, border: "none", borderRadius: 10, padding: "10px 0", fontFamily: font, fontWeight: 700, fontSize: 13, color: "#fff", cursor: "pointer" }}
+          >
+            {copied ? "Copied!" : "Copy Link"}
+          </button>
+          <button onClick={onClose} style={{ flex: 1, background: T.surfaceHigh, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 0", fontFamily: font, fontWeight: 700, fontSize: 13, color: T.text, cursor: "pointer" }}>
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ProfileTab({ go, setTab, displayName, checkoutSuccess }: { go: (s: string) => void; setTab?: (t: string) => void; displayName?: string | null; checkoutSuccess?: boolean }) {
   const [notifs, setNotifs] = useState(true);
-  const [calSync, setCalSync] = useState(true);
+  const [calSync, setCalSync] = useState(false);
+  const [calSyncLoading, setCalSyncLoading] = useState(false);
+  const [calToken, setCalToken] = useState<string | null>(null);
+  const [showIcsModal, setShowIcsModal] = useState(false);
   const [darkMode, setDarkMode] = useState(true);
   const [highlightCalSync, setHighlightCalSync] = useState(false);
   const [isPro, setIsPro] = useState(!!checkoutSuccess);
@@ -814,6 +846,40 @@ function ProfileTab({ go, setTab, displayName, checkoutSuccess }: { go: (s: stri
       })
       .catch(() => {});
   }, []);
+
+  // Load persisted calendar sync preference.
+  React.useEffect(() => {
+    fetch('/api/user/preferences', { credentials: 'include' })
+      .then(r => r.json())
+      .then((d: { calendarSyncEnabled?: boolean; calendarToken?: string | null }) => {
+        if (typeof d.calendarSyncEnabled === 'boolean') setCalSync(d.calendarSyncEnabled);
+        if (d.calendarToken) setCalToken(d.calendarToken);
+      })
+      .catch(() => {});
+  }, []);
+
+  async function handleCalSyncToggle() {
+    const next = !calSync;
+    setCalSyncLoading(true);
+    try {
+      const res = await fetch('/api/user/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ calendarSyncEnabled: next }),
+      });
+      const d = await res.json() as { calendarSyncEnabled?: boolean; calendarToken?: string | null };
+      if (typeof d.calendarSyncEnabled === 'boolean') setCalSync(d.calendarSyncEnabled);
+      if (d.calendarToken) {
+        setCalToken(d.calendarToken);
+        if (next) setShowIcsModal(true);
+      }
+    } catch {
+      // silently revert
+    } finally {
+      setCalSyncLoading(false);
+    }
+  }
 
   const stats = [
     { n: eventCount !== null ? String(eventCount) : "—", l: "Events" },
@@ -992,7 +1058,7 @@ function ProfileTab({ go, setTab, displayName, checkoutSuccess }: { go: (s: stri
           ]},
           { label: "Preferences", items: [
             { icon: "🔔", label: "Push Notifications", toggle: notifs, onToggle: () => setNotifs(!notifs) },
-            { icon: "📅", label: "Calendar Sync", toggle: calSync, onToggle: () => setCalSync(!calSync) },
+            { icon: "📅", label: "Calendar Sync", toggle: calSync, onToggle: () => { void handleCalSyncToggle(); }, loading: calSyncLoading },
             { icon: "🌙", label: "Dark Mode", toggle: darkMode, onToggle: () => setDarkMode(!darkMode) },
           ]},
           { label: "About", items: [
@@ -1011,13 +1077,23 @@ function ProfileTab({ go, setTab, displayName, checkoutSuccess }: { go: (s: stri
                 <div key={item.label} onClick={pressable} style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", borderTop: i > 0 ? `1px solid ${T.border}` : "none", cursor: pressable ? "pointer" : "default", background: isCalSync && highlightCalSync ? T.blue + "18" : undefined, transition: "background 0.4s ease" }}>
                   <span style={{ fontSize: 18 }}>{item.icon}</span>
                   <div style={{ flex: 1, fontFamily: font, fontSize: 14, color: T.text }}>{item.label}</div>
-                  {"toggle" in item ? <SwitchToggle on={item.toggle as boolean} toggle={item.onToggle as () => void} /> : <span style={{ color: T.textDim, fontSize: 16 }}>›</span>}
+                  {isCalSync && calSync && calToken && (
+                    <button onClick={e => { e.stopPropagation(); setShowIcsModal(true); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: T.textDim, fontFamily: font, marginRight: 4, textDecoration: "underline" }}>link</button>
+                  )}
+                  {"toggle" in item ? <SwitchToggle on={item.toggle as boolean} toggle={("loading" in item && item.loading) ? () => {} : item.onToggle as () => void} /> : <span style={{ color: T.textDim, fontSize: 16 }}>›</span>}
                 </div>
                 );
               })}
             </div>
           </div>
         ))}
+
+        {showIcsModal && calToken && (
+          <IcsLinkModal
+            icsUrl={`${window.location.origin}/api/calendar/ics/${calToken}`}
+            onClose={() => setShowIcsModal(false)}
+          />
+        )}
 
         <Btn variant="danger" onPress={() => go("/")}>Log Out</Btn>
       </div>

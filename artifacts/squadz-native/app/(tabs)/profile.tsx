@@ -14,6 +14,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import * as Calendar from "expo-calendar";
 import { useColors } from "@/hooks/useColors";
 import { useAuth, useData } from "@/context/AppContext";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -63,6 +64,61 @@ type SettingItem = {
   onPress?: () => void;
 };
 
+async function getOrCreateSquadzCalendar(): Promise<string | null> {
+  try {
+    const calendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
+    const existing = calendars.find(c => c.title === "Squadz");
+    if (existing) return existing.id;
+
+    const defaultCalendar = await Calendar.getDefaultCalendarAsync();
+    const newId = await Calendar.createCalendarAsync({
+      title: "Squadz",
+      color: "#FF5C3A",
+      entityType: Calendar.EntityTypes.EVENT,
+      sourceId: defaultCalendar.source?.id,
+      source: defaultCalendar.source,
+      name: "Squadz",
+      ownerAccount: defaultCalendar.ownerAccount ?? "personal",
+      accessLevel: Calendar.CalendarAccessLevel.OWNER,
+    });
+    return newId;
+  } catch {
+    return null;
+  }
+}
+
+async function writeEventsToCalendar(
+  events: Array<{ id: string; title: string; date: string; location: string; description: string; emoji: string }>,
+  calendarId: string,
+): Promise<void> {
+  for (const event of events) {
+    try {
+      const startDate = new Date(event.date);
+      if (isNaN(startDate.getTime())) continue;
+      const endDate = new Date(startDate.getTime() + 2 * 60 * 60 * 1000);
+
+      const existingEvents = await Calendar.getEventsAsync(
+        [calendarId],
+        new Date(startDate.getTime() - 60 * 1000),
+        new Date(endDate.getTime() + 60 * 1000),
+      );
+      const alreadyAdded = existingEvents.some(e => e.notes?.includes(`squadz:${event.id}`));
+      if (alreadyAdded) continue;
+
+      await Calendar.createEventAsync(calendarId, {
+        title: `${event.emoji} ${event.title}`,
+        startDate,
+        endDate,
+        location: event.location !== "TBD" ? event.location : undefined,
+        notes: `${event.description}\nsquadz:${event.id}`,
+        timeZone: "UTC",
+      });
+    } catch {
+      // Skip events that fail — don't block others
+    }
+  }
+}
+
 export default function ProfileScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -80,6 +136,7 @@ export default function ProfileScreen() {
   const [eventCount, setEventCount] = useState<number | null>(null);
   const [eventLimit] = useState(3);
   const [calSync, setCalSync] = useState(false);
+  const [calSyncLoading, setCalSyncLoading] = useState(false);
   const [highlightCalSync, setHighlightCalSync] = useState(false);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
@@ -132,6 +189,26 @@ export default function ProfileScreen() {
     void fetchEventCount();
   }, [authHeaders]);
 
+  // Load persisted calendar sync preference
+  useEffect(() => {
+    async function loadPreferences() {
+      try {
+        const res = await fetch(`${API_BASE}/api/user/preferences`, {
+          headers: authHeaders(),
+        });
+        if (res.ok) {
+          const data = await res.json() as { calendarSyncEnabled?: boolean };
+          if (typeof data.calendarSyncEnabled === "boolean") {
+            setCalSync(data.calendarSyncEnabled);
+          }
+        }
+      } catch {
+        // silently ignore
+      }
+    }
+    void loadPreferences();
+  }, [authHeaders]);
+
   useEffect(() => {
     if (!showSuccessBanner) return;
     Animated.timing(bannerOpacity, { toValue: 1, duration: 300, useNativeDriver: true }).start();
@@ -144,6 +221,74 @@ export default function ProfileScreen() {
     }, 5000);
     return () => clearTimeout(t);
   }, [showSuccessBanner, bannerOpacity]);
+
+  async function handleCalSyncToggle(next: boolean) {
+    setCalSyncLoading(true);
+    try {
+      if (next) {
+        // Request calendar permission
+        const { status } = await Calendar.requestCalendarPermissionsAsync();
+        if (status !== "granted") {
+          Alert.alert(
+            "Calendar Permission Required",
+            "Please allow Squadz to access your calendar in Settings to enable Calendar Sync.",
+            [
+              { text: "Cancel", style: "cancel" },
+              { text: "Open Settings", onPress: () => Linking.openSettings() },
+            ],
+          );
+          return;
+        }
+      }
+
+      // Persist preference via API
+      const res = await fetch(`${API_BASE}/api/user/preferences`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ calendarSyncEnabled: next }),
+      });
+
+      if (!res.ok) {
+        Alert.alert("Error", "Failed to update calendar sync preference.");
+        return;
+      }
+
+      setCalSync(next);
+
+      if (next) {
+        // Write existing accepted events to device calendar
+        try {
+          const calendarId = await getOrCreateSquadzCalendar();
+          if (calendarId) {
+            const eventsToSync = myEvents.map(e => ({
+              id: e.id,
+              title: e.title,
+              date: e.date,
+              location: e.location ?? "TBD",
+              description: e.description ?? "",
+              emoji: e.emoji ?? "🎉",
+            }));
+            await writeEventsToCalendar(eventsToSync, calendarId);
+            Alert.alert(
+              "Calendar Sync On",
+              "Your Squadz events have been added to your calendar. Future accepted events will sync automatically.",
+            );
+          }
+        } catch {
+          Alert.alert(
+            "Calendar Sync On",
+            "Your preference was saved, but some events couldn't be added to your calendar.",
+          );
+        }
+      } else {
+        Alert.alert("Calendar Sync Off", "Future events won't be added to your calendar.");
+      }
+    } catch {
+      Alert.alert("Error", "Something went wrong. Please try again.");
+    } finally {
+      setCalSyncLoading(false);
+    }
+  }
 
   async function handleUpgrade() {
     setUpgradeLoading(true);
@@ -246,7 +391,13 @@ export default function ProfileScreen() {
       { icon: "person-outline", label: "Edit Profile", onPress: () => Alert.alert("Edit Profile", "Profile editing isn't available in this preview yet.") },
       { icon: "people-outline", label: "Friends", value: String(friends.length), onPress: () => router.push("/friends" as never) },
       { icon: "notifications-outline", label: "Notifications", onPress: () => Alert.alert("Notifications", "You're all caught up — push notifications are on.") },
-      { icon: "calendar-outline", label: "Calendar Sync", toggle: calSync, onToggle: (v) => setCalSync(v), highlight: highlightCalSync },
+      {
+        icon: "calendar-outline",
+        label: "Calendar Sync",
+        toggle: calSync,
+        onToggle: (v) => { void handleCalSyncToggle(v); },
+        highlight: highlightCalSync,
+      },
       { icon: "lock-closed-outline", label: "Privacy", onPress: () => Alert.alert("Privacy", "Your squads and events are visible to members only.") },
     ],
     proSection,
@@ -440,12 +591,16 @@ export default function ProfileScreen() {
                   <Text style={[styles.settingValue, { color: colors.gold }]}>{item.value}</Text>
                 )}
                 {item.toggle !== undefined ? (
-                  <Switch
-                    value={item.toggle}
-                    onValueChange={(v) => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); item.onToggle?.(v); }}
-                    trackColor={{ false: colors.border, true: colors.primary + "80" }}
-                    thumbColor={item.toggle ? colors.primary : colors.mutedForeground}
-                  />
+                  calSyncLoading && item.label === "Calendar Sync" ? (
+                    <ActivityIndicator size="small" color={colors.primary} />
+                  ) : (
+                    <Switch
+                      value={item.toggle}
+                      onValueChange={(v) => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); item.onToggle?.(v); }}
+                      trackColor={{ false: colors.border, true: colors.primary + "80" }}
+                      thumbColor={item.toggle ? colors.primary : colors.mutedForeground}
+                    />
+                  )
                 ) : !item.color ? (
                   <Ionicons name="chevron-forward" size={16} color={colors.textDim} />
                 ) : null}

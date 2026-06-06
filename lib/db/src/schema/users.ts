@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, varchar, jsonb, index } from "drizzle-orm/pg-core";
+import { pgTable, text, boolean, timestamp, varchar, jsonb, index } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -21,6 +21,8 @@ export const usersTable = pgTable("users", {
   profileImageUrl: text("profile_image_url"),
   stripeCustomerId: text("stripe_customer_id"),
   stripeSubscriptionId: text("stripe_subscription_id"),
+  calendarSyncEnabled: boolean("calendar_sync_enabled").notNull().default(false),
+  calendarToken: text("calendar_token"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().$onUpdate(() => new Date()),
 });
