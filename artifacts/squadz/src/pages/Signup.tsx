@@ -160,8 +160,7 @@ export default function Signup() {
               <div style={{ flex: 1, height: 1, background: T.border }} />
             </div>
 
-            <SocialBtn icon="✉️" label="Continue with Email" onPress={() => setScreen("email")} />
-            <SocialBtn icon="📱" label="Continue with Phone" onPress={() => setScreen("phone")} />
+            <SocialBtn icon="✉️" label="Sign up with email and phone number" onPress={() => setScreen("email")} />
           </div>
 
           {/* Feature preview */}
