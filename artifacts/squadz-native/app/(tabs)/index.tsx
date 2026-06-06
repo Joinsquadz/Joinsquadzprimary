@@ -16,7 +16,7 @@ import { useColors } from "@/hooks/useColors";
 import { useAuth, useData } from "@/context/AppContext";
 import { EventCard } from "@/components/EventCard";
 import { UserAvatar } from "@/components/UserAvatar";
-import { goingCount } from "@/data/mock";
+import { goingCount, getUserById } from "@/data/mock";
 
 const AI_SUGGESTIONS = [
   { emoji: "🎳", title: "Bowling night this weekend", why: "Your squad hasn't hung out in 12 days", color: "#A855F7", type: "Event" },
@@ -85,11 +85,17 @@ export default function HomeScreen() {
                 <Text style={styles.heroSub}>{upNext.location} · {upNext.date}</Text>
                 <View style={styles.heroFooter}>
                   <View style={styles.heroPeople}>
-                    {["J", "M", "K", "T", "R"].slice(0, Math.min(goingCount(upNext), 5)).map((l, i) => (
-                      <View key={i} style={[styles.heroPip, { marginLeft: i > 0 ? -8 : 0, backgroundColor: "#fff3" }]}>
-                        <Text style={styles.heroPipText}>{l}</Text>
-                      </View>
-                    ))}
+                    {Object.entries(upNext.rsvps)
+                      .filter(([, s]) => s === "going")
+                      .slice(0, 5)
+                      .map(([uid], i) => {
+                        const u = getUserById(uid);
+                        return (
+                          <View key={uid} style={[styles.heroPip, { marginLeft: i > 0 ? -8 : 0, backgroundColor: u.color }]}>
+                            <Text style={styles.heroPipText}>{u.initials[0]}</Text>
+                          </View>
+                        );
+                      })}
                   </View>
                   <Text style={styles.heroGoingText}>{goingCount(upNext)} going</Text>
                 </View>

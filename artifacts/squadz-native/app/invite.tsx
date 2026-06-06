@@ -13,18 +13,20 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
-import { EVENTS, getUserById, goingCount } from "@/data/mock";
+import { useData } from "@/context/AppContext";
+import { getUserById, goingCount } from "@/data/mock";
 
 export default function InviteScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { events } = useData();
   const params = useLocalSearchParams<{ eventId?: string; code?: string }>();
   const [accepted, setAccepted] = useState(false);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
 
-  const event = params.eventId ? EVENTS.find((e) => e.id === params.eventId) : EVENTS[0];
+  const event = params.eventId ? events.find((e) => e.id === params.eventId) : events[0];
   const inviteCode = params.code ?? event?.inviteCode ?? "BBQ-7K2M";
 
   if (!event) {

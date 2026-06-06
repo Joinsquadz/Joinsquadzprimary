@@ -31,9 +31,8 @@ export default function CreateSquadScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { addSquad } = useData();
-  const TAB_BAR_H = Platform.select({ ios: 49, android: 56, default: 49 }) ?? 49;
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
-  const botPad = insets.bottom + TAB_BAR_H;
+  const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
 
   const [name, setName] = useState("");
   const [emoji, setEmoji] = useState("🔥");
