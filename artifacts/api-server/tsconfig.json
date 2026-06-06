@@ -7,7 +7,7 @@
     "rootDir": "src",
     "types": ["node"]
   },
-  "include": ["src"],
+  "include": ["src", "vitest.config.ts"],
   "references": [
     {
       "path": "../../lib/db"
