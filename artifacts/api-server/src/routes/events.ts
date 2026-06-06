@@ -9,6 +9,7 @@ import { logger } from "../lib/logger";
 const router: IRouter = Router();
 
 const FREE_EVENT_LIMIT = 3;
+const PHOTO_VAULT_DAYS = 30;
 
 function randomCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -458,6 +459,61 @@ router.post("/events/:id/messages", async (req: Request, res: Response): Promise
   ];
   const [event] = await db.update(eventsTable).set({ messages }).where(eq(eventsTable.id, id)).returning();
   res.json(event);
+});
+
+router.get('/events/:id/photos', requireAuth, async (req, res): Promise<void> => {
+  try {
+    const userId = (req.user as { id: string }).id;
+    const eventId = parseInt(req.params['id'] as string, 10);
+
+    if (isNaN(eventId)) {
+      res.status(400).json({ error: 'Invalid event id' });
+      return;
+    }
+
+    let user = await storage.getUser(userId);
+    if (!user) {
+      user = await storage.upsertUser(userId, (req.user as { id: string; email?: string }).email ?? '');
+    }
+
+    const isPro = await (async () => {
+      if (user!.stripeSubscriptionId) {
+        const sub = await storage.getSubscription(user!.stripeSubscriptionId);
+        return sub?.status === 'active' || sub?.status === 'trialing';
+      }
+      if (user!.stripeCustomerId) {
+        const sub = await storage.getActiveSubscriptionByCustomerId(user!.stripeCustomerId);
+        return !!sub;
+      }
+      return false;
+    })();
+
+    const event = await storage.getEvent(eventId);
+    if (!event) {
+      res.status(404).json({ error: 'Event not found' });
+      return;
+    }
+    if (event.hostId !== userId) {
+      res.status(403).json({ error: 'Access denied' });
+      return;
+    }
+
+    const photos = await storage.getPhotosByEventId(eventId);
+    const cutoff = new Date(Date.now() - PHOTO_VAULT_DAYS * 24 * 60 * 60 * 1000);
+
+    const result = photos.map(photo => {
+      const isExpired = photo.uploadedAt < cutoff;
+      const locked = !isPro && isExpired;
+      return locked
+        ? { id: photo.id, eventId: photo.eventId, uploadedAt: photo.uploadedAt, locked: true }
+        : { ...photo, locked: false };
+    });
+
+    res.json({ photos: result, isPro });
+  } catch (err) {
+    logger.error({ err }, 'Error fetching event photos');
+    res.status(500).json({ error: 'Failed to fetch photos' });
+  }
 });
 
 export default router;

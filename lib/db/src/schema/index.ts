@@ -20,3 +20,4 @@
 export * from "./users";
 export * from "./events";
 export * from "./squads";
+export * from "./photos";

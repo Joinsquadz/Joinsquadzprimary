@@ -1,4 +1,4 @@
-import { usersTable, eventsTable } from '@workspace/db/schema';
+import { usersTable, eventsTable, photosTable } from '@workspace/db/schema';
 import { eq, sql, count } from 'drizzle-orm';
 import { db } from '@workspace/db';
 
@@ -111,6 +111,21 @@ export class Storage {
       .values({ hostId, title })
       .returning();
     return event;
+  }
+
+  async getEvent(eventId: number) {
+    const [event] = await db
+      .select()
+      .from(eventsTable)
+      .where(eq(eventsTable.id, eventId));
+    return event ?? null;
+  }
+
+  async getPhotosByEventId(eventId: number) {
+    return db
+      .select()
+      .from(photosTable)
+      .where(eq(photosTable.eventId, eventId));
   }
 }
 
