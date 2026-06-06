@@ -1,0 +1,1 @@
+- [Squadz design parity](squadz-design-parity.md) — web app is the visual source of truth; mobile mirrors it via SquadzIcon SVG + GradientButton, not PNG logo / flat buttons.

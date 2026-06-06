@@ -13,6 +13,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
+import { GradientButton } from "@/components/GradientButton";
 
 type Screen = "options" | "email" | "otp";
 
@@ -93,9 +94,7 @@ export default function SignupScreen() {
               />
             ))}
           </View>
-          <TouchableOpacity onPress={handleVerify} style={[styles.btn, { backgroundColor: colors.primary }]}>
-            <Text style={[styles.btnText, { color: "#fff" }]}>Verify & Continue →</Text>
-          </TouchableOpacity>
+          <GradientButton onPress={handleVerify} label="Verify & Continue →" style={styles.btnSpacing} />
         </View>
       </View>
     );
@@ -133,9 +132,7 @@ export default function SignupScreen() {
               style={[styles.input, { color: colors.foreground }]}
             />
           </View>
-          <TouchableOpacity onPress={() => setScreen("otp")} style={[styles.btn, { backgroundColor: colors.primary }]}>
-            <Text style={[styles.btnText, { color: "#fff" }]}>Create Account →</Text>
-          </TouchableOpacity>
+          <GradientButton onPress={() => setScreen("otp")} label="Create Account →" style={styles.btnSpacing} />
         </ScrollView>
       </View>
     );
@@ -256,8 +253,7 @@ const styles = StyleSheet.create({
     width: 44, height: 54, borderRadius: 13, borderWidth: 2,
     fontSize: 22, fontWeight: "700", textAlign: "center",
   },
-  btn: { borderRadius: 14, padding: 15, alignItems: "center", marginTop: 12 },
-  btnText: { fontSize: 16, fontWeight: "800" },
+  btnSpacing: { marginTop: 12 },
   inputRow: {
     flexDirection: "row", alignItems: "center", borderRadius: 13,
     borderWidth: 1.5, paddingHorizontal: 14, marginBottom: 12, height: 52, gap: 10,

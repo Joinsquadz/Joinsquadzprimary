@@ -439,9 +439,6 @@ const styles = StyleSheet.create({
 
   // CTAs
   ctaSection: { paddingHorizontal: 24, gap: 10 },
-  primaryBtn: { borderRadius: 15, padding: 15, alignItems: "center" },
-  primaryBtnShadow: { shadowColor: "#FF5C3A", shadowOpacity: 0.4, shadowRadius: 20, shadowOffset: { width: 0, height: 8 }, elevation: 8 },
-  primaryBtnText: { fontSize: 15, fontWeight: "800", color: "#fff" },
   secondaryBtn: { borderRadius: 15, borderWidth: 1.5, padding: 15, alignItems: "center" },
   secondaryBtnText: { fontSize: 15, fontWeight: "700" },
   freeNote: { textAlign: "center", fontSize: 11, marginTop: 2 },

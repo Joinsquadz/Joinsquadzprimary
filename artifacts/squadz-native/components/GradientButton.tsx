@@ -12,7 +12,13 @@ export function GradientButton({
   style?: StyleProp<ViewStyle>;
 }) {
   return (
-    <TouchableOpacity activeOpacity={0.9} onPress={onPress} style={[styles.shadow, style]}>
+    <TouchableOpacity
+      activeOpacity={0.9}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={[styles.shadow, style]}
+    >
       <LinearGradient
         colors={["#FF5C3A", "#FF8050"]}
         start={{ x: 0, y: 0 }}
