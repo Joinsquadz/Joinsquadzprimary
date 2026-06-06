@@ -50,3 +50,6 @@ SMTP_HOST = "smtp.sendgrid.net"
 SMTP_PORT = "587"
 SMTP_USER = "apikey"
 SMTP_FROM = "Squadz <javier@joinsquadz.com>"
+
+[userenv.development]
+ENABLE_EMAIL_PREVIEW_TEST = "true"
