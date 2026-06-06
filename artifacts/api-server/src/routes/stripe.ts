@@ -3,6 +3,7 @@ import { storage } from '../storage';
 import { stripeService } from '../stripeService';
 import { requireAuth } from '../middleware/currentUser';
 import { logger } from '../lib/logger';
+import { buildProWelcomeHtml } from '../emailService';
 
 const router: IRouter = Router();
 
@@ -189,6 +190,46 @@ router.post('/portal', requireAuth, async (req, res): Promise<void> => {
     logger.error({ err }, 'Error creating portal session');
     res.status(500).json({ error: 'Failed to create portal session' });
   }
+});
+
+// Dev-only: render the Pro welcome email HTML in the browser for visual testing.
+// Gated to NODE_ENV=development — returns 404 in production.
+router.get('/stripe/email-preview/pro-welcome', (req, res): void => {
+  if (process.env.NODE_ENV !== 'development') {
+    res.status(404).json({ error: 'Not found' });
+    return;
+  }
+
+  const planName = typeof req.query.planName === 'string' ? req.query.planName : 'Squadz Pro';
+  const priceRaw = typeof req.query.price === 'string' ? req.query.price : '999';
+  const renewalRaw = typeof req.query.renewalDate === 'string' ? req.query.renewalDate : '';
+
+  const priceAmount = Math.round(parseFloat(priceRaw) * 100);
+  const renewalDate = renewalRaw ? new Date(renewalRaw) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+  if (isNaN(priceAmount) || priceAmount < 0) {
+    res.status(400).json({ error: 'Invalid price — provide a positive number (e.g. price=9.99)' });
+    return;
+  }
+
+  if (renewalRaw && isNaN(renewalDate.getTime())) {
+    res.status(400).json({ error: 'Invalid renewalDate — use ISO 8601 format (e.g. renewalDate=2026-07-06)' });
+    return;
+  }
+
+  const baseUrl = `https://${process.env.REPLIT_DOMAINS?.split(',')[0] ?? 'localhost'}`;
+
+  const html = buildProWelcomeHtml({
+    toEmail: 'preview@example.com',
+    planName,
+    priceAmount,
+    priceCurrency: 'usd',
+    renewalDate,
+    manageUrl: `${baseUrl}/home`,
+  });
+
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(html);
 });
 
 export default router;

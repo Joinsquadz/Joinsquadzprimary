@@ -3,7 +3,7 @@ import { logger } from './lib/logger';
 import { db } from '@workspace/db';
 import { sql } from 'drizzle-orm';
 
-interface ProWelcomeEmailData {
+export interface ProWelcomeEmailData {
   toEmail: string;
   planName: string;
   priceAmount: number;
@@ -25,6 +25,10 @@ function formatDate(date: Date): string {
     month: 'long',
     day: 'numeric',
   }).format(date);
+}
+
+export function buildProWelcomeHtml(data: ProWelcomeEmailData): string {
+  return buildHtml(data);
 }
 
 function buildHtml(data: ProWelcomeEmailData): string {
