@@ -190,7 +190,7 @@ async function seedIfEmpty() {
 router.get("/events/count", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = (req.user as { id: string }).id;
-    const total = await storage.countUserEvents(userId);
+    const total = await storage.countUserEventsThisYear(userId);
     res.json({ count: total, limit: FREE_EVENT_LIMIT });
   } catch (err) {
     logger.error({ err }, "Error fetching event count");
@@ -233,7 +233,7 @@ router.post("/events", async (req: Request, res: Response): Promise<void> => {
       })();
 
       if (!isPro) {
-        const eventCount = await storage.countUserEvents(authUser.id);
+        const eventCount = await storage.countUserEventsThisYear(authUser.id);
         if (eventCount >= FREE_EVENT_LIMIT) {
           res.status(403).json({
             error: `Free plan is limited to ${FREE_EVENT_LIMIT} events. Upgrade to Pro to create unlimited events.`,

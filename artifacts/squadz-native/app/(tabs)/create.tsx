@@ -19,12 +19,12 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useData, useAuth } from "@/context/AppContext";
-import { ME } from "@/data/mock";
 import Constants from "expo-constants";
 
 const EMOJIS = ["🔥", "🎉", "🎮", "🏖️", "🍕", "🎸", "⚽", "🎬", "🍻", "🎊"];
 const TAB_BAR_H = Platform.select({ ios: 49, android: 56, default: 49 }) ?? 49;
 const FREE_EVENT_LIMIT = 3;
+
 
 function resolveApiBase(): string {
   if (process.env.EXPO_PUBLIC_API_URL) return process.env.EXPO_PUBLIC_API_URL;
@@ -51,7 +51,7 @@ function formatPickedDate(d: Date): string {
 export default function CreateEventScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { addEvent, squads, events } = useData();
+  const { addEvent, squads } = useData();
   const { authToken } = useAuth();
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + TAB_BAR_H;
@@ -66,8 +66,8 @@ export default function CreateEventScreen() {
   const [isPro, setIsPro] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [upgradeLoading, setUpgradeLoading] = useState(false);
+  const [myEventCount, setMyEventCount] = useState(0);
 
-  const myEventCount = events.filter(e => e.hostId === ME.id).length;
   const atLimit = !isPro && myEventCount >= FREE_EVENT_LIMIT;
 
   const authHeaders = useCallback((): HeadersInit => {
@@ -79,6 +79,13 @@ export default function CreateEventScreen() {
       .then(r => r.ok ? r.json() : { isPro: false })
       .then((data: { isPro?: boolean }) => setIsPro(data.isPro ?? false))
       .catch(() => setIsPro(false));
+  }, [authHeaders]);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/events/count`, { headers: authHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then((data: { count: number } | null) => { if (data) setMyEventCount(data.count); })
+      .catch(() => {});
   }, [authHeaders]);
 
   const [pickerDate, setPickerDate] = useState(new Date());
@@ -105,6 +112,7 @@ export default function CreateEventScreen() {
       date: date.trim(), location: location.trim(),
       description: description.trim(), squadId: selectedSquad,
     });
+    setMyEventCount(c => c + 1);
     Alert.alert("Event created!", `${selectedEmoji} ${title} has been created. Your squad will be notified.`, [
       { text: "View Event", onPress: () => { resetForm(); router.push(`/event/${id}` as never); } },
     ]);

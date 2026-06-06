@@ -1,5 +1,5 @@
 import { usersTable, eventsTable, photosTable } from '@workspace/db/schema';
-import { eq, sql, count } from 'drizzle-orm';
+import { eq, sql, count, and, gte, lt } from 'drizzle-orm';
 import { db } from '@workspace/db';
 
 export class Storage {
@@ -97,11 +97,20 @@ export class Storage {
     return user;
   }
 
-  async countUserEvents(hostId: string): Promise<number> {
+  async countUserEventsThisYear(hostId: string): Promise<number> {
+    const now = new Date();
+    const yearStart = new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
+    const yearEnd = new Date(Date.UTC(now.getUTCFullYear() + 1, 0, 1));
     const [row] = await db
       .select({ total: count() })
       .from(eventsTable)
-      .where(eq(eventsTable.hostId, hostId));
+      .where(
+        and(
+          eq(eventsTable.hostId, hostId),
+          gte(eventsTable.createdAt, yearStart),
+          lt(eventsTable.createdAt, yearEnd),
+        )
+      );
     return row?.total ?? 0;
   }
 
