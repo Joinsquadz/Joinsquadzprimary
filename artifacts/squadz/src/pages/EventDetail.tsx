@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { useLocation, useSearch } from "wouter";
 import { PhoneShell } from "@/components/PhoneShell";
 import { Avatar, Tag, SectionLabel, Card, SwitchToggle, Btn } from "@/components/shared";
@@ -6,6 +6,81 @@ import { T, font, fontMono, MEMBERS, FOOD_ITEMS as INIT_FOOD, EXPENSES, EVENT_PH
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { useProStatus } from "@/hooks/useProStatus";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+
+const skeletonKeyframes = `
+@keyframes skeletonPulse {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.9; }
+}
+`;
+
+function SkeletonBlock({ width, height, borderRadius = 8, style = {} }: { width?: number | string; height: number; borderRadius?: number; style?: React.CSSProperties }) {
+  return (
+    <div style={{
+      width: width ?? "100%",
+      height,
+      borderRadius,
+      background: `linear-gradient(90deg, ${T.surfaceHigh}, ${T.surfaceUp}, ${T.surfaceHigh})`,
+      animation: "skeletonPulse 1.4s ease-in-out infinite",
+      flexShrink: 0,
+      ...style,
+    }} />
+  );
+}
+
+function EventDetailHeaderSkeleton() {
+  return (
+    <>
+      <SkeletonBlock width={80} height={11} borderRadius={6} style={{ marginBottom: 8, opacity: 0.6 }} />
+      <SkeletonBlock width="72%" height={28} borderRadius={10} style={{ marginBottom: 8 }} />
+      <SkeletonBlock width="55%" height={14} borderRadius={8} style={{ marginBottom: 18 }} />
+      <div style={{ display: "flex", gap: 12 }}>
+        {[0, 1, 2].map(i => (
+          <SkeletonBlock key={i} width={64} height={46} borderRadius={10} />
+        ))}
+      </div>
+    </>
+  );
+}
+
+function EventDetailRsvpSkeleton() {
+  return (
+    <div style={{ display: "flex", gap: 8, padding: "10px 16px", background: T.surfaceUp, borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
+      <style>{skeletonKeyframes}</style>
+      {[0, 1, 2].map(i => (
+        <SkeletonBlock key={i} height={36} borderRadius={10} style={{ flex: 1 }} />
+      ))}
+    </div>
+  );
+}
+
+function EventDetailContentSkeleton() {
+  return (
+    <div style={{ padding: "16px 18px 24px" }}>
+      <SkeletonBlock width={80} height={12} borderRadius={6} style={{ marginBottom: 16 }} />
+      <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
+        {[0, 1, 2, 3].map(i => (
+          <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, flexShrink: 0 }}>
+            <SkeletonBlock width={40} height={40} borderRadius={20} />
+            <SkeletonBlock width={30} height={10} borderRadius={6} />
+          </div>
+        ))}
+      </div>
+      <SkeletonBlock width={80} height={12} borderRadius={6} style={{ marginBottom: 12 }} />
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
+        {[0, 1, 2].map(i => (
+          <SkeletonBlock key={i} height={46} borderRadius={12} />
+        ))}
+      </div>
+      <SkeletonBlock width={80} height={12} borderRadius={6} style={{ marginBottom: 12 }} />
+      <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 12 }}>
+        {[0, 1, 2].map(i => (
+          <SkeletonBlock key={i} width={`${[70, 55, 85][i]}%`} height={14} borderRadius={8} />
+        ))}
+      </div>
+    </div>
+  );
+}
 
 type EventData = {
   id: string;
@@ -623,6 +698,7 @@ export default function EventDetail() {
   const [shareToast, setShareToast] = useState(false);
   const [upgradeModal, setUpgradeModal] = useState<"photos" | null>(null);
   const [event, setEvent] = useState<EventData | null>(null);
+  const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [rsvpLoading, setRsvpLoading] = useState(false);
 
@@ -634,6 +710,7 @@ export default function EventDetail() {
 
   useEffect(() => {
     if (!eventId) return;
+    setLoading(true);
     fetch(`/api/events/${eventId}`, { credentials: "include" })
       .then(r => {
         if (!r.ok) throw new Error("not found");
@@ -645,7 +722,8 @@ export default function EventDetail() {
           setMyRsvp(data.rsvps[user.id]);
         }
       })
-      .catch(() => setLoadError(true));
+      .catch(() => setLoadError(true))
+      .finally(() => setLoading(false));
   }, [eventId, user]);
 
   const handleRsvp = async (status: "going" | "maybe" | "notgoing") => {
@@ -729,6 +807,7 @@ export default function EventDetail() {
     <PhoneShell>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <div style={{ background: `linear-gradient(160deg, ${T.accent}, #C83E22)`, padding: "16px 20px 18px", flexShrink: 0, position: "relative", overflow: "hidden" }}>
+          <style>{skeletonKeyframes}</style>
           <div style={{ position: "absolute", right: -40, top: -40, width: 180, height: 180, borderRadius: "50%", background: "rgba(255,255,255,0.08)" }} />
           <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
             <button onClick={() => setLocation("/home")} style={{ background: "rgba(255,255,255,0.15)", border: "none", color: "#fff", borderRadius: 10, width: 32, height: 32, cursor: "pointer", fontSize: 16 }}>←</button>
@@ -736,27 +815,23 @@ export default function EventDetail() {
             <button onClick={() => setTab("admin")} style={{ background: "rgba(255,255,255,0.15)", border: "none", color: "#fff", borderRadius: 10, width: 32, height: 32, cursor: "pointer", fontSize: 16 }}>⚙️</button>
             <button onClick={handleShare} style={{ background: "rgba(255,255,255,0.15)", border: "none", color: "#fff", borderRadius: 10, width: 32, height: 32, cursor: "pointer", fontSize: 16 }}>↗</button>
           </div>
-          {event ? (
+          {loading ? (
+            <EventDetailHeaderSkeleton />
+          ) : event ? (
             <>
               <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.7)", letterSpacing: "0.1em", textTransform: "uppercase", fontFamily: fontMono }}>{event.squadName}</div>
               <div style={{ fontFamily: "'Georgia', serif", fontSize: 26, fontWeight: 700, color: "#fff", margin: "4px 0" }}>{event.title} {event.emoji}</div>
               <div style={{ fontSize: 13, color: "rgba(255,255,255,0.8)", marginBottom: 14, fontFamily: font }}>{event.date} · {event.location}</div>
-            </>
-          ) : (
-            <>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.5)", letterSpacing: "0.1em", textTransform: "uppercase", fontFamily: fontMono }}>Loading…</div>
-              <div style={{ fontFamily: "'Georgia', serif", fontSize: 26, fontWeight: 700, color: "rgba(255,255,255,0.4)", margin: "4px 0" }}>— —</div>
-              <div style={{ fontSize: 13, color: "rgba(255,255,255,0.5)", marginBottom: 14, fontFamily: font }}>—</div>
-            </>
-          )}
-          <div style={{ display: "flex", gap: 12 }}>
-            {[{ label: "Going", val: goingCount, color: T.green }, { label: "Maybe", val: maybeCount, color: T.gold }, { label: "Can't", val: cantCount, color: "rgba(255,255,255,0.4)" }].map(r => (
-              <div key={r.label} style={{ background: "rgba(0,0,0,0.2)", borderRadius: 10, padding: "6px 14px", textAlign: "center" }}>
-                <div style={{ fontSize: 18, fontWeight: 800, color: r.color, fontFamily: fontMono }}>{r.val}</div>
-                <div style={{ fontSize: 10, color: "rgba(255,255,255,0.6)", fontFamily: font }}>{r.label}</div>
+              <div style={{ display: "flex", gap: 12 }}>
+                {[{ label: "Going", val: goingCount, color: T.green }, { label: "Maybe", val: maybeCount, color: T.gold }, { label: "Can't", val: cantCount, color: "rgba(255,255,255,0.4)" }].map(r => (
+                  <div key={r.label} style={{ background: "rgba(0,0,0,0.2)", borderRadius: 10, padding: "6px 14px", textAlign: "center" }}>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: r.color, fontFamily: fontMono }}>{r.val}</div>
+                    <div style={{ fontSize: 10, color: "rgba(255,255,255,0.6)", fontFamily: font }}>{r.label}</div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </>
+          ) : null}
         </div>
 
         {shareToast && (
@@ -765,18 +840,22 @@ export default function EventDetail() {
           </div>
         )}
 
-        <div style={{ display: "flex", gap: 8, padding: "10px 16px", background: T.surfaceUp, borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
-          {rsvpButtons.map(({ label, val, c }) => (
-            <button
-              key={val}
-              onClick={() => handleRsvp(val)}
-              disabled={rsvpLoading || !event}
-              style={{ flex: 1, padding: "8px 0", borderRadius: 10, border: `1.5px solid ${myRsvp === val ? c : T.border}`, background: myRsvp === val ? c + "22" : "transparent", color: myRsvp === val ? c : T.textSub, fontFamily: font, fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: rsvpLoading ? 0.6 : 1 }}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        {loading ? (
+          <EventDetailRsvpSkeleton />
+        ) : (
+          <div style={{ display: "flex", gap: 8, padding: "10px 16px", background: T.surfaceUp, borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
+            {rsvpButtons.map(({ label, val, c }) => (
+              <button
+                key={val}
+                onClick={() => handleRsvp(val)}
+                disabled={rsvpLoading || !event}
+                style={{ flex: 1, padding: "8px 0", borderRadius: 10, border: `1.5px solid ${myRsvp === val ? c : T.border}`, background: myRsvp === val ? c + "22" : "transparent", color: myRsvp === val ? c : T.textSub, fontFamily: font, fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: rsvpLoading ? 0.6 : 1 }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div style={{ display: "flex", background: T.surface, borderBottom: `1px solid ${T.border}`, flexShrink: 0, overflowX: "auto" }}>
           {tabs.map(t => (
@@ -787,21 +866,25 @@ export default function EventDetail() {
         </div>
 
         <div style={{ flex: 1, overflowY: "auto" }}>
-          <div style={{ padding: "16px 18px 24px" }}>
-            {tab === "overview" && <EventOverviewTab onVaultPress={() => setUpgradeModal("photos")} isPro={isPro} event={event} />}
-            {tab === "food" && <EventFoodTab />}
-            {tab === "budget" && <EventBudgetTab />}
-            {tab === "polls" && <EventPollsTab />}
-            {tab === "chat" && <EventChatTab />}
-            {tab === "admin" && (
-              <EventAdminTab
-                event={event}
-                isHost={isHost}
-                onCancel={handleCancelEvent}
-                onSave={handleSaveEdit}
-              />
-            )}
-          </div>
+          {loading ? (
+            <EventDetailContentSkeleton />
+          ) : (
+            <div style={{ padding: "16px 18px 24px" }}>
+              {tab === "overview" && <EventOverviewTab onVaultPress={() => setUpgradeModal("photos")} isPro={isPro} event={event} />}
+              {tab === "food" && <EventFoodTab />}
+              {tab === "budget" && <EventBudgetTab />}
+              {tab === "polls" && <EventPollsTab />}
+              {tab === "chat" && <EventChatTab />}
+              {tab === "admin" && (
+                <EventAdminTab
+                  event={event}
+                  isHost={isHost}
+                  onCancel={handleCancelEvent}
+                  onSave={handleSaveEdit}
+                />
+              )}
+            </div>
+          )}
         </div>
       </div>
 
