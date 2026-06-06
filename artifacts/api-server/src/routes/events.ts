@@ -420,9 +420,9 @@ router.post("/events/:id/messages", async (req: Request, res: Response): Promise
 router.get('/events/:id/photos', requireAuth, async (req, res): Promise<void> => {
   try {
     const userId = (req.user as { id: string }).id;
-    const eventId = parseInt(req.params['id'] as string, 10);
+    const eventId = req.params['id'] as string;
 
-    if (isNaN(eventId)) {
+    if (!eventId) {
       res.status(400).json({ error: 'Invalid event id' });
       return;
     }
@@ -454,7 +454,7 @@ router.get('/events/:id/photos', requireAuth, async (req, res): Promise<void> =>
       return;
     }
 
-    const photos = await storage.getPhotosByEventId(eventId);
+    const photos = await storage.getPhotosByEventId(parseInt(eventId, 10));
     const cutoff = new Date(Date.now() - PHOTO_VAULT_DAYS * 24 * 60 * 60 * 1000);
 
     const result = photos.map(photo => {

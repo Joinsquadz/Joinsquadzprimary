@@ -114,15 +114,15 @@ export class Storage {
     return row?.total ?? 0;
   }
 
-  async createEvent(hostId: string, title: string) {
+  async createEvent(hostId: string, title: string, date: string, location: string, inviteCode: string) {
     const [event] = await db
       .insert(eventsTable)
-      .values({ hostId, title })
+      .values({ hostId, title, date, location, inviteCode })
       .returning();
     return event;
   }
 
-  async getEvent(eventId: number) {
+  async getEvent(eventId: string) {
     const [event] = await db
       .select()
       .from(eventsTable)
