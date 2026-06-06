@@ -247,19 +247,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const fetchSquads = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/squads`);
+      const res = await apiFetch("/api/squads");
       if (!res.ok) return;
       const data = await res.json() as Record<string, unknown>[];
       setSquads(data.map(dbSquadToSquad));
     } catch {
       // Network unavailable — keep mock data
     }
-  }, []);
+  }, [apiFetch]);
 
   useEffect(() => {
     void fetchEvents();
+  }, [fetchEvents]);
+
+  useEffect(() => {
     void fetchSquads();
-  }, [fetchEvents, fetchSquads]);
+  }, [fetchSquads]);
 
   useEffect(() => {
     AsyncStorage.getItem(AUTH_TOKEN_KEY).then(token => {
