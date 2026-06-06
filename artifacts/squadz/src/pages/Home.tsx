@@ -2,8 +2,10 @@ import React, { useState } from "react";
 import { useLocation } from "wouter";
 import { PhoneShell } from "@/components/PhoneShell";
 import { Avatar, Tag, SectionLabel, Card, SwitchToggle, Btn } from "@/components/shared";
-import { T, font, fontMono, SQUADS, MEMBERS, ACTIVITY_FEED, SUGGESTIONS, MESSAGES, getAvatarColor } from "@/lib/data";
+import { T, font, fontMono, MEMBERS, ACTIVITY_FEED, SUGGESTIONS, MESSAGES, getAvatarColor } from "@/lib/data";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { useEvents, type ApiEvent } from "@/hooks/useEvents";
+import { useSquads, type ApiSquad } from "@/hooks/useSquads";
 
 function BottomTab({ active, setActive }: { active: string; setActive: (t: string) => void }) {
   const tabs = [
@@ -37,8 +39,10 @@ function BottomTab({ active, setActive }: { active: string; setActive: (t: strin
   );
 }
 
-function HomeTab({ go, onBellPress, firstName }: { go: (s: string) => void; onBellPress: () => void; firstName?: string | null }) {
+function HomeTab({ go, onBellPress, firstName, squads, events }: { go: (s: string) => void; onBellPress: () => void; firstName?: string | null; squads: ApiSquad[]; events: ApiEvent[] }) {
   const [showBanner, setShowBanner] = useState(true);
+  const nextEvent = events[0] ?? null;
+  const goingCount = nextEvent ? Object.values(nextEvent.rsvps).filter(v => v === "going").length : 0;
   return (
     <div style={{ flex: 1, overflowY: "auto" }}>
       {showBanner && (
@@ -56,7 +60,7 @@ function HomeTab({ go, onBellPress, firstName }: { go: (s: string) => void; onBe
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
           <div>
             <div style={{ fontFamily: "'Georgia', serif", fontSize: 26, fontWeight: 700, color: T.white }}>{firstName ? `Hey, ${firstName} 👋` : "Hey there 👋"}</div>
-            <div style={{ fontSize: 13, color: T.textSub, fontFamily: font }}>4 SquadZ · 1 event this week</div>
+            <div style={{ fontSize: 13, color: T.textSub, fontFamily: font }}>{squads.length} SquadZ · {events.length} event{events.length !== 1 ? "s" : ""}</div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div onClick={onBellPress} style={{ position: "relative", cursor: "pointer", width: 38, height: 38, borderRadius: 13, background: T.surface, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -64,24 +68,29 @@ function HomeTab({ go, onBellPress, firstName }: { go: (s: string) => void; onBe
               <div style={{ position: "absolute", top: -3, right: -3, width: 15, height: 15, borderRadius: 8, background: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: "#fff", fontWeight: 900, fontFamily: font, border: `2px solid ${T.bg}` }}>4</div>
             </div>
             <div style={{ position: "relative", cursor: "pointer" }} onClick={() => go("profile")}>
-              <Avatar name="Jordan" size={44} color={T.accent} />
+              <Avatar name={firstName ?? "You"} size={44} color={T.accent} />
               <div style={{ position: "absolute", top: 0, right: 0, width: 14, height: 14, background: T.green, borderRadius: "50%", border: `2px solid ${T.bg}` }} />
             </div>
           </div>
         </div>
 
-        <div onClick={() => go("event")} style={{ background: `linear-gradient(135deg, ${T.accent}, #FF8C3A)`, borderRadius: 22, padding: 20, marginBottom: 20, cursor: "pointer", position: "relative", overflow: "hidden" }}>
-          <div style={{ position: "absolute", right: -30, top: -30, width: 160, height: 160, borderRadius: "50%", background: "rgba(255,255,255,0.1)" }} />
-          <Tag color="#fff">⚡ Up Next · Sat Jun 7</Tag>
-          <div style={{ fontFamily: "'Georgia', serif", fontSize: 24, fontWeight: 700, color: "#fff", margin: "8px 0 4px" }}>Rooftop BBQ 🔥</div>
-          <div style={{ fontSize: 13, color: "rgba(255,255,255,0.8)", marginBottom: 14 }}>Marcus's Place · 5:00 PM</div>
-          <div style={{ display: "flex", alignItems: "center" }}>
-            {MEMBERS.slice(0, 5).map((m, i) => (
-              <div key={i} style={{ width: 28, height: 28, borderRadius: 14, background: getAvatarColor(m.name), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, color: "#000", marginLeft: i > 0 ? -8 : 0, border: `2px solid ${T.accent}` }}>{m.name[0]}</div>
-            ))}
-            <div style={{ marginLeft: 8, fontSize: 12, color: "rgba(255,255,255,0.8)" }}>5 going</div>
+        {nextEvent ? (
+          <div onClick={() => go("event")} style={{ background: `linear-gradient(135deg, ${T.accent}, #FF8C3A)`, borderRadius: 22, padding: 20, marginBottom: 20, cursor: "pointer", position: "relative", overflow: "hidden" }}>
+            <div style={{ position: "absolute", right: -30, top: -30, width: 160, height: 160, borderRadius: "50%", background: "rgba(255,255,255,0.1)" }} />
+            <Tag color="#fff">⚡ Up Next · {nextEvent.date}</Tag>
+            <div style={{ fontFamily: "'Georgia', serif", fontSize: 24, fontWeight: 700, color: "#fff", margin: "8px 0 4px" }}>{nextEvent.emoji} {nextEvent.title}</div>
+            <div style={{ fontSize: 13, color: "rgba(255,255,255,0.8)", marginBottom: 14 }}>{nextEvent.location}</div>
+            <div style={{ display: "flex", alignItems: "center" }}>
+              <div style={{ marginLeft: 0, fontSize: 12, color: "rgba(255,255,255,0.8)" }}>{goingCount} going</div>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div onClick={() => go("create-event")} style={{ background: T.surfaceUp, border: `1.5px dashed ${T.border}`, borderRadius: 22, padding: 20, marginBottom: 20, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, minHeight: 100 }}>
+            <div style={{ fontSize: 32 }}>🗓</div>
+            <div style={{ fontFamily: font, fontWeight: 700, fontSize: 15, color: T.textSub }}>No events yet</div>
+            <div style={{ fontSize: 12, color: T.textDim }}>Tap to create your first event</div>
+          </div>
+        )}
 
         <div style={{ background: T.goldDim, border: `1px solid ${T.gold}40`, borderRadius: 14, padding: "12px 16px", display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
           <span style={{ fontSize: 28 }}>🔥</span>
@@ -96,11 +105,11 @@ function HomeTab({ go, onBellPress, firstName }: { go: (s: string) => void; onBe
           <SectionLabel>My SquadZ</SectionLabel>
         </div>
         <div style={{ display: "flex", gap: 10, marginBottom: 24, overflowX: "auto", paddingBottom: 4 }}>
-          {SQUADS.map(s => (
+          {squads.map(s => (
             <div key={s.id} onClick={() => go("squad")} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 16, padding: "12px 14px", minWidth: 130, cursor: "pointer", flexShrink: 0 }}>
               <div style={{ fontSize: 26, marginBottom: 6 }}>{s.emoji}</div>
               <div style={{ fontFamily: font, fontWeight: 700, fontSize: 13, color: T.text, marginBottom: 2 }}>{s.name}</div>
-              <div style={{ fontSize: 11, color: T.textDim }}>{s.members} members</div>
+              <div style={{ fontSize: 11, color: T.textDim }}>{s.memberIds.length} members</div>
             </div>
           ))}
           <div onClick={() => go("create-squad")} style={{ background: T.surfaceUp, border: `1.5px dashed ${T.border}`, borderRadius: 16, padding: "12px 14px", minWidth: 100, cursor: "pointer", flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4 }}>
@@ -156,22 +165,19 @@ function JoinWithLinkPanel() {
   );
 }
 
-function SquadsTab({ go }: { go: (s: string) => void }) {
+function SquadsTab({ go, squads }: { go: (s: string) => void; squads: ApiSquad[] }) {
   return (
     <div style={{ flex: 1, overflowY: "auto" }}>
       <div style={{ padding: "20px 20px 24px" }}>
         <div style={{ fontFamily: "'Georgia', serif", fontSize: 24, fontWeight: 700, color: T.white, marginBottom: 4 }}>Your SquadZ</div>
-        <div style={{ fontSize: 13, color: T.textSub, marginBottom: 20, fontFamily: font }}>4 active groups</div>
+        <div style={{ fontSize: 13, color: T.textSub, marginBottom: 20, fontFamily: font }}>{squads.length} active group{squads.length !== 1 ? "s" : ""}</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {SQUADS.map(s => (
+          {squads.map(s => (
             <div key={s.id} onClick={() => go("squad")} style={{ background: T.surface, borderRadius: 18, border: `1px solid ${T.border}`, padding: 16, cursor: "pointer", display: "flex", alignItems: "center", gap: 14 }}>
               <div style={{ width: 52, height: 52, borderRadius: 18, background: s.color + "22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, border: `1px solid ${s.color}40` }}>{s.emoji}</div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontFamily: font, fontWeight: 700, fontSize: 15, color: T.text }}>{s.name}</div>
-                <div style={{ fontSize: 12, color: T.textSub, marginTop: 2 }}>{s.members} members · {s.lastEvent}</div>
-                <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                  <Tag color={s.color}>🔥 {s.streak}wk streak</Tag>
-                </div>
+                <div style={{ fontSize: 12, color: T.textSub, marginTop: 2 }}>{s.memberIds.length} members</div>
               </div>
               <span style={{ color: T.textDim, fontSize: 20 }}>›</span>
             </div>
@@ -640,6 +646,8 @@ export default function Home() {
   const [, setLocation] = useLocation();
   const { firstName, displayName } = useCurrentUser();
   const [checkoutSuccess, setCheckoutSuccess] = useState(false);
+  const { events } = useEvents();
+  const { squads } = useSquads();
 
   React.useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -662,8 +670,8 @@ export default function Home() {
   };
 
   const tabContent: Record<string, React.ReactElement> = {
-    home: <HomeTab go={go} onBellPress={() => setTab("activity")} firstName={firstName} />,
-    squads: <SquadsTab go={go} />,
+    home: <HomeTab go={go} onBellPress={() => setTab("activity")} firstName={firstName} squads={squads} events={events} />,
+    squads: <SquadsTab go={go} squads={squads} />,
     messages: <MessagesTab go={go} />,
     discover: <DiscoverTab go={go} />,
     activity: <ActivityTab />,
