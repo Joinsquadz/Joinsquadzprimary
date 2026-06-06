@@ -1,12 +1,39 @@
-import { useState } from "react";
-import { useLocation } from "wouter";
+import { useState, useEffect } from "react";
+import { useLocation, useSearch } from "wouter";
 import { PhoneShell } from "@/components/PhoneShell";
 import { Avatar, Tag, SectionLabel, Card, SwitchToggle, Btn } from "@/components/shared";
 import { T, font, fontMono, MEMBERS, FOOD_ITEMS as INIT_FOOD, EXPENSES, EVENT_PHOTOS } from "@/lib/data";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { useProStatus } from "@/hooks/useProStatus";
+import { useCurrentUser } from "@/hooks/useCurrentUser";
 
-function EventOverviewTab({ onVaultPress, isPro }: { onVaultPress: () => void; isPro: boolean }) {
+type EventData = {
+  id: string;
+  emoji: string;
+  title: string;
+  date: string;
+  location: string;
+  squadName: string;
+  hostId: string;
+  description: string;
+  inviteCode: string;
+  cancelled: boolean;
+  rsvps: Record<string, string>;
+  tasks: Array<{ id: string; title: string; assigneeId: string | null; done: boolean }>;
+  costs: unknown[];
+  polls: unknown[];
+  messages: unknown[];
+};
+
+function EventOverviewTab({
+  onVaultPress,
+  isPro,
+  event,
+}: {
+  onVaultPress: () => void;
+  isPro: boolean;
+  event: EventData | null;
+}) {
   const initTasks = [
     { id: 1, label: "Book the rooftop", done: true, owner: "Marcus" as string | null },
     { id: 2, label: "Buy drinks ($38)", done: true, owner: "Jordan" as string | null },
@@ -61,8 +88,13 @@ function EventOverviewTab({ onVaultPress, isPro }: { onVaultPress: () => void; i
       </div>
       <SectionLabel>Event Details</SectionLabel>
       <Card>
-        {[["📅", "Sat, Jun 7 · 5:00 PM – 10:00 PM"], ["📍", "Marcus's Place, 142 Oak St"], ["👥", "The Usual Suspects"], ["🔗", "getsquadz.com/event/xyz"]].map(([icon, val]) => (
-          <div key={val} style={{ display: "flex", gap: 10, padding: "8px 0", borderTop: `1px solid ${T.border}`, fontSize: 13, color: T.textSub, fontFamily: font }}>
+        {[
+          ["📅", event?.date ?? "TBD"],
+          ["📍", event?.location ?? "TBD"],
+          ["👥", event?.squadName ?? "—"],
+          ["🔗", event ? `getsquadz.com/invite/${event.inviteCode}` : "—"],
+        ].map(([icon, val]) => (
+          <div key={icon} style={{ display: "flex", gap: 10, padding: "8px 0", borderTop: `1px solid ${T.border}`, fontSize: 13, color: T.textSub, fontFamily: font }}>
             <span>{icon}</span><span style={{ flex: 1 }}>{val}</span>
           </div>
         ))}
@@ -364,7 +396,17 @@ function EventChatTab() {
   );
 }
 
-function EventAdminTab() {
+function EventAdminTab({
+  event,
+  isHost,
+  onCancel,
+  onSave,
+}: {
+  event: EventData | null;
+  isHost: boolean;
+  onCancel: () => void;
+  onSave: (patch: { title?: string; date?: string; location?: string }) => Promise<void>;
+}) {
   const [coAdmins, setCoAdmins] = useState<string[]>(["Marcus"]);
   const [showPicker, setShowPicker] = useState(false);
   const [isPublic, setIsPublic] = useState(false);
@@ -372,6 +414,34 @@ function EventAdminTab() {
   const [showHidePicker, setShowHidePicker] = useState(false);
   const maxCo = 5;
   const eligible = MEMBERS.filter(m => m.name !== "Jordan" && !coAdmins.includes(m.name));
+
+  const [editing, setEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState(event?.title ?? "");
+  const [editDate, setEditDate] = useState(event?.date ?? "");
+  const [editLocation, setEditLocation] = useState(event?.location ?? "");
+  const [saving, setSaving] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false);
+
+  const openEdit = () => {
+    setEditTitle(event?.title ?? "");
+    setEditDate(event?.date ?? "");
+    setEditLocation(event?.location ?? "");
+    setEditing(true);
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    await onSave({ title: editTitle, date: editDate, location: editLocation });
+    setSaving(false);
+    setEditing(false);
+  };
+
+  const handleCancel = async () => {
+    setCancelling(true);
+    await onCancel();
+    setCancelling(false);
+  };
 
   return (
     <div>
@@ -383,6 +453,45 @@ function EventAdminTab() {
         </div>
         <Tag color={T.gold}>👑 Admin</Tag>
       </div>
+
+      {isHost && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <SectionLabel>Event Details</SectionLabel>
+            {!editing && (
+              <button onClick={openEdit} style={{ background: T.accent + "22", border: "none", color: T.accent, borderRadius: 10, padding: "4px 12px", fontFamily: font, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>✏️ Edit</button>
+            )}
+          </div>
+          {editing ? (
+            <div style={{ background: T.surfaceUp, borderRadius: 14, border: `1px solid ${T.border}`, padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 11, color: T.textDim, fontFamily: font, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>Title</div>
+                <input value={editTitle} onChange={e => setEditTitle(e.target.value)} placeholder="Event title" style={{ width: "100%", background: T.surface, border: `1.5px solid ${T.accent}`, borderRadius: 10, padding: "10px 12px", color: T.text, fontFamily: font, fontSize: 14, outline: "none", boxSizing: "border-box" }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: T.textDim, fontFamily: font, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>Date</div>
+                <input value={editDate} onChange={e => setEditDate(e.target.value)} placeholder="e.g. Sat, Jun 7 · 5:00 PM" style={{ width: "100%", background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", color: T.text, fontFamily: font, fontSize: 14, outline: "none", boxSizing: "border-box" }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: T.textDim, fontFamily: font, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>Location</div>
+                <input value={editLocation} onChange={e => setEditLocation(e.target.value)} placeholder="e.g. Marcus's Place" style={{ width: "100%", background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", color: T.text, fontFamily: font, fontSize: 14, outline: "none", boxSizing: "border-box" }} />
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={handleSave} disabled={saving} style={{ flex: 1, background: T.accent, border: "none", borderRadius: 10, color: "#fff", padding: "10px 0", fontFamily: font, fontWeight: 700, fontSize: 14, cursor: "pointer", opacity: saving ? 0.6 : 1 }}>{saving ? "Saving…" : "Save Changes"}</button>
+                <button onClick={() => setEditing(false)} style={{ flex: 1, background: T.surfaceHigh, border: "none", borderRadius: 10, color: T.textSub, padding: "10px 0", fontFamily: font, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <Card>
+              {[["📛", event?.title ?? "—"], ["📅", event?.date ?? "TBD"], ["📍", event?.location ?? "TBD"]].map(([icon, val]) => (
+                <div key={icon} style={{ display: "flex", gap: 10, padding: "8px 0", borderTop: `1px solid ${T.border}`, fontSize: 13, color: T.textSub, fontFamily: font }}>
+                  <span>{icon}</span><span style={{ flex: 1 }}>{val}</span>
+                </div>
+              ))}
+            </Card>
+          )}
+        </div>
+      )}
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
         <SectionLabel>Co-Admins ({coAdmins.length}/{maxCo})</SectionLabel>
@@ -460,25 +569,139 @@ function EventAdminTab() {
         </>
       )}
 
-      <div style={{ marginTop: 24 }}>
-        <SectionLabel>Danger Zone</SectionLabel>
-        <Btn variant="danger" onPress={() => {}}>Cancel Event</Btn>
-      </div>
+      {isHost && (
+        <div style={{ marginTop: 24 }}>
+          <SectionLabel>Danger Zone</SectionLabel>
+          {confirmCancel ? (
+            <div style={{ background: "#FF444418", border: "1px solid #FF444440", borderRadius: 14, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ fontFamily: font, fontWeight: 700, fontSize: 14, color: "#FF4444" }}>Cancel this event?</div>
+              <div style={{ fontSize: 13, color: T.textSub, fontFamily: font }}>This cannot be undone. All attendees will be notified.</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={handleCancel} disabled={cancelling} style={{ flex: 1, background: "#FF4444", border: "none", borderRadius: 10, color: "#fff", padding: "10px 0", fontFamily: font, fontWeight: 700, fontSize: 14, cursor: "pointer", opacity: cancelling ? 0.6 : 1 }}>{cancelling ? "Cancelling…" : "Yes, Cancel Event"}</button>
+                <button onClick={() => setConfirmCancel(false)} style={{ flex: 1, background: T.surfaceHigh, border: "none", borderRadius: 10, color: T.textSub, padding: "10px 0", fontFamily: font, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>Keep Event</button>
+              </div>
+            </div>
+          ) : (
+            <Btn variant="danger" onPress={() => setConfirmCancel(true)}>Cancel Event</Btn>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
 export default function EventDetail() {
   const [, setLocation] = useLocation();
+  const search = useSearch();
+  const params = new URLSearchParams(search);
+  const eventId = params.get("id");
+
   const [tab, setTab] = useState("overview");
-  const [myRsvp, setMyRsvp] = useState("going");
+  const [myRsvp, setMyRsvp] = useState<string | null>(null);
   const [shareToast, setShareToast] = useState(false);
   const [upgradeModal, setUpgradeModal] = useState<"photos" | null>(null);
-  const tabs = ["overview", "food", "budget", "polls", "chat", "admin"];
+  const [event, setEvent] = useState<EventData | null>(null);
+  const [loadError, setLoadError] = useState(false);
+  const [rsvpLoading, setRsvpLoading] = useState(false);
 
+  const tabs = ["overview", "food", "budget", "polls", "chat", "admin"];
   const { isPro } = useProStatus();
+  const { user } = useCurrentUser();
+
+  const isHost = !!user && !!event && event.hostId === user.id;
+
+  useEffect(() => {
+    if (!eventId) return;
+    fetch(`/api/events/${eventId}`, { credentials: "include" })
+      .then(r => {
+        if (!r.ok) throw new Error("not found");
+        return r.json();
+      })
+      .then((data: EventData) => {
+        setEvent(data);
+        if (user && data.rsvps[user.id]) {
+          setMyRsvp(data.rsvps[user.id]);
+        }
+      })
+      .catch(() => setLoadError(true));
+  }, [eventId, user]);
+
+  const handleRsvp = async (status: "going" | "maybe" | "notgoing") => {
+    if (!event || rsvpLoading) return;
+    const userId = user?.id ?? "me";
+    setMyRsvp(status);
+    setRsvpLoading(true);
+    try {
+      const res = await fetch(`/api/events/${event.id}/rsvp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ userId, status }),
+      });
+      if (res.ok) {
+        const updated = await res.json() as EventData;
+        setEvent(updated);
+      }
+    } catch {
+    } finally {
+      setRsvpLoading(false);
+    }
+  };
+
+  const handleSaveEdit = async (patch: { title?: string; date?: string; location?: string }) => {
+    if (!event) return;
+    try {
+      const res = await fetch(`/api/events/${event.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(patch),
+      });
+      if (res.ok) {
+        const updated = await res.json() as EventData;
+        setEvent(updated);
+      }
+    } catch {
+    }
+  };
+
+  const handleCancelEvent = async () => {
+    if (!event) return;
+    try {
+      await fetch(`/api/events/${event.id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      setLocation("/home");
+    } catch {
+      setLocation("/home");
+    }
+  };
 
   const handleShare = () => { setShareToast(true); setTimeout(() => setShareToast(false), 2500); };
+
+  const goingCount = event ? Object.values(event.rsvps).filter(v => v === "going").length : 0;
+  const maybeCount = event ? Object.values(event.rsvps).filter(v => v === "maybe").length : 0;
+  const cantCount = event ? Object.values(event.rsvps).filter(v => v === "notgoing").length : 0;
+
+  const rsvpButtons: Array<{ label: string; val: "going" | "maybe" | "notgoing"; c: string }> = [
+    { label: "✓ Going", val: "going", c: T.green },
+    { label: "? Maybe", val: "maybe", c: T.gold },
+    { label: "✕ Can't", val: "notgoing", c: "#FF4444" },
+  ];
+
+  if (loadError) {
+    return (
+      <PhoneShell>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 32, gap: 16 }}>
+          <div style={{ fontSize: 40 }}>😕</div>
+          <div style={{ fontFamily: font, fontWeight: 700, fontSize: 18, color: T.text, textAlign: "center" }}>Event not found</div>
+          <div style={{ fontSize: 14, color: T.textSub, textAlign: "center" }}>This event may have been cancelled or the link is invalid.</div>
+          <Btn onPress={() => setLocation("/home")}>← Back to Home</Btn>
+        </div>
+      </PhoneShell>
+    );
+  }
 
   return (
     <PhoneShell>
@@ -491,11 +714,21 @@ export default function EventDetail() {
             <button onClick={() => setTab("admin")} style={{ background: "rgba(255,255,255,0.15)", border: "none", color: "#fff", borderRadius: 10, width: 32, height: 32, cursor: "pointer", fontSize: 16 }}>⚙️</button>
             <button onClick={handleShare} style={{ background: "rgba(255,255,255,0.15)", border: "none", color: "#fff", borderRadius: 10, width: 32, height: 32, cursor: "pointer", fontSize: 16 }}>↗</button>
           </div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.7)", letterSpacing: "0.1em", textTransform: "uppercase", fontFamily: fontMono }}>The Usual Suspects</div>
-          <div style={{ fontFamily: "'Georgia', serif", fontSize: 26, fontWeight: 700, color: "#fff", margin: "4px 0" }}>Rooftop BBQ 🔥</div>
-          <div style={{ fontSize: 13, color: "rgba(255,255,255,0.8)", marginBottom: 14, fontFamily: font }}>Sat, Jun 7 · 5:00 PM · Marcus's Place</div>
+          {event ? (
+            <>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.7)", letterSpacing: "0.1em", textTransform: "uppercase", fontFamily: fontMono }}>{event.squadName}</div>
+              <div style={{ fontFamily: "'Georgia', serif", fontSize: 26, fontWeight: 700, color: "#fff", margin: "4px 0" }}>{event.title} {event.emoji}</div>
+              <div style={{ fontSize: 13, color: "rgba(255,255,255,0.8)", marginBottom: 14, fontFamily: font }}>{event.date} · {event.location}</div>
+            </>
+          ) : (
+            <>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.5)", letterSpacing: "0.1em", textTransform: "uppercase", fontFamily: fontMono }}>Loading…</div>
+              <div style={{ fontFamily: "'Georgia', serif", fontSize: 26, fontWeight: 700, color: "rgba(255,255,255,0.4)", margin: "4px 0" }}>— —</div>
+              <div style={{ fontSize: 13, color: "rgba(255,255,255,0.5)", marginBottom: 14, fontFamily: font }}>—</div>
+            </>
+          )}
           <div style={{ display: "flex", gap: 12 }}>
-            {[{ label: "Going", val: 5, color: T.green }, { label: "Maybe", val: 1, color: T.gold }, { label: "Can't", val: 1, color: "rgba(255,255,255,0.4)" }].map(r => (
+            {[{ label: "Going", val: goingCount, color: T.green }, { label: "Maybe", val: maybeCount, color: T.gold }, { label: "Can't", val: cantCount, color: "rgba(255,255,255,0.4)" }].map(r => (
               <div key={r.label} style={{ background: "rgba(0,0,0,0.2)", borderRadius: 10, padding: "6px 14px", textAlign: "center" }}>
                 <div style={{ fontSize: 18, fontWeight: 800, color: r.color, fontFamily: fontMono }}>{r.val}</div>
                 <div style={{ fontSize: 10, color: "rgba(255,255,255,0.6)", fontFamily: font }}>{r.label}</div>
@@ -511,8 +744,15 @@ export default function EventDetail() {
         )}
 
         <div style={{ display: "flex", gap: 8, padding: "10px 16px", background: T.surfaceUp, borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
-          {[["✓ Going", "going", T.green], ["? Maybe", "maybe", T.gold], ["✕ Can't", "cant", "#FF4444"]].map(([l, v, c]) => (
-            <button key={v} onClick={() => setMyRsvp(v)} style={{ flex: 1, padding: "8px 0", borderRadius: 10, border: `1.5px solid ${myRsvp === v ? c : T.border}`, background: myRsvp === v ? c + "22" : "transparent", color: myRsvp === v ? c : T.textSub, fontFamily: font, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>{l}</button>
+          {rsvpButtons.map(({ label, val, c }) => (
+            <button
+              key={val}
+              onClick={() => handleRsvp(val)}
+              disabled={rsvpLoading || !event}
+              style={{ flex: 1, padding: "8px 0", borderRadius: 10, border: `1.5px solid ${myRsvp === val ? c : T.border}`, background: myRsvp === val ? c + "22" : "transparent", color: myRsvp === val ? c : T.textSub, fontFamily: font, fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: rsvpLoading ? 0.6 : 1 }}
+            >
+              {label}
+            </button>
           ))}
         </div>
 
@@ -526,12 +766,19 @@ export default function EventDetail() {
 
         <div style={{ flex: 1, overflowY: "auto" }}>
           <div style={{ padding: "16px 18px 24px" }}>
-            {tab === "overview" && <EventOverviewTab onVaultPress={() => setUpgradeModal("photos")} isPro={isPro} />}
+            {tab === "overview" && <EventOverviewTab onVaultPress={() => setUpgradeModal("photos")} isPro={isPro} event={event} />}
             {tab === "food" && <EventFoodTab />}
             {tab === "budget" && <EventBudgetTab />}
             {tab === "polls" && <EventPollsTab />}
             {tab === "chat" && <EventChatTab />}
-            {tab === "admin" && <EventAdminTab />}
+            {tab === "admin" && (
+              <EventAdminTab
+                event={event}
+                isHost={isHost}
+                onCancel={handleCancelEvent}
+                onSave={handleSaveEdit}
+              />
+            )}
           </div>
         </div>
       </div>

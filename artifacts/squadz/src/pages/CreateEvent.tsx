@@ -96,11 +96,9 @@ export default function CreateEvent() {
         return;
       }
       if (!res.ok) return;
-      fetch("/api/events/count")
-        .then(r => r.ok ? r.json() : null)
-        .then((data: { count: number } | null) => { if (data) setEventCount(data.count); })
-        .catch(() => {});
-      setLocation("/event");
+      const created = await res.json() as { id: string };
+      setEventCount(c => (c ?? 0) + 1);
+      setLocation(`/event?id=${created.id}`);
     } catch {
       setLocation("/event");
     } finally {
