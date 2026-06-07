@@ -46,6 +46,7 @@ type MemberInfo = {
   displayName: string;
   avatarUrl: string | null;
   hasResponded: boolean;
+  needsUpdate: boolean;
 };
 
 type PollPayload = {
@@ -981,76 +982,89 @@ export default function AvailabilityScreen() {
                   {data.members.map((m) => {
                     const isSelected = selectedMemberIds.has(m.id);
                     const showingTooltip = m.id === tooltipMemberId;
-                    if (m.hasResponded) {
-                      return (
-                        <View key={m.id} style={styles.memberAvatarWrap}>
-                          {showingTooltip && (
-                            <View style={[styles.avatarTooltip, { backgroundColor: colors.foreground }]}>
-                              <Text style={[styles.avatarTooltipText, { color: colors.background }]} numberOfLines={1}>
-                                {m.displayName}
-                              </Text>
-                              <View style={[styles.avatarTooltipArrow, { borderTopColor: colors.foreground }]} />
-                            </View>
-                          )}
-                          <TouchableOpacity
-                            onPress={() => {
-                              Haptics.selectionAsync();
-                              setSelectedMemberIds((prev) => {
-                                const next = new Set(prev);
-                                if (next.has(m.id)) next.delete(m.id);
-                                else next.add(m.id);
-                                return next;
-                              });
-                              showTooltip(m.id);
-                            }}
-                            activeOpacity={0.7}
-                            style={[
-                              styles.memberAvatar,
-                              {
-                                backgroundColor: isSelected ? "#F59E0B" : colors.primary,
-                                borderColor: isSelected ? "#F59E0B" : colors.primary,
-                                borderWidth: isSelected ? 2.5 : 1.5,
-                              },
-                            ]}
-                          >
-                            {m.avatarUrl ? (
-                              <Image source={{ uri: m.avatarUrl }} style={styles.memberAvatarImage} />
-                            ) : (
-                              <Text style={[styles.memberInitial, { color: "#fff" }]}>
-                                {m.displayName.charAt(0).toUpperCase()}
-                              </Text>
-                            )}
-                          </TouchableOpacity>
-                        </View>
-                      );
-                    }
+
+                    const upToDate = m.hasResponded && !m.needsUpdate;
+                    const stale = m.hasResponded && m.needsUpdate;
+
+                    const avatarBg = isSelected ? "#F59E0B" : (upToDate ? colors.primary : stale ? colors.gold : colors.card);
+                    const avatarBorder = isSelected ? "#F59E0B" : (upToDate ? colors.primary : stale ? colors.gold : colors.border);
+                    const avatarOpacity = upToDate || isSelected ? 1 : stale ? 0.8 : 0.45;
+                    const textColor = upToDate || stale || isSelected ? "#fff" : colors.mutedForeground;
+
                     return (
-                      <View
-                        key={m.id}
-                        style={[
-                          styles.memberAvatar,
-                          {
-                            backgroundColor: colors.card,
-                            borderColor: colors.border,
-                            opacity: 0.45,
-                          },
-                        ]}
-                      >
-                        {m.avatarUrl ? (
-                          <Image source={{ uri: m.avatarUrl }} style={styles.memberAvatarImage} />
-                        ) : (
-                          <Text style={[styles.memberInitial, { color: colors.mutedForeground }]}>
-                            {m.displayName.charAt(0).toUpperCase()}
-                          </Text>
+                      <View key={m.id} style={styles.memberAvatarWrap}>
+                        {showingTooltip && (
+                          <View style={[styles.avatarTooltip, { backgroundColor: colors.foreground }]}>
+                            <Text style={[styles.avatarTooltipText, { color: colors.background }]} numberOfLines={1}>
+                              {m.displayName}
+                            </Text>
+                            <View style={[styles.avatarTooltipArrow, { borderTopColor: colors.foreground }]} />
+                          </View>
                         )}
+                        <TouchableOpacity
+                          onPress={() => {
+                            Haptics.selectionAsync();
+                            setSelectedMemberIds((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(m.id)) next.delete(m.id);
+                              else next.add(m.id);
+                              return next;
+                            });
+                          }}
+                          onLongPress={() => {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                            showTooltip(m.id);
+                          }}
+                          delayLongPress={500}
+                          activeOpacity={0.7}
+                          style={[
+                            styles.memberAvatar,
+                            {
+                              backgroundColor: avatarBg,
+                              borderColor: avatarBorder,
+                              borderWidth: isSelected ? 2.5 : 1.5,
+                              opacity: avatarOpacity,
+                            },
+                          ]}
+                        >
+                          {m.avatarUrl ? (
+                            <Image source={{ uri: m.avatarUrl }} style={styles.memberAvatarImage} />
+                          ) : (
+                            <Text style={[styles.memberInitial, { color: textColor }]}>
+                              {m.displayName.charAt(0).toUpperCase()}
+                            </Text>
+                          )}
+                        </TouchableOpacity>
                       </View>
                     );
                   })}
                 </View>
-                {data.members.some((m) => !m.hasResponded) && (
-                  <Text style={[styles.memberPendingText, { color: colors.textDim }]}>
-                    {data.members.filter((m) => !m.hasResponded).length} still pending
-                  </Text>
+                {data.members.some((m) => m.needsUpdate) && (
+                  <View style={[styles.pendingList, { borderColor: colors.border, backgroundColor: colors.card }]}>
+                    <View style={styles.pendingHeader}>
+                      <Ionicons name="time-outline" size={14} color={colors.gold} />
+                      <Text style={[styles.pendingHeaderText, { color: colors.mutedForeground }]}>
+                        Still needs to update
+                      </Text>
+                    </View>
+                    {data.members
+                      .filter((m) => m.needsUpdate)
+                      .map((m) => (
+                        <View key={m.id} style={styles.pendingMemberRow}>
+                          <View style={[styles.pendingAvatar, { backgroundColor: m.hasResponded ? colors.gold + "33" : colors.border + "33", borderColor: m.hasResponded ? colors.gold : colors.border }]}>
+                            <Text style={[styles.pendingInitial, { color: m.hasResponded ? colors.gold : colors.mutedForeground }]}>
+                              {m.displayName.charAt(0).toUpperCase()}
+                            </Text>
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.pendingName, { color: colors.foreground }]}>{m.displayName}</Text>
+                            <Text style={[styles.pendingStatus, { color: colors.textDim }]}>
+                              {m.hasResponded ? "Responded before the date change" : "Hasn't responded yet"}
+                            </Text>
+                          </View>
+                        </View>
+                      ))}
+                  </View>
                 )}
               </View>
             )}
@@ -1394,6 +1408,14 @@ const styles = StyleSheet.create({
   filterBanner: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 10, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 7, marginBottom: 10 },
   filterDot: { width: 6, height: 6, borderRadius: 3 },
   filterBannerText: { flex: 1, fontSize: 12, fontWeight: "700" },
+  pendingList: { marginTop: 12, borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, gap: 10 },
+  pendingHeader: { flexDirection: "row", alignItems: "center", gap: 6 },
+  pendingHeaderText: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 },
+  pendingMemberRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  pendingAvatar: { width: 30, height: 30, borderRadius: 15, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
+  pendingInitial: { fontSize: 12, fontWeight: "800" },
+  pendingName: { fontSize: 13, fontWeight: "700" },
+  pendingStatus: { fontSize: 11, marginTop: 1 },
   bottomBar: { paddingHorizontal: 20, paddingTop: 12, borderTopWidth: 1, gap: 10 },
   droppedBanner: { flexDirection: "row", alignItems: "flex-start", gap: 8, borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10 },
   droppedBannerText: { flex: 1, fontSize: 13, lineHeight: 18 },

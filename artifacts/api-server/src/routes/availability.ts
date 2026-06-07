@@ -11,6 +11,7 @@ type MemberInfo = {
   displayName: string;
   avatarUrl: string | null;
   hasResponded: boolean;
+  needsUpdate: boolean;
 };
 
 function toDisplayName(user: { firstName?: string | null; lastName?: string | null; email?: string | null }): string {
@@ -21,8 +22,23 @@ function toDisplayName(user: { firstName?: string | null; lastName?: string | nu
 
 async function buildMembersField(
   poll: AvailabilityPoll,
-  respondentIds: Set<string>,
+  responses: { userId: string; cells: string[]; updatedAt: Date }[],
 ): Promise<MemberInfo[]> {
+  const responseMap = new Map(responses.map((r) => [r.userId, r]));
+  const pollUpdatedAt = poll.updatedAt;
+
+  // A member needsUpdate when:
+  //   - they have never responded, OR
+  //   - the poll's date range was updated more recently than their last response
+  function memberNeedsUpdate(userId: string): boolean {
+    const r = responseMap.get(userId);
+    if (!r) return true;
+    if (!pollUpdatedAt) return false;
+    return r.updatedAt < pollUpdatedAt;
+  }
+
+  const respondentIds = new Set(responses.map((r) => r.userId));
+
   if (poll.squadId) {
     const squad = await storage.getSquad(poll.squadId);
     const memberIds: string[] = (squad?.memberIds as string[] | null) ?? [];
@@ -33,6 +49,7 @@ async function buildMembersField(
       displayName: toDisplayName(u),
       avatarUrl: u.profileImageUrl ?? null,
       hasResponded: respondentIds.has(u.id),
+      needsUpdate: memberNeedsUpdate(u.id),
     }));
   }
   if (respondentIds.size > 0) {
@@ -42,6 +59,7 @@ async function buildMembersField(
       displayName: toDisplayName(u),
       avatarUrl: u.profileImageUrl ?? null,
       hasResponded: true,
+      needsUpdate: memberNeedsUpdate(u.id),
     }));
   }
   return [];
@@ -214,8 +232,7 @@ router.post("/availability/polls", requireAuth, async (req: Request, res: Respon
       }));
 
     const responses = await storage.getAvailabilityResponses(poll.id);
-    const respondentIds = new Set(responses.map((r) => r.userId));
-    const members = await buildMembersField(poll, respondentIds);
+    const members = await buildMembersField(poll, responses);
     res.status(existing ? 200 : 201).json({ ...buildPollPayload(poll, responses, userId), members });
   } catch (err) {
     logger.error({ err }, "Error creating availability poll");
@@ -245,8 +262,7 @@ router.get("/availability/polls/find", requireAuth, async (req: Request, res: Re
       return;
     }
     const responses = await storage.getAvailabilityResponses(poll.id);
-    const respondentIds = new Set(responses.map((r) => r.userId));
-    const members = await buildMembersField(poll, respondentIds);
+    const members = await buildMembersField(poll, responses);
     res.json({ ...buildPollPayload(poll, responses, userId), members });
   } catch (err) {
     logger.error({ err }, "Error finding availability poll");
@@ -272,8 +288,7 @@ router.get("/availability/polls/:id", requireAuth, async (req: Request, res: Res
       return;
     }
     const responses = await storage.getAvailabilityResponses(poll.id);
-    const respondentIds = new Set(responses.map((r) => r.userId));
-    const members = await buildMembersField(poll, respondentIds);
+    const members = await buildMembersField(poll, responses);
     res.json({ ...buildPollPayload(poll, responses, userId), members });
   } catch (err) {
     logger.error({ err }, "Error fetching availability poll");
@@ -310,7 +325,8 @@ router.patch("/availability/polls/:id", requireAuth, async (req: Request, res: R
 
     const updatedPoll = await storage.updateAvailabilityPoll(poll.id, parsed.data);
     const responses = await storage.getAvailabilityResponses(updatedPoll.id);
-    res.json(buildPollPayload(updatedPoll, responses, userId));
+    const members = await buildMembersField(updatedPoll, responses);
+    res.json({ ...buildPollPayload(updatedPoll, responses, userId), members });
 
     // Only fire push notifications when the date range (days or slots) actually
     // changed — title-only patches don't require members to re-enter their times.
@@ -426,8 +442,7 @@ router.put("/availability/polls/:id/me", requireAuth, async (req: Request, res: 
 
     await storage.upsertAvailabilityResponse(poll.id, userId, cells, "manual");
     const responses = await storage.getAvailabilityResponses(poll.id);
-    const respondentIds = new Set(responses.map((r) => r.userId));
-    const members = await buildMembersField(poll, respondentIds);
+    const members = await buildMembersField(poll, responses);
     res.json({ ...buildPollPayload(poll, responses, userId), members, droppedCount });
   } catch (err) {
     logger.error({ err }, "Error saving availability response");
