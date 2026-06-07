@@ -5,6 +5,7 @@ import { db, squadsTable } from "@workspace/db";
 import { requireAuth } from "../middleware/currentUser";
 import { storage } from "../storage";
 import { logger } from "../lib/logger";
+import { sendPushNotifications } from "../lib/pushNotifications";
 
 const router: IRouter = Router();
 
@@ -58,6 +59,27 @@ router.post("/squads", requireAuth, async (req: Request, res: Response): Promise
   const memberIds = Array.from(new Set([userId, ...parsed.data.memberIds]));
   const [squad] = await db.insert(squadsTable).values({ ...parsed.data, memberIds }).returning();
   res.status(201).json(squad);
+
+  // Fire-and-forget: notify added members (not the creator) that they're in a new squad.
+  const addedMembers = memberIds.filter((id) => id !== userId);
+  if (addedMembers.length > 0) {
+    (async () => {
+      try {
+        const tokens = await storage.getPushTokensForUsers(addedMembers);
+        await sendPushNotifications(
+          tokens,
+          {
+            title: "You've been added to a squad",
+            body: `You're now in "${squad.name}"`,
+            data: { screen: "squad", squadId: squad.id },
+          },
+          { onStaleToken: (token) => storage.clearPushToken(token) },
+        );
+      } catch (err) {
+        logger.error({ err }, "Error sending squad-added push notifications");
+      }
+    })();
+  }
 });
 
 router.get("/squads/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {
