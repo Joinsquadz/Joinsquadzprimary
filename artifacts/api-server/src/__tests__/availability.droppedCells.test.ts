@@ -6,6 +6,8 @@ const storageMock = vi.hoisted(() => ({
   getAvailabilityResponses: vi.fn(),
   upsertAvailabilityResponse: vi.fn(),
   canAccessAvailabilityPoll: vi.fn(),
+  getSquad: vi.fn(),
+  getUsers: vi.fn(),
 }));
 
 vi.mock("../storage", () => ({ storage: storageMock }));
@@ -40,6 +42,8 @@ beforeEach(() => {
   storageMock.canAccessAvailabilityPoll.mockResolvedValue(true);
   storageMock.upsertAvailabilityResponse.mockResolvedValue({});
   storageMock.getAvailabilityResponses.mockResolvedValue([]);
+  storageMock.getSquad.mockResolvedValue(null);
+  storageMock.getUsers.mockResolvedValue([]);
 });
 
 describe("PUT /api/availability/polls/:id/me — droppedCount", () => {

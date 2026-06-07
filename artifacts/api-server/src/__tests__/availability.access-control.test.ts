@@ -10,6 +10,8 @@ const storageMock = vi.hoisted(() => ({
   getAvailabilityResponses: vi.fn(),
   upsertAvailabilityResponse: vi.fn(),
   canAccessAvailabilityPoll: vi.fn(),
+  getSquad: vi.fn(),
+  getUsers: vi.fn(),
 }));
 
 vi.mock("../storage", () => ({ storage: storageMock }));
@@ -43,6 +45,8 @@ const basePoll = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  storageMock.getSquad.mockResolvedValue(null);
+  storageMock.getUsers.mockResolvedValue([]);
 });
 
 describe("GET /api/availability/polls/:id", () => {
@@ -341,5 +345,43 @@ describe("PATCH /api/availability/polls/:id", () => {
     expect(res.status).toBe(200);
     expect(res.body.respondentCount).toBe(1);
     expect(res.body.heatmap).toEqual([{ cell: "2026-06-14-6PM", count: 1 }]);
+  });
+
+  it("returns 403 when a non-creator sends a title-only PATCH", async () => {
+    storageMock.getAvailabilityPoll.mockResolvedValue(basePoll);
+    const app = await makeApp({ id: STRANGER_ID });
+    const res = await request(app)
+      .patch("/api/availability/polls/poll-1")
+      .send({ title: "Hijacked Title" });
+    expect(res.status).toBe(403);
+    expect(storageMock.updateAvailabilityPoll).not.toHaveBeenCalled();
+  });
+
+  it("returns 200 with the updated title when the creator sends a title-only PATCH", async () => {
+    const renamedPoll = { ...basePoll, title: "Our Friday Hang" };
+    storageMock.getAvailabilityPoll.mockResolvedValue(basePoll);
+    storageMock.updateAvailabilityPoll.mockResolvedValue(renamedPoll);
+    storageMock.getAvailabilityResponses.mockResolvedValue([]);
+    const app = await makeApp({ id: MEMBER_ID });
+    const res = await request(app)
+      .patch("/api/availability/polls/poll-1")
+      .send({ title: "Our Friday Hang" });
+    expect(res.status).toBe(200);
+    expect(storageMock.updateAvailabilityPoll).toHaveBeenCalledWith("poll-1", { title: "Our Friday Hang" });
+    expect(res.body.poll.title).toBe("Our Friday Hang");
+  });
+
+  it("clears the title to blank when an empty-string title is sent by the creator", async () => {
+    const clearedPoll = { ...basePoll, title: "" };
+    storageMock.getAvailabilityPoll.mockResolvedValue(basePoll);
+    storageMock.updateAvailabilityPoll.mockResolvedValue(clearedPoll);
+    storageMock.getAvailabilityResponses.mockResolvedValue([]);
+    const app = await makeApp({ id: MEMBER_ID });
+    const res = await request(app)
+      .patch("/api/availability/polls/poll-1")
+      .send({ title: "" });
+    expect(res.status).toBe(200);
+    expect(storageMock.updateAvailabilityPoll).toHaveBeenCalledWith("poll-1", { title: "" });
+    expect(res.body.poll.title).toBe("");
   });
 });
