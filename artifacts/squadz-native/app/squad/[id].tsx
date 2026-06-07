@@ -27,7 +27,7 @@ import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { UserAvatar } from "@/components/UserAvatar";
 import { EventCard } from "@/components/EventCard";
 import { goingCount } from "@/lib/eventUtils";
-import { useUserCache } from "@/context/UserCacheContext";
+import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
 
 const EMOJIS = ["🔥", "🎉", "🎮", "🏖️", "🍕", "🎸", "⚽", "🎬", "🍻", "🎊", "🏀", "🎲", "🧗", "🎤", "🏠", "💼"];
 
@@ -47,7 +47,7 @@ export default function SquadDetailScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { events, getSquad, updateSquad, leaveSquad, currentUser, addMemberByFriendCode, removeMember } = useData();
-  const { resolveUser, prefetchUsers } = useUserCache();
+  const { resolveUser, prefetchUsers, seedUser } = useUserCache();
   const { getSquadConversation } = useMessages();
   const { authToken } = useAuth();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -61,6 +61,7 @@ export default function SquadDetailScreen() {
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searchResults, setSearchResults] = useState<FoundUser[]>([]);
   const [addingUserId, setAddingUserId] = useState<string | null>(null);
+  const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
 
   const [showLongPressHint, setShowLongPressHint] = useState(false);
   const hintOpacity = useRef(new Animated.Value(0)).current;
@@ -114,6 +115,39 @@ export default function SquadDetailScreen() {
     "Content-Type": "application/json",
     ...buildAuthHeaders(authToken),
   }), [authToken]);
+
+  // Fetch enriched member list on focus and seed the user cache so names/avatars
+  // appear immediately without waiting for the separate batch-fetch.
+  useFocusEffect(
+    useCallback(() => {
+      if (!id) return;
+      let active = true;
+      type EnrichedMember = { id: string; firstName: string | null; lastName: string | null; profileImageUrl: string | null };
+      fetch(`${API_BASE}/api/squads/${id}`, { headers: authHeaders() })
+        .then((r) => (r.ok ? (r.json() as Promise<{ members?: EnrichedMember[] }>) : null))
+        .catch(() => null)
+        .then((data) => {
+          if (!active || !data?.members) return;
+          data.members.forEach((m) => {
+            const firstName = m.firstName ?? "";
+            const lastName = m.lastName ?? "";
+            const name = [firstName, lastName].filter(Boolean).join(" ") || "Unknown";
+            const initials =
+              firstName && lastName
+                ? `${firstName[0]}${lastName[0]}`.toUpperCase()
+                : firstName
+                ? firstName.slice(0, 2).toUpperCase()
+                : "U?";
+            let hash = 0;
+            for (const c of m.id) hash = (hash * 31 + c.charCodeAt(0)) & 0xffffffff;
+            const COLORS = ["#FF5C3A","#A855F7","#2ECC8A","#FFB547","#4A9EFF","#E91E8C","#00BCD4","#FF9800","#8BC34A","#9C27B0"];
+            const color = COLORS[Math.abs(hash) % COLORS.length];
+            seedUser({ id: m.id, name, initials, color: color ?? "#FF5C3A", profileImageUrl: m.profileImageUrl ?? null });
+          });
+        });
+      return () => { active = false; };
+    }, [id, authHeaders, seedUser])
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -219,30 +253,37 @@ export default function SquadDetailScreen() {
   const creatorId = squad.creatorId ?? squad.memberIds[0] ?? null;
   const isCreator = currentUser.id === creatorId;
 
-  const handleMemberLongPress = (memberId: string, memberName: string) => {
-    const isSelf = memberId === currentUser.id;
-    if (!isCreator && !isSelf) return;
-    const isTarget = memberId === creatorId && isCreator;
-    if (isTarget) return;
-
+  const handleRemoveMember = (memberId: string, memberName: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const label = isSelf ? "Leave squad" : `Remove ${memberName}`;
-    const message = isSelf
-      ? `Leave "${squad.name}"? You'll need a new invite to rejoin.`
-      : `Remove ${memberName} from "${squad.name}"?`;
-    Alert.alert(label, message, [
+    Alert.alert(`Remove ${memberName}`, `Remove ${memberName} from "${squad.name}"?`, [
       { text: "Cancel", style: "cancel" },
       {
-        text: isSelf ? "Leave" : "Remove",
+        text: "Remove",
         style: "destructive",
         onPress: async () => {
+          setRemovingMemberId(memberId);
           const result = await removeMember(squad.id, memberId);
-          if (result.error) {
-            Alert.alert("Error", result.error);
-          } else {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            if (isSelf) goBack();
-          }
+          setRemovingMemberId(null);
+          if (result.error) Alert.alert("Error", result.error);
+          else Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        },
+      },
+    ]);
+  };
+
+  const handleLeaveSquad = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    Alert.alert("Leave squad", `Leave "${squad.name}"? You'll need a new invite to rejoin.`, [
+      { text: "Stay", style: "cancel" },
+      {
+        text: "Leave",
+        style: "destructive",
+        onPress: async () => {
+          setRemovingMemberId(currentUser.id);
+          const result = await removeMember(squad.id, currentUser.id);
+          setRemovingMemberId(null);
+          if (result.error) Alert.alert("Error", result.error);
+          else { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); goBack(); }
         },
       },
     ]);
@@ -297,21 +338,6 @@ export default function SquadDetailScreen() {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
-  const confirmLeave = () => {
-    Alert.alert("Leave squad", `Leave "${squad.name}"? You'll need a new invite to rejoin.`, [
-      { text: "Stay", style: "cancel" },
-      {
-        text: "Leave",
-        style: "destructive",
-        onPress: () => {
-          leaveSquad(squad.id);
-          setSettingsOpen(false);
-          goBack();
-        },
-      },
-    ]);
-  };
-
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       {/* Hero */}
@@ -356,21 +382,36 @@ export default function SquadDetailScreen() {
         )}
         <View style={styles.membersGrid}>
           {members.map((m) => {
-            const canInteract = isCreator ? m.id !== creatorId : m.id === currentUser.id;
+            const isSelf = m.id === currentUser.id;
+            const showRemoveBtn = isCreator && !isSelf && m.id !== creatorId;
+            const isBeingRemoved = removingMemberId === m.id;
             return (
-              <TouchableOpacity
-                key={m.id}
-                onLongPress={() => handleMemberLongPress(m.id, m.name.split(" ")[0])}
-                delayLongPress={400}
-                disabled={!canInteract}
-                style={[styles.memberCard, { backgroundColor: colors.card, borderColor: colors.border }]}
-                activeOpacity={canInteract ? 0.7 : 1}
-              >
-                <UserAvatar initials={m.initials} color={m.color} imageUrl={m.profileImageUrl} size={44} fontSize={15} />
-                <Text style={[styles.memberName, { color: colors.foreground }]} numberOfLines={1}>
-                  {m.name.split(" ")[0]}
-                </Text>
-              </TouchableOpacity>
+              <View key={m.id} style={{ position: "relative" }}>
+                <TouchableOpacity
+                  onLongPress={isSelf && !isCreator ? handleLeaveSquad : undefined}
+                  delayLongPress={400}
+                  style={[styles.memberCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+                  activeOpacity={1}
+                >
+                  {isBeingRemoved ? (
+                    <ActivityIndicator size="small" color={colors.primary} style={{ height: 44 }} />
+                  ) : (
+                    <UserAvatar initials={m.initials} color={m.color} imageUrl={m.profileImageUrl} size={44} fontSize={15} />
+                  )}
+                  <Text style={[styles.memberName, { color: colors.foreground }]} numberOfLines={1}>
+                    {m.name.split(" ")[0]}
+                  </Text>
+                </TouchableOpacity>
+                {showRemoveBtn && (
+                  <TouchableOpacity
+                    onPress={() => handleRemoveMember(m.id, m.name.split(" ")[0])}
+                    style={[styles.removeMemberBtn, { backgroundColor: colors.destructive }]}
+                    hitSlop={{ top: 6, right: 6, bottom: 6, left: 6 }}
+                  >
+                    <Ionicons name="close" size={10} color="#fff" />
+                  </TouchableOpacity>
+                )}
+              </View>
             );
           })}
           {isCreator && (
@@ -632,7 +673,7 @@ export default function SquadDetailScreen() {
               <Ionicons name="chevron-forward" size={16} color={colors.textDim} />
             </TouchableOpacity>
 
-            <TouchableOpacity onPress={confirmLeave} style={[styles.actionRow, { borderColor: colors.border }]}>
+            <TouchableOpacity onPress={() => { setSettingsOpen(false); handleLeaveSquad(); }} style={[styles.actionRow, { borderColor: colors.border }]}>
               <Ionicons name="exit-outline" size={20} color={colors.destructive} />
               <Text style={[styles.actionText, { color: colors.destructive }]}>Leave squad</Text>
             </TouchableOpacity>
@@ -667,6 +708,7 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 18, fontWeight: "800", marginBottom: 12 },
   membersGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   memberCard: { borderRadius: 14, borderWidth: 1, padding: 14, alignItems: "center", gap: 8, width: "30%" },
+  removeMemberBtn: { position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center", zIndex: 10 },
   addMember: {},
   addIcon: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
   memberName: { fontSize: 12, fontWeight: "700", textAlign: "center" },

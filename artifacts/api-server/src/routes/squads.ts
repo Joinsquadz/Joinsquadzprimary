@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db, squadsTable, usersTable } from "@workspace/db";
 import { requireAuth } from "../middleware/currentUser";
@@ -99,7 +99,19 @@ router.get("/squads/:id", requireAuth, async (req: Request, res: Response): Prom
     res.status(403).json({ error: "Access denied" });
     return;
   }
-  res.json(squad);
+  const members =
+    memberIds.length > 0
+      ? await db
+          .select({
+            id: usersTable.id,
+            firstName: usersTable.firstName,
+            lastName: usersTable.lastName,
+            profileImageUrl: usersTable.profileImageUrl,
+          })
+          .from(usersTable)
+          .where(inArray(usersTable.id, memberIds))
+      : [];
+  res.json({ ...squad, members });
 });
 
 router.patch("/squads/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {
