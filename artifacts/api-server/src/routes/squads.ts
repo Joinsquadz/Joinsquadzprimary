@@ -403,7 +403,8 @@ router.post("/squads/:id/members", requireAuth, async (req: Request, res: Respon
         : "Someone";
       const unmuted = await storage.filterUnmutedForSquad([target.id], id);
       if (unmuted.length === 0) return;
-      const tokens = await storage.getPushTokensForUsers(unmuted);
+      const tokens = await storage.getPushTokensForUsers(unmuted, { requireNotifySquadJoin: true });
+      if (tokens.length === 0) return;
       await sendPushNotifications(
         tokens,
         {
