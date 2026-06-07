@@ -128,6 +128,7 @@ export default function ProfileScreen() {
   const [tokenCopied, setTokenCopied] = useState(false);
   const [sendingTestPush, setSendingTestPush] = useState(false);
   const [devPushPermission, setDevPushPermission] = useState<"granted" | "denied" | "undetermined" | null>(null);
+  const [notifPermission, setNotifPermission] = useState<"granted" | "denied" | "undetermined" | null>(null);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 84 : 100);
@@ -198,6 +199,53 @@ export default function ProfileScreen() {
       }
     })();
     return () => { cancelled = true; };
+  }, []);
+
+  // Production: check notification permission on mount (native only)
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const Notifications = await import("expo-notifications");
+        const perm = await Notifications.getPermissionsAsync();
+        if (cancelled) return;
+        if (perm.granted || perm.status === "granted") {
+          setNotifPermission("granted");
+        } else if (perm.status === "denied") {
+          setNotifPermission("denied");
+        } else {
+          setNotifPermission("undetermined");
+        }
+      } catch {
+        // Notifications API unavailable (web build, simulator without credentials, etc.)
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Production: re-check notification permission when app returns to foreground
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state !== "active") return;
+      (async () => {
+        try {
+          const Notifications = await import("expo-notifications");
+          const perm = await Notifications.getPermissionsAsync();
+          if (perm.granted || perm.status === "granted") {
+            setNotifPermission("granted");
+          } else if (perm.status === "denied") {
+            setNotifPermission("denied");
+          } else {
+            setNotifPermission("undetermined");
+          }
+        } catch {
+          // Notifications API unavailable
+        }
+      })();
+    });
+    return () => sub.remove();
   }, []);
 
   // Re-check push permission when the app returns to foreground (e.g. after tapping "Open Settings")
@@ -659,6 +707,27 @@ export default function ProfileScreen() {
           )}
         </View>
 
+        {notifPermission === "denied" && Platform.OS !== "web" && (
+          <TouchableOpacity
+            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); void Linking.openSettings(); }}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel="Turn on notifications in Settings"
+            style={[styles.notifNudge, { backgroundColor: colors.card, borderColor: "#FF5C3A" + "60" }]}
+          >
+            <View style={[styles.notifNudgeIcon, { backgroundColor: "#FF5C3A" + "18" }]}>
+              <Ionicons name="notifications-off-outline" size={22} color="#FF5C3A" />
+            </View>
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text style={[styles.notifNudgeTitle, { color: colors.foreground }]}>Turn on notifications</Text>
+              <Text style={[styles.notifNudgeBody, { color: colors.mutedForeground }]}>
+                You'll miss event reminders and squad invites. Tap to enable in Settings.
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color="#FF5C3A" />
+          </TouchableOpacity>
+        )}
+
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.foreground }]}>My Events</Text>
           <View style={styles.eventsGrid}>
@@ -886,4 +955,8 @@ const styles = StyleSheet.create({
   devSectionTitle: { fontSize: 11, fontWeight: "700", letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 8 },
   devTokenLabel: { fontSize: 10, fontWeight: "600", letterSpacing: 0.4, textTransform: "uppercase" },
   devTokenValue: { fontSize: 12, fontFamily: "monospace", letterSpacing: 0.3 },
+  notifNudge: { flexDirection: "row", alignItems: "center", gap: 12, marginHorizontal: 20, marginTop: 16, borderRadius: 14, borderWidth: 1, padding: 14 },
+  notifNudgeIcon: { width: 42, height: 42, borderRadius: 12, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  notifNudgeTitle: { fontSize: 15, fontWeight: "700" },
+  notifNudgeBody: { fontSize: 13, lineHeight: 18 },
 });
