@@ -36,6 +36,7 @@ export default function HomeScreen() {
   const [discoverEvents, setDiscoverEvents] = useState<DiscoverEvent[]>([]);
   const [discoverSquads, setDiscoverSquads] = useState<DiscoverSquad[]>([]);
   const [streaks, setStreaks] = useState<{ monthlyPlan: number; stayInTouch: number } | null>(null);
+  const [fabOpen, setFabOpen] = useState(false);
 
   useEffect(() => {
     if (!authToken) return;
@@ -357,13 +358,61 @@ export default function HomeScreen() {
         )}
       </ScrollView>
 
-      {/* FAB */}
-      <TouchableOpacity
-        onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push("/(tabs)/create"); }}
-        style={[styles.fab, { backgroundColor: colors.primary, shadowColor: colors.primary }]}
-      >
-        <Text style={styles.fabText}>+</Text>
-      </TouchableOpacity>
+      {/* FAB speed-dial backdrop */}
+      {fabOpen && (
+        <TouchableOpacity
+          style={styles.fabBackdrop}
+          activeOpacity={1}
+          onPress={() => setFabOpen(false)}
+        />
+      )}
+
+      {/* FAB speed-dial */}
+      <View style={styles.fabGroup}>
+        {fabOpen && (
+          <>
+            <View style={styles.fabOption}>
+              <View style={[styles.fabOptionLabel, { backgroundColor: colors.card }]}>
+                <Text style={[styles.fabOptionText, { color: colors.foreground }]}>New Squad</Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => {
+                  setFabOpen(false);
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  router.push("/squad/create" as never);
+                }}
+                style={[styles.fabMini, { backgroundColor: colors.card, borderColor: colors.border }]}
+              >
+                <Text style={{ fontSize: 22 }}>👥</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.fabOption}>
+              <View style={[styles.fabOptionLabel, { backgroundColor: colors.card }]}>
+                <Text style={[styles.fabOptionText, { color: colors.foreground }]}>New Event</Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => {
+                  setFabOpen(false);
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  router.push("/(tabs)/create" as never);
+                }}
+                style={[styles.fabMini, { backgroundColor: colors.card, borderColor: colors.border }]}
+              >
+                <Text style={{ fontSize: 22 }}>🎉</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
+        <TouchableOpacity
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            setFabOpen((v) => !v);
+          }}
+          style={[styles.fab, { backgroundColor: colors.primary, shadowColor: colors.primary }]}
+        >
+          <Text style={[styles.fabText, fabOpen && { transform: [{ rotate: "45deg" }] }]}>+</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -457,8 +506,23 @@ const styles = StyleSheet.create({
   discoverSub: { fontSize: 12 },
   discoverJoinBtn: { borderRadius: 10, paddingVertical: 7, alignItems: "center" },
   discoverJoinText: { fontSize: 12, fontWeight: "800", color: "#fff" },
-  fab: {
+  fabBackdrop: { ...StyleSheet.absoluteFillObject, zIndex: 10 },
+  fabGroup: {
     position: "absolute", bottom: 90, right: 24,
+    alignItems: "flex-end", gap: 14, zIndex: 11,
+  },
+  fabOption: { flexDirection: "row", alignItems: "center", gap: 10 },
+  fabOptionLabel: {
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10,
+    shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 6, elevation: 3,
+  },
+  fabOptionText: { fontSize: 13, fontWeight: "700" },
+  fabMini: {
+    width: 50, height: 50, borderRadius: 25,
+    alignItems: "center", justifyContent: "center", borderWidth: 1.5,
+    shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 4,
+  },
+  fab: {
     width: 56, height: 56, borderRadius: 28,
     alignItems: "center", justifyContent: "center",
     shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.4, shadowRadius: 16, elevation: 8,
