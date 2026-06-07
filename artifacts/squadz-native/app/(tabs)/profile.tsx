@@ -10,6 +10,7 @@ import {
   Linking,
   ActivityIndicator,
   Animated,
+  Share,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -106,7 +107,7 @@ export default function ProfileScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { currentUser, logout, authToken } = useAuth();
-  const { events, squads } = useData();
+  const { events, squads, friendCode } = useData();
   const params = useLocalSearchParams<{ checkout?: string }>();
 
   const didCheckoutSuccess = params.checkout === "success";
@@ -121,6 +122,7 @@ export default function ProfileScreen() {
   const [calSync, setCalSync] = useState(false);
   const [calSyncLoading, setCalSyncLoading] = useState(false);
   const [highlightCalSync, setHighlightCalSync] = useState(false);
+  const [codeCopied, setCodeCopied] = useState(false);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 84 : 100);
@@ -275,6 +277,29 @@ export default function ProfileScreen() {
       Alert.alert("Error", "Something went wrong. Please try again.");
     } finally {
       setCalSyncLoading(false);
+    }
+  }
+
+  async function handleShareFriendCode() {
+    if (!friendCode) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (Platform.OS === "web") {
+      try {
+        await navigator.clipboard.writeText(friendCode);
+        setCodeCopied(true);
+        setTimeout(() => setCodeCopied(false), 2000);
+      } catch {
+        Alert.alert("Your Friend Code", friendCode);
+      }
+    } else {
+      try {
+        await Share.share({
+          message: `Add me on Squadz! My friend code is ${friendCode}`,
+          title: "My Squadz Friend Code",
+        });
+      } catch {
+        // User dismissed share sheet — no action needed
+      }
     }
   }
 
@@ -459,6 +484,28 @@ export default function ProfileScreen() {
               </View>
             ))}
           </View>
+          {friendCode ? (
+            <TouchableOpacity
+              onPress={() => { void handleShareFriendCode(); }}
+              activeOpacity={0.7}
+              style={[styles.friendCodeRow, { backgroundColor: colors.card, borderColor: colors.border }]}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.friendCodeLabel, { color: colors.mutedForeground }]}>Your friend code</Text>
+                <Text style={[styles.friendCodeValue, { color: colors.foreground }]}>{friendCode}</Text>
+              </View>
+              <View style={[styles.friendCodeAction, { backgroundColor: codeCopied ? colors.green + "20" : colors.primary + "18", borderColor: codeCopied ? colors.green + "50" : colors.primary + "40" }]}>
+                <Ionicons
+                  name={codeCopied ? "checkmark" : (Platform.OS === "web" ? "copy-outline" : "share-outline")}
+                  size={16}
+                  color={codeCopied ? colors.green : colors.primary}
+                />
+                <Text style={[styles.friendCodeActionText, { color: codeCopied ? colors.green : colors.primary }]}>
+                  {codeCopied ? "Copied!" : (Platform.OS === "web" ? "Copy" : "Share")}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          ) : null}
           {eventCount !== null && !isPro && (
             <View style={[styles.eventUsageBar, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <View style={styles.eventUsageRow}>
@@ -621,6 +668,11 @@ const styles = StyleSheet.create({
   featureChip: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 20, borderWidth: 1, paddingHorizontal: 11, paddingVertical: 5 },
   featureChipIcon: { fontSize: 13 },
   featureChipLabel: { fontSize: 12, fontWeight: "700" },
+  friendCodeRow: { flexDirection: "row", alignItems: "center", marginTop: 16, borderRadius: 14, borderWidth: 1, padding: 12, width: "100%" },
+  friendCodeLabel: { fontSize: 11, fontWeight: "600", letterSpacing: 0.4, textTransform: "uppercase", marginBottom: 2 },
+  friendCodeValue: { fontSize: 20, fontWeight: "800", letterSpacing: 1 },
+  friendCodeAction: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 20, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 7 },
+  friendCodeActionText: { fontSize: 13, fontWeight: "700" },
   eventUsageBar: { marginTop: 14, borderRadius: 12, borderWidth: 1, padding: 10, width: "100%" },
   eventUsageRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 },
   eventUsageLabel: { fontSize: 12 },
