@@ -49,6 +49,28 @@ fragment, then `history.replaceState` to strip it (prevents replay). No
 client-side PKCE/sessionStorage on web anymore. The **native**
 (`WebBrowser.openAuthSessionAsync`) path is unchanged.
 
+## Embedded-iframe relay (why a "working" new-tab login still looked broken)
+
+In the canvas preview the new login tab and the iframe are **different storage
+partitions**, so the session minted in the new tab never reached the embedded
+app — the preview stayed on the login screen and users read that as "Sign In
+Failed" even though the server flow was fine. Fix: a same-origin **postMessage
+relay** (both windows are the Expo subdomain origin, so a direct
+`window.opener` handle crosses the partition boundary that storage can't):
+- Embedded click opens the relay tab **without `noopener`** and tags `returnTo`
+  with `?squadz_auth_relay=1&squadz_auth_nonce=<random>`. The iframe keeps the
+  nonce in a ref.
+- The relay tab, on mount with `#token`, `postMessage`s `{token, nonce}` to
+  `window.opener` (targetOrigin = its own origin) and also signs in locally as a
+  fallback.
+- The iframe's `message` listener accepts only same-origin messages whose nonce
+  matches the ref (prevents same-origin session fixation), then signs in.
+- Verified `replit.com/oidc/auth` sends **no COOP header**, so `window.opener`
+  survives the OIDC round-trip. Remaining failure modes are platform-level only:
+  popup blocked, or the embedder severing the opener via sandbox/COOP.
+- **Why:** OIDC sign-in fundamentally cannot complete *inside* a cross-origin
+  embed; either relay the token out-of-band or run the app in its own tab.
+
 **How to apply:** any Replit-OIDC web flow served off the main domain (Expo
 subdomain, or any non-`REPLIT_DOMAINS` host) must route the OIDC redirect through
 a main-domain server endpoint and hand the result back out-of-band; don't send

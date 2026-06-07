@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -55,6 +55,15 @@ function resolveApiBase(): string {
 }
 
 const API_BASE = resolveApiBase();
+
+// When the web app runs inside the Replit canvas preview (a cross-origin
+// iframe), the Replit login page can't be framed, so sign-in happens in a
+// top-level tab. That tab carries this marker in its returnTo URL and relays
+// the minted session token back to the iframe (same origin) via postMessage so
+// the embedded preview signs in too.
+const AUTH_RELAY_PARAM = "squadz_auth_relay";
+const AUTH_NONCE_PARAM = "squadz_auth_nonce";
+const AUTH_MESSAGE_TYPE = "squadz-auth-token";
 
 function generateCodeVerifier(): string {
   const arr = new Uint8Array(32);
@@ -161,6 +170,24 @@ export default function LoginScreen() {
   const bg = { backgroundColor: colors.background };
   const cardBg = { backgroundColor: colors.card, borderColor: colors.border };
 
+  // Random nonce minted when this iframe opens a relay login tab; the relay tab
+  // echoes it back in its postMessage so a different same-origin window can't
+  // force a session (fixation) by posting an arbitrary token.
+  const relayNonceRef = useRef<string | null>(null);
+
+  // Finish a successful web sign-in: persist the session token and route into
+  // the app. Shared by the URL-fragment handler (standalone / relay tab) and the
+  // postMessage handler (the embedded canvas iframe receiving a relayed token).
+  const completeWebLogin = (token: string) => {
+    setOidcLoading(true);
+    login(token);
+    if (hasInvite && params.inviteEventId) {
+      router.replace(`/event/${params.inviteEventId}` as never);
+    } else {
+      router.replace("/(tabs)" as never);
+    }
+  };
+
   // On web the OIDC flow is delegated to the server bouncer (see
   // handleReplitLogin). The server runs the whole flow on the main domain and
   // redirects back here with the minted session token in the URL fragment
@@ -175,15 +202,38 @@ export default function LoginScreen() {
     const err = frag.get("error");
     if (!token && !err) return;
 
-    // Strip the fragment immediately so a refresh can't replay the token.
+    const search = new URLSearchParams(window.location.search);
+    const isRelayTab = search.get(AUTH_RELAY_PARAM) === "1";
+    const relayNonce = search.get(AUTH_NONCE_PARAM);
+
+    // Strip the fragment (and relay markers) immediately so a refresh can't
+    // replay the token.
     try {
+      search.delete(AUTH_RELAY_PARAM);
+      search.delete(AUTH_NONCE_PARAM);
+      const qs = search.toString();
       window.history.replaceState(
         {},
         "",
-        window.location.pathname + window.location.search,
+        window.location.pathname + (qs ? `?${qs}` : ""),
       );
     } catch {
       /* non-fatal */
+    }
+
+    // This tab was opened from the embedded canvas preview to run the login that
+    // can't be framed. Relay the token back to the opener (the iframe, same
+    // origin) so the preview itself signs in. We still sign in locally below so
+    // this tab is usable too if the handoff doesn't land.
+    if (token && isRelayTab && window.opener) {
+      try {
+        window.opener.postMessage(
+          { type: AUTH_MESSAGE_TYPE, token, nonce: relayNonce },
+          window.location.origin,
+        );
+      } catch {
+        /* non-fatal — fall through to local sign-in */
+      }
     }
 
     if (err || !token) {
@@ -194,14 +244,40 @@ export default function LoginScreen() {
       return;
     }
 
-    setOidcLoading(true);
-    login(token);
-    if (hasInvite && params.inviteEventId) {
-      router.replace(`/event/${params.inviteEventId}` as never);
-    } else {
-      router.replace("/(tabs)" as never);
-    }
+    completeWebLogin(token);
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Embedded-iframe (canvas preview) side of the relay: listen for the session
+  // token postMessaged by the top-level login tab and sign in here. Both windows
+  // share the Expo origin, so a direct window-handle message crosses even though
+  // their storage is partitioned by the cross-origin embed.
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof window === "undefined") return;
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      const data = event.data as
+        | { type?: string; token?: string; nonce?: string }
+        | null;
+      if (!data || data.type !== AUTH_MESSAGE_TYPE || !data.token) return;
+      // Only accept a token for the sign-in attempt this iframe initiated.
+      if (!relayNonceRef.current || data.nonce !== relayNonceRef.current) return;
+      relayNonceRef.current = null;
+      completeWebLogin(data.token);
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // If the user opened the login tab but came back without finishing, clear the
+  // "Signing in…" state so the button is usable again. (A successful sign-in
+  // navigates away before this matters.)
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof window === "undefined") return;
+    const onFocus = () => setOidcLoading(false);
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
   }, []);
 
   const handleReplitLogin = async () => {
@@ -214,19 +290,36 @@ export default function LoginScreen() {
     // login page at the top level — it refuses to render inside a frame, so when
     // embedded in the Replit preview we open it in a new tab.
     if (Platform.OS === "web" && typeof window !== "undefined") {
-      const returnTo = window.location.href.split("#")[0];
-      const loginUrl = `${API_BASE}/api/mobile-auth/web-login?returnTo=${encodeURIComponent(returnTo)}`;
+      const base = window.location.href.split("#")[0];
       if (isEmbeddedWeb()) {
-        const opened = window.open(loginUrl, "_blank", "noopener");
+        // The Replit login page can't be framed, so run sign-in in a top-level
+        // tab. Mark its returnTo so that tab relays the session token back to
+        // this iframe (same origin) via postMessage — see the message listener
+        // above. We deliberately omit `noopener` so the relay tab keeps a handle
+        // to this window.
+        const nonce = generateCodeVerifier();
+        relayNonceRef.current = nonce;
+        const relayUrl = new URL(base);
+        relayUrl.searchParams.set(AUTH_RELAY_PARAM, "1");
+        relayUrl.searchParams.set(AUTH_NONCE_PARAM, nonce);
+        const loginUrl = `${API_BASE}/api/mobile-auth/web-login?returnTo=${encodeURIComponent(relayUrl.toString())}`;
+        const opened = window.open(loginUrl, "_blank");
+        if (!opened) {
+          Alert.alert(
+            "Allow pop-ups to sign in",
+            "Sign-in opens a Replit login page that can't run inside this preview. Allow pop-ups for this page (or open the preview in its own browser tab), then tap sign in again.",
+          );
+          return;
+        }
+        setOidcLoading(true);
         Alert.alert(
-          "Open Squadz in a new tab",
-          opened
-            ? "Sign-in uses a Replit login page that can't run inside this preview. We opened it in a new tab — finish signing in there and you'll be returned to Squadz."
-            : "Sign-in uses a Replit login page that can't run inside this preview. Open the preview in a new browser tab, then tap sign in again.",
+          "Finishing sign-in",
+          "We opened the Replit login in a new tab. Complete it there and you'll be signed in here automatically.",
         );
         return;
       }
       setOidcLoading(true);
+      const loginUrl = `${API_BASE}/api/mobile-auth/web-login?returnTo=${encodeURIComponent(base)}`;
       window.location.assign(loginUrl);
       return;
     }
