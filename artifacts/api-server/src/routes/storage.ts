@@ -92,8 +92,12 @@ router.get("/storage/objects/*path", requireAuth, async (req: Request, res: Resp
     const objectPath = `/objects/${wildcardPath}`;
 
     // Authorize before revealing whether the object exists: only the uploader,
-    // squad members (event-squad or curated roll-up), or the event host may view.
-    const canAccess = await storage.canUserViewPhotoByUrl(objectPath, req.user!.id);
+    // squad members (event-squad or curated roll-up), the event host, or a
+    // participant of a conversation the object was attached to may view.
+    const userId = req.user!.id;
+    const canAccess =
+      (await storage.canUserViewPhotoByUrl(objectPath, userId)) ||
+      (await storage.canUserViewMessageAttachment(objectPath, userId));
     if (!canAccess) {
       res.status(403).json({ error: "Forbidden" });
       return;

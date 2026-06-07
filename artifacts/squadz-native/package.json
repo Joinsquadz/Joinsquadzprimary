@@ -65,6 +65,7 @@
     "expo-media-library": "~18.2.1",
     "expo-notifications": "~0.32.17",
     "expo-sms": "^56.0.3",
+    "expo-video": "~3.0.16",
     "react-native-qrcode-svg": "^6.3.21"
   }
 }

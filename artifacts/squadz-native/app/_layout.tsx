@@ -15,6 +15,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AppProvider, useAuth } from "@/context/AppContext";
+import { MessagesProvider } from "@/context/MessagesContext";
 import { installWebAlert } from "@/lib/webAlert";
 
 installWebAlert();
@@ -55,6 +56,7 @@ function RootLayoutNav() {
         <Stack.Screen name="event/[id]" />
         <Stack.Screen name="squad/[id]" />
         <Stack.Screen name="squad/create" />
+        <Stack.Screen name="conversation/[id]" />
         <Stack.Screen name="friends" />
         <Stack.Screen name="vault" />
         <Stack.Screen name="availability" />
@@ -89,7 +91,9 @@ export default function RootLayout() {
           <GestureHandlerRootView style={{ flex: 1 }}>
             <KeyboardProvider>
               <AppProvider>
-                <RootLayoutNav />
+                <MessagesProvider>
+                  <RootLayoutNav />
+                </MessagesProvider>
               </AppProvider>
             </KeyboardProvider>
           </GestureHandlerRootView>

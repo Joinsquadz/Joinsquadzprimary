@@ -1,15 +1,17 @@
 import { BlurView } from "expo-blur";
 import { isLiquidGlassAvailable } from "expo-glass-effect";
 import { Tabs } from "expo-router";
-import { Icon, Label, NativeTabs } from "expo-router/unstable-native-tabs";
+import { Badge, Icon, Label, NativeTabs } from "expo-router/unstable-native-tabs";
 import { SymbolView } from "expo-symbols";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
 import { Platform, StyleSheet, View, useColorScheme } from "react-native";
 
 import { useColors } from "@/hooks/useColors";
+import { useMessages } from "@/context/MessagesContext";
 
 function NativeTabLayout() {
+  const { unreadCount } = useMessages();
   return (
     <NativeTabs>
       <NativeTabs.Trigger name="index">
@@ -23,6 +25,11 @@ function NativeTabLayout() {
       <NativeTabs.Trigger name="create">
         <Icon sf={{ default: "plus.circle", selected: "plus.circle.fill" }} />
         <Label>Create</Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="messages">
+        <Icon sf={{ default: "bubble.left.and.bubble.right", selected: "bubble.left.and.bubble.right.fill" }} />
+        <Label>Messages</Label>
+        {unreadCount > 0 ? <Badge>{unreadCount > 99 ? "99+" : String(unreadCount)}</Badge> : null}
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="activity">
         <Icon sf={{ default: "bell", selected: "bell.fill" }} />
@@ -39,6 +46,7 @@ function NativeTabLayout() {
 function ClassicTabLayout() {
   const colors = useColors();
   const colorScheme = useColorScheme();
+  const { unreadCount } = useMessages();
   const isDark = colorScheme === "dark";
   const isIOS = Platform.OS === "ios";
   const isWeb = Platform.OS === "web";
@@ -109,6 +117,19 @@ function ClassicTabLayout() {
         }}
       />
       <Tabs.Screen name="photos" options={{ href: null }} />
+      <Tabs.Screen
+        name="messages"
+        options={{
+          title: "Messages",
+          tabBarBadge: unreadCount > 0 ? (unreadCount > 99 ? "99+" : unreadCount) : undefined,
+          tabBarIcon: ({ color }) =>
+            isIOS ? (
+              <SymbolView name="bubble.left.and.bubble.right" tintColor={color} size={24} />
+            ) : (
+              <Ionicons name="chatbubble-ellipses-outline" size={22} color={color} />
+            ),
+        }}
+      />
       <Tabs.Screen
         name="activity"
         options={{

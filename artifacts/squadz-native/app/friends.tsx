@@ -9,6 +9,7 @@ import {
   Platform,
   Alert,
   Share,
+  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -17,6 +18,7 @@ import * as Haptics from "expo-haptics";
 import QRCode from "react-native-qrcode-svg";
 import { useColors } from "@/hooks/useColors";
 import { useData } from "@/context/AppContext";
+import { useMessages } from "@/context/MessagesContext";
 import { USERS, getUserById } from "@/data/mock";
 
 const NON_ME = USERS.filter((u) => u.id !== "me");
@@ -25,9 +27,24 @@ export default function FriendsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { friends, friendCode, addFriend, removeFriend } = useData();
+  const { startDirectConversation } = useMessages();
   const [codeInput, setCodeInput] = useState("");
   const [showQR, setShowQR] = useState(false);
+  const [messagingId, setMessagingId] = useState<string | null>(null);
   const inputRef = useRef<TextInput>(null);
+
+  async function handleMessage(userId: string) {
+    if (messagingId) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setMessagingId(userId);
+    const convoId = await startDirectConversation(userId);
+    setMessagingId(null);
+    if (convoId) {
+      router.push(`/conversation/${convoId}` as never);
+    } else {
+      Alert.alert("Couldn't open chat", "Please try again in a moment.");
+    }
+  }
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
@@ -193,6 +210,18 @@ export default function FriendsScreen() {
                 <Text style={[styles.friendSub, { color: colors.mutedForeground }]}>Squadz friend</Text>
               </View>
               <TouchableOpacity
+                onPress={() => handleMessage(user.id)}
+                disabled={messagingId === user.id}
+                style={[styles.messageBtn, { backgroundColor: colors.primary + "1A", borderColor: colors.primary + "40" }]}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                {messagingId === user.id ? (
+                  <ActivityIndicator size="small" color={colors.primary} />
+                ) : (
+                  <Ionicons name="chatbubble-outline" size={18} color={colors.primary} />
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
                 onPress={() => handleRemove(user.id)}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
@@ -260,6 +289,10 @@ const styles = StyleSheet.create({
   },
   avatar: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
   avatarText: { color: "#fff", fontSize: 14, fontWeight: "800" },
+  messageBtn: {
+    width: 38, height: 38, borderRadius: 19, borderWidth: 1,
+    alignItems: "center", justifyContent: "center", marginRight: 4,
+  },
   friendName: { fontSize: 15, fontWeight: "700", marginBottom: 2 },
   friendSub: { fontSize: 12 },
   empty: {

@@ -10,6 +10,7 @@ import {
   TextInput,
   Share,
   Alert,
+  ActivityIndicator,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -17,6 +18,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useData } from "@/context/AppContext";
+import { useMessages } from "@/context/MessagesContext";
 import { UserAvatar } from "@/components/UserAvatar";
 import { EventCard } from "@/components/EventCard";
 import { getUserById, goingCount } from "@/data/mock";
@@ -27,7 +29,22 @@ export default function SquadDetailScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { events, getSquad, updateSquad, leaveSquad } = useData();
+  const { getSquadConversation } = useMessages();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const [openingChat, setOpeningChat] = useState(false);
+
+  async function handleOpenChat(squadId: string) {
+    if (openingChat) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setOpeningChat(true);
+    const convoId = await getSquadConversation(squadId);
+    setOpeningChat(false);
+    if (convoId) {
+      router.push(`/conversation/${convoId}` as never);
+    } else {
+      Alert.alert("Couldn't open chat", "Please try again in a moment.");
+    }
+  }
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
@@ -150,6 +167,26 @@ export default function SquadDetailScreen() {
             <Text style={[styles.memberName, { color: colors.primary }]}>Invite</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Group chat */}
+        <TouchableOpacity
+          onPress={() => handleOpenChat(squad.id)}
+          disabled={openingChat}
+          style={[styles.photosRow, { backgroundColor: colors.card, borderColor: colors.border, marginBottom: 12 }]}
+        >
+          <View style={[styles.photosIcon, { backgroundColor: colors.primary + "20" }]}>
+            <Ionicons name="chatbubbles-outline" size={20} color={colors.primary} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.photosTitle, { color: colors.foreground }]}>Group Chat</Text>
+            <Text style={[styles.photosSub, { color: colors.mutedForeground }]}>Message the whole squad</Text>
+          </View>
+          {openingChat ? (
+            <ActivityIndicator size="small" color={colors.primary} />
+          ) : (
+            <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
+          )}
+        </TouchableOpacity>
 
         {/* Photos */}
         <TouchableOpacity
