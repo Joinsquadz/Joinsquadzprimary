@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   View,
   Text,
+  Image,
   Animated,
   StyleSheet,
   TouchableOpacity,
@@ -894,14 +895,21 @@ export default function AvailabilityScreen() {
                         },
                       ]}
                     >
-                      <Text
-                        style={[
-                          styles.memberInitial,
-                          { color: m.hasResponded ? "#fff" : colors.mutedForeground },
-                        ]}
-                      >
-                        {m.displayName.charAt(0).toUpperCase()}
-                      </Text>
+                      {m.avatarUrl ? (
+                        <Image
+                          source={{ uri: m.avatarUrl }}
+                          style={styles.memberAvatarImage}
+                        />
+                      ) : (
+                        <Text
+                          style={[
+                            styles.memberInitial,
+                            { color: m.hasResponded ? "#fff" : colors.mutedForeground },
+                          ]}
+                        >
+                          {m.displayName.charAt(0).toUpperCase()}
+                        </Text>
+                      )}
                     </View>
                   ))}
                 </View>
@@ -1128,7 +1136,8 @@ const styles = StyleSheet.create({
   updatedText: { fontSize: 11, fontWeight: "600", marginTop: 4 },
   memberSection: { marginTop: 12 },
   memberRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  memberAvatar: { width: 36, height: 36, borderRadius: 18, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
+  memberAvatar: { width: 36, height: 36, borderRadius: 18, borderWidth: 1.5, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  memberAvatarImage: { width: 36, height: 36, borderRadius: 18 },
   memberInitial: { fontSize: 14, fontWeight: "800" },
   memberPendingText: { fontSize: 12, marginTop: 8, fontWeight: "600" },
   bottomBar: { paddingHorizontal: 20, paddingTop: 12, borderTopWidth: 1, gap: 10 },
