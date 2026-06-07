@@ -384,4 +384,18 @@ describe("PATCH /api/availability/polls/:id", () => {
     expect(storageMock.updateAvailabilityPoll).toHaveBeenCalledWith("poll-1", { title: "" });
     expect(res.body.poll.title).toBe("");
   });
+
+  it("trims a whitespace-only title to blank before storing (200)", async () => {
+    const clearedPoll = { ...basePoll, title: "" };
+    storageMock.getAvailabilityPoll.mockResolvedValue(basePoll);
+    storageMock.updateAvailabilityPoll.mockResolvedValue(clearedPoll);
+    storageMock.getAvailabilityResponses.mockResolvedValue([]);
+    const app = await makeApp({ id: MEMBER_ID });
+    const res = await request(app)
+      .patch("/api/availability/polls/poll-1")
+      .send({ title: "   " });
+    expect(res.status).toBe(200);
+    expect(storageMock.updateAvailabilityPoll).toHaveBeenCalledWith("poll-1", { title: "" });
+    expect(res.body.poll.title).toBe("");
+  });
 });

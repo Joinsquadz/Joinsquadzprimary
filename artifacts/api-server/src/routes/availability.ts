@@ -79,7 +79,7 @@ const UpsertResponseBody = z.object({
 
 const UpdatePollBody = z
   .object({
-    title: z.string().max(120).optional(),
+    title: z.string().trim().max(120).optional(),
     days: z.array(z.string().max(20)).min(1).max(14).optional(),
     slots: z.array(z.string().max(20)).min(1).max(48).optional(),
   })
