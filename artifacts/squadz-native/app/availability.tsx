@@ -203,6 +203,18 @@ export default function AvailabilityScreen() {
   const [editPickerDate, setEditPickerDate] = useState<Date>(new Date());
   const [updating, setUpdating] = useState(false);
 
+  // Guard the entire edit-range flow: hold while the sheet or its nested
+  // date-picker is open; release only when both are closed.  A single effect
+  // is required so that closing the inner picker (editPickerOpen → false)
+  // while the sheet remains open does not prematurely release the guard.
+  useEffect(() => {
+    if (editRangeOpen || editPickerOpen) {
+      holdInteraction();
+    } else {
+      releaseInteraction();
+    }
+  }, [editRangeOpen, editPickerOpen, holdInteraction, releaseInteraction]);
+
   // "Updated just now" indicator — fades in on data change, out after ~3s.
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
