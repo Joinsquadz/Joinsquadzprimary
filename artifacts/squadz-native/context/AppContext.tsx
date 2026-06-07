@@ -125,6 +125,7 @@ type AppContextType = {
   updateSquad: (id: string, patch: Partial<Pick<Squad, "name" | "emoji" | "color" | "isPublic">>) => void;
   leaveSquad: (id: string) => void;
   joinSquad: (squadId: string) => Promise<{ error?: string }>;
+  joinSquadByCode: (code: string) => Promise<{ error?: string; squad?: Squad; alreadyMember?: boolean }>;
   addMemberByFriendCode: (squadId: string, friendCode: string) => Promise<{ error?: string; user?: FoundUser }>;
   removeMember: (squadId: string, userId: string) => Promise<{ error?: string }>;
 
@@ -178,6 +179,7 @@ const AppContext = createContext<AppContextType>({
   updateSquad: noop,
   leaveSquad: noop,
   joinSquad: async () => ({}),
+  joinSquadByCode: async () => ({}),
   addMemberByFriendCode: async () => ({}),
   removeMember: async () => ({}),
   friends: INITIAL_FRIENDS,
@@ -218,6 +220,7 @@ function dbSquadToSquad(s: Record<string, unknown>): Squad {
     memberIds: (s.memberIds as string[]) ?? [],
     isPublic: (s.isPublic as boolean) ?? false,
     creatorId: s.creatorId as string | undefined,
+    inviteCode: s.inviteCode as string | null | undefined,
   };
 }
 
@@ -905,6 +908,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [apiFetch],
   );
 
+  const joinSquadByCode = useCallback(
+    async (code: string): Promise<{ error?: string; squad?: Squad; alreadyMember?: boolean }> => {
+      try {
+        const res = await apiFetch("/api/squads/join-via-code", {
+          method: "POST",
+          body: JSON.stringify({ code: code.trim().toUpperCase() }),
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          squad?: Record<string, unknown>;
+          alreadyMember?: boolean;
+          error?: string;
+        };
+        if (!res.ok) return { error: data.error ?? "Something went wrong. Please try again." };
+        const mapped = data.squad ? dbSquadToSquad(data.squad) : undefined;
+        if (mapped) {
+          setSquads((prev) => {
+            if (prev.some((s) => s.id === mapped.id)) return prev.map((s) => (s.id === mapped.id ? mapped : s));
+            return [...prev, mapped];
+          });
+        }
+        return { squad: mapped, alreadyMember: data.alreadyMember ?? false };
+      } catch {
+        return { error: "Network error. Please try again." };
+      }
+    },
+    [apiFetch],
+  );
+
   const addMemberByFriendCode = useCallback(
     async (squadId: string, friendCode: string): Promise<{ error?: string; user?: FoundUser }> => {
       try {
@@ -983,6 +1014,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         updateSquad,
         leaveSquad,
         joinSquad,
+        joinSquadByCode,
         addMemberByFriendCode,
         removeMember,
         friends,

@@ -156,6 +156,7 @@ function RootLayoutNav() {
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="event/[id]" />
         <Stack.Screen name="squad/[id]" />
+        <Stack.Screen name="squad/join" />
         <Stack.Screen name="squad/create" />
         <Stack.Screen name="conversation/[id]" />
         <Stack.Screen name="friends" />

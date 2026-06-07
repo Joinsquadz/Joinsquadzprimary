@@ -1,0 +1,259 @@
+import { useState, useEffect } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Platform,
+  Alert,
+  ActivityIndicator,
+} from "react-native";
+import { router, useLocalSearchParams } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
+import { useColors } from "@/hooks/useColors";
+import { useData, useAuth } from "@/context/AppContext";
+import type { Squad } from "@/types";
+
+export default function SquadJoinScreen() {
+  const colors = useColors();
+  const insets = useSafeAreaInsets();
+  const { joinSquadByCode, isLoggedIn } = useData();
+  const { isLoggedIn: authIsLoggedIn } = useAuth();
+  const params = useLocalSearchParams<{ code?: string }>();
+
+  const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
+  const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
+
+  const [joining, setJoining] = useState(false);
+  const [joined, setJoined] = useState(false);
+  const [joinedSquad, setJoinedSquad] = useState<Squad | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const code = params.code?.trim().toUpperCase() ?? null;
+
+  const loggedIn = isLoggedIn || authIsLoggedIn;
+
+  useEffect(() => {
+    if (!loggedIn && code) {
+      router.replace({ pathname: "/login", params: { squadCode: code } } as never);
+    }
+  }, [loggedIn, code]);
+
+  const handleJoin = async () => {
+    if (!code) return;
+    setJoining(true);
+    setError(null);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      const result = await joinSquadByCode(code);
+      if (result.error) {
+        setError(result.error);
+      } else {
+        setJoined(true);
+        setJoinedSquad(result.squad ?? null);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    } finally {
+      setJoining(false);
+    }
+  };
+
+  const goHome = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace("/(tabs)" as never);
+    }
+  };
+
+  const goToSquad = () => {
+    if (joinedSquad) {
+      router.replace(`/squad/${joinedSquad.id}` as never);
+    } else {
+      router.replace("/(tabs)" as never);
+    }
+  };
+
+  if (!code) {
+    return (
+      <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: topPad }]}>
+        <TouchableOpacity onPress={goHome} style={[styles.backBtn, { top: topPad + 8 }]}>
+          <Ionicons name="chevron-back" size={24} color={colors.foreground} />
+        </TouchableOpacity>
+        <View style={styles.centerWrap}>
+          <Ionicons name="link-outline" size={48} color={colors.textDim} />
+          <Text style={[styles.errorTitle, { color: colors.foreground }]}>Invalid Link</Text>
+          <Text style={[styles.errorSub, { color: colors.mutedForeground }]}>
+            This invite link is missing a code. Ask for a new one.
+          </Text>
+          <TouchableOpacity onPress={goHome} style={[styles.btn, { backgroundColor: colors.primary, marginTop: 24 }]}>
+            <Text style={[styles.btnText, { color: "#fff" }]}>Go Home</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  if (joined) {
+    return (
+      <View style={[styles.screen, { backgroundColor: colors.background }]}>
+        <View style={styles.centerWrap}>
+          <View style={[styles.successIcon, { backgroundColor: colors.green + "20" }]}>
+            <Ionicons name="checkmark-circle" size={56} color={colors.green} />
+          </View>
+          <Text style={[styles.successTitle, { color: colors.foreground }]}>
+            {joinedSquad ? `You're in ${joinedSquad.emoji} ${joinedSquad.name}!` : "You joined the squad!"}
+          </Text>
+          <Text style={[styles.errorSub, { color: colors.mutedForeground, marginTop: 8 }]}>
+            You're now a member. Check the squad for events, chats, and more.
+          </Text>
+          <TouchableOpacity
+            onPress={goToSquad}
+            style={[styles.btn, { backgroundColor: colors.primary, marginTop: 24 }]}
+          >
+            <Text style={[styles.btnText, { color: "#fff" }]}>
+              {joinedSquad ? "View Squad →" : "Go to Squads →"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={[styles.screen, { backgroundColor: colors.background }]}>
+      <TouchableOpacity onPress={goHome} style={[styles.backBtn, { top: topPad + 8 }]}>
+        <Ionicons name="chevron-back" size={24} color={colors.foreground} />
+      </TouchableOpacity>
+
+      <View style={[styles.hero, { paddingTop: topPad + 20 }]}>
+        <Text style={[styles.heroLabel, { color: "rgba(255,255,255,0.7)" }]}>YOU'RE INVITED</Text>
+        <Text style={styles.heroEmoji}>👥</Text>
+        <Text style={[styles.heroTitle, { color: "#fff" }]}>Join a Squad</Text>
+        <Text style={[styles.heroCopy, { color: "rgba(255,255,255,0.8)" }]}>
+          Tap below to join using your invite link
+        </Text>
+      </View>
+
+      <View style={[styles.body, { paddingBottom: botPad + 24 }]}>
+        <View style={[styles.codeCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Text style={[styles.codeLabel, { color: colors.mutedForeground }]}>Invite code</Text>
+          <Text style={[styles.code, { color: colors.primary }]}>{code}</Text>
+        </View>
+
+        {error && (
+          <View style={[styles.errorBanner, { backgroundColor: colors.destructive + "15", borderColor: colors.destructive + "40" }]}>
+            <Ionicons name="alert-circle-outline" size={16} color={colors.destructive} />
+            <Text style={[styles.errorText, { color: colors.destructive }]}>{error}</Text>
+          </View>
+        )}
+
+        <TouchableOpacity
+          onPress={handleJoin}
+          disabled={joining}
+          style={[styles.btn, { backgroundColor: joining ? colors.mutedForeground : colors.primary, opacity: joining ? 0.7 : 1 }]}
+        >
+          {joining ? (
+            <ActivityIndicator color="#fff" size="small" />
+          ) : (
+            <Text style={[styles.btnText, { color: "#fff" }]}>Accept Invite →</Text>
+          )}
+        </TouchableOpacity>
+
+        {!loggedIn && (
+          <View style={styles.authRow}>
+            <TouchableOpacity
+              onPress={() => router.push({ pathname: "/signup", params: { squadCode: code } } as never)}
+              style={[styles.authBtn, { borderColor: colors.border, flex: 1 }]}
+            >
+              <Text style={[styles.authBtnText, { color: colors.mutedForeground }]}>Create Account</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => router.push({ pathname: "/login", params: { squadCode: code } } as never)}
+              style={[styles.authBtn, { borderColor: colors.primary, flex: 1 }]}
+            >
+              <Text style={[styles.authBtnText, { color: colors.primary }]}>Sign In</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  screen: { flex: 1 },
+  backBtn: {
+    position: "absolute",
+    left: 16,
+    zIndex: 10,
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  hero: {
+    backgroundColor: "#FF5C3A",
+    paddingHorizontal: 24,
+    paddingBottom: 28,
+    alignItems: "center",
+  },
+  heroLabel: { fontSize: 12, fontWeight: "700", letterSpacing: 1.5, marginBottom: 8 },
+  heroEmoji: { fontSize: 52, marginBottom: 8 },
+  heroTitle: { fontSize: 28, fontWeight: "800", textAlign: "center" },
+  heroCopy: { fontSize: 14, marginTop: 6, textAlign: "center" },
+  body: { flex: 1, paddingHorizontal: 20, paddingTop: 20 },
+  codeCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 20,
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  codeLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+    marginBottom: 6,
+  },
+  code: {
+    fontSize: 28,
+    fontWeight: "800",
+    letterSpacing: 3,
+  },
+  errorBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    padding: 12,
+    marginBottom: 12,
+  },
+  errorText: { fontSize: 13, fontWeight: "500", flex: 1 },
+  btn: { borderRadius: 14, padding: 15, alignItems: "center", marginBottom: 12 },
+  btnText: { fontSize: 16, fontWeight: "800" },
+  authRow: { flexDirection: "row", gap: 10, marginBottom: 16 },
+  authBtn: { borderRadius: 12, borderWidth: 1.5, padding: 12, alignItems: "center" },
+  authBtnText: { fontSize: 13, fontWeight: "700" },
+  centerWrap: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 32,
+  },
+  successIcon: {
+    width: 100,
+    height: 100,
+    borderRadius: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 20,
+  },
+  successTitle: { fontSize: 26, fontWeight: "800", textAlign: "center" },
+  errorTitle: { fontSize: 22, fontWeight: "800", marginTop: 16, textAlign: "center" },
+  errorSub: { fontSize: 14, textAlign: "center", lineHeight: 20, marginTop: 8 },
+});

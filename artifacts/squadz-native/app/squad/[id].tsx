@@ -288,12 +288,15 @@ export default function SquadDetailScreen() {
       },
     ]);
   };
-  const inviteLink = `getsquadz.com/squad/${squad.id}`;
+  const inviteCode = squad.inviteCode ?? null;
+  const inviteLink = inviteCode ? `getsquadz.com/squad/join?code=${inviteCode}` : `getsquadz.com/squad/${squad.id}`;
 
   const shareInvite = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     Share.share({
-      message: `Join my squad "${squad.emoji} ${squad.name}" on Squadz! ${inviteLink}`,
+      message: inviteCode
+        ? `Join my squad "${squad.emoji} ${squad.name}" on Squadz!\n\nUse invite code: ${inviteCode}\n${inviteLink}`
+        : `Join my squad "${squad.emoji} ${squad.name}" on Squadz! ${inviteLink}`,
     });
   };
 

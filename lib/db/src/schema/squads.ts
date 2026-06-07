@@ -11,6 +11,7 @@ export const squadsTable = pgTable("squads", {
   memberIds: jsonb("member_ids").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   isPublic: boolean("is_public").notNull().default(false),
   creatorId: text("creator_id"),
+  inviteCode: text("invite_code").unique(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 

@@ -76,4 +76,5 @@ export type Squad = {
   color: string;
   isPublic?: boolean;
   creatorId?: string | null;
+  inviteCode?: string | null;
 };

@@ -1,11 +1,16 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { and, eq, sql, inArray, isNull } from "drizzle-orm";
+import { randomBytes } from "crypto";
 import { z } from "zod";
 import { db, squadsTable, usersTable, squadMutesTable, squadRemovalNoticesTable } from "@workspace/db";
 import { requireAuth } from "../middleware/currentUser";
 import { storage } from "../storage";
 import { logger } from "../lib/logger";
 import { sendPushNotifications } from "../lib/pushNotifications";
+
+function generateInviteCode(): string {
+  return randomBytes(5).toString("hex").toUpperCase();
+}
 
 const router: IRouter = Router();
 
@@ -40,6 +45,58 @@ const UpdateSquadBody = z.object({
   memberIds: z.array(z.string()).optional(),
 });
 
+router.post("/squads/join-via-code", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const userId = (req.user as { id: string }).id;
+  const { code } = req.body as { code?: string };
+  if (!code || typeof code !== "string") {
+    res.status(400).json({ error: "Invite code is required." });
+    return;
+  }
+  const [squad] = await db
+    .select()
+    .from(squadsTable)
+    .where(eq(squadsTable.inviteCode, code.trim().toUpperCase()));
+  if (!squad) {
+    res.status(404).json({ error: "Invite link is invalid or has expired." });
+    return;
+  }
+  const memberIds = (squad.memberIds ?? []) as string[];
+  if (memberIds.includes(userId)) {
+    res.json({ squad, alreadyMember: true });
+    return;
+  }
+  const [updated] = await db
+    .update(squadsTable)
+    .set({ memberIds: [...memberIds, userId] })
+    .where(eq(squadsTable.id, squad.id))
+    .returning();
+  res.status(201).json({ squad: updated, alreadyMember: false });
+
+  // Fire-and-forget: notify existing members that someone joined via invite link.
+  if (memberIds.length > 0) {
+    (async () => {
+      try {
+        const joiner = await storage.getUser(userId);
+        const joinerName = joiner?.firstName ?? "Someone";
+        const unmuted = await storage.filterUnmutedForSquad(memberIds, squad.id);
+        if (unmuted.length === 0) return;
+        const tokens = await storage.getPushTokensForUsers(unmuted, { requireNotifySquadJoin: true });
+        await sendPushNotifications(
+          tokens,
+          {
+            title: squad.name,
+            body: `${joinerName} joined ${squad.name}`,
+            data: { screen: "squad", squadId: squad.id },
+          },
+          { onStaleToken: (token) => storage.clearPushToken(token) },
+        );
+      } catch (err) {
+        logger.error({ err }, "Error sending squad-join-via-code push notifications");
+      }
+    })();
+  }
+});
+
 router.get("/squads", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const userId = (req.user as { id: string }).id;
   const squads = await db
@@ -58,7 +115,8 @@ router.post("/squads", requireAuth, async (req: Request, res: Response): Promise
   }
   const userId = (req.user as { id: string }).id;
   const memberIds = Array.from(new Set([userId, ...parsed.data.memberIds]));
-  const [squad] = await db.insert(squadsTable).values({ ...parsed.data, memberIds, creatorId: userId }).returning();
+  const inviteCode = generateInviteCode();
+  const [squad] = await db.insert(squadsTable).values({ ...parsed.data, memberIds, creatorId: userId, inviteCode }).returning();
   res.status(201).json(squad);
 
   // Fire-and-forget: notify added members (not the creator) that they're in a new squad,
