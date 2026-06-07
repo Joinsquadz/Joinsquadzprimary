@@ -54,6 +54,7 @@ type PollPayload = {
   respondentCount: number;
   myCells: string[];
   myResponseUpdatedAt: string | null;
+  memberCells?: { userId: string; cells: string[] }[];
   best: { cell: string; count: number; total: number } | null;
   members?: MemberInfo[];
   droppedCount?: number;
@@ -193,6 +194,9 @@ export default function AvailabilityScreen() {
   // True for INTERACTION_QUIET_MS after the last cell tap — hides the badge.
   const [isInQuietWindow, setIsInQuietWindow] = useState(false);
   const quietWindowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Which respondent's times are being highlighted (null = normal heatmap view).
+  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
 
   // Edit range state: host-only modal to update an existing poll's date range and title.
   const [editRangeOpen, setEditRangeOpen] = useState(false);
@@ -439,6 +443,13 @@ export default function AvailabilityScreen() {
     return m;
   }, [data]);
 
+  // Set of cells the currently-selected respondent is free at.
+  const selectedMemberCellSet = useMemo<Set<string>>(() => {
+    if (!selectedMemberId || !data?.memberCells) return new Set();
+    const entry = data.memberCells.find((mc) => mc.userId === selectedMemberId);
+    return new Set(entry?.cells ?? []);
+  }, [selectedMemberId, data]);
+
   const toggleCell = (cell: string) => {
     stampInteraction();
     // Suppress the live badge while the user is actively tapping cells.
@@ -604,6 +615,19 @@ export default function AvailabilityScreen() {
       const alpha = intensity >= 1 ? "FF" : intensity >= 0.66 ? "AA" : intensity >= 0.33 ? "66" : "33";
       bg = colors.primary + alpha;
     }
+
+    // When a member is selected, highlight their free cells with a distinct
+    // accent border and dim cells they aren't free at.
+    if (selectedMemberId) {
+      const memberFree = selectedMemberCellSet.has(cell);
+      return {
+        backgroundColor: bg,
+        borderColor: memberFree ? "#F59E0B" : colors.border,
+        borderWidth: memberFree ? 2.5 : 1,
+        opacity: memberFree ? 1 : 0.35,
+      };
+    }
+
     return {
       backgroundColor: bg,
       borderColor: mine ? colors.foreground : colors.border,
@@ -894,36 +918,77 @@ export default function AvailabilityScreen() {
 
             {data.members && data.members.length > 0 && (
               <View style={styles.memberSection}>
-                <View style={styles.memberRow}>
-                  {data.members.map((m) => (
-                    <View
-                      key={m.id}
-                      style={[
-                        styles.memberAvatar,
-                        {
-                          backgroundColor: m.hasResponded ? colors.primary : colors.card,
-                          borderColor: m.hasResponded ? colors.primary : colors.border,
-                          opacity: m.hasResponded ? 1 : 0.45,
-                        },
-                      ]}
+                {selectedMemberId && (() => {
+                  const sel = data.members?.find((m) => m.id === selectedMemberId);
+                  return sel ? (
+                    <TouchableOpacity
+                      onPress={() => {
+                        Haptics.selectionAsync();
+                        setSelectedMemberId(null);
+                      }}
+                      style={[styles.filterBanner, { backgroundColor: "#F59E0B22", borderColor: "#F59E0B" }]}
                     >
-                      {m.avatarUrl ? (
-                        <Image
-                          source={{ uri: m.avatarUrl }}
-                          style={styles.memberAvatarImage}
-                        />
-                      ) : (
-                        <Text
+                      <View style={[styles.filterDot, { backgroundColor: "#F59E0B" }]} />
+                      <Text style={[styles.filterBannerText, { color: "#F59E0B" }]}>
+                        Showing {sel.displayName}'s times — tap to clear
+                      </Text>
+                      <Ionicons name="close-circle" size={16} color="#F59E0B" />
+                    </TouchableOpacity>
+                  ) : null;
+                })()}
+                <View style={styles.memberRow}>
+                  {data.members.map((m) => {
+                    const isSelected = m.id === selectedMemberId;
+                    if (m.hasResponded) {
+                      return (
+                        <TouchableOpacity
+                          key={m.id}
+                          onPress={() => {
+                            Haptics.selectionAsync();
+                            setSelectedMemberId((prev) => (prev === m.id ? null : m.id));
+                          }}
+                          activeOpacity={0.7}
                           style={[
-                            styles.memberInitial,
-                            { color: m.hasResponded ? "#fff" : colors.mutedForeground },
+                            styles.memberAvatar,
+                            {
+                              backgroundColor: isSelected ? "#F59E0B" : colors.primary,
+                              borderColor: isSelected ? "#F59E0B" : colors.primary,
+                              borderWidth: isSelected ? 2.5 : 1.5,
+                            },
                           ]}
                         >
-                          {m.displayName.charAt(0).toUpperCase()}
-                        </Text>
-                      )}
-                    </View>
-                  ))}
+                          {m.avatarUrl ? (
+                            <Image source={{ uri: m.avatarUrl }} style={styles.memberAvatarImage} />
+                          ) : (
+                            <Text style={[styles.memberInitial, { color: "#fff" }]}>
+                              {m.displayName.charAt(0).toUpperCase()}
+                            </Text>
+                          )}
+                        </TouchableOpacity>
+                      );
+                    }
+                    return (
+                      <View
+                        key={m.id}
+                        style={[
+                          styles.memberAvatar,
+                          {
+                            backgroundColor: colors.card,
+                            borderColor: colors.border,
+                            opacity: 0.45,
+                          },
+                        ]}
+                      >
+                        {m.avatarUrl ? (
+                          <Image source={{ uri: m.avatarUrl }} style={styles.memberAvatarImage} />
+                        ) : (
+                          <Text style={[styles.memberInitial, { color: colors.mutedForeground }]}>
+                            {m.displayName.charAt(0).toUpperCase()}
+                          </Text>
+                        )}
+                      </View>
+                    );
+                  })}
                 </View>
                 {data.members.some((m) => !m.hasResponded) && (
                   <Text style={[styles.memberPendingText, { color: colors.textDim }]}>
@@ -1152,6 +1217,9 @@ const styles = StyleSheet.create({
   memberAvatarImage: { width: 36, height: 36, borderRadius: 18 },
   memberInitial: { fontSize: 14, fontWeight: "800" },
   memberPendingText: { fontSize: 12, marginTop: 8, fontWeight: "600" },
+  filterBanner: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 10, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 7, marginBottom: 10 },
+  filterDot: { width: 6, height: 6, borderRadius: 3 },
+  filterBannerText: { flex: 1, fontSize: 12, fontWeight: "700" },
   bottomBar: { paddingHorizontal: 20, paddingTop: 12, borderTopWidth: 1, gap: 10 },
   droppedBanner: { flexDirection: "row", alignItems: "flex-start", gap: 8, borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10 },
   droppedBannerText: { flex: 1, fontSize: 13, lineHeight: 18 },

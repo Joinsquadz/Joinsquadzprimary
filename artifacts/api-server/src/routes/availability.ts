@@ -146,6 +146,7 @@ function buildPollPayload(
     respondentCount,
     myCells: myResponse?.cells ?? [],
     myResponseUpdatedAt: myResponse?.updatedAt?.toISOString() ?? null,
+    memberCells: responses.map((r) => ({ userId: r.userId, cells: r.cells })),
     best:
       bestCell && bestCount > 0
         ? { cell: bestCell, count: bestCount, total: respondentCount }
