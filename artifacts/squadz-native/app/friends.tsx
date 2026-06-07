@@ -33,6 +33,7 @@ export default function FriendsScreen() {
   const [showQR, setShowQR] = useState(false);
   const [messagingId, setMessagingId] = useState<string | null>(null);
   const [addingFriend, setAddingFriend] = useState(false);
+  const [codeCopied, setCodeCopied] = useState(false);
   const inputRef = useRef<TextInput>(null);
 
   // Pre-load friend profiles
@@ -65,6 +66,29 @@ export default function FriendsScreen() {
       message: `Add me on Squadz! Use my friend code: ${friendCode} 👥\nDownload the app at squadz.app`,
       title: "Join me on Squadz",
     });
+  }
+
+  async function handleCopyCode() {
+    if (!friendCode) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (Platform.OS === "web") {
+      try {
+        await navigator.clipboard.writeText(friendCode);
+        setCodeCopied(true);
+        setTimeout(() => setCodeCopied(false), 2000);
+      } catch {
+        Alert.alert("Your Friend Code", friendCode);
+      }
+    } else {
+      try {
+        await Share.share({
+          message: `Add me on Squadz! My friend code is ${friendCode}`,
+          title: "My Squadz Friend Code",
+        });
+      } catch {
+        // dismissed
+      }
+    }
   }
 
   async function handleSmsInvite() {
@@ -199,7 +223,33 @@ export default function FriendsScreen() {
         </View>
 
         {/* Add a Friend */}
-        <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>ADD A FRIEND</Text>
+        <View style={styles.addFriendHeader}>
+          <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>ADD A FRIEND</Text>
+          {friendCode ? (
+            <TouchableOpacity
+              onPress={() => void handleCopyCode()}
+              style={[
+                styles.myCodeChip,
+                {
+                  backgroundColor: codeCopied ? colors.green + "20" : colors.primary + "15",
+                  borderColor: codeCopied ? colors.green + "50" : colors.primary + "35",
+                },
+              ]}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={[styles.myCodeChipLabel, { color: colors.mutedForeground }]}>Your code: </Text>
+              <Text style={[styles.myCodeChipValue, { color: codeCopied ? colors.green : colors.primary }]}>
+                {friendCode}
+              </Text>
+              <Ionicons
+                name={codeCopied ? "checkmark" : (Platform.OS === "web" ? "copy-outline" : "share-outline")}
+                size={13}
+                color={codeCopied ? colors.green : colors.primary}
+                style={{ marginLeft: 4 }}
+              />
+            </TouchableOpacity>
+          ) : null}
+        </View>
         <View style={[styles.addRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Ionicons name="people-outline" size={20} color={colors.mutedForeground} style={{ marginLeft: 14 }} />
           <TextInput
@@ -323,6 +373,13 @@ const styles = StyleSheet.create({
   },
   shareBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
   sectionLabel: { fontSize: 11, fontWeight: "800", letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 10 },
+  addFriendHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
+  myCodeChip: {
+    flexDirection: "row", alignItems: "center", borderRadius: 20, borderWidth: 1,
+    paddingHorizontal: 10, paddingVertical: 5,
+  },
+  myCodeChipLabel: { fontSize: 12, fontWeight: "600" },
+  myCodeChipValue: { fontSize: 12, fontWeight: "800", letterSpacing: 0.5 },
   addRow: {
     flexDirection: "row", alignItems: "center", borderRadius: 14, borderWidth: 1,
     marginBottom: 24, height: 52, overflow: "hidden",
