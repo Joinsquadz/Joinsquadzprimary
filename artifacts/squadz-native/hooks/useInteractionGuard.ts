@@ -45,3 +45,30 @@ export function useInteractionGuard() {
 
   return { stamp, hold, release, isActive };
 }
+
+/**
+ * Convenience hook that automatically calls hold() when `open` becomes true
+ * and release() when it becomes false.  Pass the hold/release pair from a
+ * parent useInteractionGuard() call so all modals share the same guard.
+ *
+ * When multiple boolean flags must be combined (e.g. a sheet and its nested
+ * date-picker), pass a pre-combined boolean — e.g. useModalGuard(a || b, …) —
+ * so release() is only called once both are closed.
+ *
+ * Usage:
+ *   const { hold, release } = useInteractionGuard();
+ *   useModalGuard(sheetOpen, hold, release);
+ */
+export function useModalGuard(
+  open: boolean,
+  hold: () => void,
+  release: () => void,
+): void {
+  useEffect(() => {
+    if (open) {
+      hold();
+    } else {
+      release();
+    }
+  }, [open, hold, release]);
+}

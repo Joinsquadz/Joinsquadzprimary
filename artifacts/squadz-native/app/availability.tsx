@@ -21,7 +21,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { useColors } from "@/hooks/useColors";
-import { useInteractionGuard } from "@/hooks/useInteractionGuard";
+import { useInteractionGuard, useModalGuard } from "@/hooks/useInteractionGuard";
 import { useAuth } from "@/context/AppContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
@@ -179,13 +179,7 @@ export default function AvailabilityScreen() {
   // many seconds — far longer than INTERACTION_QUIET_MS.  Delegate to the
   // shared guard so the quiet window holds for the full duration the sheet is
   // visible and releases naturally when the sheet closes.
-  useEffect(() => {
-    if (pickerOpen) {
-      holdInteraction();
-    } else {
-      releaseInteraction();
-    }
-  }, [pickerOpen, holdInteraction, releaseInteraction]);
+  useModalGuard(pickerOpen, holdInteraction, releaseInteraction);
 
   // Live indicator: timestamp of last successful background refresh.
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
@@ -208,16 +202,10 @@ export default function AvailabilityScreen() {
   const [updating, setUpdating] = useState(false);
 
   // Guard the entire edit-range flow: hold while the sheet or its nested
-  // date-picker is open; release only when both are closed.  A single effect
-  // is required so that closing the inner picker (editPickerOpen → false)
-  // while the sheet remains open does not prematurely release the guard.
-  useEffect(() => {
-    if (editRangeOpen || editPickerOpen) {
-      holdInteraction();
-    } else {
-      releaseInteraction();
-    }
-  }, [editRangeOpen, editPickerOpen, holdInteraction, releaseInteraction]);
+  // date-picker is open; release only when both are closed.  The combined
+  // boolean ensures closing the inner picker while the sheet remains open
+  // does not prematurely release the guard.
+  useModalGuard(editRangeOpen || editPickerOpen, holdInteraction, releaseInteraction);
 
   // "Updated just now" indicator — fades in on data change, out after ~3s.
   const fadeAnim = useRef(new Animated.Value(0)).current;
