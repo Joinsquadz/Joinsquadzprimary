@@ -71,6 +71,7 @@ export type Event = {
 export type Squad = {
   id: string;
   name: string;
+  description?: string | null;
   emoji: string;
   memberIds: string[];
   color: string;

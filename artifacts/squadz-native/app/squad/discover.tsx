@@ -22,6 +22,7 @@ import { API_BASE } from "@/lib/api";
 type PublicSquad = {
   id: string;
   name: string;
+  description?: string | null;
   emoji: string;
   color: string;
   memberIds: string[];
@@ -185,6 +186,11 @@ export default function DiscoverSquadsScreen() {
                       <Text style={[styles.squadName, { color: colors.foreground }]} numberOfLines={1}>
                         {squad.name}
                       </Text>
+                      {squad.description ? (
+                        <Text style={[styles.squadDesc, { color: colors.foreground }]} numberOfLines={2}>
+                          {squad.description}
+                        </Text>
+                      ) : null}
                       <Text style={[styles.squadMeta, { color: colors.mutedForeground }]}>
                         {squad.memberIds.length} member{squad.memberIds.length !== 1 ? "s" : ""}
                       </Text>
@@ -342,6 +348,7 @@ const styles = StyleSheet.create({
   },
   squadBody: { flex: 1, gap: 3 },
   squadName: { fontSize: 16, fontWeight: "800" },
+  squadDesc: { fontSize: 13, lineHeight: 18, opacity: 0.85 },
   squadMeta: { fontSize: 12 },
   joinBtn: {
     borderRadius: 10,

@@ -36,6 +36,7 @@ export default function CreateSquadScreen() {
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
 
   const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
   const [emoji, setEmoji] = useState("🔥");
   const [color, setColor] = useState(COLORS[0]);
   const [isPublic, setIsPublic] = useState(false);
@@ -53,7 +54,8 @@ export default function CreateSquadScreen() {
       return;
     }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    const id = await addSquad({ name: name.trim(), emoji, color, isPublic });
+    const desc = description.trim();
+    const id = await addSquad({ name: name.trim(), description: desc || undefined, emoji, color, isPublic });
     router.replace(`/squad/${id}` as never);
   };
 
@@ -117,6 +119,23 @@ export default function CreateSquadScreen() {
               style={[styles.fieldInput, { color: colors.foreground }]}
             />
           </View>
+        </View>
+
+        {/* Description */}
+        <View style={styles.section}>
+          <Text style={[styles.label, { color: colors.mutedForeground }]}>About this squad</Text>
+          <View style={[styles.textArea, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <TextInput
+              placeholder="What's this squad about? (optional)"
+              placeholderTextColor={colors.textDim}
+              value={description}
+              onChangeText={(t) => t.length <= 280 && setDescription(t)}
+              style={[styles.textAreaInput, { color: colors.foreground }]}
+              multiline
+              maxLength={280}
+            />
+          </View>
+          <Text style={[styles.charCount, { color: colors.textDim }]}>{description.length}/280</Text>
         </View>
 
         {/* Emoji */}
@@ -219,6 +238,9 @@ const styles = StyleSheet.create({
     borderRadius: 13, borderWidth: 1.5, paddingHorizontal: 14, height: 52,
   },
   fieldInput: { flex: 1, fontSize: 15 },
+  textArea: { borderRadius: 13, borderWidth: 1.5, paddingHorizontal: 14, paddingVertical: 12, minHeight: 80 },
+  textAreaInput: { fontSize: 15, minHeight: 56, textAlignVertical: "top" },
+  charCount: { fontSize: 11, textAlign: "right", marginTop: 6 },
   emojiOption: { width: 52, height: 52, borderRadius: 14, borderWidth: 2, alignItems: "center", justifyContent: "center" },
   emojiText: { fontSize: 24 },
   colorRow: { flexDirection: "row", flexWrap: "wrap", gap: 12 },

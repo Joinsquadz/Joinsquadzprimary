@@ -6,6 +6,7 @@ import { z } from "zod/v4";
 export const squadsTable = pgTable("squads", {
   id: text("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
+  description: text("description"),
   emoji: text("emoji").notNull().default("👥"),
   color: text("color").notNull().default("#FF5C3A"),
   memberIds: jsonb("member_ids").$type<string[]>().notNull().default(sql`'[]'::jsonb`),

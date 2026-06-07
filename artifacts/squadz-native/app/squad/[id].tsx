@@ -230,6 +230,7 @@ export default function SquadDetailScreen() {
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [editName, setEditName] = useState("");
+  const [editDescription, setEditDescription] = useState("");
   const [editEmoji, setEditEmoji] = useState("🔥");
   const [muted, setMuted] = useState(false);
   const [muteLoading, setMuteLoading] = useState(false);
@@ -309,6 +310,7 @@ export default function SquadDetailScreen() {
   const openSettings = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setEditName(squad.name);
+    setEditDescription(squad.description ?? "");
     setEditEmoji(squad.emoji);
     // Seed local switch state from the shared context (no network round-trip needed)
     setMuted(mutedSquadIds.has(squad.id));
@@ -342,7 +344,8 @@ export default function SquadDetailScreen() {
       Alert.alert("Missing info", "Squad needs a name.");
       return;
     }
-    updateSquad(squad.id, { name: editName.trim(), emoji: editEmoji });
+    const desc = editDescription.trim();
+    updateSquad(squad.id, { name: editName.trim(), description: desc || null, emoji: editEmoji });
     setSettingsOpen(false);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
@@ -655,6 +658,17 @@ export default function SquadDetailScreen() {
               style={[styles.modalInput, { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
             />
 
+            <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>About this squad</Text>
+            <TextInput
+              placeholder="What's this squad about? (optional)"
+              placeholderTextColor={colors.textDim}
+              value={editDescription}
+              onChangeText={(t) => t.length <= 280 && setEditDescription(t)}
+              style={[styles.modalInput, styles.modalTextArea, { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
+              multiline
+              maxLength={280}
+            />
+
             <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>Icon</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
               {EMOJIS.map((e) => (
@@ -817,6 +831,7 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: 20, fontWeight: "800", marginBottom: 16 },
   fieldLabel: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8, marginTop: 4 },
   modalInput: { borderRadius: 13, borderWidth: 1.5, paddingHorizontal: 14, height: 50, fontSize: 15, marginBottom: 12 },
+  modalTextArea: { height: undefined, minHeight: 76, paddingTop: 12, paddingBottom: 12, textAlignVertical: "top" },
   emojiOption: { width: 48, height: 48, borderRadius: 14, borderWidth: 2, alignItems: "center", justifyContent: "center" },
   actionRow: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 13, borderWidth: 1, padding: 14, marginTop: 12 },
   actionText: { fontSize: 15, fontWeight: "600" },

@@ -31,6 +31,7 @@ const ShareToVaultBody = z.object({
 
 const CreateSquadBody = z.object({
   name: z.string().min(1),
+  description: z.string().trim().max(280).optional(),
   emoji: z.string().default("👥"),
   color: z.string().default("#FF5C3A"),
   memberIds: z.array(z.string()).default([]),
@@ -39,6 +40,7 @@ const CreateSquadBody = z.object({
 
 const UpdateSquadBody = z.object({
   name: z.string().optional(),
+  description: z.string().trim().max(280).nullable().optional(),
   emoji: z.string().optional(),
   color: z.string().optional(),
   isPublic: z.boolean().optional(),

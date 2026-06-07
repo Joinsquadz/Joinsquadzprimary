@@ -121,8 +121,8 @@ type AppContextType = {
 
   squads: Squad[];
   getSquad: (id: string) => Squad | undefined;
-  addSquad: (input: { name: string; emoji: string; color: string; isPublic?: boolean }) => Promise<string>;
-  updateSquad: (id: string, patch: Partial<Pick<Squad, "name" | "emoji" | "color" | "isPublic">>) => void;
+  addSquad: (input: { name: string; description?: string; emoji: string; color: string; isPublic?: boolean }) => Promise<string>;
+  updateSquad: (id: string, patch: Partial<Pick<Squad, "name" | "description" | "emoji" | "color" | "isPublic">>) => void;
   regenerateInviteCode: (squadId: string) => Promise<{ error?: string; inviteCode?: string }>;
   leaveSquad: (id: string) => void;
   joinSquad: (squadId: string) => Promise<{ error?: string }>;
@@ -217,6 +217,7 @@ function dbSquadToSquad(s: Record<string, unknown>): Squad {
   return {
     id: s.id as string,
     name: s.name as string,
+    description: (s.description as string | null | undefined) ?? null,
     emoji: s.emoji as string,
     color: s.color as string,
     memberIds: (s.memberIds as string[]) ?? [],
@@ -842,7 +843,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [squads],
   );
 
-  const addSquad = useCallback(async (input: { name: string; emoji: string; color: string; isPublic?: boolean }): Promise<string> => {
+  const addSquad = useCallback(async (input: { name: string; description?: string; emoji: string; color: string; isPublic?: boolean }): Promise<string> => {
     const userId = apiUser?.id ?? currentUserIdRef.current;
     try {
       const res = await apiFetch("/api/squads", {
@@ -856,14 +857,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return mapped.id;
     } catch {
       const id = `s${Date.now()}`;
-      const newSquad: Squad = { id, name: input.name, emoji: input.emoji, color: input.color, memberIds: [userId], isPublic: input.isPublic ?? false };
+      const newSquad: Squad = { id, name: input.name, description: input.description ?? null, emoji: input.emoji, color: input.color, memberIds: [userId], isPublic: input.isPublic ?? false };
       setSquads((prev) => [...prev, newSquad]);
       return id;
     }
   }, [apiFetch, apiUser]);
 
   const updateSquad = useCallback(
-    (sid: string, patch: Partial<Pick<Squad, "name" | "emoji" | "color" | "isPublic">>) => {
+    (sid: string, patch: Partial<Pick<Squad, "name" | "description" | "emoji" | "color" | "isPublic">>) => {
       // Optimistic update
       setSquads((prev) => prev.map((s) => (s.id === sid ? { ...s, ...patch } : s)));
       void apiFetch(`/api/squads/${sid}`, { method: "PATCH", body: JSON.stringify(patch) })
