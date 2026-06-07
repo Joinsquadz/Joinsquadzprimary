@@ -126,21 +126,23 @@ router.patch("/squads/:id", requireAuth, async (req: Request, res: Response): Pr
   const [squad] = await db.update(squadsTable).set(parsed.data).where(eq(squadsTable.id, id)).returning();
   res.json(squad);
 
-  // Fire-and-forget: notify existing members (not the actor) when new members are added.
+  // Fire-and-forget: notify members when new members are added.
   if (addedMemberIds.length > 0) {
     const recipientIds = memberIds.filter((id) => id !== userId);
-    if (recipientIds.length > 0) {
-      (async () => {
-        try {
-          const adder = await storage.getUser(userId);
-          const adderName = adder?.firstName
-            ? adder.lastName
-              ? `${adder.firstName} ${adder.lastName}`
-              : adder.firstName
-            : "Someone";
-          const tokens = await storage.getPushTokensForUsers(recipientIds);
+    (async () => {
+      try {
+        const adder = await storage.getUser(userId);
+        const adderName = adder?.firstName
+          ? adder.lastName
+            ? `${adder.firstName} ${adder.lastName}`
+            : adder.firstName
+          : "Someone";
+
+        // Notify existing members (not the actor) that a new member was added.
+        if (recipientIds.length > 0) {
+          const existingTokens = await storage.getPushTokensForUsers(recipientIds);
           await sendPushNotifications(
-            tokens,
+            existingTokens,
             {
               title: squad.name,
               body: `${adderName} added a new member to "${squad.name}"`,
@@ -148,11 +150,23 @@ router.patch("/squads/:id", requireAuth, async (req: Request, res: Response): Pr
             },
             { onStaleToken: (token) => storage.clearPushToken(token) },
           );
-        } catch (err) {
-          logger.error({ err }, "Error sending squad member-added push notifications");
         }
-      })();
-    }
+
+        // Notify each newly added member that they were added by the actor.
+        const newMemberTokens = await storage.getPushTokensForUsers(addedMemberIds, { requireNotifySquadJoin: true });
+        await sendPushNotifications(
+          newMemberTokens,
+          {
+            title: "You were added to a squad",
+            body: `${adderName} added you to "${squad.name}"`,
+            data: { screen: "squad", squadId: squad.id },
+          },
+          { onStaleToken: (token) => storage.clearPushToken(token) },
+        );
+      } catch (err) {
+        logger.error({ err }, "Error sending squad member-added push notifications");
+      }
+    })();
   }
 });
 

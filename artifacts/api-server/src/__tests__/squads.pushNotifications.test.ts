@@ -288,6 +288,7 @@ describe("PATCH /api/squads/:id — push notifications on memberIds change", () 
   const NEW_MEMBER = "new-member-id";
   const TOKEN_EXISTING_A = "ExponentPushToken[existing-a]";
   const TOKEN_EXISTING_B = "ExponentPushToken[existing-b]";
+  const TOKEN_NEW = "ExponentPushToken[new-member]";
 
   const existingSquad = {
     id: "squad-patch-1",
@@ -307,7 +308,12 @@ describe("PATCH /api/squads/:id — push notifications on memberIds change", () 
     mockSelectRows.value = [existingSquad];
     mockUpdateRows.value = [updatedSquad];
     mockGetUser.mockResolvedValue({ firstName: "Alice", lastName: "Smith" });
-    mockGetPushTokensForUsers.mockResolvedValue([TOKEN_EXISTING_A, TOKEN_EXISTING_B]);
+    mockGetPushTokensForUsers.mockImplementation(async (ids: string[], _opts?: unknown) => {
+      if (Array.isArray(ids) && ids.includes(NEW_MEMBER) && !ids.includes(EXISTING_A)) {
+        return [TOKEN_NEW];
+      }
+      return [TOKEN_EXISTING_A, TOKEN_EXISTING_B];
+    });
   });
 
   it("returns 200 and the updated squad", async () => {
@@ -326,7 +332,7 @@ describe("PATCH /api/squads/:id — push notifications on memberIds change", () 
       .send({ memberIds: [ACTOR_ID, EXISTING_A, EXISTING_B, NEW_MEMBER] });
 
     await vi.waitFor(() => {
-      expect(mockSendPushNotifications).toHaveBeenCalledTimes(1);
+      expect(mockSendPushNotifications).toHaveBeenCalledTimes(2);
     });
 
     expect(mockGetPushTokensForUsers).toHaveBeenCalledWith([EXISTING_A, EXISTING_B]);
@@ -341,7 +347,29 @@ describe("PATCH /api/squads/:id — push notifications on memberIds change", () 
     );
   });
 
-  it("uses 'Someone' when the actor has no name", async () => {
+  it("notifies the newly added member with the adder's name and squad name", async () => {
+    const app = makeApp({ id: ACTOR_ID });
+    await request(app)
+      .patch("/api/squads/squad-patch-1")
+      .send({ memberIds: [ACTOR_ID, EXISTING_A, EXISTING_B, NEW_MEMBER] });
+
+    await vi.waitFor(() => {
+      expect(mockSendPushNotifications).toHaveBeenCalledTimes(2);
+    });
+
+    expect(mockGetPushTokensForUsers).toHaveBeenCalledWith([NEW_MEMBER], { requireNotifySquadJoin: true });
+    expect(mockSendPushNotifications).toHaveBeenCalledWith(
+      [TOKEN_NEW],
+      {
+        title: "You were added to a squad",
+        body: `Alice Smith added you to "${existingSquad.name}"`,
+        data: { screen: "squad", squadId: existingSquad.id },
+      },
+      expect.objectContaining({ onStaleToken: expect.any(Function) }),
+    );
+  });
+
+  it("uses 'Someone' in both notifications when the actor has no name", async () => {
     mockGetUser.mockResolvedValue(null);
 
     const app = makeApp({ id: ACTOR_ID });
@@ -350,11 +378,13 @@ describe("PATCH /api/squads/:id — push notifications on memberIds change", () 
       .send({ memberIds: [ACTOR_ID, EXISTING_A, EXISTING_B, NEW_MEMBER] });
 
     await vi.waitFor(() => {
-      expect(mockSendPushNotifications).toHaveBeenCalledTimes(1);
+      expect(mockSendPushNotifications).toHaveBeenCalledTimes(2);
     });
 
-    const payload = mockSendPushNotifications.mock.calls[0][1] as { body: string };
-    expect(payload.body).toContain("Someone");
+    for (const call of mockSendPushNotifications.mock.calls) {
+      const payload = call[1] as { body: string };
+      expect(payload.body).toContain("Someone");
+    }
   });
 
   it("actor does not receive a notification about their own action", async () => {
@@ -364,11 +394,11 @@ describe("PATCH /api/squads/:id — push notifications on memberIds change", () 
       .send({ memberIds: [ACTOR_ID, EXISTING_A, EXISTING_B, NEW_MEMBER] });
 
     await vi.waitFor(() => {
-      expect(mockGetPushTokensForUsers).toHaveBeenCalledTimes(1);
+      expect(mockGetPushTokensForUsers).toHaveBeenCalledTimes(2);
     });
 
-    const recipients: string[] = mockGetPushTokensForUsers.mock.calls[0][0] as string[];
-    expect(recipients).not.toContain(ACTOR_ID);
+    const existingMemberCall: string[] = mockGetPushTokensForUsers.mock.calls[0][0] as string[];
+    expect(existingMemberCall).not.toContain(ACTOR_ID);
   });
 
   it("does not notify newly added members via the existing-member path", async () => {
@@ -378,11 +408,11 @@ describe("PATCH /api/squads/:id — push notifications on memberIds change", () 
       .send({ memberIds: [ACTOR_ID, EXISTING_A, EXISTING_B, NEW_MEMBER] });
 
     await vi.waitFor(() => {
-      expect(mockGetPushTokensForUsers).toHaveBeenCalledTimes(1);
+      expect(mockGetPushTokensForUsers).toHaveBeenCalledTimes(2);
     });
 
-    const recipients: string[] = mockGetPushTokensForUsers.mock.calls[0][0] as string[];
-    expect(recipients).not.toContain(NEW_MEMBER);
+    const existingMemberCall: string[] = mockGetPushTokensForUsers.mock.calls[0][0] as string[];
+    expect(existingMemberCall).not.toContain(NEW_MEMBER);
   });
 
   it("does not send notifications when memberIds is not in the request body", async () => {
@@ -409,7 +439,7 @@ describe("PATCH /api/squads/:id — push notifications on memberIds change", () 
     expect(mockSendPushNotifications).not.toHaveBeenCalled();
   });
 
-  it("does not send notifications when actor is the only existing member", async () => {
+  it("notifies the new member even when actor is the only pre-existing member", async () => {
     mockSelectRows.value = [{ ...existingSquad, memberIds: [ACTOR_ID] }];
     mockUpdateRows.value = [{ ...existingSquad, memberIds: [ACTOR_ID, NEW_MEMBER] }];
 
@@ -418,13 +448,22 @@ describe("PATCH /api/squads/:id — push notifications on memberIds change", () 
       .patch("/api/squads/squad-patch-1")
       .send({ memberIds: [ACTOR_ID, NEW_MEMBER] });
 
-    await new Promise((r) => setImmediate(r));
+    await vi.waitFor(() => {
+      expect(mockSendPushNotifications).toHaveBeenCalledTimes(1);
+    });
 
-    expect(mockGetPushTokensForUsers).not.toHaveBeenCalled();
-    expect(mockSendPushNotifications).not.toHaveBeenCalled();
+    expect(mockGetPushTokensForUsers).toHaveBeenCalledWith([NEW_MEMBER], { requireNotifySquadJoin: true });
+    expect(mockSendPushNotifications).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({
+        title: "You were added to a squad",
+        body: expect.stringContaining(existingSquad.name),
+      }),
+      expect.objectContaining({ onStaleToken: expect.any(Function) }),
+    );
   });
 
-  it("cleans up stale tokens via clearPushToken", async () => {
+  it("cleans up stale tokens from the existing-member notification via clearPushToken", async () => {
     const staleToken = "ExponentPushToken[stale-existing]";
     mockGetPushTokensForUsers.mockResolvedValue([staleToken]);
     mockSendPushNotifications.mockImplementation(
@@ -440,9 +479,32 @@ describe("PATCH /api/squads/:id — push notifications on memberIds change", () 
       .send({ memberIds: [ACTOR_ID, EXISTING_A, EXISTING_B, NEW_MEMBER] });
 
     await vi.waitFor(() => {
-      expect(mockClearPushToken).toHaveBeenCalledTimes(1);
+      expect(mockClearPushToken).toHaveBeenCalledWith(staleToken);
     });
+  });
 
-    expect(mockClearPushToken).toHaveBeenCalledWith(staleToken);
+  it("cleans up stale tokens from the new-member notification via clearPushToken", async () => {
+    const staleNewToken = "ExponentPushToken[stale-new]";
+    mockGetPushTokensForUsers.mockImplementation(async (ids: string[], _opts?: unknown) => {
+      if (Array.isArray(ids) && ids.includes(NEW_MEMBER) && !ids.includes(EXISTING_A)) {
+        return [staleNewToken];
+      }
+      return [];
+    });
+    mockSendPushNotifications.mockImplementation(
+      async (tokens: string[], _payload: unknown, options?: { onStaleToken?: (t: string) => Promise<void> }) => {
+        for (const t of tokens) await options?.onStaleToken?.(t);
+        return { staleTokens: tokens };
+      },
+    );
+
+    const app = makeApp({ id: ACTOR_ID });
+    await request(app)
+      .patch("/api/squads/squad-patch-1")
+      .send({ memberIds: [ACTOR_ID, EXISTING_A, EXISTING_B, NEW_MEMBER] });
+
+    await vi.waitFor(() => {
+      expect(mockClearPushToken).toHaveBeenCalledWith(staleNewToken);
+    });
   });
 });
