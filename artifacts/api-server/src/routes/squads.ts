@@ -65,7 +65,7 @@ router.post("/squads", requireAuth, async (req: Request, res: Response): Promise
   if (addedMembers.length > 0) {
     (async () => {
       try {
-        const tokens = await storage.getPushTokensForUsers(addedMembers);
+        const tokens = await storage.getPushTokensForUsers(addedMembers, { requireNotifySquadJoin: true });
         await sendPushNotifications(
           tokens,
           {
@@ -333,7 +333,7 @@ router.post("/squads/:id/join", requireAuth, async (req: Request, res: Response)
       try {
         const joiner = await storage.getUser(userId);
         const joinerName = joiner?.firstName ?? "Someone";
-        const tokens = await storage.getPushTokensForUsers(memberIds);
+        const tokens = await storage.getPushTokensForUsers(memberIds, { requireNotifySquadJoin: true });
         await sendPushNotifications(
           tokens,
           {

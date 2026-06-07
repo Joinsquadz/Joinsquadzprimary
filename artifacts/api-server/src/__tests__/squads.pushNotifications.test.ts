@@ -101,7 +101,7 @@ describe("POST /api/squads — push notifications", () => {
       expect(mockGetPushTokensForUsers).toHaveBeenCalledTimes(1);
     });
 
-    expect(mockGetPushTokensForUsers).toHaveBeenCalledWith([MEMBER_A, MEMBER_B]);
+    expect(mockGetPushTokensForUsers).toHaveBeenCalledWith([MEMBER_A, MEMBER_B], { requireNotifySquadJoin: true });
   });
 
   it("sends push notifications with the squad name and id", async () => {
@@ -185,7 +185,9 @@ describe("POST /api/squads — push notifications", () => {
     });
 
     const calledWith: string[] = mockGetPushTokensForUsers.mock.calls[0][0] as string[];
+    const calledWithOpts = mockGetPushTokensForUsers.mock.calls[0][1] as Record<string, unknown>;
     expect(calledWith).not.toContain(CREATOR_ID);
     expect(calledWith).toContain(MEMBER_A);
+    expect(calledWithOpts).toEqual({ requireNotifySquadJoin: true });
   });
 });

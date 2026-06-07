@@ -14,6 +14,7 @@ const PatchPreferencesBody = z.object({
   notifyReminders: z.boolean().optional(),
   notifyMessages: z.boolean().optional(),
   notifyFriendActivity: z.boolean().optional(),
+  notifySquadJoin: z.boolean().optional(),
   privateProfile: z.boolean().optional(),
   showRsvpActivity: z.boolean().optional(),
 });
@@ -23,6 +24,7 @@ const PREF_FIELDS = [
   "notifyReminders",
   "notifyMessages",
   "notifyFriendActivity",
+  "notifySquadJoin",
   "privateProfile",
   "showRsvpActivity",
 ] as const;
@@ -43,6 +45,7 @@ router.get("/user/preferences", requireAuth, async (req: Request, res: Response)
       notifyReminders: usersTable.notifyReminders,
       notifyMessages: usersTable.notifyMessages,
       notifyFriendActivity: usersTable.notifyFriendActivity,
+      notifySquadJoin: usersTable.notifySquadJoin,
       privateProfile: usersTable.privateProfile,
       showRsvpActivity: usersTable.showRsvpActivity,
     }).from(usersTable).where(eq(usersTable.id, userId));
@@ -135,6 +138,7 @@ router.patch("/user/preferences", requireAuth, async (req: Request, res: Respons
         notifyReminders: usersTable.notifyReminders,
         notifyMessages: usersTable.notifyMessages,
         notifyFriendActivity: usersTable.notifyFriendActivity,
+        notifySquadJoin: usersTable.notifySquadJoin,
         privateProfile: usersTable.privateProfile,
         showRsvpActivity: usersTable.showRsvpActivity,
       });

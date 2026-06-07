@@ -22,6 +22,7 @@ type Prefs = {
   notifyReminders: boolean;
   notifyMessages: boolean;
   notifyFriendActivity: boolean;
+  notifySquadJoin: boolean;
 };
 
 const ROWS: { key: keyof Prefs; icon: keyof typeof Ionicons.glyphMap; label: string; sub: string }[] = [
@@ -29,6 +30,7 @@ const ROWS: { key: keyof Prefs; icon: keyof typeof Ionicons.glyphMap; label: str
   { key: "notifyReminders", icon: "alarm-outline", label: "Event Reminders", sub: "Before events you're going to" },
   { key: "notifyMessages", icon: "chatbubble-outline", label: "Squad Messages", sub: "New messages in squad chats" },
   { key: "notifyFriendActivity", icon: "people-outline", label: "Friend Activity", sub: "When friends join or RSVP" },
+  { key: "notifySquadJoin", icon: "person-add-outline", label: "New Squad Members", sub: "When someone joins one of your squads" },
 ];
 
 export default function NotificationsScreen() {
@@ -56,6 +58,7 @@ export default function NotificationsScreen() {
           notifyReminders: data.notifyReminders,
           notifyMessages: data.notifyMessages,
           notifyFriendActivity: data.notifyFriendActivity,
+          notifySquadJoin: data.notifySquadJoin,
         });
       }
     } catch {
