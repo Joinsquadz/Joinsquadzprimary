@@ -6,7 +6,8 @@
 - [api-server verification](api-server-verification.md) — verify with `run test` not typecheck (vitest.config rootDir error is pre-existing); restart workflow to pick up new routes.
 - [api-server test cold-import](api-server-test-cold-import.md) — hoist router/middleware import to a static import below vi.mock; never load the real dep graph inside a timed hook.
 - [Squad photo roll-up](squad-photo-rollup.md) — curated per-squad vault via photos.squadId+sharedToSquad; member-only routes, share only your OWN photos; web SquadDetail is mock, mobile is functional.
-- [Object storage read ACL (closed)](object-storage-acl-gap.md) — /objects/* now auth+ACL gated; photos.url is DB-unique for provenance; residual: request-url still unauthenticated.
+- [Object storage read ACL (closed)](object-storage-acl-gap.md) — /objects/* AND request-url now auth-gated; photos.url DB-unique for provenance; residual: objectPath has no upload-time owner binding.
+- [Squad PATCH membership is intentional](squad-patch-membership.md) — any member editing memberIds via PATCH /squads/:id is tested behavior, NOT a bug; don't "fix" it. Optimistic squad mutations should reconcile via refreshSquads(), not local reinsert.
 - [Auth provider constraints](auth-provider-constraints.md) — app uses Replit Auth; Clerk migration unsupported + Clerk has no SMS/Facebook; Google+Facebook+SMS OTP = custom build.
 - [Squadz native-module web safety](squadz-native-module-web-safety.md) — Expo-web preview crashes on top-level native imports; guard + dynamic-import native modules, web uses pure-web path.
 - [Stripe connector key names](stripe-connector-key-names.md) — Replit Stripe connector uses `settings.secret` not `settings.secret_key`; template is wrong.

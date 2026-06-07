@@ -891,9 +891,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const leaveSquad = useCallback((sid: string) => {
     const selfId = currentUserIdRef.current;
+    // Optimistically remove the squad. If the server rejects the leave (or the
+    // request fails), reconcile from the server — which is authoritative — so the
+    // squad reappears if we are in fact still a member. Reconciling instead of
+    // re-inserting a cached copy avoids a stale restore under overlapping calls.
     setSquads((prev) => prev.filter((s) => s.id !== sid));
-    void apiFetch(`/api/squads/${sid}/members/${selfId}`, { method: "DELETE" }).catch(() => {});
-  }, [apiFetch]);
+    void apiFetch(`/api/squads/${sid}/members/${selfId}`, { method: "DELETE" })
+      .then((res) => {
+        if (!res.ok) void refreshSquads();
+      })
+      .catch(() => {
+        void refreshSquads();
+      });
+  }, [apiFetch, refreshSquads]);
 
   const joinSquad = useCallback(async (squadId: string): Promise<{ error?: string }> => {
     try {

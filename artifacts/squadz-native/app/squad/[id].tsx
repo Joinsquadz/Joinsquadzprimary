@@ -218,7 +218,7 @@ export default function SquadDetailScreen() {
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
   const btnTop = topPad + 8;
 
-  const squad = getSquad(id ?? "s1");
+  const squad = getSquad(id ?? "");
 
   // Pre-load member profiles
   useEffect(() => {
