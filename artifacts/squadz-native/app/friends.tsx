@@ -68,8 +68,9 @@ export default function FriendsScreen() {
   }
 
   function handleShareCode() {
+    if (!friendCode) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const inviteUrl = buildInviteUrl(friendCode ?? "");
+    const inviteUrl = buildInviteUrl(friendCode);
     Share.share({
       message: `Add me on Squadz! 👥\n\nTap the link to add me instantly:\n${inviteUrl}\n\nOr use code: ${friendCode}`,
       url: inviteUrl,
@@ -101,8 +102,9 @@ export default function FriendsScreen() {
   }
 
   async function handleSmsInvite() {
+    if (!friendCode) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const inviteUrl = buildInviteUrl(friendCode ?? "");
+    const inviteUrl = buildInviteUrl(friendCode);
     const msg = `Hey! Add me on Squadz 🎉\n\nTap the link: ${inviteUrl}\n\nOr use my code: ${friendCode}`;
     if (Platform.OS !== "web") {
       try {
@@ -194,7 +196,9 @@ export default function FriendsScreen() {
           <View style={styles.codeCardTop}>
             <View style={{ flex: 1 }}>
               <Text style={[styles.codeLabel, { color: colors.mutedForeground }]}>MY FRIEND CODE</Text>
-              <Text style={[styles.codeValue, { color: colors.foreground }]}>{friendCode}</Text>
+              <Text style={[styles.codeValue, { color: friendCode ? colors.foreground : colors.mutedForeground }]}>
+                {friendCode || "Loading…"}
+              </Text>
               <Text style={[styles.codeSub, { color: colors.mutedForeground }]}>
                 Share this code so friends can add you
               </Text>
@@ -207,11 +211,11 @@ export default function FriendsScreen() {
             </TouchableOpacity>
           </View>
 
-          {showQR && (
+          {showQR && friendCode ? (
             <View style={[styles.qrWrap, { borderTopColor: colors.border }]}>
               <View style={[styles.qrBox, { backgroundColor: "#fff" }]}>
                 <QRCode
-                  value={buildInviteUrl(friendCode ?? "")}
+                  value={buildInviteUrl(friendCode)}
                   size={160}
                   color="#0A0A0F"
                   backgroundColor="#ffffff"
@@ -221,11 +225,12 @@ export default function FriendsScreen() {
                 Let someone scan this to add you instantly
               </Text>
             </View>
-          )}
+          ) : null}
 
           <TouchableOpacity
             onPress={handleShareCode}
-            style={[styles.shareBtn, { backgroundColor: colors.primary }]}
+            disabled={!friendCode}
+            style={[styles.shareBtn, { backgroundColor: colors.primary, opacity: friendCode ? 1 : 0.5 }]}
           >
             <Ionicons name="share-outline" size={18} color="#fff" />
             <Text style={styles.shareBtnText}>Share My Code</Text>

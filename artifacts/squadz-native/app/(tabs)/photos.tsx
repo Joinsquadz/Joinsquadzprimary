@@ -16,15 +16,38 @@ import { router } from "expo-router";
 
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AppContext";
-import { PLACEHOLDER_PHOTOS, FILTERS, photoFilename, type VaultPhoto } from "@/constants/photos";
 import { downloadPhoto } from "@/lib/downloadPhoto";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
+
+type LivePhoto = {
+  id: number;
+  eventId: string | null;
+  uploadedAt: string;
+  url?: string;
+  uploaderId?: string;
+  eventTitle: string | null;
+  eventEmoji: string | null;
+  squadName: string | null;
+  locked: boolean;
+};
+
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function photoFilename(photo: LivePhoto): string {
+  const slug = (photo.eventTitle ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  return `squadz-${slug || "photo"}-${photo.id}.jpg`;
+}
 
 export default function PhotosTab() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { authToken } = useAuth();
   const [isPro, setIsPro] = useState<boolean | null>(null);
+  const [photos, setPhotos] = useState<LivePhoto[] | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [activeFilter, setActiveFilter] = useState("All");
   const [downloadingId, setDownloadingId] = useState<number | "all" | null>(null);
@@ -33,28 +56,48 @@ export default function PhotosTab() {
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + 96;
 
-  const filteredPhotos = PLACEHOLDER_PHOTOS.filter(
-    (p) => activeFilter === "All" || p.squad === activeFilter,
+  const authHeaders = useCallback(
+    (): Record<string, string> => buildAuthHeaders(authToken),
+    [authToken],
   );
 
-  const authHeaders = useCallback((): HeadersInit => {
-    return buildAuthHeaders(authToken);
-  }, [authToken]);
+  const imageUrl = useCallback((objectPath: string) => `${API_BASE}/api/storage${objectPath}`, []);
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/subscription`, { headers: authHeaders(), credentials: "include" })
-      .then((r) => {
-        if (!r.ok) {
+    let cancelled = false;
+    fetch(`${API_BASE}/api/vault/photos`, { headers: authHeaders() })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { photos?: LivePhoto[]; isPro?: boolean } | null) => {
+        if (cancelled) return;
+        if (!data) {
           setIsPro(false);
+          setPhotos([]);
           return;
         }
-        return r.json();
+        setIsPro(!!data.isPro);
+        setPhotos(data.photos ?? []);
       })
-      .then((d?: { isPro?: boolean }) => {
-        if (d !== undefined) setIsPro(!!d.isPro);
-      })
-      .catch(() => setIsPro(false));
+      .catch(() => {
+        if (cancelled) return;
+        setIsPro(false);
+        setPhotos([]);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [authHeaders]);
+
+  // Only photos that have an accessible image (unlocked + url present) can be shown/downloaded.
+  const viewablePhotos = (photos ?? []).filter((p) => !p.locked && !!p.url);
+
+  const squadNames = Array.from(
+    new Set(viewablePhotos.map((p) => p.squadName).filter((s): s is string => !!s)),
+  );
+  const filters = ["All", ...squadNames];
+
+  const filteredPhotos = viewablePhotos.filter(
+    (p) => activeFilter === "All" || p.squadName === activeFilter,
+  );
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -62,11 +105,11 @@ export default function PhotosTab() {
   }, []);
 
   const handleDownload = useCallback(
-    async (photo: VaultPhoto) => {
-      if (downloadingId !== null) return;
+    async (photo: LivePhoto) => {
+      if (downloadingId !== null || !photo.url) return;
       setDownloadingId(photo.id);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      const result = await downloadPhoto(photo.url, photoFilename(photo));
+      const result = await downloadPhoto(imageUrl(photo.url), photoFilename(photo), authHeaders());
       setDownloadingId(null);
       if (result === "saved") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -77,7 +120,7 @@ export default function PhotosTab() {
         showToast("Couldn't download photo");
       }
     },
-    [downloadingId, showToast],
+    [downloadingId, showToast, imageUrl, authHeaders],
   );
 
   const handleDownloadAll = useCallback(async () => {
@@ -87,7 +130,8 @@ export default function PhotosTab() {
     let saved = 0;
     let denied = false;
     for (const photo of filteredPhotos) {
-      const result = await downloadPhoto(photo.url, photoFilename(photo));
+      if (!photo.url) continue;
+      const result = await downloadPhoto(imageUrl(photo.url), photoFilename(photo), authHeaders());
       if (result === "saved") saved += 1;
       if (result === "denied") {
         denied = true;
@@ -103,7 +147,7 @@ export default function PhotosTab() {
     } else {
       showToast("Couldn't download photos");
     }
-  }, [downloadingId, filteredPhotos, showToast]);
+  }, [downloadingId, filteredPhotos, showToast, imageUrl, authHeaders]);
 
   const selectedPhoto = filteredPhotos.find((p) => p.id === selected) ?? null;
 
@@ -123,7 +167,7 @@ export default function PhotosTab() {
         )}
       </View>
 
-      {isPro === null ? (
+      {isPro === null || photos === null ? (
         <View style={styles.center}>
           <ActivityIndicator color={colors.primary} size="large" />
         </View>
@@ -148,16 +192,24 @@ export default function PhotosTab() {
             </View>
           </View>
 
-          <View style={styles.grid}>
-            {PLACEHOLDER_PHOTOS.map((p) => (
-              <View key={p.id} style={styles.gridCell}>
-                <Image source={{ uri: p.url }} style={styles.gridImage} contentFit="cover" transition={150} blurRadius={18} />
-                <View style={styles.lockOverlay}>
-                  <Ionicons name="lock-closed" size={18} color="#fff" />
+          {viewablePhotos.length > 0 && (
+            <View style={styles.grid}>
+              {viewablePhotos.map((p) => (
+                <View key={p.id} style={styles.gridCell}>
+                  <Image
+                    source={{ uri: imageUrl(p.url as string), headers: authHeaders() }}
+                    style={styles.gridImage}
+                    contentFit="cover"
+                    transition={150}
+                    blurRadius={18}
+                  />
+                  <View style={styles.lockOverlay}>
+                    <Ionicons name="lock-closed" size={18} color="#fff" />
+                  </View>
                 </View>
-              </View>
-            ))}
-          </View>
+              ))}
+            </View>
+          )}
 
           <TouchableOpacity
             onPress={() => {
@@ -170,6 +222,14 @@ export default function PhotosTab() {
             <Text style={styles.upgradeBtnText}>⚡ Upgrade to Pro — $20/year</Text>
           </TouchableOpacity>
         </ScrollView>
+      ) : viewablePhotos.length === 0 ? (
+        <View style={styles.center}>
+          <Text style={{ fontSize: 44, marginBottom: 12 }}>🖼️</Text>
+          <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No photos yet</Text>
+          <Text style={[styles.emptyBody, { color: colors.mutedForeground }]}>
+            Photos you add to your events will show up here automatically.
+          </Text>
+        </View>
       ) : (
         <ScrollView
           contentContainerStyle={[styles.scroll, { paddingBottom: botPad }]}
@@ -194,34 +254,36 @@ export default function PhotosTab() {
             </TouchableOpacity>
           </View>
 
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.filterRow}
-            contentContainerStyle={{ gap: 8 }}
-          >
-            {FILTERS.map((f) => (
-              <TouchableOpacity
-                key={f}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setActiveFilter(f);
-                  setSelected(null);
-                }}
-                style={[
-                  styles.filterChip,
-                  {
-                    backgroundColor: activeFilter === f ? colors.primary : colors.card,
-                    borderColor: activeFilter === f ? colors.primary : colors.border,
-                  },
-                ]}
-              >
-                <Text style={[styles.filterChipText, { color: activeFilter === f ? "#fff" : colors.mutedForeground }]}>
-                  {f}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
+          {filters.length > 1 && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.filterRow}
+              contentContainerStyle={{ gap: 8 }}
+            >
+              {filters.map((f) => (
+                <TouchableOpacity
+                  key={f}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    setActiveFilter(f);
+                    setSelected(null);
+                  }}
+                  style={[
+                    styles.filterChip,
+                    {
+                      backgroundColor: activeFilter === f ? colors.primary : colors.card,
+                      borderColor: activeFilter === f ? colors.primary : colors.border,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.filterChipText, { color: activeFilter === f ? "#fff" : colors.mutedForeground }]}>
+                    {f}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
 
           <View style={styles.grid}>
             {filteredPhotos.map((p) => (
@@ -234,7 +296,12 @@ export default function PhotosTab() {
                 style={[styles.gridCell, { borderWidth: 2, borderColor: selected === p.id ? colors.primary : "transparent" }]}
                 activeOpacity={0.85}
               >
-                <Image source={{ uri: p.url }} style={styles.gridImage} contentFit="cover" transition={150} />
+                <Image
+                  source={{ uri: imageUrl(p.url as string), headers: authHeaders() }}
+                  style={styles.gridImage}
+                  contentFit="cover"
+                  transition={150}
+                />
                 <TouchableOpacity
                   onPress={() => handleDownload(p)}
                   disabled={downloadingId !== null}
@@ -256,15 +323,21 @@ export default function PhotosTab() {
             ))}
           </View>
 
-          {selectedPhoto && (
+          {selectedPhoto && selectedPhoto.url && (
             <View style={[styles.detailCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <Image source={{ uri: selectedPhoto.url }} style={styles.detailImage} contentFit="cover" transition={150} />
+              <Image
+                source={{ uri: imageUrl(selectedPhoto.url), headers: authHeaders() }}
+                style={styles.detailImage}
+                contentFit="cover"
+                transition={150}
+              />
               <View style={styles.detailBody}>
                 <Text style={[styles.detailTitle, { color: colors.foreground }]}>
-                  {selectedPhoto.emoji} {selectedPhoto.label}
+                  {selectedPhoto.eventEmoji ? `${selectedPhoto.eventEmoji} ` : ""}
+                  {selectedPhoto.eventTitle ?? "Untitled event"}
                 </Text>
                 <Text style={[styles.detailMeta, { color: colors.mutedForeground }]}>
-                  {selectedPhoto.squad} · {selectedPhoto.date}
+                  {selectedPhoto.squadName ?? "Your squad"} · {formatDate(selectedPhoto.uploadedAt)}
                 </Text>
                 <TouchableOpacity
                   onPress={() => handleDownload(selectedPhoto)}
@@ -309,7 +382,9 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 13, fontFamily: "Inter_400Regular", marginTop: 2 },
   proBadge: { borderWidth: 1, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2, marginBottom: 4 },
   proBadgeText: { fontSize: 10, fontWeight: "900", fontFamily: "Inter_700Bold", letterSpacing: 0.8 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center" },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 40 },
+  emptyTitle: { fontSize: 19, fontWeight: "800", fontFamily: "Inter_700Bold", marginBottom: 8, textAlign: "center" },
+  emptyBody: { fontSize: 14, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 21 },
   scroll: { padding: 20 },
   lockCard: { borderRadius: 20, borderWidth: 1, padding: 28, alignItems: "center", marginBottom: 20 },
   lockIcon: { fontSize: 56, marginBottom: 14 },

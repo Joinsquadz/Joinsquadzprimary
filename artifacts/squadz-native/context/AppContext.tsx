@@ -139,8 +139,7 @@ type AppContextType = {
 const noop = () => {};
 const asyncNoop = async () => "";
 
-const MY_FRIEND_CODE = "SQ-JP42";
-const INITIAL_FRIENDS = ["u1", "u3"];
+const INITIAL_FRIENDS: string[] = [];
 
 const AppContext = createContext<AppContextType>({
   isLoggedIn: false,
@@ -185,7 +184,7 @@ const AppContext = createContext<AppContextType>({
   addMemberByFriendCode: async () => ({}),
   removeMember: async () => ({}),
   friends: INITIAL_FRIENDS,
-  friendCode: MY_FRIEND_CODE,
+  friendCode: "",
   addFriend: noop,
   removeFriend: noop,
 });
@@ -1058,7 +1057,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         addMemberByFriendCode,
         removeMember,
         friends,
-        friendCode: apiUser?.friendCode ?? MY_FRIEND_CODE,
+        friendCode: apiUser?.friendCode ?? "",
         addFriend,
         removeFriend,
       }}

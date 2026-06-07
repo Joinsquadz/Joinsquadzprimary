@@ -10,10 +10,14 @@ export type DownloadResult = "saved" | "denied" | "error";
  * Native-only modules are imported dynamically (and only on native) so the
  * web bundle never evaluates them — importing them statically crashes web.
  */
-export async function downloadPhoto(url: string, filename: string): Promise<DownloadResult> {
+export async function downloadPhoto(
+  url: string,
+  filename: string,
+  headers?: Record<string, string>,
+): Promise<DownloadResult> {
   if (Platform.OS === "web") {
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, headers ? { headers } : undefined);
       if (!res.ok) return "error";
       const blob = await res.blob();
       const objectUrl = URL.createObjectURL(blob);
@@ -38,7 +42,7 @@ export async function downloadPhoto(url: string, filename: string): Promise<Down
     if (!permission.granted) return "denied";
 
     const target = `${FileSystem.cacheDirectory ?? ""}${filename}`;
-    const { uri } = await FileSystem.downloadAsync(url, target);
+    const { uri } = await FileSystem.downloadAsync(url, target, headers ? { headers } : undefined);
     await MediaLibrary.saveToLibraryAsync(uri);
     return "saved";
   } catch {
