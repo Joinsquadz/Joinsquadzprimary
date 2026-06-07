@@ -7,6 +7,8 @@ const storageMock = vi.hoisted(() => ({
   canAccessAvailabilityPoll: vi.fn(),
   getSquad: vi.fn(),
   getUsers: vi.fn(),
+  getRecentNudgesFromUser: vi.fn(),
+  getLatestNudgeForUser: vi.fn(),
 }));
 
 vi.mock("../storage", () => ({ storage: storageMock }));
@@ -61,6 +63,8 @@ beforeEach(() => {
   storageMock.canAccessAvailabilityPoll.mockResolvedValue(true);
   storageMock.getSquad.mockResolvedValue(null);
   storageMock.getUsers.mockResolvedValue([]);
+  storageMock.getRecentNudgesFromUser.mockResolvedValue(new Map());
+  storageMock.getLatestNudgeForUser.mockResolvedValue(null);
 });
 
 describe("members[].respondedAt — squad-scoped poll", () => {

@@ -6,10 +6,12 @@
   "scripts": {
     "hello": "tsx ./src/hello.ts",
     "seed-products": "tsx ./src/seed-products.ts",
+    "smoke-test-push": "tsx ./src/smoke-test-push.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "expo-server-sdk": "^6.1.0",
     "stripe": "^22.2.0",
     "stripe-replit-sync": "^1.0.0",
     "tsx": "catalog:"

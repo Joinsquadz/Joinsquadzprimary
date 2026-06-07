@@ -11,6 +11,22 @@ _Replace the heading above with the project's name, and this line with one sente
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - Required env: `DATABASE_URL` — Postgres connection string
 
+## Staging Smoke Tests
+
+### Push notifications end-to-end
+
+Send a real push notification to a known test device and verify the Expo ticket status:
+
+```sh
+TEST_PUSH_TOKEN=ExponentPushToken[xxxx] pnpm --filter @workspace/scripts run smoke-test-push
+```
+
+- Obtain a test token by logging in to the Squadz mobile app on a real device (or the Expo Go client) and copying the token from the push-notification permission prompt / device settings screen.
+- The script validates the token format, sends one notification via the Expo Push API, and prints `TICKET OK` or a detailed error.
+- By default it also waits 20 s and fetches the Expo receipt (checks that APNs/FCM accepted delivery). Set `SKIP_RECEIPT_CHECK=1` to skip that step.
+- Exit code `0` = PASS, exit code `1` = FAIL (token invalid, quota exceeded, device not registered, etc.).
+- Source: `scripts/src/smoke-test-push.ts`
+
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9

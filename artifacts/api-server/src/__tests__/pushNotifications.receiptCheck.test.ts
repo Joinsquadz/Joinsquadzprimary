@@ -15,7 +15,7 @@ vi.mock("expo-server-sdk", () => {
     Object.assign(this, {
       chunkPushNotifications: mockChunkPushNotifications,
       sendPushNotificationsAsync: mockSendPushNotificationsAsync,
-      chunkPushReceiptIds: mockChunkPushReceiptIds,
+      chunkPushNotificationReceiptIds: mockChunkPushReceiptIds,
       getPushNotificationReceiptsAsync: mockGetPushNotificationReceiptsAsync,
     });
   }
