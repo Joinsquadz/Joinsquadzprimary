@@ -29,6 +29,16 @@
               "scheme": "https",
               "host": "getsquadz.com",
               "pathPrefix": "/squad/join-public"
+            },
+            {
+              "scheme": "https",
+              "host": "getsquadz.com",
+              "pathPrefix": "/squad/join"
+            },
+            {
+              "scheme": "https",
+              "host": "getsquadz.com",
+              "pathPrefix": "/join"
             }
           ],
           "category": ["BROWSABLE", "DEFAULT"]

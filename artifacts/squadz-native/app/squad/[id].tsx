@@ -305,7 +305,7 @@ export default function SquadDetailScreen() {
     ]);
   };
   const inviteCode = squad.inviteCode ?? null;
-  const inviteLink = inviteCode ? `getsquadz.com/squad/join?code=${inviteCode}` : `getsquadz.com/squad/${squad.id}`;
+  const inviteLink = inviteCode ? `https://getsquadz.com/squad/join?code=${inviteCode}` : `https://getsquadz.com/squad/${squad.id}`;
 
   const shareInvite = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -805,7 +805,7 @@ export default function SquadDetailScreen() {
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     Share.share({
-                      message: `Join my squad "${squad.emoji} ${squad.name}" on Squadz!\n\nUse invite code: ${newInviteCode}\ngetsquadz.com/squad/join?code=${newInviteCode}`,
+                      message: `Join my squad "${squad.emoji} ${squad.name}" on Squadz!\n\nUse invite code: ${newInviteCode}\nhttps://getsquadz.com/squad/join?code=${newInviteCode}`,
                     });
                   }}
                   style={[styles.shareNowBtn, { backgroundColor: colors.primary }]}

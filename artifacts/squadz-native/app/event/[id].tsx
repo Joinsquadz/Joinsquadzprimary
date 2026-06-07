@@ -638,7 +638,7 @@ export default function EventDetailScreen() {
               <TouchableOpacity
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  Share.share({ message: `Join ${event.title}! getsquadz.com/join/${event.inviteCode}` });
+                  Share.share({ message: `Join ${event.title}! https://getsquadz.com/join/${event.inviteCode}` });
                 }}
                 style={[styles.shareInviteBtn, { backgroundColor: colors.primary + "20", borderColor: colors.primary + "40" }]}
               >
@@ -980,7 +980,7 @@ export default function EventDetailScreen() {
                 getsquadz.com/join/{event.inviteCode}
               </Text>
               <TouchableOpacity
-                onPress={() => Share.share({ message: `Join ${event.title}! getsquadz.com/join/${event.inviteCode}` })}
+                onPress={() => Share.share({ message: `Join ${event.title}! https://getsquadz.com/join/${event.inviteCode}` })}
                 style={[styles.shareInviteBtn, { backgroundColor: colors.primary + "20", borderColor: colors.primary + "40" }]}
               >
                 <Ionicons name="share-outline" size={16} color={colors.primary} />

@@ -43,8 +43,14 @@ function AuthGuard() {
     // Join while logged out.
     const isOnPublicSquad =
       (segments[0] as string) === "squad" && (segments[1] as string) === "join-public";
+    // Shared squad/event invite deep-links may be opened by logged-out friends.
+    // The screens themselves bounce to login (carrying the code) so they must
+    // be reachable while unauthenticated.
+    const isOnInviteJoin =
+      ((segments[0] as string) === "squad" && (segments[1] as string) === "join") ||
+      (segments[0] as string) === "join";
 
-    if (!isLoggedIn && !isOnAuthScreen && !isOnPublicSquad) {
+    if (!isLoggedIn && !isOnAuthScreen && !isOnPublicSquad && !isOnInviteJoin) {
       router.replace("/login" as never);
     } else if (isLoggedIn && (segments[0] === "login" || segments[0] === "signup")) {
       router.replace("/(tabs)" as never);
@@ -268,6 +274,7 @@ function RootLayoutNav() {
         <Stack.Screen name="squad/[id]" />
         <Stack.Screen name="squad/join" />
         <Stack.Screen name="squad/join-public" />
+        <Stack.Screen name="join/[inviteCode]" />
         <Stack.Screen name="squad/create" />
         <Stack.Screen name="conversation/[id]" />
         <Stack.Screen name="friends" />

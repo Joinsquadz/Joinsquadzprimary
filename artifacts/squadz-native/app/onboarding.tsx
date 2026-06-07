@@ -74,7 +74,7 @@ export default function OnboardingScreen() {
   const insets = useSafeAreaInsets();
   const { login } = useAuth();
   const { friendCode, currentUser } = useData();
-  const params = useLocalSearchParams<{ inviteEventId?: string; inviteTitle?: string; publicSquadId?: string }>();
+  const params = useLocalSearchParams<{ inviteEventId?: string; inviteTitle?: string; publicSquadId?: string; joinEventCode?: string; squadCode?: string }>();
 
   const hasRealName = currentUser.id !== "me";
   const [step, setStep] = useState(hasRealName ? 1 : 0);
@@ -163,6 +163,10 @@ export default function OnboardingScreen() {
     login();
     if (params.inviteEventId) {
       router.replace(`/event/${params.inviteEventId}` as never);
+    } else if (params.joinEventCode) {
+      router.replace({ pathname: "/join/[inviteCode]", params: { inviteCode: params.joinEventCode } } as never);
+    } else if (params.squadCode) {
+      router.replace({ pathname: "/squad/join", params: { code: params.squadCode } } as never);
     } else if (params.publicSquadId) {
       router.replace({ pathname: "/squad/join-public", params: { id: params.publicSquadId } } as never);
     } else {

@@ -48,6 +48,8 @@ export default function LoginScreen() {
     inviteHost?: string;
     inviteEventId?: string;
     publicSquadId?: string;
+    joinEventCode?: string;
+    squadCode?: string;
   }>();
 
   const hasInvite = !!params.inviteCode;
@@ -87,6 +89,10 @@ export default function LoginScreen() {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     if (hasInvite && params.inviteEventId) {
       router.replace(`/event/${params.inviteEventId}` as never);
+    } else if (params.joinEventCode) {
+      router.replace({ pathname: "/join/[inviteCode]", params: { inviteCode: params.joinEventCode } } as never);
+    } else if (params.squadCode) {
+      router.replace({ pathname: "/squad/join", params: { code: params.squadCode } } as never);
     } else if (params.publicSquadId) {
       router.replace({ pathname: "/squad/join-public", params: { id: params.publicSquadId } } as never);
     } else {

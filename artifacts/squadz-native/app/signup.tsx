@@ -29,6 +29,8 @@ export default function SignupScreen() {
     inviteHost?: string;
     inviteEventId?: string;
     publicSquadId?: string;
+    joinEventCode?: string;
+    squadCode?: string;
   }>();
 
   const [firstName, setFirstName] = useState("");
@@ -96,6 +98,16 @@ export default function SignupScreen() {
           inviteHost: params.inviteHost,
           inviteEventId: params.inviteEventId,
         },
+      } as never);
+    } else if (params.joinEventCode) {
+      router.replace({
+        pathname: "/onboarding",
+        params: { joinEventCode: params.joinEventCode },
+      } as never);
+    } else if (params.squadCode) {
+      router.replace({
+        pathname: "/onboarding",
+        params: { squadCode: params.squadCode },
       } as never);
     } else if (params.publicSquadId) {
       router.replace({

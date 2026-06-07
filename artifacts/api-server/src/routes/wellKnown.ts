@@ -60,13 +60,26 @@ router.get(
           {
             // Legacy keys (iOS 9–12)
             appID: appId,
-            paths: ["/squad/join-public", "/squad/join-public/*"],
+            paths: [
+              "/squad/join-public",
+              "/squad/join-public/*",
+              "/squad/join",
+              "/join/*",
+            ],
             // Modern keys (iOS 13+) — take precedence when supported.
             appIDs: [appId],
             components: [
               {
                 "/": "/squad/join-public",
                 comment: "Open shared public-squad links in the Squadz app",
+              },
+              {
+                "/": "/squad/join",
+                comment: "Open shared squad invite-code links in the Squadz app",
+              },
+              {
+                "/": "/join/*",
+                comment: "Open shared event invite links in the Squadz app",
               },
             ],
           },
