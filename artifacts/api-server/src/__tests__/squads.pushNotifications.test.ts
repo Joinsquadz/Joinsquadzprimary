@@ -96,6 +96,7 @@ const BASE_SQUAD = {
   emoji: "👥",
   color: "#FF5C3A",
   memberIds: [CREATOR_ID, MEMBER_A, MEMBER_B],
+  creatorId: CREATOR_ID,
   createdAt: new Date().toISOString(),
 };
 

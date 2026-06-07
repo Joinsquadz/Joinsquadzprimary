@@ -172,9 +172,16 @@ describe("DELETE /api/squads/:id", () => {
     expect(res.status).toBe(403);
   });
 
-  it("returns 204 when authenticated as a member", async () => {
+  it("returns 403 when authenticated as a non-creator member", async () => {
     mockRows.value = [baseSquad];
     const app = await makeApp({ id: MEMBER_ID });
+    const res = await request(app).delete("/api/squads/squad-1");
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 204 when authenticated as the creator", async () => {
+    mockRows.value = [baseSquad];
+    const app = await makeApp({ id: CREATOR_ID });
     const res = await request(app).delete("/api/squads/squad-1");
     expect(res.status).toBe(204);
   });

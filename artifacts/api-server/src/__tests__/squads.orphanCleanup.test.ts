@@ -99,7 +99,7 @@ vi.mock("../storage", () => ({
 
 import squadsRouter from "../routes/squads";
 import { makeTestApp } from "./helpers/makeTestApp";
-import { MEMBER_ID, SECOND_MEMBER_ID, makeBaseSquad } from "./helpers/fixtures";
+import { CREATOR_ID, MEMBER_ID, SECOND_MEMBER_ID, makeBaseSquad } from "./helpers/fixtures";
 
 const makeApp = (user?: { id: string }) => makeTestApp(squadsRouter, user);
 
@@ -114,7 +114,7 @@ describe("DELETE /api/squads/:id — orphan squad_mutes cleanup", () => {
 
   it("removes all squad_mutes rows for the deleted squad", async () => {
     mockRows.value = [makeBaseSquad()];
-    const app = await makeApp({ id: MEMBER_ID });
+    const app = await makeApp({ id: CREATOR_ID });
 
     const res = await request(app).delete("/api/squads/squad-1");
 

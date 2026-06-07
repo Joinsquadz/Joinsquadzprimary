@@ -335,6 +335,10 @@ router.delete("/squads/:id", requireAuth, async (req: Request, res: Response): P
     res.status(403).json({ error: "Access denied" });
     return;
   }
+  if (existing.creatorId !== userId) {
+    res.status(403).json({ error: "Only the squad creator can delete the squad. Use the leave option to remove yourself." });
+    return;
+  }
   // Wrap both deletions in a transaction so a mid-flight crash never leaves
   // orphaned squad_mutes rows: either both succeed or neither does.
   await db.transaction(async (tx) => {

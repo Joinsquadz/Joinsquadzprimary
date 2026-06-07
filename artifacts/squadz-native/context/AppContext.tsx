@@ -890,8 +890,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [apiFetch]);
 
   const leaveSquad = useCallback((sid: string) => {
+    const selfId = currentUserIdRef.current;
     setSquads((prev) => prev.filter((s) => s.id !== sid));
-    void apiFetch(`/api/squads/${sid}`, { method: "DELETE" }).catch(() => {});
+    void apiFetch(`/api/squads/${sid}/members/${selfId}`, { method: "DELETE" }).catch(() => {});
   }, [apiFetch]);
 
   const joinSquad = useCallback(async (squadId: string): Promise<{ error?: string }> => {
