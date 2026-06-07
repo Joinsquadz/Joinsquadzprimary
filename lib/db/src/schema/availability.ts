@@ -47,6 +47,22 @@ export const availabilityResponsesTable = pgTable(
   (t) => [unique("availability_responses_poll_user_uniq").on(t.pollId, t.userId)],
 );
 
+// Tracks nudges sent by the poll creator to members who haven't responded.
+// One row per (pollId, targetUserId) — enforces the one-nudge-per-member-per-poll
+// rate limit at the DB level via unique constraint.
+export const availabilityNudgesTable = pgTable(
+  "availability_nudges",
+  {
+    id: serial("id").primaryKey(),
+    pollId: text("poll_id")
+      .notNull()
+      .references(() => availabilityPollsTable.id, { onDelete: "cascade" }),
+    targetUserId: text("target_user_id").notNull(),
+    sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique("availability_nudges_poll_target_uniq").on(t.pollId, t.targetUserId)],
+);
+
 export const insertAvailabilityPollSchema = createInsertSchema(availabilityPollsTable).omit({
   id: true,
   createdAt: true,
@@ -54,3 +70,4 @@ export const insertAvailabilityPollSchema = createInsertSchema(availabilityPolls
 export type InsertAvailabilityPoll = z.infer<typeof insertAvailabilityPollSchema>;
 export type AvailabilityPoll = typeof availabilityPollsTable.$inferSelect;
 export type AvailabilityResponse = typeof availabilityResponsesTable.$inferSelect;
+export type AvailabilityNudge = typeof availabilityNudgesTable.$inferSelect;

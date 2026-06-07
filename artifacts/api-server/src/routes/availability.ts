@@ -436,6 +436,97 @@ router.patch("/availability/polls/:id", requireAuth, async (req: Request, res: R
 });
 
 /**
+ * POST /api/availability/polls/:id/nudge
+ * Send a push notification to a member who hasn't filled in their availability.
+ * Only the poll creator may call this. Rate-limited to one nudge per member per poll.
+ */
+router.post("/availability/polls/:id/nudge", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req.user as { id: string }).id;
+    const pollId = parseId(req.params.id);
+
+    const poll = await storage.getAvailabilityPoll(pollId);
+    if (!poll) {
+      res.status(404).json({ error: "Poll not found" });
+      return;
+    }
+    if (poll.createdBy !== userId) {
+      res.status(403).json({ error: "Only the poll creator can send nudges" });
+      return;
+    }
+
+    const TargetBody = z.object({ targetUserId: z.string().min(1) });
+    const parsed = TargetBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "targetUserId is required" });
+      return;
+    }
+    const { targetUserId } = parsed.data;
+
+    // Verify the target is actually a pending member (hasn't responded or
+    // responded before a range update) — guards against nudging arbitrary users.
+    const responses = await storage.getAvailabilityResponses(pollId);
+    const members = await buildMembersField(poll, responses);
+    const target = members.find((m) => m.id === targetUserId);
+    if (!target) {
+      res.status(404).json({ error: "Member not found in this poll" });
+      return;
+    }
+    if (!target.needsUpdate) {
+      res.status(422).json({ error: "This member has already responded" });
+      return;
+    }
+
+    // Enforce one-nudge-per-member-per-poll rate limit.
+    const alreadyNudged = await storage.hasNudgedMember(pollId, targetUserId);
+    if (alreadyNudged) {
+      res.status(429).json({ error: "You have already sent a nudge to this member" });
+      return;
+    }
+
+    // Record the nudge BEFORE sending so a DB failure doesn't allow retries.
+    const recorded = await storage.recordNudge(pollId, targetUserId);
+    if (!recorded) {
+      // Race condition: another request just recorded it.
+      res.status(429).json({ error: "You have already sent a nudge to this member" });
+      return;
+    }
+
+    res.json({ ok: true });
+
+    // Fire-and-forget: send the push notification after responding to the host.
+    void (async () => {
+      try {
+        const tokens = await storage.getPushTokensForUsers([targetUserId], { requireNotifyReminders: true });
+        if (tokens.length === 0) return;
+
+        const scopeData: Record<string, string> = poll.squadId
+          ? { screen: "availability", squadId: poll.squadId }
+          : { screen: "availability", eventId: poll.eventId ?? "" };
+
+        const senderUsers = await storage.getUsers([userId]);
+        const senderName = senderUsers.length ? toDisplayName(senderUsers[0]) : "Your host";
+
+        await sendPushNotifications(
+          tokens,
+          {
+            title: "Fill in your availability 📅",
+            body: `${senderName} is waiting for your times — add them now`,
+            data: scopeData,
+          },
+          { onStaleToken: (token) => storage.clearPushToken(token) },
+        );
+      } catch (err) {
+        logger.error({ err }, "Error sending nudge push notification");
+      }
+    })();
+  } catch (err) {
+    logger.error({ err }, "Error processing nudge request");
+    res.status(500).json({ error: "Failed to send nudge" });
+  }
+});
+
+/**
  * PUT /api/availability/polls/:id/me
  * Upsert the caller's available cells for a poll.
  */

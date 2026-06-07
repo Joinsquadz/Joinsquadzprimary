@@ -725,6 +725,37 @@ export default function AvailabilityScreen() {
 
   const isCreator = data?.poll.createdBy === currentUser?.id;
 
+  // Tracks which member IDs the host has nudged in this session (for UI feedback).
+  const [nudgedIds, setNudgedIds] = useState<Set<string>>(new Set());
+  const [nudgingId, setNudgingId] = useState<string | null>(null);
+
+  const sendNudge = useCallback(async (memberId: string) => {
+    if (!data?.poll.id) return;
+    setNudgingId(memberId);
+    try {
+      const res = await fetch(`${API_BASE}/api/availability/polls/${data.poll.id}/nudge`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ targetUserId: memberId }),
+      });
+      if (res.ok) {
+        setNudgedIds((prev) => new Set([...prev, memberId]));
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } else {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        if (res.status === 429) {
+          setNudgedIds((prev) => new Set([...prev, memberId]));
+        } else {
+          Alert.alert("Couldn't send nudge", body.error ?? "Please try again.");
+        }
+      }
+    } catch {
+      Alert.alert("Couldn't send nudge", "Network error. Please try again.");
+    } finally {
+      setNudgingId(null);
+    }
+  }, [data?.poll.id, authHeaders]);
+
   const total = data?.respondentCount ?? 0;
 
   const cellStyle = (cell: string) => {
@@ -1195,21 +1226,47 @@ export default function AvailabilityScreen() {
                     </View>
                     {data.members
                       .filter((m) => m.needsUpdate)
-                      .map((m) => (
-                        <View key={m.id} style={styles.pendingMemberRow}>
-                          <View style={[styles.pendingAvatar, { backgroundColor: m.hasResponded ? colors.gold + "33" : colors.border + "33", borderColor: m.hasResponded ? colors.gold : colors.border }]}>
-                            <Text style={[styles.pendingInitial, { color: m.hasResponded ? colors.gold : colors.mutedForeground }]}>
-                              {m.displayName.charAt(0).toUpperCase()}
-                            </Text>
+                      .map((m) => {
+                        const nudged = nudgedIds.has(m.id);
+                        const nudging = nudgingId === m.id;
+                        return (
+                          <View key={m.id} style={styles.pendingMemberRow}>
+                            <View style={[styles.pendingAvatar, { backgroundColor: m.hasResponded ? colors.gold + "33" : colors.border + "33", borderColor: m.hasResponded ? colors.gold : colors.border }]}>
+                              <Text style={[styles.pendingInitial, { color: m.hasResponded ? colors.gold : colors.mutedForeground }]}>
+                                {m.displayName.charAt(0).toUpperCase()}
+                              </Text>
+                            </View>
+                            <View style={{ flex: 1 }}>
+                              <Text style={[styles.pendingName, { color: colors.foreground }]}>{m.displayName}</Text>
+                              <Text style={[styles.pendingStatus, { color: colors.textDim }]}>
+                                {m.hasResponded ? "Responded before the date change" : "Hasn't responded yet"}
+                              </Text>
+                            </View>
+                            {isCreator && (
+                              <TouchableOpacity
+                                onPress={() => { void sendNudge(m.id); }}
+                                disabled={nudged || nudging}
+                                style={[
+                                  styles.nudgeBtn,
+                                  {
+                                    backgroundColor: nudged ? colors.card : colors.primary + "18",
+                                    borderColor: nudged ? colors.border : colors.primary,
+                                  },
+                                ]}
+                              >
+                                <Ionicons
+                                  name={nudged ? "checkmark-circle" : "notifications-outline"}
+                                  size={13}
+                                  color={nudged ? colors.mutedForeground : colors.primary}
+                                />
+                                <Text style={[styles.nudgeBtnText, { color: nudged ? colors.mutedForeground : colors.primary }]}>
+                                  {nudging ? "…" : nudged ? "Nudged" : "Nudge"}
+                                </Text>
+                              </TouchableOpacity>
+                            )}
                           </View>
-                          <View style={{ flex: 1 }}>
-                            <Text style={[styles.pendingName, { color: colors.foreground }]}>{m.displayName}</Text>
-                            <Text style={[styles.pendingStatus, { color: colors.textDim }]}>
-                              {m.hasResponded ? "Responded before the date change" : "Hasn't responded yet"}
-                            </Text>
-                          </View>
-                        </View>
-                      ))}
+                        );
+                      })}
                   </View>
                 )}
               </View>
@@ -1646,6 +1703,8 @@ const styles = StyleSheet.create({
   pendingInitial: { fontSize: 12, fontWeight: "800" },
   pendingName: { fontSize: 13, fontWeight: "700" },
   pendingStatus: { fontSize: 11, marginTop: 1 },
+  nudgeBtn: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 8, borderWidth: 1.5, paddingHorizontal: 8, paddingVertical: 5 },
+  nudgeBtnText: { fontSize: 11, fontWeight: "700" },
   bottomBar: { paddingHorizontal: 20, paddingTop: 12, borderTopWidth: 1, gap: 10 },
   droppedBanner: { flexDirection: "row", alignItems: "flex-start", gap: 8, borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10 },
   droppedBannerText: { flex: 1, fontSize: 13, lineHeight: 18 },

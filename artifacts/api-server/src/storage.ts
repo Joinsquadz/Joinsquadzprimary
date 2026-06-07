@@ -5,6 +5,7 @@ import {
   squadsTable,
   availabilityPollsTable,
   availabilityResponsesTable,
+  availabilityNudgesTable,
   waitlistTable,
   conversationsTable,
   conversationParticipantsTable,
@@ -937,6 +938,38 @@ export class Storage {
       if (await this.getConversationForMember(row.conversationId, userId)) return true;
     }
     return false;
+  }
+
+  // ---- Availability nudges ----
+
+  /**
+   * Record that the poll creator nudged a specific member. Uses INSERT … ON
+   * CONFLICT DO NOTHING so a duplicate attempt is silently ignored; the caller
+   * should check `hasNudgedMember` first to return a meaningful 429.
+   * Returns true when the row was inserted, false when a duplicate was skipped.
+   */
+  async recordNudge(pollId: string, targetUserId: string): Promise<boolean> {
+    const result = await db
+      .insert(availabilityNudgesTable)
+      .values({ pollId, targetUserId })
+      .onConflictDoNothing()
+      .returning({ id: availabilityNudgesTable.id });
+    return result.length > 0;
+  }
+
+  /** True when the host has already sent a nudge to this member for this poll. */
+  async hasNudgedMember(pollId: string, targetUserId: string): Promise<boolean> {
+    const rows = await db
+      .select({ id: availabilityNudgesTable.id })
+      .from(availabilityNudgesTable)
+      .where(
+        and(
+          eq(availabilityNudgesTable.pollId, pollId),
+          eq(availabilityNudgesTable.targetUserId, targetUserId),
+        ),
+      )
+      .limit(1);
+    return rows.length > 0;
   }
 
   // ---- Push tokens ----
