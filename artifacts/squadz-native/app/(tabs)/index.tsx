@@ -24,10 +24,26 @@ import { API_BASE, buildAuthHeaders } from "@/lib/api";
 type DiscoverEvent = { id: string; emoji: string; title: string; date: string; inviteCode: string };
 type DiscoverSquad = { id: string; emoji: string; name: string; color: string; memberIds: string[] };
 
-const AI_SUGGESTIONS = [
-  { emoji: "🎳", title: "Bowling night this weekend", why: "Your squad hasn't hung out in 12 days", color: "#A855F7", type: "Event" },
-  { emoji: "🍕", title: "Friday pizza run", why: "3 members nearby right now", color: "#FF5C3A", type: "Food" },
-];
+type SuggestionAction =
+  | { kind: "create-squad" }
+  | { kind: "create-event"; squadId?: string; squadName?: string; prefillTitle?: string; prefillEmoji?: string }
+  | { kind: "open-event"; eventId: string };
+
+type Suggestion = {
+  id: string;
+  emoji: string;
+  title: string;
+  why: string;
+  type: string;
+  action: SuggestionAction;
+};
+
+const SUGGESTION_COLORS: Record<string, string> = {
+  Plan: "#A855F7",
+  RSVP: "#FF5C3A",
+  Squad: "#22C55E",
+};
+const suggestionColor = (type: string) => SUGGESTION_COLORS[type] ?? "#A855F7";
 
 export default function HomeScreen() {
   const colors = useColors();
@@ -37,6 +53,7 @@ export default function HomeScreen() {
   const [discoverEvents, setDiscoverEvents] = useState<DiscoverEvent[]>([]);
   const [discoverSquads, setDiscoverSquads] = useState<DiscoverSquad[]>([]);
   const [streaks, setStreaks] = useState<{ monthlyPlan: number; stayInTouch: number } | null>(null);
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [fabOpen, setFabOpen] = useState(false);
 
   useEffect(() => {
@@ -61,6 +78,16 @@ export default function HomeScreen() {
       })
       .catch(() => {});
   }, [authToken]);
+
+  useEffect(() => {
+    if (!authToken) return;
+    fetch(`${API_BASE}/api/suggestions`, { headers: buildAuthHeaders(authToken) })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: Suggestion[] | null) => {
+        if (Array.isArray(data)) setSuggestions(data);
+      })
+      .catch(() => {});
+  }, [authToken, events, squads]);
 
   const { resolveUser, prefetchUsers } = useUserCache();
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
@@ -279,36 +306,52 @@ export default function HomeScreen() {
           />
         </View>
 
-        {/* AI Suggestions */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.foreground, marginBottom: 12 }]}>✦ AI Suggestions</Text>
-          <View style={{ gap: 10 }}>
-            {AI_SUGGESTIONS.map((s) => (
-              <TouchableOpacity
-                key={s.title}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  router.navigate({
-                    pathname: "/(tabs)/create",
-                    params: { prefillTitle: s.title, prefillEmoji: s.emoji },
-                  });
-                }}
-                style={[styles.suggestionCard, { backgroundColor: colors.card, borderColor: colors.border }]}
-              >
-                <View style={[styles.suggestionIcon, { backgroundColor: s.color + "22" }]}>
-                  <Text style={{ fontSize: 22 }}>{s.emoji}</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.suggestionTitle, { color: colors.foreground }]}>{s.title}</Text>
-                  <Text style={[styles.suggestionSub, { color: colors.mutedForeground }]}>{s.why}</Text>
-                </View>
-                <View style={[styles.suggestionTag, { backgroundColor: s.color + "22" }]}>
-                  <Text style={[styles.suggestionTagText, { color: s.color }]}>{s.type}</Text>
-                </View>
-              </TouchableOpacity>
-            ))}
+        {/* For You — live, data-driven suggestions */}
+        {suggestions.length > 0 && (
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: colors.foreground, marginBottom: 12 }]}>✦ For You</Text>
+            <View style={{ gap: 10 }}>
+              {suggestions.map((s) => {
+                const color = suggestionColor(s.type);
+                return (
+                  <TouchableOpacity
+                    key={s.id}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      const a = s.action;
+                      if (a.kind === "create-squad") {
+                        router.push("/squad/create");
+                      } else if (a.kind === "open-event") {
+                        router.push(`/event/${a.eventId}`);
+                      } else {
+                        router.navigate({
+                          pathname: "/(tabs)/create",
+                          params: {
+                            ...(a.prefillTitle ? { prefillTitle: a.prefillTitle } : {}),
+                            ...(a.prefillEmoji ? { prefillEmoji: a.prefillEmoji } : {}),
+                            ...(a.squadId ? { prefillSquad: a.squadId } : {}),
+                          },
+                        });
+                      }
+                    }}
+                    style={[styles.suggestionCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+                  >
+                    <View style={[styles.suggestionIcon, { backgroundColor: color + "22" }]}>
+                      <Text style={{ fontSize: 22 }}>{s.emoji}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.suggestionTitle, { color: colors.foreground }]}>{s.title}</Text>
+                      <Text style={[styles.suggestionSub, { color: colors.mutedForeground }]}>{s.why}</Text>
+                    </View>
+                    <View style={[styles.suggestionTag, { backgroundColor: color + "22" }]}>
+                      <Text style={[styles.suggestionTagText, { color }]}>{s.type}</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
           </View>
-        </View>
+        )}
 
         {/* Discover */}
         {(discoverEvents.length > 0 || discoverSquads.length > 0) && (

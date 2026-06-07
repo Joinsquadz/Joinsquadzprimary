@@ -240,14 +240,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [squadsLoading, setSquadsLoading] = useState(true);
   const [friends, setFriends] = useState<string[]>(INITIAL_FRIENDS);
   const currentUserIdRef = useRef<string>(ME.id);
-
-  const addFriend = useCallback((userId: string) => {
-    setFriends((prev) => Array.from(new Set([...prev, userId])));
-  }, []);
-
-  const removeFriend = useCallback((userId: string) => {
-    setFriends((prev) => prev.filter((id) => id !== userId));
-  }, []);
+  // Always holds the latest auth token so async friend mutations can detect a
+  // session change (logout/login) mid-flight and refuse to commit stale state.
+  const authTokenRef = useRef<string | null>(null);
 
   const apiFetch = useCallback(
     async (path: string, options?: RequestInit) => {
@@ -260,6 +255,69 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     },
     [authToken],
   );
+
+  useEffect(() => {
+    authTokenRef.current = authToken;
+  }, [authToken]);
+
+  // Friends are persisted server-side. fetchFriends is the single source of
+  // truth: it refuses to commit if the auth session changed while the request
+  // was in flight (prevents one account's friends leaking into another's UI).
+  const fetchFriends = useCallback(async () => {
+    const startedToken = authTokenRef.current;
+    try {
+      const res = await apiFetch("/api/users/friends");
+      if (!res.ok) return;
+      const data = (await res.json()) as { id: string }[];
+      if (authTokenRef.current !== startedToken) return; // session changed mid-flight
+      setFriends(data.map((u) => u.id));
+    } catch {
+      // Network unavailable — keep current list
+    }
+  }, [apiFetch]);
+
+  // Optimistically apply, then reconcile with the server on failure. Using a
+  // server re-fetch (rather than a blind local rollback) makes the result
+  // order-independent: the persisted state always wins, even if mutations race.
+  const addFriend = useCallback(
+    (userId: string) => {
+      setFriends((prev) => Array.from(new Set([...prev, userId])));
+      void (async () => {
+        try {
+          const res = await apiFetch("/api/users/friends", {
+            method: "POST",
+            body: JSON.stringify({ friendId: userId }),
+          });
+          if (!res.ok) void fetchFriends();
+        } catch {
+          void fetchFriends();
+        }
+      })();
+    },
+    [apiFetch, fetchFriends],
+  );
+
+  const removeFriend = useCallback(
+    (userId: string) => {
+      setFriends((prev) => prev.filter((id) => id !== userId));
+      void (async () => {
+        try {
+          const res = await apiFetch(`/api/users/friends/${encodeURIComponent(userId)}`, {
+            method: "DELETE",
+          });
+          if (!res.ok) void fetchFriends();
+        } catch {
+          void fetchFriends();
+        }
+      })();
+    },
+    [apiFetch, fetchFriends],
+  );
+
+  useEffect(() => {
+    if (authToken) void fetchFriends();
+    else setFriends([]);
+  }, [authToken, fetchFriends]);
 
   const fetchApiUser = useCallback(async (token: string) => {
     try {

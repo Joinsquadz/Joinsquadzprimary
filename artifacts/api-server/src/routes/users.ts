@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { db, usersTable } from "@workspace/db";
+import { db, usersTable, friendshipsTable } from "@workspace/db";
 import { requireAuth } from "../middleware/currentUser";
 import { logger } from "../lib/logger";
 
@@ -37,7 +37,7 @@ router.get("/users/by-friend-code/:code", requireAuth, async (req: Request, res:
   }
 });
 
-router.get("/api/users", requireAuth, async (req, res) => {
+router.get("/users", requireAuth, async (req, res) => {
   const rawIds = req.query.ids;
   if (!rawIds || typeof rawIds !== "string") {
     res.status(400).json({ error: "ids query param required (comma-separated)" });
@@ -71,7 +71,7 @@ router.get("/api/users", requireAuth, async (req, res) => {
 
 const SEARCH_LIMIT = 20;
 
-router.get("/api/users/search", requireAuth, async (req: Request, res: Response): Promise<void> => {
+router.get("/users/search", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
     if (!q || q.length < 2) {
@@ -101,6 +101,101 @@ router.get("/api/users/search", requireAuth, async (req: Request, res: Response)
   } catch (err) {
     logger.error({ err }, "Error searching users");
     res.status(500).json({ error: "Failed to search users" });
+  }
+});
+
+// --- Friends (persistent, symmetric) -------------------------------------
+
+const addFriendSchema = z.object({ friendId: z.string().min(1) });
+
+// List the authenticated user's friends as full user objects.
+router.get("/users/friends", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req.user as { id: string }).id;
+    const rows = await db
+      .select({ friendId: friendshipsTable.friendId })
+      .from(friendshipsTable)
+      .where(eq(friendshipsTable.ownerId, userId));
+    const ids = rows.map((r) => r.friendId);
+    if (ids.length === 0) {
+      res.json([]);
+      return;
+    }
+    const users = await db
+      .select({
+        id: usersTable.id,
+        firstName: usersTable.firstName,
+        lastName: usersTable.lastName,
+        profileImageUrl: usersTable.profileImageUrl,
+        friendCode: usersTable.friendCode,
+      })
+      .from(usersTable)
+      .where(inArray(usersTable.id, ids));
+    res.json(users);
+  } catch (err) {
+    logger.error({ err }, "Error listing friends");
+    res.status(500).json({ error: "Failed to list friends" });
+  }
+});
+
+// Add a friend. Writes both directions so the relationship is mutual.
+// Idempotent thanks to the unique (owner_id, friend_id) constraint.
+router.post("/users/friends", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req.user as { id: string }).id;
+    const parsed = addFriendSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "friendId is required" });
+      return;
+    }
+    const { friendId } = parsed.data;
+    if (friendId === userId) {
+      res.status(400).json({ error: "You can't add yourself as a friend." });
+      return;
+    }
+    const [target] = await db
+      .select({ id: usersTable.id })
+      .from(usersTable)
+      .where(eq(usersTable.id, friendId));
+    if (!target) {
+      res.status(404).json({ error: "User not found" });
+      return;
+    }
+    await db
+      .insert(friendshipsTable)
+      .values([
+        { ownerId: userId, friendId },
+        { ownerId: friendId, friendId: userId },
+      ])
+      .onConflictDoNothing();
+    res.json({ ok: true });
+  } catch (err) {
+    logger.error({ err }, "Error adding friend");
+    res.status(500).json({ error: "Failed to add friend" });
+  }
+});
+
+// Remove a friend in both directions.
+router.delete("/users/friends/:friendId", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req.user as { id: string }).id;
+    const otherId = (req.params.friendId as string).trim();
+    if (!otherId) {
+      res.status(400).json({ error: "friendId is required" });
+      return;
+    }
+    await db
+      .delete(friendshipsTable)
+      .where(
+        or(
+          and(eq(friendshipsTable.ownerId, userId), eq(friendshipsTable.friendId, otherId)),
+          and(eq(friendshipsTable.ownerId, otherId), eq(friendshipsTable.friendId, userId)),
+        ),
+      );
+    res.json({ ok: true });
+  } catch (err) {
+    logger.error({ err }, "Error removing friend");
+    res.status(500).json({ error: "Failed to remove friend" });
   }
 });
 

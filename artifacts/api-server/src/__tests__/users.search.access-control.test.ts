@@ -38,10 +38,10 @@ beforeEach(() => {
 });
 
 describe("GET /api/users/search", () => {
-  // The users router registers this route as "/api/users/search" (with the
-  // /api prefix baked in). makeTestApp mounts the router at "/api", so the
-  // effective path is "/api/api/users/search".
-  const SEARCH_PATH = "/api/api/users/search";
+  // The users router registers this route as "/users/search" (no baked-in
+  // /api prefix). makeTestApp mounts the router at "/api", so the effective
+  // path is "/api/users/search" — matching what the client actually calls.
+  const SEARCH_PATH = "/api/users/search";
 
   it("returns 401 when unauthenticated", async () => {
     const app = makeApp();

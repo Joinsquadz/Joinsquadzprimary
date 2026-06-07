@@ -13,6 +13,7 @@ import waitlistRouter from "./waitlist";
 import conversationsRouter from "./conversations";
 import discoverRouter from "./discover";
 import streaksRouter from "./streaks";
+import suggestionsRouter from "./suggestions";
 import pushTokensRouter from "./pushTokens";
 import usersRouter from "./users";
 import friendInviteRouter from "./friendInvite";
@@ -34,8 +35,8 @@ router.use(waitlistRouter);
 router.use(conversationsRouter);
 router.use(discoverRouter);
 router.use(streaksRouter);
+router.use(suggestionsRouter);
 router.use(pushTokensRouter);
-router.use(usersRouter);
 router.use(friendInviteRouter);
 
 export default router;
