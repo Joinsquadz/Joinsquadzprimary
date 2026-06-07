@@ -189,8 +189,8 @@ export default function AvailabilityScreen() {
   const [isInQuietWindow, setIsInQuietWindow] = useState(false);
   const quietWindowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Which respondent's times are being highlighted (null = normal heatmap view).
-  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
+  // Which respondents' times are being highlighted (empty = normal heatmap view).
+  const [selectedMemberIds, setSelectedMemberIds] = useState<Set<string>>(new Set());
 
   // Edit range state: host-only modal to update an existing poll's date range and title.
   const [editRangeOpen, setEditRangeOpen] = useState(false);
@@ -431,12 +431,20 @@ export default function AvailabilityScreen() {
     return m;
   }, [data]);
 
-  // Set of cells the currently-selected respondent is free at.
+  // Intersection of cells where ALL selected respondents are free.
   const selectedMemberCellSet = useMemo<Set<string>>(() => {
-    if (!selectedMemberId || !data?.memberCells) return new Set();
-    const entry = data.memberCells.find((mc) => mc.userId === selectedMemberId);
-    return new Set(entry?.cells ?? []);
-  }, [selectedMemberId, data]);
+    if (selectedMemberIds.size === 0 || !data?.memberCells) return new Set();
+    const entries = data.memberCells.filter((mc) => selectedMemberIds.has(mc.userId));
+    if (entries.length === 0) return new Set();
+    const sets = entries.map((e) => new Set(e.cells));
+    const result = new Set(sets[0]);
+    for (let i = 1; i < sets.length; i++) {
+      for (const cell of result) {
+        if (!sets[i].has(cell)) result.delete(cell);
+      }
+    }
+    return result;
+  }, [selectedMemberIds, data]);
 
   const toggleCell = (cell: string) => {
     stampInteraction();
@@ -604,9 +612,8 @@ export default function AvailabilityScreen() {
       bg = colors.primary + alpha;
     }
 
-    // When a member is selected, highlight their free cells with a distinct
-    // accent border and dim cells they aren't free at.
-    if (selectedMemberId) {
+    // When members are selected, highlight cells where ALL are free and dim the rest.
+    if (selectedMemberIds.size > 0) {
       const memberFree = selectedMemberCellSet.has(cell);
       return {
         backgroundColor: bg,
@@ -906,19 +913,21 @@ export default function AvailabilityScreen() {
 
             {data.members && data.members.length > 0 && (
               <View style={styles.memberSection}>
-                {selectedMemberId && (() => {
-                  const sel = data.members?.find((m) => m.id === selectedMemberId);
-                  return sel ? (
+                {selectedMemberIds.size > 0 && (() => {
+                  const selected = data.members?.filter((m) => selectedMemberIds.has(m.id)) ?? [];
+                  const count = selected.length;
+                  const initials = selected.map((m) => m.displayName.charAt(0).toUpperCase()).join(", ");
+                  return count > 0 ? (
                     <TouchableOpacity
                       onPress={() => {
                         Haptics.selectionAsync();
-                        setSelectedMemberId(null);
+                        setSelectedMemberIds(new Set());
                       }}
                       style={[styles.filterBanner, { backgroundColor: "#F59E0B22", borderColor: "#F59E0B" }]}
                     >
                       <View style={[styles.filterDot, { backgroundColor: "#F59E0B" }]} />
                       <Text style={[styles.filterBannerText, { color: "#F59E0B" }]}>
-                        Showing {sel.displayName}'s times — tap to clear
+                        Showing {count} {count === 1 ? "person's" : "people's"} times ({initials}) — tap to clear
                       </Text>
                       <Ionicons name="close-circle" size={16} color="#F59E0B" />
                     </TouchableOpacity>
@@ -926,14 +935,19 @@ export default function AvailabilityScreen() {
                 })()}
                 <View style={styles.memberRow}>
                   {data.members.map((m) => {
-                    const isSelected = m.id === selectedMemberId;
+                    const isSelected = selectedMemberIds.has(m.id);
                     if (m.hasResponded) {
                       return (
                         <TouchableOpacity
                           key={m.id}
                           onPress={() => {
                             Haptics.selectionAsync();
-                            setSelectedMemberId((prev) => (prev === m.id ? null : m.id));
+                            setSelectedMemberIds((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(m.id)) next.delete(m.id);
+                              else next.add(m.id);
+                              return next;
+                            });
                           }}
                           activeOpacity={0.7}
                           style={[
