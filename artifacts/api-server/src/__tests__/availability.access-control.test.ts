@@ -97,6 +97,57 @@ describe("GET /api/availability/polls/:id", () => {
   });
 });
 
+describe("GET /api/availability/polls/:id — ISO-date cells", () => {
+  const datedPoll = {
+    ...basePoll,
+    id: "poll-dated",
+    title: "Pick a Weekend",
+    days: ["2026-06-13", "2026-06-14", "2026-06-15"],
+    slots: ["6PM", "7PM", "8PM", "9PM"],
+  };
+
+  it("aggregates dated cells and lands the best pick on the correct calendar date", async () => {
+    storageMock.getAvailabilityPoll.mockResolvedValue(datedPoll);
+    storageMock.canAccessAvailabilityPoll.mockResolvedValue(true);
+    storageMock.getAvailabilityResponses.mockResolvedValue([
+      { userId: MEMBER_ID, cells: ["2026-06-14-8PM", "2026-06-13-7PM"] },
+      { userId: "u2", cells: ["2026-06-14-8PM"] },
+      { userId: "u3", cells: ["2026-06-14-8PM", "2026-06-15-9PM"] },
+    ]);
+    const app = await makeApp({ id: MEMBER_ID });
+    const res = await request(app).get("/api/availability/polls/poll-dated");
+    expect(res.status).toBe(200);
+    expect(res.body.respondentCount).toBe(3);
+    // The date with dashes round-trips: best pick is the Sunday 8PM slot.
+    expect(res.body.best).toEqual({ cell: "2026-06-14-8PM", count: 3, total: 3 });
+    const winner = res.body.heatmap.find(
+      (c: { cell: string }) => c.cell === "2026-06-14-8PM",
+    );
+    expect(winner.count).toBe(3);
+    const single = res.body.heatmap.find(
+      (c: { cell: string }) => c.cell === "2026-06-13-7PM",
+    );
+    expect(single.count).toBe(1);
+  });
+
+  it("breaks ties on dated cells by earliest day then earliest slot", async () => {
+    storageMock.getAvailabilityPoll.mockResolvedValue(datedPoll);
+    storageMock.canAccessAvailabilityPoll.mockResolvedValue(true);
+    // Two cells tie at 2 votes. The later-day/later-slot cell is inserted into
+    // the heatmap first, so a correct tie-break must REPLACE it with the
+    // earlier calendar slot ("2026-06-13-6PM") rather than keeping insertion
+    // order.
+    storageMock.getAvailabilityResponses.mockResolvedValue([
+      { userId: MEMBER_ID, cells: ["2026-06-15-9PM", "2026-06-13-6PM"] },
+      { userId: "u2", cells: ["2026-06-15-9PM", "2026-06-13-6PM"] },
+    ]);
+    const app = await makeApp({ id: MEMBER_ID });
+    const res = await request(app).get("/api/availability/polls/poll-dated");
+    expect(res.status).toBe(200);
+    expect(res.body.best).toEqual({ cell: "2026-06-13-6PM", count: 2, total: 2 });
+  });
+});
+
 describe("PUT /api/availability/polls/:id/me", () => {
   it("returns 403 when the caller lacks access", async () => {
     storageMock.getAvailabilityPoll.mockResolvedValue(basePoll);
