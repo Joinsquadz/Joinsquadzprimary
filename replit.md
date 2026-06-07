@@ -41,6 +41,11 @@ Squadz is a mobile app for friend groups: create squads, find the time everyone 
 ## User preferences
 
 - Mobile app is the ONLY product. Build new features mobile-only. The web app must stay an informational marketing landing page (no in-app web screens).
+- **Two separate apps live in this one project — never confuse them:**
+  - **Website** = `artifacts/squadz` (marketing landing page).
+  - **Mobile App** = `artifacts/squadz-native` (the actual product).
+- **Route every request to exactly one app.** A change to one must not touch the other unless the user explicitly asks for both. The shared `artifacts/api-server` backend is the only intentionally-shared piece.
+- **If a request doesn't make the target app obvious, STOP and ask "Website or Mobile App?" before editing.** Do not guess. Optional shortcut: the user may prefix a message with `Website:` or `App:` to set the target explicitly.
 
 ## Gotchas
 
