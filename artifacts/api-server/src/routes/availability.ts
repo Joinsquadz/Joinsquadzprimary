@@ -58,11 +58,15 @@ function buildPollPayload(
   const respondentCount = responses.length;
 
   // Best pick = the cell(s) with the highest overlap. Tie-break by earliest
-  // slot order in the poll's day/slot grid.
+  // slot order in the poll's day/slot grid. Cells are keyed `${day}-${slot}`
+  // where `day` may be an ISO date (which itself contains dashes), so split on
+  // the LAST dash to recover the slot.
   let bestCell: string | null = null;
   let bestCount = 0;
   const order = (cell: string): number => {
-    const [day, slot] = cell.split("-");
+    const i = cell.lastIndexOf("-");
+    const day = i < 0 ? cell : cell.slice(0, i);
+    const slot = i < 0 ? "" : cell.slice(i + 1);
     const di = poll.days.indexOf(day);
     const si = poll.slots.indexOf(slot);
     return (di < 0 ? 99 : di) * 100 + (si < 0 ? 99 : si);

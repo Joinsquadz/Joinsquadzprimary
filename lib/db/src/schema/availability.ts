@@ -5,6 +5,13 @@ import { z } from "zod/v4";
 
 // A "Find the Best Time" availability poll. Scoped to a squad and/or an event.
 // The grid is days x slots; members tap the cells they're free.
+//
+// `days` holds the poll's columns. New polls store concrete calendar dates as
+// ISO strings (e.g. "2026-06-14"), so squads coordinate on real dates rather
+// than abstract weekdays. The server generates a sensible default range when a
+// poll is created without explicit dates. Legacy polls may still contain plain
+// weekday labels (e.g. "Mon"); both are handled gracefully by parsing cell keys
+// on the LAST "-" so ISO dates (which contain dashes) round-trip correctly.
 export const availabilityPollsTable = pgTable("availability_polls", {
   id: text("id").primaryKey().default(sql`gen_random_uuid()`),
   squadId: text("squad_id"),
@@ -14,7 +21,7 @@ export const availabilityPollsTable = pgTable("availability_polls", {
   days: jsonb("days")
     .$type<string[]>()
     .notNull()
-    .default(sql`'["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]'::jsonb`),
+    .default(sql`'[]'::jsonb`),
   slots: jsonb("slots")
     .$type<string[]>()
     .notNull()

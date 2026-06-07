@@ -22,6 +22,14 @@ const DAY_FULL: Record<string, string> = {
   Fri: "Friday", Sat: "Saturday", Sun: "Sunday",
 };
 
+const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTH_SHORT = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
 type PollPayload = {
   poll: { id: string; title: string; days: string[]; slots: string[] };
   heatmap: { cell: string; count: number }[];
@@ -30,10 +38,54 @@ type PollPayload = {
   best: { cell: string; count: number; total: number } | null;
 };
 
+// Split a cell key `${day}-${slot}` on the LAST dash so ISO dates (which
+// contain dashes, e.g. "2026-06-14") keep their slot intact.
+function splitCell(cell: string): { day: string; slot: string } {
+  const i = cell.lastIndexOf("-");
+  if (i < 0) return { day: cell, slot: "" };
+  return { day: cell.slice(0, i), slot: cell.slice(i + 1) };
+}
+
+function parseISODate(day: string): Date | null {
+  const m = ISO_DATE.exec(day);
+  if (!m) return null;
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+}
+
+// "7PM" -> "7 PM"; pass anything else through unchanged.
+function formatSlot(slot: string): string {
+  const m = /^(\d{1,2})\s*(AM|PM)$/i.exec(slot);
+  return m ? `${m[1]} ${m[2].toUpperCase()}` : slot;
+}
+
+// Column header label for a poll day. Dated polls show weekday + M/D
+// (e.g. "Sat" / "6/14"); legacy weekday polls show the weekday label.
+function dayHeader(day: string): { top: string; sub: string } {
+  const d = parseISODate(day);
+  if (!d) return { top: day, sub: "" };
+  return {
+    top: WEEKDAY_SHORT[d.getDay()],
+    sub: `${d.getMonth() + 1}/${d.getDate()}`,
+  };
+}
+
+// Human-friendly day label. Dated -> "Sat Jun 14"; legacy -> "Monday".
+function prettyDay(day: string): string {
+  const d = parseISODate(day);
+  if (!d) return DAY_FULL[day] ?? day;
+  return `${WEEKDAY_SHORT[d.getDay()]} ${MONTH_SHORT[d.getMonth()]} ${d.getDate()}`;
+}
+
+// Full label for a chosen cell, e.g. "Sat Jun 14 · 7 PM" (dated) or
+// "Monday 8 PM" (legacy weekday).
 function prettyCell(cell: string | null): string {
   if (!cell) return "";
-  const [day, slot] = cell.split("-");
-  return `${DAY_FULL[day] ?? day} ${slot}`;
+  const { day, slot } = splitCell(cell);
+  const isDate = parseISODate(day) !== null;
+  const slotPretty = formatSlot(slot);
+  const dayPretty = prettyDay(day);
+  if (!slotPretty) return dayPretty;
+  return isDate ? `${dayPretty} · ${slotPretty}` : `${dayPretty} ${slotPretty}`;
 }
 
 export default function AvailabilityScreen() {
@@ -241,11 +293,21 @@ export default function AvailabilityScreen() {
             <View style={styles.gridWrap}>
               <View style={styles.gridHeaderRow}>
                 <View style={styles.timeLabelCol} />
-                {data.poll.days.map((d) => (
-                  <Text key={d} style={[styles.dayHeader, { color: colors.mutedForeground }]}>
-                    {d}
-                  </Text>
-                ))}
+                {data.poll.days.map((d) => {
+                  const h = dayHeader(d);
+                  return (
+                    <View key={d} style={styles.dayHeaderCol}>
+                      <Text style={[styles.dayHeader, { color: colors.mutedForeground }]}>
+                        {h.top}
+                      </Text>
+                      {h.sub ? (
+                        <Text style={[styles.dayHeaderSub, { color: colors.textDim }]}>
+                          {h.sub}
+                        </Text>
+                      ) : null}
+                    </View>
+                  );
+                })}
               </View>
               {data.poll.slots.map((slot) => (
                 <View key={slot} style={styles.gridRow}>
@@ -331,7 +393,9 @@ const styles = StyleSheet.create({
   gridWrap: { marginTop: 20 },
   gridHeaderRow: { flexDirection: "row", marginBottom: 6 },
   timeLabelCol: { width: 38 },
-  dayHeader: { flex: 1, textAlign: "center", fontSize: 11, fontWeight: "700" },
+  dayHeaderCol: { flex: 1, alignItems: "center" },
+  dayHeader: { textAlign: "center", fontSize: 11, fontWeight: "700" },
+  dayHeaderSub: { textAlign: "center", fontSize: 10, fontWeight: "600", marginTop: 1 },
   gridRow: { flexDirection: "row", alignItems: "center", marginBottom: 6 },
   timeLabel: { width: 38, fontSize: 11, fontWeight: "600" },
   cell: { flex: 1, height: 38, marginHorizontal: 2, borderRadius: 8, alignItems: "center", justifyContent: "center" },

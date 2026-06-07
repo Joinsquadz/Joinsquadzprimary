@@ -25,6 +25,28 @@ export class PhotoUrlConflictError extends Error {
   }
 }
 
+/** Format a Date as a local ISO date string ("YYYY-MM-DD"). */
+function toISODate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * Default column set for a new availability poll: the next `count` calendar
+ * days starting today, as ISO date strings. Squads coordinate on real dates
+ * rather than abstract weekdays.
+ */
+export function defaultPollDates(count = 7, start: Date = new Date()): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+    out.push(toISODate(d));
+  }
+  return out;
+}
+
 /**
  * A vault photo enriched with its linked event's display fields, joined in the
  * query so the API can label photos without the client refetching all events.
@@ -411,7 +433,9 @@ export class Storage {
       eventId: input.eventId ?? null,
     };
     if (input.title) values.title = input.title;
-    if (input.days && input.days.length) values.days = input.days;
+    // Polls coordinate on concrete calendar dates. When the caller doesn't
+    // supply an explicit set, default to a sensible upcoming range.
+    values.days = input.days && input.days.length ? input.days : defaultPollDates();
     if (input.slots && input.slots.length) values.slots = input.slots;
     const [poll] = await db
       .insert(availabilityPollsTable)
