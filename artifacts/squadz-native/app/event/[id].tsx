@@ -12,6 +12,9 @@ import {
   Alert,
   ActivityIndicator,
 } from "react-native";
+import { computeSettle, payWithVenmo, payWithCashApp } from "@/lib/settle";
+import { addEventToCalendar, parseEventStart } from "@/lib/calendar";
+import { scheduleRsvpReminder } from "@/lib/reminders";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -52,6 +55,7 @@ export default function EventDetailScreen() {
     addPoll,
     votePoll,
     sendMessage,
+    refreshEvents,
     getSquad,
     currentUser,
   } = useData();
@@ -71,6 +75,14 @@ export default function EventDetailScreen() {
       .catch(() => setIsPro(false));
   }, [authHeaders]);
 
+  // Live-refresh the chat while the Chat tab is open so squad messages appear.
+  useEffect(() => {
+    if (tab !== "chat") return;
+    void refreshEvents();
+    const interval = setInterval(() => { void refreshEvents(); }, 5000);
+    return () => clearInterval(interval);
+  }, [tab, refreshEvents]);
+
   // Modals
   const [taskModal, setTaskModal] = useState(false);
   const [newTask, setNewTask] = useState("");
@@ -79,6 +91,8 @@ export default function EventDetailScreen() {
   const [costDesc, setCostDesc] = useState("");
   const [costTotal, setCostTotal] = useState("");
   const [costShares, setCostShares] = useState<Record<string, string>>({});
+  const [calBusy, setCalBusy] = useState(false);
+  const [remBusy, setRemBusy] = useState(false);
 
   const [pollModal, setPollModal] = useState(false);
   const [pollQ, setPollQ] = useState("");
@@ -133,6 +147,59 @@ export default function EventDetailScreen() {
 
   const statusColor = (s: RsvpStatus) =>
     s === "going" ? colors.green : s === "maybe" ? colors.gold : colors.destructive;
+
+  const handleAddToCalendar = async () => {
+    if (calBusy) return;
+    const start = parseEventStart(event.date);
+    if (!start) {
+      Alert.alert("Can't add to calendar", "This event doesn't have a clear date yet.");
+      return;
+    }
+    setCalBusy(true);
+    try {
+      const res = await addEventToCalendar({
+        title: `${event.emoji} ${event.title}`.trim(),
+        start,
+        location: event.location || undefined,
+        notes: event.description || undefined,
+      });
+      if (res.ok) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        if (res.method === "calendar") {
+          Alert.alert("Added to calendar", `${event.title} is on your calendar.`);
+        }
+      } else {
+        Alert.alert("Couldn't add to calendar", res.message ?? "Please try again.");
+      }
+    } catch {
+      Alert.alert("Couldn't add to calendar", "Something went wrong. Please try again.");
+    } finally {
+      setCalBusy(false);
+    }
+  };
+
+  const handleRemindRsvp = async () => {
+    if (remBusy) return;
+    const start = parseEventStart(event.date);
+    if (!start) {
+      Alert.alert("Can't set a reminder", "This event doesn't have a clear date yet.");
+      return;
+    }
+    setRemBusy(true);
+    try {
+      const res = await scheduleRsvpReminder({ title: event.title, start });
+      if (res.ok) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        Alert.alert("Reminder set", res.whenLabel ? `We'll nudge you on ${res.whenLabel}.` : "We'll remind you to RSVP.");
+      } else {
+        Alert.alert("No reminder set", res.message ?? "Please try again.");
+      }
+    } catch {
+      Alert.alert("No reminder set", "Something went wrong. Please try again.");
+    } finally {
+      setRemBusy(false);
+    }
+  };
 
   const TABS: { key: EventTab; label: string }[] = [
     { key: "overview", label: "Overview" },
@@ -394,6 +461,52 @@ export default function EventDetailScreen() {
               <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
             </TouchableOpacity>
 
+            {/* Calendar sync + RSVP reminder */}
+            <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border, gap: 10 }]}>
+              <TouchableOpacity
+                onPress={handleAddToCalendar}
+                disabled={calBusy}
+                style={{ flexDirection: "row", alignItems: "center", gap: 12, opacity: calBusy ? 0.6 : 1 }}
+              >
+                <View style={{ width: 36, height: 36, borderRadius: 11, alignItems: "center", justifyContent: "center", backgroundColor: colors.primary + "20" }}>
+                  {calBusy ? (
+                    <ActivityIndicator size="small" color={colors.primary} />
+                  ) : (
+                    <Ionicons name="calendar-outline" size={18} color={colors.primary} />
+                  )}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.cardBody, { color: colors.foreground, fontWeight: "700" }]}>Add to Calendar</Text>
+                  <Text style={[styles.cardBody, { color: colors.mutedForeground, fontSize: 13 }]}>Save the date so you don't forget</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
+              </TouchableOpacity>
+
+              {myRsvp == null && (
+                <>
+                  <View style={{ height: 1, backgroundColor: colors.border }} />
+                  <TouchableOpacity
+                    onPress={handleRemindRsvp}
+                    disabled={remBusy}
+                    style={{ flexDirection: "row", alignItems: "center", gap: 12, opacity: remBusy ? 0.6 : 1 }}
+                  >
+                    <View style={{ width: 36, height: 36, borderRadius: 11, alignItems: "center", justifyContent: "center", backgroundColor: colors.gold + "20" }}>
+                      {remBusy ? (
+                        <ActivityIndicator size="small" color={colors.gold} />
+                      ) : (
+                        <Ionicons name="notifications-outline" size={18} color={colors.gold} />
+                      )}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.cardBody, { color: colors.foreground, fontWeight: "700" }]}>Remind me to RSVP</Text>
+                      <Text style={[styles.cardBody, { color: colors.mutedForeground, fontSize: 13 }]}>Get a nudge before it starts</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
+                  </TouchableOpacity>
+                </>
+              )}
+            </View>
+
             {/* Polls */}
             <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <View style={styles.cardHeaderRow}>
@@ -592,6 +705,54 @@ export default function EventDetailScreen() {
                     </Text>
                   </View>
                 </View>
+                {(() => {
+                  const settleLines = computeSettle(event.costs, currentUser.id);
+                  return (
+                    <View style={[styles.settleCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                      <Text style={[styles.settleHeader, { color: colors.foreground }]}>Settle up</Text>
+                      {settleLines.length === 0 ? (
+                        <Text style={[styles.settleAllClear, { color: colors.mutedForeground }]}>You're all settled up 🎉</Text>
+                      ) : (
+                        settleLines.map((line) => {
+                          const other = getUserById(line.userId);
+                          const iOwe = line.net < 0;
+                          const amt = Math.abs(line.net);
+                          const note = `${event.title} — settle up`;
+                          const firstName = other.name.split(" ")[0];
+                          return (
+                            <View key={line.userId} style={styles.settleRow}>
+                              <UserAvatar initials={other.initials} color={other.color} size={32} fontSize={11} />
+                              <View style={{ flex: 1 }}>
+                                <Text style={[styles.settleName, { color: colors.foreground }]}>
+                                  {iOwe ? `You owe ${firstName}` : `${firstName} owes you`}
+                                </Text>
+                                <Text style={[styles.settleAmt, { color: iOwe ? colors.destructive : colors.green }]}>
+                                  ${amt.toFixed(2)}
+                                </Text>
+                              </View>
+                              {iOwe && (
+                                <View style={styles.settleActions}>
+                                  <TouchableOpacity
+                                    onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); void payWithVenmo(amt, note); }}
+                                    style={[styles.payBtn, { backgroundColor: "#3D95CE" }]}
+                                  >
+                                    <Text style={styles.payBtnText}>Venmo</Text>
+                                  </TouchableOpacity>
+                                  <TouchableOpacity
+                                    onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); void payWithCashApp(amt); }}
+                                    style={[styles.payBtn, { backgroundColor: "#00C244" }]}
+                                  >
+                                    <Text style={styles.payBtnText}>Cash App</Text>
+                                  </TouchableOpacity>
+                                </View>
+                              )}
+                            </View>
+                          );
+                        })
+                      )}
+                    </View>
+                  );
+                })()}
                 {event.costs.map((cost) => {
                   const payer = getUserById(cost.paidById);
                   const myShare = cost.shares.find((s) => s.userId === currentUser.id)?.amount ?? 0;
@@ -1120,6 +1281,15 @@ const styles = StyleSheet.create({
   costRight: { alignItems: "flex-end" },
   costTotal: { fontSize: 16, fontWeight: "800" },
   costShare: { fontSize: 12 },
+  settleCard: { borderRadius: 12, borderWidth: 1, padding: 14, gap: 12 },
+  settleHeader: { fontSize: 15, fontWeight: "800" },
+  settleAllClear: { fontSize: 13 },
+  settleRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  settleName: { fontSize: 13, fontWeight: "600" },
+  settleAmt: { fontSize: 15, fontWeight: "800", marginTop: 2 },
+  settleActions: { flexDirection: "row", gap: 8 },
+  payBtn: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10 },
+  payBtnText: { fontSize: 12, fontWeight: "800", color: "#fff" },
   addRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 12, borderWidth: 1.5, borderStyle: "dashed", padding: 14 },
   addText: { fontSize: 14, fontWeight: "700" },
   inviteCode: { fontSize: 24, fontWeight: "800", letterSpacing: 2 },

@@ -728,11 +728,11 @@ export default function LoginScreen() {
 
         <View style={styles.ctaSection}>
           <GradientButton
-            label={oidcLoading ? "Signing in…" : "Get Started — It's Free ✨"}
-            onPress={handleReplitLogin}
+            label="Get Started — It's Free ✨"
+            onPress={() => router.push("/signup")}
           />
           <TouchableOpacity
-            onPress={handleReplitLogin}
+            onPress={() => setScreen("options")}
             style={[styles.secondaryBtn, { borderColor: colors.border }]}
           >
             <Text style={[styles.secondaryBtnText, { color: colors.mutedForeground }]}>

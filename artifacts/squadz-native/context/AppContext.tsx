@@ -97,6 +97,7 @@ type AppContextType = {
   addPoll: (eventId: string, question: string, options: string[]) => void;
   votePoll: (eventId: string, pollId: string, optionId: string) => void;
   sendMessage: (eventId: string, text: string) => void;
+  refreshEvents: () => Promise<void>;
 
   squads: Squad[];
   getSquad: (id: string) => Squad | undefined;
@@ -141,6 +142,7 @@ const AppContext = createContext<AppContextType>({
   addPoll: noop,
   votePoll: noop,
   sendMessage: noop,
+  refreshEvents: async () => {},
   squads: [],
   getSquad: () => undefined,
   addSquad: asyncNoop,
@@ -243,6 +245,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Network unavailable — keep mock data
     } finally {
       setEventsLoading(false);
+    }
+  }, [apiFetch]);
+
+  // Silent refetch (no loading flicker) used for polling, e.g. live chat refresh.
+  const refreshEvents = useCallback(async () => {
+    try {
+      const res = await apiFetch(`/api/events`);
+      if (!res.ok) return;
+      const data = await res.json() as Record<string, unknown>[];
+      setEvents(data.map(dbEventToEvent));
+    } catch {
+      // Network unavailable — keep current data
     }
   }, [apiFetch]);
 
@@ -693,6 +707,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         addPoll,
         votePoll,
         sendMessage,
+        refreshEvents,
         squads,
         getSquad,
         addSquad,

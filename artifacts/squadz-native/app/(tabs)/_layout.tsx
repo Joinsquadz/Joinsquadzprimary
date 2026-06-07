@@ -20,17 +20,9 @@ function NativeTabLayout() {
         <Icon sf={{ default: "person.2", selected: "person.2.fill" }} />
         <Label>SquadZ</Label>
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="events">
-        <Icon sf={{ default: "calendar", selected: "calendar" }} />
-        <Label>Events</Label>
-      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="create">
         <Icon sf={{ default: "plus.circle", selected: "plus.circle.fill" }} />
         <Label>Create</Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="photos">
-        <Icon sf={{ default: "photo.on.rectangle", selected: "photo.fill.on.rectangle.fill" }} />
-        <Label>Photos</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="activity">
         <Icon sf={{ default: "bell", selected: "bell.fill" }} />
@@ -103,18 +95,7 @@ function ClassicTabLayout() {
             ),
         }}
       />
-      <Tabs.Screen
-        name="events"
-        options={{
-          title: "Events",
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="calendar" tintColor={color} size={24} />
-            ) : (
-              <Ionicons name="calendar-outline" size={22} color={color} />
-            ),
-        }}
-      />
+      <Tabs.Screen name="events" options={{ href: null }} />
       <Tabs.Screen
         name="create"
         options={{
@@ -127,18 +108,7 @@ function ClassicTabLayout() {
             ),
         }}
       />
-      <Tabs.Screen
-        name="photos"
-        options={{
-          title: "Photos",
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="photo.on.rectangle" tintColor={color} size={24} />
-            ) : (
-              <Ionicons name="images-outline" size={22} color={color} />
-            ),
-        }}
-      />
+      <Tabs.Screen name="photos" options={{ href: null }} />
       <Tabs.Screen
         name="activity"
         options={{

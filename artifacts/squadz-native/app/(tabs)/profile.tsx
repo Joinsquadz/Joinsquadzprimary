@@ -322,7 +322,7 @@ export default function ProfileScreen() {
               "🗓️  Unlimited Events — Create as many events as you like\n\n📷  Photo Vault — Store & share squad photos\n\n📅  Calendar Sync — Add squad events to Apple / Google Calendar",
               [
                 { text: "View Events", onPress: () => router.push("/(tabs)/events" as never) },
-                { text: "View Photo Vault", onPress: () => router.push("/(tabs)/squads" as never) },
+                { text: "View Photo Vault", onPress: () => router.push("/vault" as never) },
                 { text: "Calendar Sync", onPress: () => { setHighlightCalSync(true); setTimeout(() => setHighlightCalSync(false), 3000); } },
                 { text: "Done", style: "cancel" },
               ]

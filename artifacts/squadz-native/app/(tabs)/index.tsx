@@ -128,7 +128,7 @@ export default function HomeScreen() {
           <View style={styles.sectionHeader}>
             <Text style={[styles.sectionTitle, { color: colors.foreground }]}>My SquadZ</Text>
             {!squadsLoading && (
-              <TouchableOpacity onPress={() => router.push("/(tabs)/profile")}>
+              <TouchableOpacity onPress={() => router.push("/(tabs)/squads")}>
                 <Text style={[styles.seeAll, { color: colors.primary }]}>See all →</Text>
               </TouchableOpacity>
             )}
