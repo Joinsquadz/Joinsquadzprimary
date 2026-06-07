@@ -499,7 +499,10 @@ export default function SquadDetailScreen() {
             <Ionicons name="calendar-outline" size={36} color={colors.textDim} />
             <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>No events yet</Text>
             <TouchableOpacity
-              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push("/(tabs)/create"); }}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push({ pathname: "/(tabs)/create", params: { prefillSquad: squad.id } } as never);
+              }}
               style={[styles.emptyCta, { borderColor: colors.border }]}
             >
               <Ionicons name="add" size={18} color={colors.primary} />
