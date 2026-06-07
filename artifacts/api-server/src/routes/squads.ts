@@ -304,6 +304,47 @@ router.post("/squads/:id/members", requireAuth, async (req: Request, res: Respon
   })();
 });
 
+router.delete("/squads/:id/members/:userId", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const id = parseId(req.params.id);
+  const targetUserId = parseId(req.params.userId);
+  const actorId = (req.user as { id: string }).id;
+
+  const [squad] = await db.select().from(squadsTable).where(eq(squadsTable.id, id));
+  if (!squad) {
+    res.status(404).json({ error: "Squad not found" });
+    return;
+  }
+
+  const memberIds = (squad.memberIds ?? []) as string[];
+  const creatorId = memberIds[0] ?? null;
+
+  const isCreator = actorId === creatorId;
+  const isSelf = actorId === targetUserId;
+
+  if (!isCreator && !isSelf) {
+    res.status(403).json({ error: "Only the squad creator or the member themselves can remove a member." });
+    return;
+  }
+
+  if (!memberIds.includes(targetUserId)) {
+    res.status(404).json({ error: "User is not in this squad." });
+    return;
+  }
+
+  if (isCreator && targetUserId === creatorId) {
+    res.status(400).json({ error: "The creator cannot be removed. Transfer ownership or delete the squad instead." });
+    return;
+  }
+
+  const updated = memberIds.filter((mid) => mid !== targetUserId);
+  const [updatedSquad] = await db
+    .update(squadsTable)
+    .set({ memberIds: updated })
+    .where(eq(squadsTable.id, id))
+    .returning();
+  res.json(updatedSquad);
+});
+
 router.post("/squads/:id/join", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const id = parseId(req.params.id);
   const userId = (req.user as { id: string }).id;

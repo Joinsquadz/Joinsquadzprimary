@@ -126,6 +126,7 @@ type AppContextType = {
   leaveSquad: (id: string) => void;
   joinSquad: (squadId: string) => Promise<{ error?: string }>;
   addMemberByFriendCode: (squadId: string, friendCode: string) => Promise<{ error?: string; user?: FoundUser }>;
+  removeMember: (squadId: string, userId: string) => Promise<{ error?: string }>;
 
   friends: string[];
   friendCode: string;
@@ -178,6 +179,7 @@ const AppContext = createContext<AppContextType>({
   leaveSquad: noop,
   joinSquad: async () => ({}),
   addMemberByFriendCode: async () => ({}),
+  removeMember: async () => ({}),
   friends: INITIAL_FRIENDS,
   friendCode: MY_FRIEND_CODE,
   addFriend: noop,
@@ -882,6 +884,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [apiFetch]);
 
+  const removeMember = useCallback(
+    async (squadId: string, targetUserId: string): Promise<{ error?: string }> => {
+      try {
+        const res = await apiFetch(`/api/squads/${squadId}/members/${targetUserId}`, { method: "DELETE" });
+        const data = (await res.json().catch(() => ({}))) as { memberIds?: string[]; error?: string } & Record<string, unknown>;
+        if (!res.ok) return { error: data.error ?? "Something went wrong. Please try again." };
+        setSquads((prev) =>
+          prev.map((s) => {
+            if (s.id !== squadId) return s;
+            return dbSquadToSquad(data);
+          }),
+        );
+        return {};
+      } catch {
+        return { error: "Network error. Please try again." };
+      }
+    },
+    [apiFetch],
+  );
+
   const addMemberByFriendCode = useCallback(
     async (squadId: string, friendCode: string): Promise<{ error?: string; user?: FoundUser }> => {
       try {
@@ -961,6 +983,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         leaveSquad,
         joinSquad,
         addMemberByFriendCode,
+        removeMember,
         friends,
         friendCode: apiUser?.friendCode ?? MY_FRIEND_CODE,
         addFriend,

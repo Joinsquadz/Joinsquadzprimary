@@ -44,7 +44,7 @@ function getFriendCodeInitials(u: FoundUser): string {
 export default function SquadDetailScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { events, getSquad, updateSquad, leaveSquad, currentUser, addMemberByFriendCode } = useData();
+  const { events, getSquad, updateSquad, leaveSquad, currentUser, addMemberByFriendCode, removeMember } = useData();
   const { resolveUser, prefetchUsers } = useUserCache();
   const { getSquadConversation } = useMessages();
   const { authToken } = useAuth();
@@ -185,6 +185,38 @@ export default function SquadDetailScreen() {
     return resolveUser(mid);
   });
   const squadEvents = events.filter((e) => e.squadId === squad.id);
+
+  const creatorId = squad.memberIds[0] ?? null;
+  const isCreator = currentUser.id === creatorId;
+
+  const handleMemberLongPress = (memberId: string, memberName: string) => {
+    const isSelf = memberId === currentUser.id;
+    if (!isCreator && !isSelf) return;
+    const isTarget = memberId === creatorId && isCreator;
+    if (isTarget) return;
+
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const label = isSelf ? "Leave squad" : `Remove ${memberName}`;
+    const message = isSelf
+      ? `Leave "${squad.name}"? You'll need a new invite to rejoin.`
+      : `Remove ${memberName} from "${squad.name}"?`;
+    Alert.alert(label, message, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: isSelf ? "Leave" : "Remove",
+        style: "destructive",
+        onPress: async () => {
+          const result = await removeMember(squad.id, memberId);
+          if (result.error) {
+            Alert.alert("Error", result.error);
+          } else {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            if (isSelf) goBack();
+          }
+        },
+      },
+    ]);
+  };
   const inviteLink = `getsquadz.com/squad/${squad.id}`;
 
   const shareInvite = () => {
@@ -263,14 +295,24 @@ export default function SquadDetailScreen() {
         {/* Members */}
         <Text style={[styles.sectionTitle, { color: colors.foreground, marginTop: 24 }]}>Members</Text>
         <View style={styles.membersGrid}>
-          {members.map((m) => (
-            <View key={m.id} style={[styles.memberCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <UserAvatar initials={m.initials} color={m.color} imageUrl={m.profileImageUrl} size={44} fontSize={15} />
-              <Text style={[styles.memberName, { color: colors.foreground }]} numberOfLines={1}>
-                {m.name.split(" ")[0]}
-              </Text>
-            </View>
-          ))}
+          {members.map((m) => {
+            const canInteract = isCreator ? m.id !== creatorId : m.id === currentUser.id;
+            return (
+              <TouchableOpacity
+                key={m.id}
+                onLongPress={() => handleMemberLongPress(m.id, m.name.split(" ")[0])}
+                delayLongPress={400}
+                disabled={!canInteract}
+                style={[styles.memberCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+                activeOpacity={canInteract ? 0.7 : 1}
+              >
+                <UserAvatar initials={m.initials} color={m.color} imageUrl={m.profileImageUrl} size={44} fontSize={15} />
+                <Text style={[styles.memberName, { color: colors.foreground }]} numberOfLines={1}>
+                  {m.name.split(" ")[0]}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
           <TouchableOpacity
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
