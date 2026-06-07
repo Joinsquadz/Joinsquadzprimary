@@ -8,13 +8,14 @@ import {
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { router, Stack, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import React, { useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Platform } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { PushNotificationBanner } from "@/components/PushNotificationBanner";
 import { AppProvider, useAuth } from "@/context/AppContext";
 import { MessagesProvider } from "@/context/MessagesContext";
 import { UserCacheProvider } from "@/context/UserCacheContext";
@@ -48,22 +49,40 @@ function AuthGuard() {
 }
 
 /**
- * Registers the device's Expo push token with the server once the user is
- * logged in. Also sets up a listener so tapping a push notification
- * deep-links into the correct availability screen (squad or event).
+ * Handles push notification registration and stale-token detection in a single
+ * sequential flow — no race between a drift check and auto-registration.
+ *
+ * On each login:
+ *   1. Request / confirm permission.
+ *   2. Fetch the device's current Expo push token.
+ *   3. Fetch the server's stored token (GET /api/push-token).
+ *   4a. If they match → silent idempotent re-registration, no banner.
+ *   4b. If they differ (server has null or an old token) → show banner;
+ *       do NOT auto-register so the server stays accurately "stale" until
+ *       the user explicitly re-enables.
+ *
+ * The banner's "Fix" button re-fetches a fresh device token, POSTs it, and
+ * only dismisses the banner when the server returns a 2xx response.
+ *
  * Native-only — the whole component is a no-op on web.
  */
-function PushNotificationManager() {
+function PushNotificationHandler() {
   const { isLoggedIn, authToken } = useAuth();
-  const registeredRef = useRef(false);
+  const checkedRef = useRef(false);
+  const [showBanner, setShowBanner] = useState(false);
+  const [registering, setRegistering] = useState(false);
 
+  // Sequential startup check: permission → device token → server token → decision
   useEffect(() => {
     if (Platform.OS === "web") return;
     if (!isLoggedIn || !authToken) {
-      registeredRef.current = false;
+      // Reset on logout so the check runs again after a fresh login
+      checkedRef.current = false;
+      setShowBanner(false);
       return;
     }
-    if (registeredRef.current) return;
+    if (checkedRef.current) return;
+    checkedRef.current = true;
 
     let cancelled = false;
 
@@ -81,6 +100,7 @@ function PushNotificationManager() {
           }),
         });
 
+        // Step 1: ensure/request permission
         let granted = false;
         const existing = await Notifications.getPermissionsAsync();
         granted = existing.granted || existing.status === "granted";
@@ -90,21 +110,44 @@ function PushNotificationManager() {
         }
         if (!granted || cancelled) return;
 
+        // Step 2: get device token
         const tokenData = await Notifications.getExpoPushTokenAsync();
-        const token = tokenData.data;
+        const deviceToken = tokenData.data;
         if (cancelled) return;
 
-        await fetch(`${API_BASE}/api/push-token`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...buildAuthHeaders(authToken),
-          },
-          body: JSON.stringify({ token }),
+        // Step 3: get server token — sequential, no race
+        const serverRes = await fetch(`${API_BASE}/api/push-token`, {
+          headers: buildAuthHeaders(authToken),
         });
-        registeredRef.current = true;
+
+        if (cancelled) return;
+
+        if (!serverRes.ok) {
+          // Can't check — fall back to normal silent registration
+          await fetch(`${API_BASE}/api/push-token`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...buildAuthHeaders(authToken) },
+            body: JSON.stringify({ token: deviceToken }),
+          });
+          return;
+        }
+
+        const { token: serverToken } = (await serverRes.json()) as { token: string | null };
+
+        // Step 4: decide
+        if (serverToken === deviceToken) {
+          // Tokens already match — silent idempotent registration
+          await fetch(`${API_BASE}/api/push-token`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...buildAuthHeaders(authToken) },
+            body: JSON.stringify({ token: deviceToken }),
+          });
+        } else {
+          // Stale or missing — show banner, do NOT auto-register
+          if (!cancelled) setShowBanner(true);
+        }
       } catch {
-        // Never crash the app because of push token registration failure
+        // Never crash the app because of push token handling
       }
     })();
 
@@ -113,6 +156,7 @@ function PushNotificationManager() {
     };
   }, [isLoggedIn, authToken]);
 
+  // Deep-link listener for notification taps
   useEffect(() => {
     if (Platform.OS === "web") return;
 
@@ -141,7 +185,60 @@ function PushNotificationManager() {
     };
   }, []);
 
-  return null;
+  const handleReEnable = useCallback(() => {
+    if (!authToken || registering) return;
+    setRegistering(true);
+
+    void (async () => {
+      try {
+        const Notifications = await import("expo-notifications");
+
+        // Re-request permission if needed
+        let granted = false;
+        const existing = await Notifications.getPermissionsAsync();
+        granted = existing.granted || existing.status === "granted";
+        if (!granted) {
+          const req = await Notifications.requestPermissionsAsync();
+          granted = req.granted || req.status === "granted";
+        }
+        if (!granted) {
+          // User denied — dismiss banner (nothing more we can do)
+          setShowBanner(false);
+          return;
+        }
+
+        const tokenData = await Notifications.getExpoPushTokenAsync();
+        const token = tokenData.data;
+
+        const res = await fetch(`${API_BASE}/api/push-token`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...buildAuthHeaders(authToken) },
+          body: JSON.stringify({ token }),
+        });
+
+        if (res.ok) {
+          // Only dismiss when the server confirms the new token was saved
+          setShowBanner(false);
+        }
+        // On failure: keep banner visible so the user can retry
+      } catch {
+        // Network error — keep banner visible so the user can retry
+      } finally {
+        setRegistering(false);
+      }
+    })();
+  }, [authToken, registering]);
+
+  const handleDismiss = useCallback(() => setShowBanner(false), []);
+
+  return (
+    <PushNotificationBanner
+      visible={showBanner}
+      registering={registering}
+      onReEnable={handleReEnable}
+      onDismiss={handleDismiss}
+    />
+  );
 }
 
 function MutedSquadsConnector({ children }: { children: React.ReactNode }) {
@@ -153,7 +250,7 @@ function RootLayoutNav() {
   return (
     <>
       <AuthGuard />
-      <PushNotificationManager />
+      <PushNotificationHandler />
       <Stack screenOptions={{ headerShown: false, animation: "slide_from_right" }}>
         <Stack.Screen name="login" />
         <Stack.Screen name="signup" />

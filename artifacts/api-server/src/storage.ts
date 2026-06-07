@@ -1106,6 +1106,15 @@ export class Storage {
       .where(eq(usersTable.id, userId));
   }
 
+  async getPushToken(userId: string): Promise<string | null> {
+    const rows = await db
+      .select({ pushToken: usersTable.pushToken })
+      .from(usersTable)
+      .where(eq(usersTable.id, userId))
+      .limit(1);
+    return rows[0]?.pushToken ?? null;
+  }
+
   async clearPushToken(token: string): Promise<void> {
     await db
       .update(usersTable)

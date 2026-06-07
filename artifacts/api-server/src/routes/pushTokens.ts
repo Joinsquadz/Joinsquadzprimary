@@ -12,6 +12,24 @@ const RegisterBody = z.object({
 });
 
 /**
+ * GET /api/push-token
+ * Returns the push token the server currently has on record for the caller.
+ * The mobile app uses this at launch to detect when its local token has drifted
+ * from the server (e.g. after a DeviceNotRegistered clear) so it can prompt the
+ * user to re-enable notifications.
+ */
+router.get("/push-token", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req.user as { id: string }).id;
+    const token = await storage.getPushToken(userId);
+    res.json({ token });
+  } catch (err) {
+    logger.error({ err }, "Error fetching push token");
+    res.status(500).json({ error: "Failed to fetch push token" });
+  }
+});
+
+/**
  * POST /api/push-token
  * Register (or refresh) the caller's Expo push token. Called by the mobile app
  * after the user grants notification permission. Idempotent — re-registering
