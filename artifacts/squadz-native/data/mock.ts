@@ -64,6 +64,7 @@ export type Event = {
   messages: Message[];
   cancelled?: boolean;
   budget?: number;
+  isPublic?: boolean;
 };
 
 export type Squad = {
@@ -72,6 +73,7 @@ export type Squad = {
   emoji: string;
   memberIds: string[];
   color: string;
+  isPublic?: boolean;
 };
 
 export const USERS: User[] = [

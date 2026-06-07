@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -18,6 +19,10 @@ import { EventCard } from "@/components/EventCard";
 import { UserAvatar } from "@/components/UserAvatar";
 import { SkeletonBox } from "@/components/SkeletonBox";
 import { goingCount, getUserById } from "@/data/mock";
+import { API_BASE, buildAuthHeaders } from "@/lib/api";
+
+type DiscoverEvent = { id: string; emoji: string; title: string; date: string; inviteCode: string };
+type DiscoverSquad = { id: string; emoji: string; name: string; color: string; memberIds: string[] };
 
 const AI_SUGGESTIONS = [
   { emoji: "🎳", title: "Bowling night this weekend", why: "Your squad hasn't hung out in 12 days", color: "#A855F7", type: "Event" },
@@ -27,8 +32,23 @@ const AI_SUGGESTIONS = [
 export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { currentUser } = useAuth();
-  const { events, squads, eventsLoading, squadsLoading } = useData();
+  const { currentUser, authToken } = useAuth();
+  const { events, squads, eventsLoading, squadsLoading, joinEvent, joinSquad } = useData();
+  const [discoverEvents, setDiscoverEvents] = useState<DiscoverEvent[]>([]);
+  const [discoverSquads, setDiscoverSquads] = useState<DiscoverSquad[]>([]);
+
+  useEffect(() => {
+    if (!authToken) return;
+    fetch(`${API_BASE}/api/discover`, { headers: buildAuthHeaders(authToken) })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { events?: DiscoverEvent[]; squads?: DiscoverSquad[] } | null) => {
+        if (data) {
+          setDiscoverEvents(data.events ?? []);
+          setDiscoverSquads(data.squads ?? []);
+        }
+      })
+      .catch(() => {});
+  }, [authToken]);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const upNext = events[0] ?? null;
@@ -236,6 +256,62 @@ export default function HomeScreen() {
             ))}
           </View>
         </View>
+
+        {/* Discover */}
+        {(discoverEvents.length > 0 || discoverSquads.length > 0) && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <View>
+                <Text style={[styles.sectionTitle, { color: colors.foreground }]}>🔍 Discover</Text>
+                <Text style={[styles.discoverSubtitle, { color: colors.mutedForeground }]}>Public events & squads to join</Text>
+              </View>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingRight: 20 }}>
+              {discoverEvents.map((ev) => (
+                <TouchableOpacity
+                  key={ev.id}
+                  style={[styles.discoverCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+                  onPress={async () => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                    await joinEvent(ev.inviteCode);
+                    router.push(`/event/${ev.id}` as never);
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <View style={[styles.discoverIconWrap, { backgroundColor: colors.primary + "18" }]}>
+                    <Text style={styles.discoverEmoji}>{ev.emoji}</Text>
+                  </View>
+                  <Text style={[styles.discoverTitle, { color: colors.foreground }]} numberOfLines={2}>{ev.title}</Text>
+                  <Text style={[styles.discoverSub, { color: colors.mutedForeground }]} numberOfLines={1}>{ev.date}</Text>
+                  <View style={[styles.discoverJoinBtn, { backgroundColor: colors.primary }]}>
+                    <Text style={styles.discoverJoinText}>Join →</Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+              {discoverSquads.map((sq) => (
+                <TouchableOpacity
+                  key={sq.id}
+                  style={[styles.discoverCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+                  onPress={async () => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                    await joinSquad(sq.id);
+                    router.push(`/squad/${sq.id}` as never);
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <View style={[styles.discoverIconWrap, { backgroundColor: (sq.color ?? colors.primary) + "22" }]}>
+                    <Text style={styles.discoverEmoji}>{sq.emoji}</Text>
+                  </View>
+                  <Text style={[styles.discoverTitle, { color: colors.foreground }]} numberOfLines={2}>{sq.name}</Text>
+                  <Text style={[styles.discoverSub, { color: colors.mutedForeground }]}>{sq.memberIds?.length ?? 0} members</Text>
+                  <View style={[styles.discoverJoinBtn, { backgroundColor: sq.color ?? colors.primary }]}>
+                    <Text style={styles.discoverJoinText}>Join →</Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        )}
       </ScrollView>
 
       {/* FAB */}
@@ -323,6 +399,17 @@ const styles = StyleSheet.create({
   suggestionSub: { fontSize: 12, marginTop: 2 },
   suggestionTag: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
   suggestionTagText: { fontSize: 11, fontWeight: "700" },
+  discoverSubtitle: { fontSize: 12, marginTop: 2 },
+  discoverCard: {
+    width: 152, borderRadius: 16, borderWidth: 1, padding: 14,
+    gap: 8, justifyContent: "space-between",
+  },
+  discoverIconWrap: { width: 44, height: 44, borderRadius: 13, alignItems: "center", justifyContent: "center" },
+  discoverEmoji: { fontSize: 22 },
+  discoverTitle: { fontSize: 14, fontWeight: "700", lineHeight: 18 },
+  discoverSub: { fontSize: 12 },
+  discoverJoinBtn: { borderRadius: 10, paddingVertical: 7, alignItems: "center" },
+  discoverJoinText: { fontSize: 12, fontWeight: "800", color: "#fff" },
   fab: {
     position: "absolute", bottom: 90, right: 24,
     width: 56, height: 56, borderRadius: 28,

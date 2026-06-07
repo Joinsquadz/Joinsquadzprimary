@@ -9,6 +9,7 @@ import {
   Platform,
   Alert,
   Modal,
+  Switch,
 } from "react-native";
 import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { LinearGradient } from "expo-linear-gradient";
@@ -52,6 +53,7 @@ export default function CreateEventScreen() {
   const [selectedSquad, setSelectedSquad] = useState<string | null>(null);
   const [selectedEmoji, setSelectedEmoji] = useState("🔥");
 
+  const [isPublic, setIsPublic] = useState(false);
   const [isPro, setIsPro] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [upgradeLoading, setUpgradeLoading] = useState(false);
@@ -109,6 +111,7 @@ export default function CreateEventScreen() {
       title: title.trim(), emoji: selectedEmoji,
       date: date.trim(), location: location.trim(),
       description: description.trim(), squadId: selectedSquad,
+      isPublic,
     });
     fetch(`${API_BASE}/api/events/count`, { headers: authHeaders() })
       .then(r => r.ok ? r.json() : null)
@@ -288,6 +291,29 @@ export default function CreateEventScreen() {
               onChangeText={setDescription}
               multiline
               style={[styles.fieldInput, { color: colors.foreground, height: 80, textAlignVertical: "top", paddingTop: 2 }]}
+            />
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={[styles.label, { color: colors.mutedForeground }]}>Visibility</Text>
+          <View style={[styles.toggleRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Ionicons
+              name={isPublic ? "earth-outline" : "lock-closed-outline"}
+              size={20}
+              color={isPublic ? colors.primary : colors.mutedForeground}
+            />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.toggleTitle, { color: colors.foreground }]}>Make this event public</Text>
+              <Text style={[styles.toggleSub, { color: colors.mutedForeground }]}>
+                {isPublic ? "Anyone can discover and join" : "Invite-only — only people with the link can join"}
+              </Text>
+            </View>
+            <Switch
+              value={isPublic}
+              onValueChange={(v) => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setIsPublic(v); }}
+              trackColor={{ false: colors.border, true: colors.primary }}
+              thumbColor="#fff"
             />
           </View>
         </View>
@@ -480,6 +506,12 @@ const styles = StyleSheet.create({
   editDateText: { fontSize: 12 },
   bestTimeBtn: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 12, borderWidth: 1.5, paddingHorizontal: 14, paddingVertical: 11, marginTop: 10 },
   bestTimeText: { flex: 1, fontSize: 14, fontWeight: "700" },
+  toggleRow: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    borderRadius: 13, borderWidth: 1.5, padding: 14,
+  },
+  toggleTitle: { fontSize: 15, fontWeight: "700" },
+  toggleSub: { fontSize: 12, marginTop: 2 },
   squadList: { gap: 8 },
   newSquadRow: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 13, borderWidth: 1.5, borderStyle: "dashed", padding: 14 },
   newSquadText: { fontSize: 14, fontWeight: "700" },

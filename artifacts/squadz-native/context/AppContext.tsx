@@ -65,6 +65,7 @@ export type NewEventInput = {
   location: string;
   description?: string;
   squadId: string | null;
+  isPublic?: boolean;
 };
 
 type AuthResult = { ok: boolean; error?: string };
@@ -100,7 +101,7 @@ type AppContextType = {
   addEvent: (input: NewEventInput) => Promise<string>;
   updateEvent: (
     eventId: string,
-    patch: Partial<Pick<Event, "title" | "description" | "date" | "location" | "emoji" | "budget">>,
+    patch: Partial<Pick<Event, "title" | "description" | "date" | "location" | "emoji" | "budget" | "isPublic">>,
   ) => void;
   joinEvent: (inviteCode: string) => Promise<{ error?: string }>;
   cancelEvent: (eventId: string) => void;
@@ -115,9 +116,10 @@ type AppContextType = {
 
   squads: Squad[];
   getSquad: (id: string) => Squad | undefined;
-  addSquad: (input: { name: string; emoji: string; color: string }) => Promise<string>;
-  updateSquad: (id: string, patch: Partial<Pick<Squad, "name" | "emoji" | "color">>) => void;
+  addSquad: (input: { name: string; emoji: string; color: string; isPublic?: boolean }) => Promise<string>;
+  updateSquad: (id: string, patch: Partial<Pick<Squad, "name" | "emoji" | "color" | "isPublic">>) => void;
   leaveSquad: (id: string) => void;
+  joinSquad: (squadId: string) => Promise<{ error?: string }>;
 
   friends: string[];
   friendCode: string;
@@ -168,6 +170,7 @@ const AppContext = createContext<AppContextType>({
   addSquad: asyncNoop,
   updateSquad: noop,
   leaveSquad: noop,
+  joinSquad: async () => ({}),
   friends: INITIAL_FRIENDS,
   friendCode: MY_FRIEND_CODE,
   addFriend: noop,
@@ -193,6 +196,7 @@ function dbEventToEvent(e: Record<string, unknown>): Event {
     costs: (e.costs as Event["costs"]) ?? [],
     polls: (e.polls as Event["polls"]) ?? [],
     messages: (e.messages as Event["messages"]) ?? [],
+    isPublic: (e.isPublic as boolean) ?? false,
   };
 }
 
@@ -203,6 +207,7 @@ function dbSquadToSquad(s: Record<string, unknown>): Squad {
     emoji: s.emoji as string,
     color: s.color as string,
     memberIds: (s.memberIds as string[]) ?? [],
+    isPublic: (s.isPublic as boolean) ?? false,
   };
 }
 
@@ -525,6 +530,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       squadName: squad?.name ?? "Personal",
       hostId,
       description: input.description ?? "",
+      isPublic: input.isPublic ?? false,
     };
     try {
       const res = await apiFetch("/api/events", { method: "POST", body: JSON.stringify(body) });
@@ -560,7 +566,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [squads, apiFetch, apiUser]);
 
   const updateEvent = useCallback(
-    (eventId: string, patch: Partial<Pick<Event, "title" | "description" | "date" | "location" | "emoji" | "budget">>) => {
+    (eventId: string, patch: Partial<Pick<Event, "title" | "description" | "date" | "location" | "emoji" | "budget" | "isPublic">>) => {
       // Optimistic update
       setEvents((prev) => prev.map((e) => (e.id === eventId ? { ...e, ...patch } : e)));
       void apiFetch(`/api/events/${eventId}`, { method: "PATCH", body: JSON.stringify(patch) })
@@ -791,7 +797,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [squads],
   );
 
-  const addSquad = useCallback(async (input: { name: string; emoji: string; color: string }): Promise<string> => {
+  const addSquad = useCallback(async (input: { name: string; emoji: string; color: string; isPublic?: boolean }): Promise<string> => {
     const userId = apiUser?.id ?? currentUserIdRef.current;
     try {
       const res = await apiFetch("/api/squads", {
@@ -805,14 +811,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return mapped.id;
     } catch {
       const id = `s${Date.now()}`;
-      const newSquad: Squad = { id, name: input.name, emoji: input.emoji, color: input.color, memberIds: [userId] };
+      const newSquad: Squad = { id, name: input.name, emoji: input.emoji, color: input.color, memberIds: [userId], isPublic: input.isPublic ?? false };
       setSquads((prev) => [...prev, newSquad]);
       return id;
     }
   }, [apiFetch, apiUser]);
 
   const updateSquad = useCallback(
-    (sid: string, patch: Partial<Pick<Squad, "name" | "emoji" | "color">>) => {
+    (sid: string, patch: Partial<Pick<Squad, "name" | "emoji" | "color" | "isPublic">>) => {
       // Optimistic update
       setSquads((prev) => prev.map((s) => (s.id === sid ? { ...s, ...patch } : s)));
       void apiFetch(`/api/squads/${sid}`, { method: "PATCH", body: JSON.stringify(patch) })
@@ -828,6 +834,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const leaveSquad = useCallback((sid: string) => {
     setSquads((prev) => prev.filter((s) => s.id !== sid));
     void apiFetch(`/api/squads/${sid}`, { method: "DELETE" }).catch(() => {});
+  }, [apiFetch]);
+
+  const joinSquad = useCallback(async (squadId: string): Promise<{ error?: string }> => {
+    try {
+      const res = await apiFetch(`/api/squads/${squadId}/join`, { method: "POST" });
+      if (res.status === 403) return { error: "This squad is not open to new members." };
+      if (!res.ok) return { error: "Something went wrong. Please try again." };
+      const squad = await res.json() as Record<string, unknown>;
+      const mapped = dbSquadToSquad(squad);
+      setSquads((prev) => {
+        if (prev.some((s) => s.id === mapped.id)) return prev.map((s) => s.id === mapped.id ? mapped : s);
+        return [...prev, mapped];
+      });
+      return {};
+    } catch {
+      return { error: "Network error. Please try again." };
+    }
   }, [apiFetch]);
 
   const currentUser = apiUser
@@ -879,6 +902,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         addSquad,
         updateSquad,
         leaveSquad,
+        joinSquad,
         friends,
         friendCode: MY_FRIEND_CODE,
         addFriend,

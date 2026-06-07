@@ -1,4 +1,4 @@
-import { pgTable, text, jsonb, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, jsonb, boolean, timestamp } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -9,6 +9,7 @@ export const squadsTable = pgTable("squads", {
   emoji: text("emoji").notNull().default("👥"),
   color: text("color").notNull().default("#FF5C3A"),
   memberIds: jsonb("member_ids").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  isPublic: boolean("is_public").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 

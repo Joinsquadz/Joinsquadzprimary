@@ -8,6 +8,7 @@ import {
   ScrollView,
   Platform,
   Alert,
+  Switch,
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -37,6 +38,7 @@ export default function CreateSquadScreen() {
   const [name, setName] = useState("");
   const [emoji, setEmoji] = useState("🔥");
   const [color, setColor] = useState(COLORS[0]);
+  const [isPublic, setIsPublic] = useState(false);
 
   const pickCategory = (cat: (typeof CATEGORIES)[number]) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -51,7 +53,7 @@ export default function CreateSquadScreen() {
       return;
     }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    const id = await addSquad({ name: name.trim(), emoji, color });
+    const id = await addSquad({ name: name.trim(), emoji, color, isPublic });
     router.replace(`/squad/${id}` as never);
   };
 
@@ -155,6 +157,30 @@ export default function CreateSquadScreen() {
             ))}
           </View>
         </View>
+
+        {/* Visibility */}
+        <View style={styles.section}>
+          <Text style={[styles.label, { color: colors.mutedForeground }]}>Visibility</Text>
+          <View style={[styles.toggleRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Ionicons
+              name={isPublic ? "earth-outline" : "lock-closed-outline"}
+              size={20}
+              color={isPublic ? color : colors.mutedForeground}
+            />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.toggleTitle, { color: colors.foreground }]}>Make this squad public</Text>
+              <Text style={[styles.toggleSub, { color: colors.mutedForeground }]}>
+                {isPublic ? "Anyone can discover and join" : "Invite-only — members must be added manually"}
+              </Text>
+            </View>
+            <Switch
+              value={isPublic}
+              onValueChange={(v) => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setIsPublic(v); }}
+              trackColor={{ false: colors.border, true: color }}
+              thumbColor="#fff"
+            />
+          </View>
+        </View>
       </ScrollView>
 
       <View style={[styles.bottomBar, { borderTopColor: colors.border, paddingBottom: botPad + 12, backgroundColor: colors.background }]}>
@@ -197,6 +223,12 @@ const styles = StyleSheet.create({
   emojiText: { fontSize: 24 },
   colorRow: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
   colorSwatch: { width: 48, height: 48, borderRadius: 24 },
+  toggleRow: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    borderRadius: 13, borderWidth: 1.5, padding: 14,
+  },
+  toggleTitle: { fontSize: 15, fontWeight: "700" },
+  toggleSub: { fontSize: 12, marginTop: 2 },
   bottomBar: { paddingHorizontal: 20, paddingTop: 12, borderTopWidth: 1 },
   createBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 14, padding: 15 },
   createBtnText: { fontSize: 16, fontWeight: "800" },

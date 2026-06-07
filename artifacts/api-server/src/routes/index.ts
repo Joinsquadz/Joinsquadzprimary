@@ -11,6 +11,7 @@ import vaultRouter from "./vault";
 import availabilityRouter from "./availability";
 import waitlistRouter from "./waitlist";
 import conversationsRouter from "./conversations";
+import discoverRouter from "./discover";
 
 const router: IRouter = Router();
 
@@ -26,5 +27,6 @@ router.use(vaultRouter);
 router.use(availabilityRouter);
 router.use(waitlistRouter);
 router.use(conversationsRouter);
+router.use(discoverRouter);
 
 export default router;

@@ -28,12 +28,14 @@ const CreateSquadBody = z.object({
   emoji: z.string().default("👥"),
   color: z.string().default("#FF5C3A"),
   memberIds: z.array(z.string()).default([]),
+  isPublic: z.boolean().default(false),
 });
 
 const UpdateSquadBody = z.object({
   name: z.string().optional(),
   emoji: z.string().optional(),
   color: z.string().optional(),
+  isPublic: z.boolean().optional(),
 });
 
 router.get("/squads", requireAuth, async (req: Request, res: Response): Promise<void> => {
@@ -190,6 +192,31 @@ router.delete("/squads/:id/vault/:photoId", requireAuth, async (req: Request, re
     logger.error({ err }, "Error removing photo from squad vault");
     res.status(500).json({ error: "Failed to remove photo" });
   }
+});
+
+router.post("/squads/:id/join", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const id = parseId(req.params.id);
+  const userId = (req.user as { id: string }).id;
+  const [squad] = await db.select().from(squadsTable).where(eq(squadsTable.id, id));
+  if (!squad) {
+    res.status(404).json({ error: "Squad not found" });
+    return;
+  }
+  if (!squad.isPublic) {
+    res.status(403).json({ error: "This squad is not open to new members." });
+    return;
+  }
+  const memberIds = (squad.memberIds ?? []) as string[];
+  if (memberIds.includes(userId)) {
+    res.json(squad);
+    return;
+  }
+  const [updated] = await db
+    .update(squadsTable)
+    .set({ memberIds: [...memberIds, userId] })
+    .where(eq(squadsTable.id, id))
+    .returning();
+  res.json(updated);
 });
 
 export default router;

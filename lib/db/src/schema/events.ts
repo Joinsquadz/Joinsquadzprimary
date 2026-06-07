@@ -21,6 +21,7 @@ export const eventsTable = pgTable("events", {
   costs: jsonb("costs").$type<unknown[]>().notNull().default(sql`'[]'::jsonb`),
   polls: jsonb("polls").$type<unknown[]>().notNull().default(sql`'[]'::jsonb`),
   messages: jsonb("messages").$type<unknown[]>().notNull().default(sql`'[]'::jsonb`),
+  isPublic: boolean("is_public").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 

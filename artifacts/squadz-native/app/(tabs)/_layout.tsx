@@ -22,18 +22,14 @@ function NativeTabLayout() {
         <Icon sf={{ default: "person.2", selected: "person.2.fill" }} />
         <Label>SquadZ</Label>
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="create">
-        <Icon sf={{ default: "plus.circle", selected: "plus.circle.fill" }} />
-        <Label>Create</Label>
+      <NativeTabs.Trigger name="activity">
+        <Icon sf={{ default: "bell", selected: "bell.fill" }} />
+        <Label>Activity</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="messages">
         <Icon sf={{ default: "bubble.left.and.bubble.right", selected: "bubble.left.and.bubble.right.fill" }} />
         <Label>Messages</Label>
         {unreadCount > 0 ? <Badge>{unreadCount > 99 ? "99+" : String(unreadCount)}</Badge> : null}
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="activity">
-        <Icon sf={{ default: "bell", selected: "bell.fill" }} />
-        <Label>Activity</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="profile">
         <Icon sf={{ default: "person", selected: "person.fill" }} />
@@ -103,20 +99,18 @@ function ClassicTabLayout() {
             ),
         }}
       />
-      <Tabs.Screen name="events" options={{ href: null }} />
       <Tabs.Screen
-        name="create"
+        name="activity"
         options={{
-          title: "Create",
+          title: "Activity",
           tabBarIcon: ({ color }) =>
             isIOS ? (
-              <SymbolView name="plus.circle" tintColor={color} size={24} />
+              <SymbolView name="bell" tintColor={color} size={24} />
             ) : (
-              <Ionicons name="add-circle-outline" size={24} color={color} />
+              <Ionicons name="notifications-outline" size={22} color={color} />
             ),
         }}
       />
-      <Tabs.Screen name="photos" options={{ href: null }} />
       <Tabs.Screen
         name="messages"
         options={{
@@ -127,19 +121,6 @@ function ClassicTabLayout() {
               <SymbolView name="bubble.left.and.bubble.right" tintColor={color} size={24} />
             ) : (
               <Ionicons name="chatbubble-ellipses-outline" size={22} color={color} />
-            ),
-        }}
-      />
-      <Tabs.Screen
-        name="activity"
-        options={{
-          title: "Activity",
-          tabBarBadge: 4,
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="bell" tintColor={color} size={24} />
-            ) : (
-              <Ionicons name="notifications-outline" size={22} color={color} />
             ),
         }}
       />
@@ -155,6 +136,9 @@ function ClassicTabLayout() {
             ),
         }}
       />
+      <Tabs.Screen name="create" options={{ href: null }} />
+      <Tabs.Screen name="events" options={{ href: null }} />
+      <Tabs.Screen name="photos" options={{ href: null }} />
     </Tabs>
   );
 }

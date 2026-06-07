@@ -32,6 +32,7 @@ const CreateEventBody = z.object({
   hostId: z.string().optional(),
   description: z.string().default(""),
   inviteCode: z.string().optional(),
+  isPublic: z.boolean().default(false),
 });
 
 const UpdateEventBody = z.object({
@@ -41,6 +42,7 @@ const UpdateEventBody = z.object({
   location: z.string().optional(),
   emoji: z.string().optional(),
   budget: z.number().optional(),
+  isPublic: z.boolean().optional(),
 });
 
 const SetRsvpBody = z.object({
