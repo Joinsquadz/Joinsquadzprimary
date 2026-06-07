@@ -14,6 +14,7 @@ import {
   Alert,
   ActivityIndicator,
   Animated,
+  Switch,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -192,6 +193,8 @@ export default function SquadDetailScreen() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [editName, setEditName] = useState("");
   const [editEmoji, setEditEmoji] = useState("🔥");
+  const [muted, setMuted] = useState(false);
+  const [muteLoading, setMuteLoading] = useState(false);
 
   const goBack = () => (router.canGoBack() ? router.back() : router.replace("/(tabs)" as never));
 
@@ -257,6 +260,30 @@ export default function SquadDetailScreen() {
     setEditName(squad.name);
     setEditEmoji(squad.emoji);
     setSettingsOpen(true);
+    // Load current mute status
+    fetch(`${API_BASE}/api/squads/${squad.id}/mute`, { headers: authHeaders() })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { muted?: boolean } | null) => {
+        if (d != null) setMuted(Boolean(d.muted));
+      })
+      .catch(() => null);
+  };
+
+  const toggleMute = async (value: boolean) => {
+    setMuteLoading(true);
+    setMuted(value);
+    try {
+      await fetch(`${API_BASE}/api/squads/${squad.id}/mute`, {
+        method: "PUT",
+        headers: authHeaders(),
+        body: JSON.stringify({ muted: value }),
+      });
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {
+      setMuted(!value);
+    } finally {
+      setMuteLoading(false);
+    }
   };
 
   const saveSettings = () => {
@@ -564,6 +591,26 @@ export default function SquadDetailScreen() {
               ))}
             </ScrollView>
 
+            <View style={[styles.actionRow, { borderColor: colors.border }]}>
+              <Ionicons name={muted ? "notifications-off-outline" : "notifications-outline"} size={20} color={colors.foreground} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.actionText, { color: colors.foreground }]}>Mute notifications</Text>
+                <Text style={[styles.actionSub, { color: colors.mutedForeground }]}>
+                  {muted ? "New member alerts silenced for this squad" : "Get alerts when someone joins this squad"}
+                </Text>
+              </View>
+              {muteLoading ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
+                <Switch
+                  value={muted}
+                  onValueChange={(v) => { void toggleMute(v); }}
+                  trackColor={{ false: colors.border, true: colors.primary + "80" }}
+                  thumbColor={muted ? colors.primary : colors.mutedForeground}
+                />
+              )}
+            </View>
+
             <TouchableOpacity onPress={shareInvite} style={[styles.actionRow, { borderColor: colors.border }]}>
               <Ionicons name="share-social-outline" size={20} color={colors.primary} />
               <Text style={[styles.actionText, { color: colors.foreground }]}>Share invite link</Text>
@@ -623,7 +670,8 @@ const styles = StyleSheet.create({
   modalInput: { borderRadius: 13, borderWidth: 1.5, paddingHorizontal: 14, height: 50, fontSize: 15, marginBottom: 12 },
   emojiOption: { width: 48, height: 48, borderRadius: 14, borderWidth: 2, alignItems: "center", justifyContent: "center" },
   actionRow: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 13, borderWidth: 1, padding: 14, marginTop: 12 },
-  actionText: { fontSize: 15, fontWeight: "600", flex: 1 },
+  actionText: { fontSize: 15, fontWeight: "600" },
+  actionSub: { fontSize: 12, marginTop: 2 },
   modalActions: { flexDirection: "row", gap: 10, marginTop: 20 },
   modalBtn: { flex: 1, borderRadius: 13, padding: 14, alignItems: "center" },
   modalBtnText: { fontSize: 15, fontWeight: "800" },

@@ -61,12 +61,15 @@ router.post("/squads", requireAuth, async (req: Request, res: Response): Promise
   const [squad] = await db.insert(squadsTable).values({ ...parsed.data, memberIds, creatorId: userId }).returning();
   res.status(201).json(squad);
 
-  // Fire-and-forget: notify added members (not the creator) that they're in a new squad.
+  // Fire-and-forget: notify added members (not the creator) that they're in a new squad,
+  // skipping anyone who has muted notifications for this squad.
   const addedMembers = memberIds.filter((id) => id !== userId);
   if (addedMembers.length > 0) {
     (async () => {
       try {
-        const tokens = await storage.getPushTokensForUsers(addedMembers, { requireNotifySquadJoin: true });
+        const unmuted = await storage.filterUnmutedForSquad(addedMembers, squad.id);
+        if (unmuted.length === 0) return;
+        const tokens = await storage.getPushTokensForUsers(unmuted, { requireNotifySquadJoin: true });
         await sendPushNotifications(
           tokens,
           {
@@ -291,6 +294,47 @@ const AddMemberBody = z.object({
   friendCode: z.string().min(1),
 });
 
+const SetMuteBody = z.object({
+  muted: z.boolean(),
+});
+
+router.get("/squads/:id/mute", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const id = parseId(req.params.id);
+  const userId = (req.user as { id: string }).id;
+  const { squad, isMember } = await getSquadIfMember(id, userId);
+  if (!squad) {
+    res.status(404).json({ error: "Squad not found" });
+    return;
+  }
+  if (!isMember) {
+    res.status(403).json({ error: "Access denied" });
+    return;
+  }
+  const muted = await storage.isSquadMutedForUser(id, userId);
+  res.json({ muted });
+});
+
+router.put("/squads/:id/mute", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const id = parseId(req.params.id);
+  const userId = (req.user as { id: string }).id;
+  const parsed = SetMuteBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "muted (boolean) is required." });
+    return;
+  }
+  const { squad, isMember } = await getSquadIfMember(id, userId);
+  if (!squad) {
+    res.status(404).json({ error: "Squad not found" });
+    return;
+  }
+  if (!isMember) {
+    res.status(403).json({ error: "Access denied" });
+    return;
+  }
+  await storage.setSquadMute(userId, id, parsed.data.muted);
+  res.json({ muted: parsed.data.muted });
+});
+
 router.post("/squads/:id/members", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const id = parseId(req.params.id);
   const requesterId = (req.user as { id: string }).id;
@@ -329,7 +373,8 @@ router.post("/squads/:id/members", requireAuth, async (req: Request, res: Respon
     .returning();
   res.status(201).json({ squad: updated, addedUser: target });
 
-  // Fire-and-forget: notify the newly added user that they were added to this squad.
+  // Fire-and-forget: notify the newly added user that they were added to this squad,
+  // unless they have muted notifications for this squad.
   (async () => {
     try {
       const adder = await storage.getUser(requesterId);
@@ -338,7 +383,9 @@ router.post("/squads/:id/members", requireAuth, async (req: Request, res: Respon
           ? `${adder.firstName} ${adder.lastName}`
           : adder.firstName
         : "Someone";
-      const tokens = await storage.getPushTokensForUsers([target.id]);
+      const unmuted = await storage.filterUnmutedForSquad([target.id], id);
+      if (unmuted.length === 0) return;
+      const tokens = await storage.getPushTokensForUsers(unmuted);
       await sendPushNotifications(
         tokens,
         {
@@ -481,13 +528,16 @@ router.post("/squads/:id/join", requireAuth, async (req: Request, res: Response)
     }
   })();
 
-  // Fire-and-forget: notify existing members that someone new joined.
+  // Fire-and-forget: notify existing members that someone new joined,
+  // skipping members who have muted notifications for this squad.
   if (memberIds.length > 0) {
     (async () => {
       try {
         const joiner = await storage.getUser(userId);
         const joinerName = joiner?.firstName ?? "Someone";
-        const tokens = await storage.getPushTokensForUsers(memberIds, { requireNotifySquadJoin: true });
+        const unmuted = await storage.filterUnmutedForSquad(memberIds, id);
+        if (unmuted.length === 0) return;
+        const tokens = await storage.getPushTokensForUsers(unmuted, { requireNotifySquadJoin: true });
         await sendPushNotifications(
           tokens,
           {

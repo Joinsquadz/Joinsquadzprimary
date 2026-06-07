@@ -3,6 +3,7 @@ import {
   eventsTable,
   photosTable,
   squadsTable,
+  squadMutesTable,
   availabilityPollsTable,
   availabilityResponsesTable,
   availabilityNudgesTable,
@@ -1026,6 +1027,50 @@ export class Storage {
       if (await this.getConversationForMember(row.conversationId, userId)) return true;
     }
     return false;
+  }
+
+  // ---- Per-squad notification mutes ----
+
+  /** Returns true if the given user has muted squad-join notifications for this squad. */
+  async isSquadMutedForUser(squadId: string, userId: string): Promise<boolean> {
+    const [row] = await db
+      .select({ userId: squadMutesTable.userId })
+      .from(squadMutesTable)
+      .where(and(eq(squadMutesTable.squadId, squadId), eq(squadMutesTable.userId, userId)));
+    return Boolean(row);
+  }
+
+  /** Mutes or unmutes squad-join notifications for a user+squad pair. */
+  async setSquadMute(userId: string, squadId: string, muted: boolean): Promise<void> {
+    if (muted) {
+      await db
+        .insert(squadMutesTable)
+        .values({ userId, squadId })
+        .onConflictDoNothing();
+    } else {
+      await db
+        .delete(squadMutesTable)
+        .where(and(eq(squadMutesTable.userId, userId), eq(squadMutesTable.squadId, squadId)));
+    }
+  }
+
+  /**
+   * Returns the subset of `userIds` that have NOT muted this squad.
+   * Used to filter push-notification recipients in the join/add handlers.
+   */
+  async filterUnmutedForSquad(userIds: string[], squadId: string): Promise<string[]> {
+    if (userIds.length === 0) return [];
+    const muted = await db
+      .select({ userId: squadMutesTable.userId })
+      .from(squadMutesTable)
+      .where(
+        and(
+          eq(squadMutesTable.squadId, squadId),
+          inArray(squadMutesTable.userId, userIds),
+        ),
+      );
+    const mutedSet = new Set(muted.map((r) => r.userId));
+    return userIds.filter((id) => !mutedSet.has(id));
   }
 
   // ---- Push tokens ----

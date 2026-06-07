@@ -39,12 +39,14 @@ vi.mock("@workspace/db", () => ({
 const mockGetPushTokensForUsers = vi.hoisted(() => vi.fn());
 const mockClearPushToken = vi.hoisted(() => vi.fn());
 const mockGetUser = vi.hoisted(() => vi.fn());
+const mockFilterUnmutedForSquad = vi.hoisted(() => vi.fn());
 
 vi.mock("../storage", () => ({
   storage: {
     getPushTokensForUsers: mockGetPushTokensForUsers,
     clearPushToken: mockClearPushToken,
     getUser: mockGetUser,
+    filterUnmutedForSquad: mockFilterUnmutedForSquad,
   },
 }));
 
@@ -86,6 +88,8 @@ beforeEach(() => {
   mockClearPushToken.mockResolvedValue(undefined);
   mockGetUser.mockResolvedValue(undefined);
   mockSendPushNotifications.mockResolvedValue({ staleTokens: [] });
+  // Default: no one is muted — pass through all user IDs unchanged
+  mockFilterUnmutedForSquad.mockImplementation((userIds: string[]) => Promise.resolve(userIds));
 });
 
 describe("POST /api/squads — push notifications", () => {
