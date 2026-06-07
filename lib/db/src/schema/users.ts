@@ -33,6 +33,7 @@ export const usersTable = pgTable("users", {
   privateProfile: boolean("private_profile").notNull().default(false),
   showRsvpActivity: boolean("show_rsvp_activity").notNull().default(true),
   pushToken: text("push_token"),
+  friendCode: text("friend_code").unique(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().$onUpdate(() => new Date()),
 });

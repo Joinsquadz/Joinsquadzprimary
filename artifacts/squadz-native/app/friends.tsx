@@ -59,6 +59,24 @@ export default function FriendsScreen() {
     });
   }
 
+  async function handleSmsInvite() {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const msg = `Hey! Join me on Squadz 🎉 Add me as a friend with my code: ${friendCode}\nDownload the app: squadz.app`;
+    if (Platform.OS !== "web") {
+      try {
+        const SMS = await import("expo-sms");
+        const available = await SMS.isAvailableAsync();
+        if (available) {
+          await SMS.sendSMSAsync([], msg);
+          return;
+        }
+      } catch {
+        // fall through to Share
+      }
+    }
+    Share.share({ message: msg, title: "Join me on Squadz" });
+  }
+
   function handleAddFriend() {
     const code = codeInput.trim().toUpperCase();
     if (!code) return;
@@ -233,10 +251,10 @@ export default function FriendsScreen() {
 
         {/* Invite more */}
         <TouchableOpacity
-          onPress={handleShareCode}
+          onPress={handleSmsInvite}
           style={[styles.inviteMoreBtn, { borderColor: colors.primary + "40" }]}
         >
-          <Ionicons name="mail-outline" size={20} color={colors.primary} />
+          <Ionicons name="chatbubble-outline" size={20} color={colors.primary} />
           <Text style={[styles.inviteMoreText, { color: colors.primary }]}>Invite more people via text</Text>
         </TouchableOpacity>
       </ScrollView>

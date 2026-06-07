@@ -112,7 +112,7 @@ function sanitizeMobileReturnTo(value: unknown, req: Request): string {
 }
 
 async function upsertUser(claims: Record<string, unknown>) {
-  const userData = {
+  const profileData = {
     id: claims.sub as string,
     email: (claims.email as string) || null,
     firstName: (claims.first_name as string) || null,
@@ -124,11 +124,11 @@ async function upsertUser(claims: Record<string, unknown>) {
 
   const [user] = await db
     .insert(usersTable)
-    .values(userData)
+    .values({ ...profileData, friendCode: generateFriendCode() })
     .onConflictDoUpdate({
       target: usersTable.id,
       set: {
-        ...userData,
+        ...profileData,
         updatedAt: new Date(),
       },
     })
@@ -471,6 +471,16 @@ async function issueAuthToken(
   return raw;
 }
 
+function generateFriendCode(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "SQ-";
+  const bytes = crypto.randomBytes(6);
+  for (let i = 0; i < 6; i++) {
+    code += chars[bytes[i] % chars.length];
+  }
+  return code;
+}
+
 function toAuthUser(u: typeof usersTable.$inferSelect) {
   return {
     id: u.id,
@@ -478,6 +488,7 @@ function toAuthUser(u: typeof usersTable.$inferSelect) {
     firstName: u.firstName,
     lastName: u.lastName,
     profileImageUrl: u.profileImageUrl,
+    friendCode: u.friendCode,
   };
 }
 
@@ -540,6 +551,7 @@ router.post("/auth/register", async (req: Request, res: Response) => {
       firstName: firstName || null,
       lastName: lastName || null,
       emailVerified: false,
+      friendCode: generateFriendCode(),
     })
     .returning();
 
@@ -599,13 +611,22 @@ router.get("/auth/me", async (req: Request, res: Response) => {
     res.status(401).json({ error: "Not authenticated" });
     return;
   }
-  const [user] = await db
+  let [user] = await db
     .select()
     .from(usersTable)
     .where(eq(usersTable.id, req.user.id));
   if (!user) {
     res.status(404).json({ error: "User not found" });
     return;
+  }
+  if (!user.friendCode) {
+    const code = generateFriendCode();
+    const [updated] = await db
+      .update(usersTable)
+      .set({ friendCode: code })
+      .where(eq(usersTable.id, user.id))
+      .returning();
+    if (updated) user = updated;
   }
   res.json({
     user: toAuthUser(user),

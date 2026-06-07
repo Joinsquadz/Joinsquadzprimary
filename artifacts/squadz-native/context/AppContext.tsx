@@ -24,6 +24,7 @@ type ApiUser = {
   firstName: string | null;
   lastName: string | null;
   profileImageUrl: string | null;
+  friendCode: string | null;
 };
 
 const USER_COLORS = [
@@ -905,7 +906,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         leaveSquad,
         joinSquad,
         friends,
-        friendCode: MY_FRIEND_CODE,
+        friendCode: apiUser?.friendCode ?? MY_FRIEND_CODE,
         addFriend,
         removeFriend,
       }}
