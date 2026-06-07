@@ -15,10 +15,25 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.squadz.app"
+      "bundleIdentifier": "com.squadz.app",
+      "associatedDomains": ["applinks:getsquadz.com"]
     },
     "android": {
-      "package": "com.squadz.app"
+      "package": "com.squadz.app",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "getsquadz.com",
+              "pathPrefix": "/squad/join-public"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
     },
     "web": {
       "favicon": "./assets/images/icon.png"

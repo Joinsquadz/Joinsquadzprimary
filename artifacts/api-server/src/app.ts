@@ -4,6 +4,7 @@ import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
 import { authMiddleware } from "./middlewares/authMiddleware";
 import router from "./routes";
+import wellKnownRouter from "./routes/wellKnown";
 import { WebhookHandlers } from "./webhookHandlers";
 import { logger } from "./lib/logger";
 
@@ -66,6 +67,11 @@ app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(authMiddleware);
+
+// Mounted at the root (not under /api) so iOS/Android association files are
+// reachable at the canonical `/.well-known/*` paths. The shared proxy routes
+// `/.well-known` to this service (see artifact.toml).
+app.use(wellKnownRouter);
 
 app.use("/api", router);
 

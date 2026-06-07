@@ -19,3 +19,4 @@
 - [Drizzle push TTY drift](drizzle-push-tty-drift.md) — non-TTY `drizzle-kit push` aborts on unique-constraint prompts → missing tables → list endpoints 500 → looks like "data deleted"; fix via raw SQL + convert unique INDEX to CONSTRAINT until push runs clean.
 - [Web tab bar overlay](squadz-web-tabbar-overlay.md) — squadz-native web tab bar is absolute+84px and overlays screens; fixed bottom buttons need TAB_BAR_HEIGHT padding (single-sourced in constants/layout.ts) or they're unclickable on web.
 - [squadz-native routing](squadz-native-routing.md) — navigate to hidden tabs (create/events/photos) with router.navigate, NOT router.push (push no-ops → stays on Home); path FORM is irrelevant.
+- [Squadz deep links](squadz-deep-links.md) — shared https squad links open the app via universal/app links; .well-known served by api-server (proxy /.well-known), identity values env-injected, web fallback = Landing.

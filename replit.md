@@ -11,6 +11,16 @@ _Replace the heading above with the project's name, and this line with one sente
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - Required env: `DATABASE_URL` — Postgres connection string
 
+### Deep links (shared squad links → open the app)
+
+`https://getsquadz.com/squad/join-public?id=<id>` opens the native app via iOS universal links / Android app links. The association files are served by the api-server at `/.well-known/apple-app-site-association` and `/.well-known/assetlinks.json` (the proxy routes `/.well-known` to it). Set these env vars at deploy time so the links actually verify against the signed builds (defaults are placeholders that serve valid JSON but won't verify):
+
+- `IOS_APP_ID` — `<TEAM_ID>.com.squadz.app` (Apple Developer Team ID + bundle id)
+- `ANDROID_SHA256_CERT_FINGERPRINTS` — comma-separated SHA-256 signing-cert fingerprints (from Play App Signing / your keystore)
+- `ANDROID_PACKAGE_NAME` — optional override (defaults to `com.squadz.app`)
+
+When the app isn't installed, the same URL falls back to the marketing landing page (every web route renders `Landing`).
+
 ## Staging Smoke Tests
 
 ### Push notifications end-to-end
