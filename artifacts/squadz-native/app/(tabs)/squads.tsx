@@ -29,22 +29,7 @@ export default function SquadsScreen() {
   const insets = useSafeAreaInsets();
   const { squads, events, currentUser, authToken } = useData();
   const { resolveUser, prefetchUsers } = useUserCache();
-  const [mutedSquadIds, setMutedSquadIds] = useState<Set<string>>(new Set());
   const [notices, setNotices] = useState<RemovalNotice[]>([]);
-
-  const fetchMutedSquadIds = useCallback(async () => {
-    if (!authToken) return;
-    try {
-      const res = await fetch(`${API_BASE}/api/squads/muted`, {
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-      if (!res.ok) return;
-      const data = await res.json() as { squadIds: string[] };
-      setMutedSquadIds(new Set(data.squadIds));
-    } catch {
-      // Network unavailable — keep current state
-    }
-  }, [authToken]);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 84 : 100);
@@ -150,7 +135,7 @@ export default function SquadsScreen() {
                 <View style={styles.squadBody}>
                   <View style={styles.squadNameRow}>
                     <Text style={[styles.squadName, { color: colors.foreground }]}>{squad.name}</Text>
-                    {mutedSquadIds.has(squad.id) && (
+                    {squad.muted && (
                       <View style={[styles.mutedBadge, { backgroundColor: colors.surfaceUp }]}>
                         <Ionicons name="notifications-off-outline" size={11} color={colors.mutedForeground} />
                         <Text style={[styles.mutedBadgeText, { color: colors.mutedForeground }]}>Muted</Text>

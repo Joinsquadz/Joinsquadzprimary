@@ -99,12 +99,16 @@ router.post("/squads/join-via-code", requireAuth, async (req: Request, res: Resp
 
 router.get("/squads", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const userId = (req.user as { id: string }).id;
-  const squads = await db
-    .select()
-    .from(squadsTable)
-    .where(sql`${squadsTable.memberIds} @> ${JSON.stringify([userId])}::jsonb`)
-    .orderBy(squadsTable.createdAt);
-  res.json(squads);
+  const [squads, mutedIds] = await Promise.all([
+    db
+      .select()
+      .from(squadsTable)
+      .where(sql`${squadsTable.memberIds} @> ${JSON.stringify([userId])}::jsonb`)
+      .orderBy(squadsTable.createdAt),
+    storage.getMutedSquadIdsForUser(userId),
+  ]);
+  const mutedSet = new Set(mutedIds);
+  res.json(squads.map((s) => ({ ...s, muted: mutedSet.has(s.id) })));
 });
 
 router.post("/squads", requireAuth, async (req: Request, res: Response): Promise<void> => {

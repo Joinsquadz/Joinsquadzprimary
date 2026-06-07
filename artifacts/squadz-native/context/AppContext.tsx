@@ -221,6 +221,7 @@ function dbSquadToSquad(s: Record<string, unknown>): Squad {
     isPublic: (s.isPublic as boolean) ?? false,
     creatorId: s.creatorId as string | undefined,
     inviteCode: s.inviteCode as string | null | undefined,
+    muted: (s.muted as boolean) ?? false,
   };
 }
 
