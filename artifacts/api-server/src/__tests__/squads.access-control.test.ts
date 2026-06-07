@@ -39,6 +39,7 @@ vi.mock("@workspace/db", () => ({
     firstName: "first_name",
     lastName: "last_name",
     profileImageUrl: "profile_image_url",
+    friendCode: "friend_code",
   },
   squadMutesTable: {
     userId: "user_id",
@@ -48,12 +49,6 @@ vi.mock("@workspace/db", () => ({
     id: "id",
     userId: "user_id",
     squadId: "squad_id",
-  },
-  usersTable: {
-    id: "id",
-    firstName: "first_name",
-    lastName: "last_name",
-    profileImageUrl: "profile_image_url",
   },
 }));
 

@@ -672,16 +672,16 @@ router.post("/squads/:id/join", requireAuth, async (req: Request, res: Response)
     }
   })();
 
-  // Fire-and-forget: notify existing members that someone new joined,
-  // skipping members who have muted notifications for this squad.
+  // Fire-and-forget: notify existing members that someone new joined.
+  // getPushTokensForUsers with requireNotifySquadJoin handles both the opt-out
+  // preference check and returns an empty list when no one wants the notification.
   if (memberIds.length > 0) {
     (async () => {
       try {
         const joiner = await storage.getUser(userId);
         const joinerName = joiner?.firstName ?? "Someone";
-        const unmuted = await storage.filterUnmutedForSquad(memberIds, id);
-        if (unmuted.length === 0) return;
-        const tokens = await storage.getPushTokensForUsers(unmuted, { requireNotifySquadJoin: true });
+        const tokens = await storage.getPushTokensForUsers(memberIds, { requireNotifySquadJoin: true });
+        if (tokens.length === 0) return;
         await sendPushNotifications(
           tokens,
           {

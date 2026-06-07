@@ -26,5 +26,8 @@ export function makeTestApp(router: Router, user?: TestUser) {
     next();
   });
   app.use("/api", router);
+  app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+    res.status(500).json({ error: err?.message ?? "Internal Server Error" });
+  });
   return app;
 }
