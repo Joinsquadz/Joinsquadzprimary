@@ -14,7 +14,6 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import * as Calendar from "expo-calendar";
 import { useColors } from "@/hooks/useColors";
 import { useAuth, useData } from "@/context/AppContext";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -64,8 +63,20 @@ type SettingItem = {
   onPress?: () => void;
 };
 
+type CalendarModule = typeof import("expo-calendar");
+let _calendarModulePromise: Promise<CalendarModule | null> | null = null;
+async function loadCalendar(): Promise<CalendarModule | null> {
+  if (Platform.OS === "web") return null;
+  if (!_calendarModulePromise) {
+    _calendarModulePromise = import("expo-calendar").catch(() => null);
+  }
+  return _calendarModulePromise;
+}
+
 async function getOrCreateSquadzCalendar(): Promise<string | null> {
   try {
+    const Calendar = await loadCalendar();
+    if (!Calendar) return null;
     const calendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
     const existing = calendars.find(c => c.title === "Squadz");
     if (existing) return existing.id;
@@ -91,6 +102,8 @@ async function writeEventsToCalendar(
   events: Array<{ id: string; title: string; date: string; location: string; description: string; emoji: string }>,
   calendarId: string,
 ): Promise<void> {
+  const Calendar = await loadCalendar();
+  if (!Calendar) return;
   for (const event of events) {
     try {
       const startDate = new Date(event.date);
@@ -226,7 +239,12 @@ export default function ProfileScreen() {
     setCalSyncLoading(true);
     try {
       if (next) {
-        // Request calendar permission
+        // Request calendar permission (native only)
+        const Calendar = await loadCalendar();
+        if (!Calendar) {
+          Alert.alert("Not Available", "Calendar Sync is only available in the mobile app.");
+          return;
+        }
         const { status } = await Calendar.requestCalendarPermissionsAsync();
         if (status !== "granted") {
           Alert.alert(
