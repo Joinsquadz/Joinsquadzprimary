@@ -88,8 +88,8 @@ router.post("/squads", requireAuth, async (req: Request, res: Response): Promise
 
 router.get("/squads/muted", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const userId = (req.user as { id: string }).id;
-  const squadIds = await storage.getMutedSquadIdsForUser(userId);
-  res.json({ squadIds });
+  const squads = await storage.getMutedSquadsForUser(userId);
+  res.json({ squads });
 });
 
 router.get("/squads/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {

@@ -1031,6 +1031,20 @@ export class Storage {
 
   // ---- Per-squad notification mutes ----
 
+  /**
+   * Returns all squads the given user has muted, with id, name, and emoji.
+   * Used by the notifications settings screen to show a "Muted Squads" list.
+   */
+  async getMutedSquadsForUser(userId: string): Promise<{ id: string; name: string; emoji: string }[]> {
+    const rows = await db
+      .select({ id: squadsTable.id, name: squadsTable.name, emoji: squadsTable.emoji })
+      .from(squadMutesTable)
+      .innerJoin(squadsTable, eq(squadMutesTable.squadId, squadsTable.id))
+      .where(eq(squadMutesTable.userId, userId))
+      .orderBy(squadsTable.name);
+    return rows;
+  }
+
   /** Returns true if the given user has muted squad-join notifications for this squad. */
   async isSquadMutedForUser(squadId: string, userId: string): Promise<boolean> {
     const [row] = await db

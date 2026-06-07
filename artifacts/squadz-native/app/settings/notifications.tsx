@@ -26,6 +26,12 @@ type Prefs = {
   notifySquadLeave: boolean;
 };
 
+type MutedSquad = {
+  id: string;
+  name: string;
+  emoji: string;
+};
+
 const ROWS: { key: keyof Prefs; icon: keyof typeof Ionicons.glyphMap; label: string; sub: string }[] = [
   { key: "notifyEventInvites", icon: "mail-outline", label: "Event Invites", sub: "When you're invited to an event" },
   { key: "notifyReminders", icon: "alarm-outline", label: "Event Reminders", sub: "Before events you're going to" },
@@ -42,6 +48,8 @@ export default function NotificationsScreen() {
 
   const [prefs, setPrefs] = useState<Prefs | null>(null);
   const [loading, setLoading] = useState(true);
+  const [mutedSquads, setMutedSquads] = useState<MutedSquad[]>([]);
+  const [unmutingId, setUnmutingId] = useState<string | null>(null);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
 
@@ -52,9 +60,12 @@ export default function NotificationsScreen() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/user/preferences`, { headers: authHeaders() });
-      if (res.ok) {
-        const data = await res.json() as Prefs;
+      const [prefsRes, mutedRes] = await Promise.all([
+        fetch(`${API_BASE}/api/user/preferences`, { headers: authHeaders() }),
+        fetch(`${API_BASE}/api/squads/muted`, { headers: authHeaders() }),
+      ]);
+      if (prefsRes.ok) {
+        const data = await prefsRes.json() as Prefs;
         setPrefs({
           notifyEventInvites: data.notifyEventInvites,
           notifyReminders: data.notifyReminders,
@@ -63,6 +74,10 @@ export default function NotificationsScreen() {
           notifySquadJoin: data.notifySquadJoin,
           notifySquadLeave: data.notifySquadLeave,
         });
+      }
+      if (mutedRes.ok) {
+        const data = await mutedRes.json() as { squads: MutedSquad[] };
+        setMutedSquads(data.squads);
       }
     } catch {
       // leave prefs null → error state shown
@@ -89,6 +104,25 @@ export default function NotificationsScreen() {
       if (!res.ok) setPrefs(prev);
     } catch {
       setPrefs(prev);
+    }
+  }
+
+  async function unmuteSquad(squadId: string) {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setUnmutingId(squadId);
+    try {
+      const res = await fetch(`${API_BASE}/api/squads/${squadId}/mute`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ muted: false }),
+      });
+      if (res.ok) {
+        setMutedSquads((prev) => prev.filter((s) => s.id !== squadId));
+      }
+    } catch {
+      // leave list unchanged on error
+    } finally {
+      setUnmutingId(null);
     }
   }
 
@@ -143,6 +177,42 @@ export default function NotificationsScreen() {
               </View>
             ))}
           </View>
+
+          <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>MUTED SQUADS</Text>
+          {mutedSquads.length === 0 ? (
+            <View style={[styles.group, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <View style={[styles.row, { justifyContent: "center" }]}>
+                <Text style={[styles.rowSub, { color: colors.mutedForeground }]}>No squads muted</Text>
+              </View>
+            </View>
+          ) : (
+            <View style={[styles.group, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              {mutedSquads.map((squad, i) => (
+                <View
+                  key={squad.id}
+                  style={[styles.row, i < mutedSquads.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }]}
+                >
+                  <View style={[styles.iconWrap, { backgroundColor: colors.muted }]}>
+                    <Text style={{ fontSize: 18 }}>{squad.emoji}</Text>
+                  </View>
+                  <Text style={[styles.rowLabel, { flex: 1, color: colors.foreground }]} numberOfLines={1}>
+                    {squad.name}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => void unmuteSquad(squad.id)}
+                    disabled={unmutingId === squad.id}
+                    style={[styles.unmuteBtn, { borderColor: colors.primary }]}
+                  >
+                    {unmutingId === squad.id ? (
+                      <ActivityIndicator size="small" color={colors.primary} />
+                    ) : (
+                      <Text style={[styles.unmuteBtnText, { color: colors.primary }]}>Unmute</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+          )}
         </ScrollView>
       )}
     </View>
@@ -155,9 +225,12 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 17, fontWeight: "700" },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   sectionHint: { fontSize: 14, marginBottom: 16, lineHeight: 20 },
+  sectionLabel: { fontSize: 12, fontWeight: "600", letterSpacing: 0.5, marginTop: 28, marginBottom: 8, marginLeft: 4 },
   group: { borderWidth: 1, borderRadius: 16, overflow: "hidden" },
   row: { flexDirection: "row", alignItems: "center", gap: 14, padding: 14 },
   iconWrap: { width: 36, height: 36, borderRadius: 11, alignItems: "center", justifyContent: "center" },
   rowLabel: { fontSize: 15, fontWeight: "600" },
   rowSub: { fontSize: 12, marginTop: 2 },
+  unmuteBtn: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, borderWidth: 1, minWidth: 72, alignItems: "center" },
+  unmuteBtnText: { fontSize: 13, fontWeight: "600" },
 });
