@@ -90,8 +90,8 @@ describe("GET /api/vault/photos retention rule", () => {
 
   beforeEach(async () => {
     ({ storage } = await import("../storage"));
-    vi.mocked(storage.getSubscription).mockResolvedValue(null);
-    vi.mocked(storage.getActiveSubscriptionByCustomerId).mockResolvedValue(null);
+    vi.mocked(storage.getSubscription).mockResolvedValue(null as never);
+    vi.mocked(storage.getActiveSubscriptionByCustomerId).mockResolvedValue(null as never);
     vi.mocked(storage.getPhotosByUploaderId).mockResolvedValue([]);
   });
 

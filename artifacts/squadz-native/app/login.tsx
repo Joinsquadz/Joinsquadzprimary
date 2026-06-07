@@ -134,19 +134,6 @@ function isEmbeddedWeb(): boolean {
   }
 }
 
-// Reopen the app as a standalone top-level tab so sign-in can complete, and
-// tell the user what's happening. Called for the embedded-web case.
-function openStandalone(): void {
-  if (typeof window === "undefined") return;
-  const opened = window.open(window.location.href, "_blank", "noopener");
-  Alert.alert(
-    "Open Squadz in a new tab",
-    opened
-      ? "Sign-in uses a Replit login page that can't run inside this preview. We opened Squadz in a new tab — finish signing in there."
-      : "Sign-in uses a Replit login page that can't run inside this preview. Open the preview in a new browser tab, then tap sign in again.",
-  );
-}
-
 export default function LoginScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -174,72 +161,76 @@ export default function LoginScreen() {
   const bg = { backgroundColor: colors.background };
   const cardBg = { backgroundColor: colors.card, borderColor: colors.border };
 
-  // On web (Expo web), the OIDC flow is a full-page redirect rather than a
-  // popup (popups are blocked inside the Replit preview iframe). After the
-  // provider redirects back to this app with ?code, complete the exchange.
+  // On web the OIDC flow is delegated to the server bouncer (see
+  // handleReplitLogin). The server runs the whole flow on the main domain and
+  // redirects back here with the minted session token in the URL fragment
+  // (`#token=…`) or `#error=…`. Read it on mount, then clean the URL.
   useEffect(() => {
     if (Platform.OS !== "web" || typeof window === "undefined") return;
-    const url = new URL(window.location.href);
-    const code = url.searchParams.get("code");
-    const returnedState = url.searchParams.get("state");
-    if (!code) return;
+    const hash = window.location.hash;
+    if (!hash || hash.length < 2) return;
 
-    // Web storage may be unavailable if this callback ever lands in a
-    // restricted (e.g. framed) context; bail gracefully rather than crash.
-    let verifier: string | null = null;
-    let expectedState: string | null = null;
-    let nonce = "";
-    let redirectUri = `${window.location.origin}/`;
-    let inviteEventId: string | null = null;
+    const frag = new URLSearchParams(hash.slice(1));
+    const token = frag.get("token");
+    const err = frag.get("error");
+    if (!token && !err) return;
+
+    // Strip the fragment immediately so a refresh can't replay the token.
     try {
-      verifier = window.sessionStorage.getItem("oidc_verifier");
-      expectedState = window.sessionStorage.getItem("oidc_state");
-      nonce = window.sessionStorage.getItem("oidc_nonce") ?? "";
-      redirectUri =
-        window.sessionStorage.getItem("oidc_redirect") ?? redirectUri;
-      inviteEventId = window.sessionStorage.getItem("oidc_invite_event");
-
-      // Strip auth params immediately so a refresh can't replay them.
-      ["code", "state", "iss", "session_state"].forEach((k) => url.searchParams.delete(k));
-      window.history.replaceState({}, "", url.toString());
-      ["oidc_verifier", "oidc_state", "oidc_nonce", "oidc_redirect", "oidc_invite_event"].forEach(
-        (k) => window.sessionStorage.removeItem(k),
+      window.history.replaceState(
+        {},
+        "",
+        window.location.pathname + window.location.search,
       );
     } catch {
+      /* non-fatal */
+    }
+
+    if (err || !token) {
+      Alert.alert(
+        "Sign In Failed",
+        "Could not complete sign in. Please try again.",
+      );
       return;
     }
 
-    if (!verifier || !expectedState || returnedState !== expectedState) return;
-
     setOidcLoading(true);
-    void (async () => {
-      const { token, error } = await exchangeToken({
-        code,
-        code_verifier: verifier,
-        redirect_uri: redirectUri,
-        state: expectedState,
-        nonce,
-      });
-      if (error || !token) {
-        Alert.alert("Sign In Failed", error ?? "Could not complete sign in. Please try again.");
-        setOidcLoading(false);
-        return;
-      }
-      login(token);
-      if (inviteEventId) router.replace(`/event/${inviteEventId}` as never);
-      else router.replace("/(tabs)" as never);
-    })();
+    login(token);
+    if (hasInvite && params.inviteEventId) {
+      router.replace(`/event/${params.inviteEventId}` as never);
+    } else {
+      router.replace("/(tabs)" as never);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleReplitLogin = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    // Inside the Replit preview iframe the OIDC redirect can't complete; open
-    // the app in a standalone tab and let the user sign in there instead.
-    if (isEmbeddedWeb()) {
-      openStandalone();
+
+    // Web: delegate the whole OIDC flow to the server bouncer. The Expo web app
+    // runs on a subdomain that the Replit provider won't accept as a
+    // redirect_uri, so the server runs the flow on the main domain and returns
+    // the session token in the URL fragment. We only need to reach the Replit
+    // login page at the top level — it refuses to render inside a frame, so when
+    // embedded in the Replit preview we open it in a new tab.
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      const returnTo = window.location.href.split("#")[0];
+      const loginUrl = `${API_BASE}/api/mobile-auth/web-login?returnTo=${encodeURIComponent(returnTo)}`;
+      if (isEmbeddedWeb()) {
+        const opened = window.open(loginUrl, "_blank", "noopener");
+        Alert.alert(
+          "Open Squadz in a new tab",
+          opened
+            ? "Sign-in uses a Replit login page that can't run inside this preview. We opened it in a new tab — finish signing in there and you'll be returned to Squadz."
+            : "Sign-in uses a Replit login page that can't run inside this preview. Open the preview in a new browser tab, then tap sign in again.",
+        );
+        return;
+      }
+      setOidcLoading(true);
+      window.location.assign(loginUrl);
       return;
     }
+
     setOidcLoading(true);
     try {
       const codeVerifier = generateCodeVerifier();
@@ -247,28 +238,6 @@ export default function LoginScreen() {
       const state = generateCodeVerifier();
       const nonce = generateCodeVerifier();
       const replId = resolveReplId();
-
-      if (Platform.OS === "web" && typeof window !== "undefined") {
-        const redirectUri = `${window.location.origin}/`;
-        try {
-          window.sessionStorage.setItem("oidc_verifier", codeVerifier);
-          window.sessionStorage.setItem("oidc_state", state);
-          window.sessionStorage.setItem("oidc_nonce", nonce);
-          window.sessionStorage.setItem("oidc_redirect", redirectUri);
-          if (hasInvite && params.inviteEventId) {
-            window.sessionStorage.setItem("oidc_invite_event", params.inviteEventId);
-          }
-        } catch {
-          // Web storage is blocked (e.g. partitioned cross-origin frame). We
-          // can't persist the PKCE verifier here, so run sign-in standalone.
-          setOidcLoading(false);
-          openStandalone();
-          return;
-        }
-        const authUrl = buildAuthUrl({ replId, redirectUri, codeChallenge, state, nonce });
-        window.location.assign(authUrl.toString());
-        return;
-      }
 
       const redirectUri = Linking.createURL("/");
       const authUrl = buildAuthUrl({ replId, redirectUri, codeChallenge, state, nonce });

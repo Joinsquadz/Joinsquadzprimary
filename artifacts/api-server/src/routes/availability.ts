@@ -7,6 +7,10 @@ import type { AvailabilityPoll } from "@workspace/db/schema";
 
 const router: IRouter = Router();
 
+function parseId(raw: unknown): string {
+  return Array.isArray(raw) ? (raw[0] as string) : (raw as string);
+}
+
 const CreatePollBody = z
   .object({
     squadId: z.string().optional(),
@@ -191,7 +195,7 @@ router.get("/availability/polls/find", requireAuth, async (req: Request, res: Re
 router.get("/availability/polls/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = (req.user as { id: string }).id;
-    const poll = await storage.getAvailabilityPoll(req.params.id);
+    const poll = await storage.getAvailabilityPoll(parseId(req.params.id));
     if (!poll) {
       res.status(404).json({ error: "Poll not found" });
       return;
@@ -215,7 +219,7 @@ router.get("/availability/polls/:id", requireAuth, async (req: Request, res: Res
 router.put("/availability/polls/:id/me", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = (req.user as { id: string }).id;
-    const poll = await storage.getAvailabilityPoll(req.params.id);
+    const poll = await storage.getAvailabilityPoll(parseId(req.params.id));
     if (!poll) {
       res.status(404).json({ error: "Poll not found" });
       return;

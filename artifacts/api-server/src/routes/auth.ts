@@ -57,6 +57,40 @@ function getSafeReturnTo(value: unknown): string {
   return value;
 }
 
+// Hosts we will redirect the mobile web flow back to. Limited to this repl's
+// own dev domains and any deployed domains so the bouncer can't be used as an
+// open redirect.
+function getAllowedReturnHosts(): Set<string> {
+  const hosts = new Set<string>();
+  const add = (raw?: string) => {
+    if (!raw) return;
+    const h = raw.trim().replace(/^https?:\/\//, "").split("/")[0];
+    if (h) hosts.add(h.toLowerCase());
+  };
+  add(process.env.REPLIT_DEV_DOMAIN);
+  add(process.env.REPLIT_EXPO_DEV_DOMAIN);
+  (process.env.REPLIT_DOMAINS ?? "").split(",").forEach(add);
+  return hosts;
+}
+
+// Validate the app URL the mobile web flow should return to. Must be an https
+// URL on one of this repl's allowed hosts; any fragment is stripped because we
+// append the session token (or error) as a fragment ourselves.
+function sanitizeMobileReturnTo(value: unknown, req: Request): string {
+  const fallback = `${getOrigin(req)}/mobile/login`;
+  if (typeof value !== "string" || !value) return fallback;
+  let u: URL;
+  try {
+    u = new URL(value);
+  } catch {
+    return fallback;
+  }
+  if (u.protocol !== "https:") return fallback;
+  if (!getAllowedReturnHosts().has(u.hostname.toLowerCase())) return fallback;
+  u.hash = "";
+  return u.toString();
+}
+
 async function upsertUser(claims: Record<string, unknown>) {
   const userData = {
     id: claims.sub as string,
@@ -185,6 +219,103 @@ router.get("/callback", async (req: Request, res: Response) => {
   const sid = await createSession(sessionData);
   setSessionCookie(res, sid);
   res.redirect(returnTo);
+});
+
+// ── Mobile web sign-in bouncer ─────────────────────────────────────────────
+// The Expo web app runs on a subdomain (…expo.kirk.replit.dev) that is NOT in
+// REPLIT_DOMAINS, so the Replit OIDC provider rejects a redirect_uri pointing
+// at it. These two routes run the whole OIDC flow on the main domain (always an
+// allowed redirect target), then hand the minted session token back to the app
+// via the URL fragment. The app only has to open this URL (in a top-level tab,
+// since the Replit login page can't be framed) and read `#token=…` on return.
+router.get("/mobile-auth/web-login", async (req: Request, res: Response) => {
+  const config = await getOidcConfig();
+  const callbackUrl = `${getOrigin(req)}/api/mobile-auth/web-callback`;
+  const returnTo = sanitizeMobileReturnTo(req.query.returnTo, req);
+
+  const state = oidc.randomState();
+  const nonce = oidc.randomNonce();
+  const codeVerifier = oidc.randomPKCECodeVerifier();
+  const codeChallenge = await oidc.calculatePKCECodeChallenge(codeVerifier);
+
+  const redirectTo = oidc.buildAuthorizationUrl(config, {
+    redirect_uri: callbackUrl,
+    scope: "openid email profile offline_access",
+    code_challenge: codeChallenge,
+    code_challenge_method: "S256",
+    prompt: "login consent",
+    state,
+    nonce,
+  });
+
+  setOidcCookie(res, "m_code_verifier", codeVerifier);
+  setOidcCookie(res, "m_nonce", nonce);
+  setOidcCookie(res, "m_state", state);
+  setOidcCookie(res, "m_return_to", returnTo);
+
+  res.redirect(redirectTo.href);
+});
+
+// Query params are not validated because the OIDC provider may include
+// parameters not expressed in the schema.
+router.get("/mobile-auth/web-callback", async (req: Request, res: Response) => {
+  const config = await getOidcConfig();
+  const callbackUrl = `${getOrigin(req)}/api/mobile-auth/web-callback`;
+
+  const codeVerifier = req.cookies?.m_code_verifier;
+  const nonce = req.cookies?.m_nonce;
+  const expectedState = req.cookies?.m_state;
+  const returnTo = sanitizeMobileReturnTo(req.cookies?.m_return_to, req);
+
+  res.clearCookie("m_code_verifier", { path: "/" });
+  res.clearCookie("m_nonce", { path: "/" });
+  res.clearCookie("m_state", { path: "/" });
+  res.clearCookie("m_return_to", { path: "/" });
+
+  if (!codeVerifier || !expectedState) {
+    res.redirect(`${returnTo}#error=auth`);
+    return;
+  }
+
+  try {
+    const currentUrl = new URL(
+      `${callbackUrl}?${new URL(req.url, `http://${req.headers.host}`).searchParams}`,
+    );
+    const tokens = await oidc.authorizationCodeGrant(config, currentUrl, {
+      pkceCodeVerifier: codeVerifier,
+      expectedNonce: nonce,
+      expectedState,
+      idTokenExpected: true,
+    });
+
+    const claims = tokens.claims();
+    if (!claims) {
+      res.redirect(`${returnTo}#error=auth`);
+      return;
+    }
+
+    const dbUser = await upsertUser(claims as unknown as Record<string, unknown>);
+
+    const now = Math.floor(Date.now() / 1000);
+    const sessionData: SessionData = {
+      user: {
+        id: dbUser.id,
+        email: dbUser.email,
+        firstName: dbUser.firstName,
+        lastName: dbUser.lastName,
+        profileImageUrl: dbUser.profileImageUrl,
+      },
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token,
+      expires_at: tokens.expiresIn() ? now + tokens.expiresIn()! : claims.exp,
+    };
+
+    const sid = await createSession(sessionData);
+    res.redirect(`${returnTo}#token=${encodeURIComponent(sid)}`);
+  } catch (err) {
+    req.log.error({ err }, "Mobile web auth callback error");
+    res.redirect(`${returnTo}#error=auth`);
+  }
 });
 
 router.get("/logout", async (req: Request, res: Response) => {
