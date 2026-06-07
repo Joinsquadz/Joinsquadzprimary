@@ -560,6 +560,8 @@ function PhotoVaultTab({ justUpgraded }: { justUpgraded?: boolean }) {
   const [activeSquad, setActiveSquad] = React.useState<string>("all");
   const [checkoutLoading, setCheckoutLoading] = React.useState(false);
   const [checkoutError, setCheckoutError] = React.useState<string | null>(null);
+  const [confirming, setConfirming] = React.useState(false);
+  const [confirmFailed, setConfirmFailed] = React.useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { events } = useEvents();
 
@@ -586,19 +588,22 @@ function PhotoVaultTab({ justUpgraded }: { justUpgraded?: boolean }) {
     return out;
   }, [photos]);
 
-  React.useEffect(() => {
-    fetch('/api/subscription', { credentials: 'include' })
-      .then(r => r.json())
-      .then((d: { isPro?: boolean }) => setIsPro(!!d.isPro))
-      .catch(() => setIsPro(false));
+  const checkSubscription = useCallback(async (): Promise<boolean> => {
+    try {
+      const r = await fetch('/api/subscription', { credentials: 'include' });
+      const d = await r.json() as { isPro?: boolean };
+      const pro = !!d.isPro;
+      setIsPro(pro);
+      return pro;
+    } catch {
+      setIsPro(false);
+      return false;
+    }
   }, []);
 
   React.useEffect(() => {
-    if (!justUpgraded) return;
-    setToast("Welcome to Pro! Your full vault is unlocked.");
-    const t = setTimeout(() => setToast(null), 4000);
-    return () => clearTimeout(t);
-  }, [justUpgraded]);
+    void checkSubscription();
+  }, [checkSubscription]);
 
   const startCheckout = useCallback(async () => {
     setCheckoutLoading(true);
@@ -654,6 +659,33 @@ function PhotoVaultTab({ justUpgraded }: { justUpgraded?: boolean }) {
   React.useEffect(() => {
     if (isPro !== null) fetchPhotos();
   }, [isPro, fetchPhotos]);
+
+  // After returning from Stripe checkout, the webhook that flips the subscription
+  // to active may not have landed yet. Poll a few times with backoff until isPro
+  // turns true, then refetch photos so the just-unlocked vault appears reliably.
+  const confirmUpgrade = useCallback(async () => {
+    setConfirming(true);
+    setConfirmFailed(false);
+    const delays = [0, 1000, 2000, 3000, 4000];
+    for (const delay of delays) {
+      if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay));
+      const pro = await checkSubscription();
+      if (pro) {
+        setConfirming(false);
+        await fetchPhotos();
+        setToast("Welcome to Pro! Your full vault is unlocked.");
+        setTimeout(() => setToast(null), 4000);
+        return;
+      }
+    }
+    setConfirming(false);
+    setConfirmFailed(true);
+  }, [checkSubscription, fetchPhotos]);
+
+  React.useEffect(() => {
+    if (!justUpgraded) return;
+    void confirmUpgrade();
+  }, [justUpgraded, confirmUpgrade]);
 
   const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
@@ -731,6 +763,27 @@ function PhotoVaultTab({ justUpgraded }: { justUpgraded?: boolean }) {
         {toast && (
           <div style={{ background: `${T.green}22`, border: `1px solid ${T.green}50`, borderRadius: 12, padding: "12px 14px", marginBottom: 20, fontFamily: font, fontWeight: 700, fontSize: 13, color: T.green }}>
             {toast}
+          </div>
+        )}
+
+        {confirming && (
+          <div style={{ display: "flex", alignItems: "center", gap: 12, background: `${T.purple}1A`, border: `1px solid ${T.purple}40`, borderRadius: 12, padding: "12px 14px", marginBottom: 20 }}>
+            <div style={{ width: 18, height: 18, borderRadius: 9, border: `2px solid ${T.purple}`, borderTopColor: "transparent", animation: "spin 0.8s linear infinite", flexShrink: 0 }} />
+            <div style={{ fontFamily: font, fontWeight: 700, fontSize: 13, color: T.text }}>Confirming your upgrade…</div>
+          </div>
+        )}
+
+        {confirmFailed && (
+          <div
+            onClick={() => { if (!confirming) void confirmUpgrade(); }}
+            style={{ display: "flex", alignItems: "center", gap: 12, background: `${T.gold}1A`, border: `1px solid ${T.gold}50`, borderRadius: 12, padding: "12px 14px", marginBottom: 20, cursor: "pointer" }}
+          >
+            <div style={{ fontSize: 22, lineHeight: 1 }}>⏳</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontFamily: font, fontWeight: 700, fontSize: 13, color: T.text, marginBottom: 2 }}>Still finalizing your upgrade</div>
+              <div style={{ fontSize: 12, color: T.textSub, fontFamily: font }}>This can take a moment. Tap to refresh.</div>
+            </div>
+            <div style={{ fontSize: 16, color: T.gold }}>↻</div>
           </div>
         )}
 

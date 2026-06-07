@@ -266,19 +266,25 @@ export default function VaultScreen() {
   }, [isContextual]);
 
   const [upgradeLoading, setUpgradeLoading] = useState(false);
+  const [confirmingUpgrade, setConfirmingUpgrade] = useState(false);
+  const [confirmFailed, setConfirmFailed] = useState(false);
+  const awaitingUpgrade = useRef(false);
 
   const authHeaders = useCallback((): HeadersInit => {
     return authToken ? { Authorization: `Bearer ${authToken}` } : {};
   }, [authToken]);
 
-  const checkSubscription = useCallback(async () => {
+  const checkSubscription = useCallback(async (): Promise<boolean> => {
     try {
       const r = await fetch(`${API_BASE}/api/subscription`, { headers: authHeaders(), credentials: "include" });
-      if (!r.ok) { setIsPro(false); return; }
+      if (!r.ok) { setIsPro(false); return false; }
       const d = await r.json() as { isPro?: boolean };
-      setIsPro(!!d.isPro);
+      const pro = !!d.isPro;
+      setIsPro(pro);
+      return pro;
     } catch {
       setIsPro(false);
+      return false;
     }
   }, [authHeaders]);
 
@@ -311,11 +317,38 @@ export default function VaultScreen() {
     if (isPro !== null) fetchPhotos();
   }, [isPro, fetchPhotos]);
 
-  // After returning from the Stripe checkout browser, refetch Pro status and
-  // photos so newly-unlocked older photos appear without a manual reload.
+  // After returning from the Stripe checkout browser, the webhook that flips the
+  // subscription to active may not have landed yet. Poll a few times with backoff
+  // until isPro turns true, then refetch photos so newly-unlocked older photos
+  // appear without a manual reload. Give up gracefully after a few attempts.
+  const confirmUpgrade = useCallback(async () => {
+    setConfirmingUpgrade(true);
+    setConfirmFailed(false);
+    const delays = [0, 1000, 2000, 3000, 4000];
+    for (const delay of delays) {
+      if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay));
+      const pro = await checkSubscription();
+      if (pro) {
+        setConfirmingUpgrade(false);
+        await fetchPhotos();
+        setToast("Welcome to Pro! Your full vault is unlocked.");
+        setTimeout(() => setToast(null), 4000);
+        return;
+      }
+    }
+    setConfirmingUpgrade(false);
+    setConfirmFailed(true);
+  }, [checkSubscription, fetchPhotos]);
+
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
-      if (state === "active") {
+      if (state !== "active") return;
+      if (awaitingUpgrade.current) {
+        // Returning from a checkout we initiated — confirm the upgrade landed.
+        awaitingUpgrade.current = false;
+        void confirmUpgrade();
+      } else {
+        // Ordinary foreground — keep status fresh without the polling UI.
         void (async () => {
           await checkSubscription();
           await fetchPhotos();
@@ -323,7 +356,7 @@ export default function VaultScreen() {
       }
     });
     return () => sub.remove();
-  }, [checkSubscription, fetchPhotos]);
+  }, [checkSubscription, fetchPhotos, confirmUpgrade]);
 
   const handleUpgrade = useCallback(async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -355,8 +388,12 @@ export default function VaultScreen() {
         return;
       }
 
+      // Mark that the next foreground is a checkout return so we poll for the
+      // upgrade instead of doing a plain refetch.
+      awaitingUpgrade.current = true;
       await Linking.openURL(url);
     } catch {
+      awaitingUpgrade.current = false;
       Alert.alert("Error", "Something went wrong. Please try again.");
     } finally {
       setUpgradeLoading(false);
@@ -683,6 +720,28 @@ export default function VaultScreen() {
                 {visiblePhotos.length} {visiblePhotos.length === 1 ? "photo" : "photos"} · tap to view
               </Text>
 
+              {confirmingUpgrade && (
+                <View style={[styles.confirmBanner, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                  <ActivityIndicator color={colors.primary} size="small" />
+                  <Text style={[styles.confirmText, { color: colors.foreground }]}>Confirming your upgrade…</Text>
+                </View>
+              )}
+
+              {confirmFailed && (
+                <TouchableOpacity
+                  onPress={() => { if (!confirmingUpgrade) void confirmUpgrade(); }}
+                  style={[styles.lockBanner, { backgroundColor: colors.card, borderColor: colors.border }]}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.lockBannerIcon}>⏳</Text>
+                  <View style={styles.lockBannerText}>
+                    <Text style={[styles.lockBannerTitle, { color: colors.foreground }]}>Still finalizing your upgrade</Text>
+                    <Text style={[styles.lockBannerBody, { color: colors.mutedForeground }]}>This can take a moment. Tap to refresh.</Text>
+                  </View>
+                  <Ionicons name="refresh" size={20} color={colors.primary} />
+                </TouchableOpacity>
+              )}
+
               {!isPro && lockedCount > 0 && (
                 <TouchableOpacity
                   onPress={() => { if (!upgradeLoading) void handleUpgrade(); }}
@@ -1002,6 +1061,16 @@ const styles = StyleSheet.create({
   lockBannerText: { flex: 1 },
   lockBannerTitle: { fontSize: 14, fontWeight: "700", fontFamily: "Inter_700Bold", marginBottom: 2 },
   lockBannerBody: { fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 17 },
+  confirmBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 14,
+    marginBottom: 16,
+  },
+  confirmText: { fontSize: 14, fontWeight: "700", fontFamily: "Inter_700Bold" },
   lockedCellText: { fontSize: 9, fontFamily: "Inter_600SemiBold", marginTop: 4 },
   lockedCellLabel: { position: "absolute", bottom: 6, left: 0, right: 0, alignItems: "center" },
   upgradeBtn: {
