@@ -17,7 +17,8 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useData } from "@/context/AppContext";
 import { EventCard } from "@/components/EventCard";
-import { Event, goingCount, parseEventDate } from "@/data/mock";
+import type { Event } from "@/types";
+import { goingCount, parseEventDate } from "@/lib/eventUtils";
 
 const FILTERS = ["All", "This Week", "Hosting", "Going", "Maybe"];
 

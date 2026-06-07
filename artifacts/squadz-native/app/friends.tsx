@@ -17,22 +17,22 @@ import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
 import QRCode from "react-native-qrcode-svg";
 import { useColors } from "@/hooks/useColors";
-import { useData } from "@/context/AppContext";
+import { useData, useAuth } from "@/context/AppContext";
 import { useMessages } from "@/context/MessagesContext";
-import { USERS } from "@/data/mock";
 import { useUserCache } from "@/context/UserCacheContext";
-
-const NON_ME = USERS.filter((u) => u.id !== "me");
+import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
 export default function FriendsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { friends, friendCode, addFriend, removeFriend } = useData();
+  const { authToken } = useAuth();
   const { resolveUser, prefetchUsers } = useUserCache();
   const { startDirectConversation } = useMessages();
   const [codeInput, setCodeInput] = useState("");
   const [showQR, setShowQR] = useState(false);
   const [messagingId, setMessagingId] = useState<string | null>(null);
+  const [addingFriend, setAddingFriend] = useState(false);
   const inputRef = useRef<TextInput>(null);
 
   // Pre-load friend profiles
@@ -85,25 +85,43 @@ export default function FriendsScreen() {
     Share.share({ message: msg, title: "Join me on Squadz" });
   }
 
-  function handleAddFriend() {
+  async function handleAddFriend() {
     const code = codeInput.trim().toUpperCase();
-    if (!code) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-
-    const notFriend = NON_ME.find((u) => !friends.includes(u.id));
-    if (!notFriend) {
-      Alert.alert("All Connected!", "You're already friends with everyone on Squadz. 🎉");
-      return;
-    }
-    if (friends.length > 0 && !code.startsWith("SQ-")) {
+    if (!code || addingFriend) return;
+    if (!code.startsWith("SQ-")) {
       Alert.alert("Invalid Code", "Friend codes look like SQ-XXXX. Check the code and try again.");
       return;
     }
-    addFriend(notFriend.id);
-    setCodeInput("");
-    inputRef.current?.blur();
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    Alert.alert("Friend Added! 🎉", `You and ${notFriend.name} are now friends on Squadz.`);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setAddingFriend(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/users/by-friend-code/${encodeURIComponent(code)}`, {
+        headers: buildAuthHeaders(authToken),
+      });
+      if (res.status === 404) {
+        Alert.alert("Code Not Found", "No Squadz user has that friend code. Double-check it and try again.");
+        return;
+      }
+      if (!res.ok) {
+        Alert.alert("Something went wrong", "Couldn't look up that code. Please try again.");
+        return;
+      }
+      const found = await res.json() as { id: string; firstName?: string; lastName?: string };
+      const name = [found.firstName, found.lastName].filter(Boolean).join(" ") || "your new friend";
+      if (friends.includes(found.id)) {
+        Alert.alert("Already Friends!", `You and ${name} are already connected on Squadz.`);
+        return;
+      }
+      addFriend(found.id);
+      setCodeInput("");
+      inputRef.current?.blur();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert("Friend Added! 🎉", `You and ${name} are now friends on Squadz.`);
+    } catch {
+      Alert.alert("Network Error", "Couldn't connect. Please check your connection and try again.");
+    } finally {
+      setAddingFriend(false);
+    }
   }
 
   function handleRemove(userId: string) {
@@ -192,18 +210,22 @@ export default function FriendsScreen() {
             onChangeText={setCodeInput}
             autoCapitalize="characters"
             returnKeyType="done"
-            onSubmitEditing={handleAddFriend}
+            onSubmitEditing={() => void handleAddFriend()}
             style={[styles.addInput, { color: colors.foreground }]}
           />
           <TouchableOpacity
-            onPress={handleAddFriend}
-            disabled={!codeInput.trim()}
+            onPress={() => void handleAddFriend()}
+            disabled={!codeInput.trim() || addingFriend}
             style={[
               styles.addBtn,
-              { backgroundColor: codeInput.trim() ? colors.primary : colors.surfaceUp },
+              { backgroundColor: codeInput.trim() && !addingFriend ? colors.primary : colors.surfaceUp },
             ]}
           >
-            <Text style={[styles.addBtnText, { color: codeInput.trim() ? "#fff" : colors.textDim }]}>Add</Text>
+            {addingFriend ? (
+              <ActivityIndicator size="small" color={colors.primary} />
+            ) : (
+              <Text style={[styles.addBtnText, { color: codeInput.trim() ? "#fff" : colors.textDim }]}>Add</Text>
+            )}
           </TouchableOpacity>
         </View>
 

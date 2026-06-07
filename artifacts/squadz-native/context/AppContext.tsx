@@ -3,14 +3,8 @@ import { AppState } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { API_BASE } from "@/lib/api";
 import { clearProfileCache } from "@/hooks/useUserProfiles";
-import {
-  ME,
-  type Event,
-  type Squad,
-  type RsvpStatus,
-  type Cost,
-  type CostShare,
-} from "@/data/mock";
+import { ME } from "@/data/mock";
+import type { Event, Squad, RsvpStatus, Cost, CostShare } from "@/types";
 
 const AUTH_TOKEN_KEY = "@squadz/authToken";
 

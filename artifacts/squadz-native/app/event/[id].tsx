@@ -25,10 +25,8 @@ import { useColors } from "@/hooks/useColors";
 import { useData, useAuth } from "@/context/AppContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { UserAvatar } from "@/components/UserAvatar";
-import {
-  goingCount,
-  type RsvpStatus,
-} from "@/data/mock";
+import { goingCount } from "@/lib/eventUtils";
+import type { RsvpStatus } from "@/types";
 import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
 
 type EventTab = "overview" | "guests" | "tasks" | "costs" | "chat" | "photos" | "admin";

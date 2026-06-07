@@ -12,6 +12,10 @@ const MAX_IDS = 100;
 router.get("/users/by-friend-code/:code", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const code = (req.params.code as string).toUpperCase().trim();
+    if (!code) {
+      res.status(400).json({ error: "code is required" });
+      return;
+    }
     const [user] = await db
       .select({
         id: usersTable.id,

@@ -1,5 +1,5 @@
 import { Linking, Platform } from "react-native";
-import type { Cost } from "@/data/mock";
+import type { Cost } from "@/types";
 
 export type SettleLine = {
   userId: string;
