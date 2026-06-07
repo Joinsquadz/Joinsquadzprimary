@@ -1,5 +1,5 @@
 import { Linking } from "react-native";
-import { API_BASE, buildAuthHeaders } from "@/lib/api";
+import { buildAuthHeaders, resolveApiBase } from "@/lib/api";
 
 const PRO_PRODUCT_NAME = "Squadz Pro";
 const PRO_PRICE_INTERVAL = "year";
@@ -27,9 +27,10 @@ export type CheckoutResult = { ok: true } | CheckoutFailure;
  * @param token Auth token for the current user (null if unauthenticated).
  */
 export async function startProCheckout(token: string | null): Promise<CheckoutResult> {
+  const apiBase = resolveApiBase();
   const authHeaders = buildAuthHeaders(token);
   try {
-    const productsRes = await fetch(`${API_BASE}/api/products-with-prices`);
+    const productsRes = await fetch(`${apiBase}/api/products-with-prices`);
     const { data: products } = (await productsRes.json()) as ProductsResponse;
 
     const pro = products.find((p) => p.name === PRO_PRODUCT_NAME);
@@ -39,7 +40,7 @@ export async function startProCheckout(token: string | null): Promise<CheckoutRe
       return { ok: false, error: "Pro plan not found. Please try again later." };
     }
 
-    const checkoutRes = await fetch(`${API_BASE}/api/checkout`, {
+    const checkoutRes = await fetch(`${apiBase}/api/checkout`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders },
       body: JSON.stringify({ priceId: yearlyPrice.id }),
