@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { eq, sql, inArray, isNull, and } from "drizzle-orm";
+import { and, eq, sql, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
-import { db, squadsTable, usersTable, squadRemovalNoticesTable } from "@workspace/db";
+import { db, squadsTable, usersTable, squadMutesTable, squadRemovalNoticesTable } from "@workspace/db";
 import { requireAuth } from "../middleware/currentUser";
 import { storage } from "../storage";
 import { logger } from "../lib/logger";
@@ -454,6 +454,13 @@ router.delete("/squads/:id/members/:userId", requireAuth, async (req: Request, r
     .set({ memberIds: updatedMemberIds })
     .where(eq(squadsTable.id, id))
     .returning();
+
+  // Clean up any stale mute row for the removed user so orphaned rows
+  // don't accumulate and don't cause confusion on re-join.
+  await db
+    .delete(squadMutesTable)
+    .where(and(eq(squadMutesTable.userId, targetUserId), eq(squadMutesTable.squadId, id)));
+
   res.json(updatedSquad);
 
   if (isSelf) {
