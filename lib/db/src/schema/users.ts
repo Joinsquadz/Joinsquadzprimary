@@ -31,6 +31,7 @@ export const usersTable = pgTable("users", {
   notifyMessages: boolean("notify_messages").notNull().default(true),
   notifyFriendActivity: boolean("notify_friend_activity").notNull().default(true),
   notifySquadJoin: boolean("notify_squad_join").notNull().default(true),
+  notifySquadLeave: boolean("notify_squad_leave").notNull().default(true),
   privateProfile: boolean("private_profile").notNull().default(false),
   showRsvpActivity: boolean("show_rsvp_activity").notNull().default(true),
   pushToken: text("push_token"),

@@ -448,7 +448,7 @@ router.delete("/squads/:id/members/:userId", requireAuth, async (req: Request, r
               ? `${leaver.firstName} ${leaver.lastName}`
               : leaver.firstName
             : "Someone";
-          const tokens = await storage.getPushTokensForUsers(updatedMemberIds);
+          const tokens = await storage.getPushTokensForUsers(updatedMemberIds, { requireNotifySquadLeave: true });
           await sendPushNotifications(
             tokens,
             {
@@ -467,7 +467,7 @@ router.delete("/squads/:id/members/:userId", requireAuth, async (req: Request, r
     // Fire-and-forget: creator removed a member — notify the removed user.
     (async () => {
       try {
-        const tokens = await storage.getPushTokensForUsers([targetUserId]);
+        const tokens = await storage.getPushTokensForUsers([targetUserId], { requireNotifySquadLeave: true });
         await sendPushNotifications(
           tokens,
           {

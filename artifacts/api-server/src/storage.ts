@@ -1091,7 +1091,7 @@ export class Storage {
 
   async getPushTokensForUsers(
     userIds: string[],
-    opts: { requireNotifyReminders?: boolean; requireNotifySquadJoin?: boolean } = {},
+    opts: { requireNotifyReminders?: boolean; requireNotifySquadJoin?: boolean; requireNotifySquadLeave?: boolean } = {},
   ): Promise<string[]> {
     if (userIds.length === 0) return [];
     const conditions = [inArray(usersTable.id, userIds)];
@@ -1100,6 +1100,9 @@ export class Storage {
     }
     if (opts.requireNotifySquadJoin) {
       conditions.push(eq(usersTable.notifySquadJoin, true));
+    }
+    if (opts.requireNotifySquadLeave) {
+      conditions.push(eq(usersTable.notifySquadLeave, true));
     }
     const rows = await db
       .select({ pushToken: usersTable.pushToken })
