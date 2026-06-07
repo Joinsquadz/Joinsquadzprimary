@@ -17,8 +17,12 @@ const squadMutesRef = vi.hoisted(() => ({
   squadId: "squad_id",
 }));
 
-vi.mock("@workspace/db", () => ({
-  db: {
+// Hoisted so the vi.mock() factory below can reference it. Uses a `self`
+// closure so db.transaction(async (tx) => tx.delete(...)) passes the same
+// mock object as the transaction argument.
+const dbMock = vi.hoisted(() => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const self: any = {
     select: () => ({
       from: () => ({
         where: () => Promise.resolve(mockRows.value),
@@ -60,24 +64,14 @@ vi.mock("@workspace/db", () => ({
         returning: () => Promise.resolve([]),
       }),
     }),
-    transaction: async (cb: (tx: {
-      delete: (table: unknown) => { where: () => Promise<void> };
-    }) => Promise<void>) => {
-      const tx = {
-        delete: (table: unknown) => ({
-          where: () => {
-            if (table === squadMutesRef) {
-              // Simulate the DB delete inside the transaction: drain mutes rows
-              // for the deleted squad, matching real behaviour.
-              mutesStore.rows = [];
-            }
-            return Promise.resolve();
-          },
-        }),
-      };
-      await cb(tx);
-    },
-  },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    transaction: async (fn: (tx: any) => Promise<void>) => fn(self),
+  };
+  return self;
+});
+
+vi.mock("@workspace/db", () => ({
+  db: dbMock,
   squadsTable: {
     id: "id",
     memberIds: "member_ids",

@@ -88,12 +88,21 @@ export default function SquadsScreen() {
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: topPad + 8, borderBottomColor: colors.border }]}>
         <Text style={[styles.title, { color: colors.foreground }]}>SquadZ</Text>
-        <TouchableOpacity
-          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push("/squad/create"); }}
-          style={[styles.newBtn, { backgroundColor: colors.primary }]}
-        >
-          <Ionicons name="add" size={20} color="#fff" />
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push("/squad/discover"); }}
+            style={[styles.findBtn, { backgroundColor: colors.surfaceUp }]}
+          >
+            <Ionicons name="search-outline" size={16} color={colors.primary} />
+            <Text style={[styles.findBtnText, { color: colors.primary }]}>Find squads</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push("/squad/create"); }}
+            style={[styles.newBtn, { backgroundColor: colors.primary }]}
+          >
+            <Ionicons name="add" size={20} color="#fff" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView
@@ -248,6 +257,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20, paddingBottom: 12, borderBottomWidth: 1,
   },
   title: { fontSize: 28, fontWeight: "900" },
+  headerActions: { flexDirection: "row", alignItems: "center", gap: 8 },
+  findBtn: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 10, paddingVertical: 7, paddingHorizontal: 11 },
+  findBtnText: { fontSize: 13, fontWeight: "700" },
   newBtn: { width: 36, height: 36, borderRadius: 11, alignItems: "center", justifyContent: "center" },
   countLabel: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 12 },
   squadCard: {
