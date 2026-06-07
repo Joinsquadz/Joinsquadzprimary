@@ -48,10 +48,11 @@ type MemberInfo = {
 };
 
 type PollPayload = {
-  poll: { id: string; createdBy: string; title: string; days: string[]; slots: string[] };
+  poll: { id: string; createdBy: string; title: string; days: string[]; slots: string[]; updatedAt: string | null };
   heatmap: { cell: string; count: number }[];
   respondentCount: number;
   myCells: string[];
+  myResponseUpdatedAt: string | null;
   best: { cell: string; count: number; total: number } | null;
   members?: MemberInfo[];
   droppedCount?: number;
@@ -141,6 +142,7 @@ export default function AvailabilityScreen() {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [droppedNotice, setDroppedNotice] = useState<string | null>(null);
+  const [rangeUpdatedBanner, setRangeUpdatedBanner] = useState(false);
 
   // Setup state: shown when no poll exists yet so the creator can pick the
   // availability range (start date + number of days) before it's created.
@@ -151,6 +153,10 @@ export default function AvailabilityScreen() {
   const [rangeDays, setRangeDays] = useState<number>(DEFAULT_DAY_COUNT);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerDate, setPickerDate] = useState<Date>(new Date());
+
+  // Tracks the poll's updatedAt that the user has already dismissed, so a
+  // background refresh doesn't resurrect a banner they already saw/dismissed.
+  const dismissedRangeUpdateRef = useRef<string | null>(null);
 
   // Keep a ref that always reflects the latest `dirty` value so the polling
   // interval callback doesn't capture a stale closure.
@@ -246,12 +252,24 @@ export default function AvailabilityScreen() {
       setData(payload);
       setMySet(new Set(payload.myCells));
       setDirty(false);
+      // Show the "range updated" banner for non-creators when the host has
+      // updated the date range more recently than the member last responded.
+      if (payload.poll.updatedAt && payload.poll.createdBy !== currentUser?.id) {
+        const rangeTs = payload.poll.updatedAt;
+        const responseTs = payload.myResponseUpdatedAt;
+        const shouldShow =
+          dismissedRangeUpdateRef.current !== rangeTs &&
+          (responseTs === null || new Date(rangeTs) > new Date(responseTs));
+        setRangeUpdatedBanner(shouldShow);
+      } else {
+        setRangeUpdatedBanner(false);
+      }
     } catch {
       setError("Network error. Please try again.");
     } finally {
       setLoading(false);
     }
-  }, [authHeaders, squadId, eventId]);
+  }, [authHeaders, squadId, eventId, currentUser]);
 
   const createPoll = useCallback(async () => {
     setCreating(true);
@@ -311,10 +329,22 @@ export default function AvailabilityScreen() {
         setMySet(new Set(payload.myCells));
       }
       setLastRefreshed(new Date());
+      // Re-evaluate the banner on every background refresh so members are
+      // notified even if the host updates the range while they're on screen.
+      if (payload.poll.updatedAt && payload.poll.createdBy !== currentUser?.id) {
+        const rangeTs = payload.poll.updatedAt;
+        const responseTs = payload.myResponseUpdatedAt;
+        const shouldShow =
+          dismissedRangeUpdateRef.current !== rangeTs &&
+          (responseTs === null || new Date(rangeTs) > new Date(responseTs));
+        setRangeUpdatedBanner(shouldShow);
+      } else {
+        setRangeUpdatedBanner(false);
+      }
     } catch {
       // Ignore network errors during background refresh — never surface them
     }
-  }, [authHeaders, squadId, eventId, showUpdateIndicator]);
+  }, [authHeaders, squadId, eventId, showUpdateIndicator, currentUser]);
 
   // Set up a 20-second polling interval while the screen is mounted, and also
   // trigger an immediate refresh when the app returns to the foreground.
@@ -476,6 +506,8 @@ export default function AvailabilityScreen() {
       }
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      // User just submitted their availability — clear the range-updated banner.
+      setRangeUpdatedBanner(false);
     } catch {
       Alert.alert("Couldn't save", "Network error. Please try again.");
     } finally {
@@ -738,6 +770,24 @@ export default function AvailabilityScreen() {
             <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
               Tap the times you're free. We'll highlight when the most people can make it.
             </Text>
+
+            {rangeUpdatedBanner && (
+              <View style={[styles.rangeUpdatedBanner, { backgroundColor: colors.card, borderColor: colors.primary + "66" }]}>
+                <Ionicons name="calendar-outline" size={16} color={colors.primary} style={{ marginTop: 1 }} />
+                <Text style={[styles.rangeUpdatedText, { color: colors.foreground }]}>
+                  The host updated the date range — please re-enter your availability
+                </Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    dismissedRangeUpdateRef.current = data.poll.updatedAt;
+                    setRangeUpdatedBanner(false);
+                  }}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="close" size={16} color={colors.mutedForeground} />
+                </TouchableOpacity>
+              </View>
+            )}
 
             {data.best && (
               <View style={[styles.bestCard, { backgroundColor: colors.primary + "18", borderColor: colors.primary + "44" }]}>
@@ -1105,4 +1155,6 @@ const styles = StyleSheet.create({
   editRangeBtn: { padding: 8, marginLeft: "auto" },
   editSheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "85%" },
   editRangeNote: { fontSize: 13, lineHeight: 18, marginTop: 18 },
+  rangeUpdatedBanner: { flexDirection: "row", alignItems: "flex-start", gap: 8, borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, marginTop: 14 },
+  rangeUpdatedText: { flex: 1, fontSize: 13, lineHeight: 18, fontWeight: "600" },
 });

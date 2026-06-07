@@ -91,7 +91,7 @@ type AggregatedCell = { cell: string; count: number };
 
 function buildPollPayload(
   poll: AvailabilityPoll,
-  responses: { userId: string; cells: string[] }[],
+  responses: { userId: string; cells: string[]; updatedAt: Date }[],
   userId: string,
 ) {
   const counts = new Map<string, number>();
@@ -140,10 +140,12 @@ function buildPollPayload(
       title: poll.title,
       days: poll.days,
       slots: poll.slots,
+      updatedAt: poll.updatedAt?.toISOString() ?? null,
     },
     heatmap,
     respondentCount,
     myCells: myResponse?.cells ?? [],
+    myResponseUpdatedAt: myResponse?.updatedAt?.toISOString() ?? null,
     best:
       bestCell && bestCount > 0
         ? { cell: bestCell, count: bestCount, total: respondentCount }

@@ -27,6 +27,7 @@ export const availabilityPollsTable = pgTable("availability_polls", {
     .notNull()
     .default(sql`'["6PM","7PM","8PM","9PM","10PM"]'::jsonb`),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }),
 });
 
 // One row per (poll, user). `cells` are the selected grid keys, e.g. "Mon-8PM".

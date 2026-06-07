@@ -464,7 +464,7 @@ export class Storage {
     pollId: string,
     updates: { title?: string; days?: string[]; slots?: string[] },
   ): Promise<AvailabilityPoll> {
-    const setValues: Record<string, unknown> = {};
+    const setValues: Record<string, unknown> = { updatedAt: new Date() };
     if (updates.title !== undefined) setValues.title = updates.title;
     if (updates.days && updates.days.length) setValues.days = updates.days;
     if (updates.slots && updates.slots.length) setValues.slots = updates.slots;
