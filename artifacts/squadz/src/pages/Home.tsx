@@ -547,7 +547,7 @@ async function downloadVaultPhoto(url: string, label: string, id: number): Promi
   }
 }
 
-function PhotoVaultTab({ onUpgrade }: { onUpgrade?: () => void }) {
+function PhotoVaultTab({ justUpgraded }: { justUpgraded?: boolean }) {
   const [isPro, setIsPro] = React.useState<boolean | null>(null);
   const [selected, setSelected] = React.useState<number | null>(null);
   const [photos, setPhotos] = React.useState<VaultPhoto[]>([]);
@@ -555,6 +555,8 @@ function PhotoVaultTab({ onUpgrade }: { onUpgrade?: () => void }) {
   const [toast, setToast] = React.useState<string | null>(null);
   const [uploadEventId, setUploadEventId] = React.useState<string>("");
   const [activeSquad, setActiveSquad] = React.useState<string>("all");
+  const [checkoutLoading, setCheckoutLoading] = React.useState(false);
+  const [checkoutError, setCheckoutError] = React.useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { events } = useEvents();
 
@@ -586,6 +588,53 @@ function PhotoVaultTab({ onUpgrade }: { onUpgrade?: () => void }) {
       .then(r => r.json())
       .then((d: { isPro?: boolean }) => setIsPro(!!d.isPro))
       .catch(() => setIsPro(false));
+  }, []);
+
+  React.useEffect(() => {
+    if (!justUpgraded) return;
+    setToast("Welcome to Pro! Your full vault is unlocked.");
+    const t = setTimeout(() => setToast(null), 4000);
+    return () => clearTimeout(t);
+  }, [justUpgraded]);
+
+  const startCheckout = useCallback(async () => {
+    setCheckoutLoading(true);
+    setCheckoutError(null);
+    try {
+      const productsRes = await fetch('/api/products-with-prices', { credentials: 'include' });
+      const { data: products } = await productsRes.json() as {
+        data: Array<{ id: string; name: string; prices: Array<{ id: string; recurring: { interval: string } | null }> }>;
+      };
+
+      const pro = products.find(p => p.name === 'Squadz Pro');
+      const yearlyPrice = pro?.prices.find(p => p.recurring?.interval === 'year');
+
+      if (!yearlyPrice) {
+        setCheckoutError('Squadz Pro plan not found. Please try again later.');
+        return;
+      }
+
+      const checkoutRes = await fetch('/api/checkout', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ priceId: yearlyPrice.id }),
+      });
+
+      const { url, error: apiError } = await checkoutRes.json() as { url?: string; error?: string };
+      if (apiError || !url) {
+        setCheckoutError(apiError ?? 'Failed to start checkout. Please try again.');
+        return;
+      }
+
+      // Remember to return to the vault (not profile) after Stripe redirects back
+      sessionStorage.setItem('squadz:checkoutReturnTab', 'vault');
+      window.location.href = url;
+    } catch {
+      setCheckoutError('Something went wrong. Please try again.');
+    } finally {
+      setCheckoutLoading(false);
+    }
   }, []);
 
   const fetchPhotos = useCallback(async () => {
@@ -681,9 +730,15 @@ function PhotoVaultTab({ onUpgrade }: { onUpgrade?: () => void }) {
           Private squad memories · {photos.length} {photos.length === 1 ? "photo" : "photos"}
         </div>
 
+        {toast && (
+          <div style={{ background: `${T.green}22`, border: `1px solid ${T.green}50`, borderRadius: 12, padding: "12px 14px", marginBottom: 20, fontFamily: font, fontWeight: 700, fontSize: 13, color: T.green }}>
+            {toast}
+          </div>
+        )}
+
         {!isPro && lockedCount > 0 && (
           <div
-            onClick={onUpgrade}
+            onClick={() => { if (!checkoutLoading) void startCheckout(); }}
             style={{
               display: "flex",
               alignItems: "center",
@@ -693,7 +748,8 @@ function PhotoVaultTab({ onUpgrade }: { onUpgrade?: () => void }) {
               borderRadius: 14,
               padding: "14px 16px",
               marginBottom: 20,
-              cursor: "pointer",
+              cursor: checkoutLoading ? "default" : "pointer",
+              opacity: checkoutLoading ? 0.7 : 1,
             }}
           >
             <div style={{ fontSize: 28, lineHeight: 1 }}>🔒</div>
@@ -702,7 +758,7 @@ function PhotoVaultTab({ onUpgrade }: { onUpgrade?: () => void }) {
                 {lockedCount} older {lockedCount === 1 ? "photo is" : "photos are"} locked
               </div>
               <div style={{ fontSize: 12, color: T.textSub, fontFamily: font }}>
-                Upgrade to see older photos — anything over 30 days old.
+                {checkoutLoading ? "Opening checkout…" : "Tap to upgrade and unlock photos over 30 days old."}
               </div>
             </div>
             <div style={{ fontSize: 18, color: T.accent }}>→</div>
@@ -738,14 +794,20 @@ function PhotoVaultTab({ onUpgrade }: { onUpgrade?: () => void }) {
           </div>
         )}
 
+        {!isPro && checkoutError && (
+          <div style={{ fontSize: 13, color: "#FF6B6B", fontFamily: font, marginBottom: 14, textAlign: "center" }}>
+            {checkoutError}
+          </div>
+        )}
+
         {visiblePhotos.length > 0 ? (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4, borderRadius: 14, overflow: "hidden", marginBottom: 20 }}>
             {visiblePhotos.map(p => (
               p.locked ? (
                 <div
                   key={p.id}
-                  onClick={onUpgrade}
-                  style={{ aspectRatio: "1", overflow: "hidden", cursor: "pointer", position: "relative", border: "2px solid transparent", background: T.surface, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4 }}>
+                  onClick={() => { if (!checkoutLoading) void startCheckout(); }}
+                  style={{ aspectRatio: "1", overflow: "hidden", cursor: checkoutLoading ? "default" : "pointer", position: "relative", border: "2px solid transparent", background: T.surface, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, opacity: checkoutLoading ? 0.7 : 1 }}>
                   <div style={{ fontSize: 24 }}>🔒</div>
                   <div style={{ fontSize: 9, color: T.textDim, fontFamily: font, fontWeight: 600, textAlign: "center", padding: "0 4px" }}>Pro only</div>
                 </div>
@@ -836,10 +898,11 @@ function PhotoVaultTab({ onUpgrade }: { onUpgrade?: () => void }) {
           </>
         ) : (
           <button
-            onClick={onUpgrade}
-            style={{ width: "100%", borderRadius: 14, border: "none", background: `linear-gradient(135deg, ${T.accent}, #FF8050)`, color: "#fff", fontFamily: font, fontWeight: 800, fontSize: 15, padding: "14px 20px", cursor: "pointer", boxShadow: `0 6px 20px ${T.accent}40` }}
+            onClick={() => { if (!checkoutLoading) void startCheckout(); }}
+            disabled={checkoutLoading}
+            style={{ width: "100%", borderRadius: 14, border: "none", background: `linear-gradient(135deg, ${T.accent}, #FF8050)`, color: "#fff", fontFamily: font, fontWeight: 800, fontSize: 15, padding: "14px 20px", cursor: checkoutLoading ? "not-allowed" : "pointer", opacity: checkoutLoading ? 0.7 : 1, boxShadow: `0 6px 20px ${T.accent}40` }}
           >
-            ⚡ Upgrade to Pro — $20/year
+            {checkoutLoading ? "Opening checkout…" : "⚡ Upgrade to Pro — $20/year"}
           </button>
         )}
       </div>
@@ -1221,6 +1284,7 @@ export default function Home() {
   const [, setLocation] = useLocation();
   const { firstName, displayName } = useCurrentUser();
   const [checkoutSuccess, setCheckoutSuccess] = useState(false);
+  const [vaultJustUpgraded, setVaultJustUpgraded] = useState(false);
   const { events, loading: eventsLoading, refetch } = useEvents();
   const { squads, loading: squadsLoading } = useSquads();
 
@@ -1229,7 +1293,14 @@ export default function Home() {
     if (params.get("checkout") === "success") {
       window.history.replaceState({}, "", window.location.pathname);
       setCheckoutSuccess(true);
-      setTab("profile");
+      const returnTab = sessionStorage.getItem("squadz:checkoutReturnTab");
+      sessionStorage.removeItem("squadz:checkoutReturnTab");
+      if (returnTab === "vault") {
+        setVaultJustUpgraded(true);
+        setTab("vault");
+      } else {
+        setTab("profile");
+      }
     }
   }, []);
 
@@ -1249,7 +1320,7 @@ export default function Home() {
     squads: <SquadsTab go={go} squads={squads} squadsLoading={squadsLoading} refetch={refetch} />,
     messages: <MessagesTab go={go} />,
     discover: <DiscoverTab go={go} />,
-    vault: <PhotoVaultTab onUpgrade={() => setTab("profile")} />,
+    vault: <PhotoVaultTab justUpgraded={vaultJustUpgraded} />,
     activity: <ActivityTab />,
     profile: <ProfileTab go={go} setTab={setTab} displayName={displayName} checkoutSuccess={checkoutSuccess} />,
   };

@@ -12,6 +12,8 @@ import {
   Alert,
   Modal,
   Animated,
+  Linking,
+  AppState,
 } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
@@ -266,21 +268,26 @@ export default function VaultScreen() {
     }, 300);
   }, [isContextual]);
 
+  const [upgradeLoading, setUpgradeLoading] = useState(false);
+
   const authHeaders = useCallback((): HeadersInit => {
     return authToken ? { Authorization: `Bearer ${authToken}` } : {};
   }, [authToken]);
 
-  useEffect(() => {
-    fetch(`${API_BASE}/api/subscription`, { headers: authHeaders(), credentials: "include" })
-      .then((r) => {
-        if (!r.ok) { setIsPro(false); return; }
-        return r.json();
-      })
-      .then((d?: { isPro?: boolean }) => {
-        if (d !== undefined) setIsPro(!!d.isPro);
-      })
-      .catch(() => setIsPro(false));
+  const checkSubscription = useCallback(async () => {
+    try {
+      const r = await fetch(`${API_BASE}/api/subscription`, { headers: authHeaders(), credentials: "include" });
+      if (!r.ok) { setIsPro(false); return; }
+      const d = await r.json() as { isPro?: boolean };
+      setIsPro(!!d.isPro);
+    } catch {
+      setIsPro(false);
+    }
   }, [authHeaders]);
+
+  useEffect(() => {
+    void checkSubscription();
+  }, [checkSubscription]);
 
   const fetchPhotos = useCallback(async () => {
     const params = new URLSearchParams();
@@ -306,6 +313,58 @@ export default function VaultScreen() {
   useEffect(() => {
     if (isPro !== null) fetchPhotos();
   }, [isPro, fetchPhotos]);
+
+  // After returning from the Stripe checkout browser, refetch Pro status and
+  // photos so newly-unlocked older photos appear without a manual reload.
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        void (async () => {
+          await checkSubscription();
+          await fetchPhotos();
+        })();
+      }
+    });
+    return () => sub.remove();
+  }, [checkSubscription, fetchPhotos]);
+
+  const handleUpgrade = useCallback(async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setUpgradeLoading(true);
+    try {
+      const productsRes = await fetch(`${API_BASE}/api/products-with-prices`);
+      const { data: products } = await productsRes.json() as {
+        data: Array<{ id: string; name: string; prices: Array<{ id: string; recurring: { interval: string } | null }> }>;
+      };
+
+      const pro = products.find(p => p.name === "Squadz Pro");
+      const yearlyPrice = pro?.prices.find(p => p.recurring?.interval === "year");
+
+      if (!yearlyPrice) {
+        Alert.alert("Squadz Pro", "Pro plan not found. Please try again later.");
+        return;
+      }
+
+      const checkoutRes = await fetch(`${API_BASE}/api/checkout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ priceId: yearlyPrice.id }),
+      });
+
+      const { url, error: apiError } = await checkoutRes.json() as { url?: string; error?: string };
+
+      if (apiError || !url) {
+        Alert.alert("Checkout Error", apiError ?? "Failed to start checkout. Please try again.");
+        return;
+      }
+
+      await Linking.openURL(url);
+    } catch {
+      Alert.alert("Error", "Something went wrong. Please try again.");
+    } finally {
+      setUpgradeLoading(false);
+    }
+  }, [authHeaders]);
 
   const imageUrl = (objectPath: string) => `${API_BASE}/api/storage${objectPath}`;
 
@@ -630,8 +689,9 @@ export default function VaultScreen() {
 
               {!isPro && lockedCount > 0 && (
                 <TouchableOpacity
-                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.back(); }}
-                  style={[styles.lockBanner, { backgroundColor: colors.card, borderColor: colors.border }]}
+                  onPress={() => { if (!upgradeLoading) void handleUpgrade(); }}
+                  disabled={upgradeLoading}
+                  style={[styles.lockBanner, { backgroundColor: colors.card, borderColor: colors.border, opacity: upgradeLoading ? 0.7 : 1 }]}
                   activeOpacity={0.85}
                 >
                   <Text style={styles.lockBannerIcon}>🔒</Text>
@@ -640,10 +700,12 @@ export default function VaultScreen() {
                       {lockedCount} older {lockedCount === 1 ? "photo is" : "photos are"} locked
                     </Text>
                     <Text style={[styles.lockBannerBody, { color: colors.mutedForeground }]}>
-                      Upgrade to see older photos — anything over 30 days old.
+                      {upgradeLoading ? "Opening checkout…" : "Tap to upgrade and unlock photos over 30 days old."}
                     </Text>
                   </View>
-                  <Ionicons name="chevron-forward" size={20} color={colors.primary} />
+                  {upgradeLoading
+                    ? <ActivityIndicator color={colors.primary} size="small" />
+                    : <Ionicons name="chevron-forward" size={20} color={colors.primary} />}
                 </TouchableOpacity>
               )}
 
@@ -677,8 +739,9 @@ export default function VaultScreen() {
                     p.locked ? (
                       <TouchableOpacity
                         key={p.id}
-                        onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.back(); }}
-                        style={styles.gridCell}
+                        onPress={() => { if (!upgradeLoading) void handleUpgrade(); }}
+                        disabled={upgradeLoading}
+                        style={[styles.gridCell, { opacity: upgradeLoading ? 0.7 : 1 }]}
                         activeOpacity={0.8}
                       >
                         <LockedThumb id={p.id} style={styles.gridImage} />

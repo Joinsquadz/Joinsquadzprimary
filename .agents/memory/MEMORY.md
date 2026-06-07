@@ -6,3 +6,4 @@
 - [Auth provider constraints](auth-provider-constraints.md) — app uses Replit Auth; Clerk migration unsupported + Clerk has no SMS/Facebook; Google+Facebook+SMS OTP = custom build.
 - [Squadz native-module web safety](squadz-native-module-web-safety.md) — Expo-web preview crashes on top-level native imports; guard + dynamic-import native modules, web uses pure-web path.
 - [Stripe connector key names](stripe-connector-key-names.md) — Replit Stripe connector uses `settings.secret` not `settings.secret_key`; template is wrong.
+- [Checkout return routing](checkout-return-routing.md) — success_url is fixed to /home?checkout=success; web stashes target tab in sessionStorage, mobile refetches on AppState "active".
