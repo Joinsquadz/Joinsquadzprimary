@@ -234,6 +234,8 @@ export default function SquadDetailScreen() {
   const [muted, setMuted] = useState(false);
   const [muteLoading, setMuteLoading] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+  const [newInviteCode, setNewInviteCode] = useState<string | null>(null);
+  const newInviteDismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const goBack = () => (router.canGoBack() ? router.back() : router.replace("/(tabs)" as never));
 
@@ -630,7 +632,16 @@ export default function SquadDetailScreen() {
       </Modal>
 
       {/* ---- Settings Modal ---- */}
-      <Modal visible={settingsOpen} transparent animationType="slide" onRequestClose={() => setSettingsOpen(false)}>
+      <Modal
+        visible={settingsOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          setSettingsOpen(false);
+          setNewInviteCode(null);
+          if (newInviteDismissTimer.current) clearTimeout(newInviteDismissTimer.current);
+        }}
+      >
         <View style={styles.modalOverlay}>
           <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border, paddingBottom: botPad + 16 }]}>
             <Text style={[styles.modalTitle, { color: colors.foreground }]}>Squad settings</Text>
@@ -703,6 +714,10 @@ export default function SquadDetailScreen() {
                             Alert.alert("Error", result.error);
                           } else {
                             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                            const freshCode = result.inviteCode ?? squad.inviteCode ?? null;
+                            setNewInviteCode(freshCode);
+                            if (newInviteDismissTimer.current) clearTimeout(newInviteDismissTimer.current);
+                            newInviteDismissTimer.current = setTimeout(() => setNewInviteCode(null), 6000);
                           }
                         },
                       },
@@ -722,6 +737,32 @@ export default function SquadDetailScreen() {
                   <Text style={[styles.actionSub, { color: colors.mutedForeground }]}>Revoke the current link and create a new one</Text>
                 </View>
               </TouchableOpacity>
+            )}
+
+            {newInviteCode && (
+              <View style={[styles.newLinkRow, { backgroundColor: colors.primary + "12", borderColor: colors.primary + "35" }]}>
+                <View style={[styles.newLinkIconWrap, { backgroundColor: colors.primary + "20" }]}>
+                  <Ionicons name="checkmark-circle" size={18} color={colors.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.newLinkLabel, { color: colors.primary }]}>New link ready</Text>
+                  <Text style={[styles.newLinkCode, { color: colors.mutedForeground }]} numberOfLines={1}>
+                    {`getsquadz.com/squad/join?code=${newInviteCode}`}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    Share.share({
+                      message: `Join my squad "${squad.emoji} ${squad.name}" on Squadz!\n\nUse invite code: ${newInviteCode}\ngetsquadz.com/squad/join?code=${newInviteCode}`,
+                    });
+                  }}
+                  style={[styles.shareNowBtn, { backgroundColor: colors.primary }]}
+                >
+                  <Ionicons name="share-social-outline" size={14} color="#fff" />
+                  <Text style={styles.shareNowBtnText}>Share now</Text>
+                </TouchableOpacity>
+              </View>
             )}
 
             <TouchableOpacity onPress={() => { setSettingsOpen(false); handleLeaveSquad(); }} style={[styles.actionRow, { borderColor: colors.border }]}>
@@ -795,4 +836,10 @@ const styles = StyleSheet.create({
   responseBadgeText: { color: "#fff", fontSize: 11, fontWeight: "800" },
   longPressHint: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 10, borderWidth: 1, paddingVertical: 7, paddingHorizontal: 11, marginBottom: 10, alignSelf: "flex-start" },
   longPressHintText: { fontSize: 12, fontWeight: "600" },
+  newLinkRow: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 13, borderWidth: 1, padding: 12, marginTop: 12 },
+  newLinkIconWrap: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
+  newLinkLabel: { fontSize: 13, fontWeight: "700" },
+  newLinkCode: { fontSize: 11, marginTop: 2 },
+  shareNowBtn: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7 },
+  shareNowBtnText: { color: "#fff", fontSize: 12, fontWeight: "800" },
 });

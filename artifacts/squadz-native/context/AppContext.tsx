@@ -123,7 +123,7 @@ type AppContextType = {
   getSquad: (id: string) => Squad | undefined;
   addSquad: (input: { name: string; emoji: string; color: string; isPublic?: boolean }) => Promise<string>;
   updateSquad: (id: string, patch: Partial<Pick<Squad, "name" | "emoji" | "color" | "isPublic">>) => void;
-  regenerateInviteCode: (squadId: string) => Promise<{ error?: string }>;
+  regenerateInviteCode: (squadId: string) => Promise<{ error?: string; inviteCode?: string }>;
   leaveSquad: (id: string) => void;
   joinSquad: (squadId: string) => Promise<{ error?: string }>;
   joinSquadByCode: (code: string) => Promise<{ error?: string; revoked?: boolean; squad?: Squad; alreadyMember?: boolean }>;
@@ -876,14 +876,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [apiFetch],
   );
 
-  const regenerateInviteCode = useCallback(async (squadId: string): Promise<{ error?: string }> => {
+  const regenerateInviteCode = useCallback(async (squadId: string): Promise<{ error?: string; inviteCode?: string }> => {
     try {
       const res = await apiFetch(`/api/squads/${squadId}/invite/regenerate`, { method: "POST" });
       if (res.status === 403) return { error: "Only the squad creator can regenerate the invite link." };
       if (!res.ok) return { error: "Something went wrong. Please try again." };
       const updated = await res.json() as Record<string, unknown>;
-      setSquads((prev) => prev.map((s) => (s.id === squadId ? dbSquadToSquad(updated) : s)));
-      return {};
+      const newSquad = dbSquadToSquad(updated);
+      setSquads((prev) => prev.map((s) => (s.id === squadId ? newSquad : s)));
+      return { inviteCode: newSquad.inviteCode ?? undefined };
     } catch {
       return { error: "Network error. Please try again." };
     }
