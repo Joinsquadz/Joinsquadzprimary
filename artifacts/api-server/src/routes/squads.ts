@@ -57,16 +57,27 @@ router.post("/squads/:id/join", requireAuth, async (req: Request, res: Response)
     res.status(403).json({ error: "This squad is private. Use an invite link to join." });
     return;
   }
+  // Snapshot pre-join members for notification targeting (before the update).
   const memberIds = (squad.memberIds ?? []) as string[];
-  if (memberIds.includes(userId)) {
+
+  // Atomic append: the WHERE NOT @> guard ensures that even under concurrent
+  // joins, no member is silently overwritten. If the user is already a member
+  // this UPDATE matches 0 rows and returns an empty array.
+  const [updated] = await db
+    .update(squadsTable)
+    .set({ memberIds: sql`${squadsTable.memberIds} || ${JSON.stringify([userId])}::jsonb` })
+    .where(
+      and(
+        eq(squadsTable.id, id),
+        sql`NOT (${squadsTable.memberIds} @> ${JSON.stringify([userId])}::jsonb)`,
+      ),
+    )
+    .returning();
+
+  if (!updated) {
     res.json({ squad, alreadyMember: true });
     return;
   }
-  const [updated] = await db
-    .update(squadsTable)
-    .set({ memberIds: [...memberIds, userId] })
-    .where(eq(squadsTable.id, id))
-    .returning();
   res.status(201).json({ squad: updated, alreadyMember: false });
 
   // Fire-and-forget: notify existing members that someone joined, and send a
@@ -129,16 +140,27 @@ router.post("/squads/join-via-code", requireAuth, async (req: Request, res: Resp
     res.status(404).json({ error: "Invite link is invalid or has expired." });
     return;
   }
+  // Snapshot pre-join members for notification targeting (before the update).
   const memberIds = (squad.memberIds ?? []) as string[];
-  if (memberIds.includes(userId)) {
+
+  // Atomic append: the WHERE NOT @> guard prevents the classic concurrent
+  // read-modify-write race where two simultaneous joins each overwrite the
+  // other's append. 0 rows returned means the user was already a member.
+  const [updated] = await db
+    .update(squadsTable)
+    .set({ memberIds: sql`${squadsTable.memberIds} || ${JSON.stringify([userId])}::jsonb` })
+    .where(
+      and(
+        eq(squadsTable.id, squad.id),
+        sql`NOT (${squadsTable.memberIds} @> ${JSON.stringify([userId])}::jsonb)`,
+      ),
+    )
+    .returning();
+
+  if (!updated) {
     res.json({ squad, alreadyMember: true });
     return;
   }
-  const [updated] = await db
-    .update(squadsTable)
-    .set({ memberIds: [...memberIds, userId] })
-    .where(eq(squadsTable.id, squad.id))
-    .returning();
   res.status(201).json({ squad: updated, alreadyMember: false });
 
   // Fire-and-forget: notify existing members that someone joined via invite link.
@@ -521,15 +543,25 @@ router.post("/squads/:id/members", requireAuth, async (req: Request, res: Respon
     return;
   }
   const memberIds = (squad.memberIds ?? []) as string[];
-  if (memberIds.includes(target.id)) {
+
+  // Atomic append: the WHERE NOT @> guard prevents the concurrent race where
+  // two callers both read the same memberIds and each overwrite the other's
+  // write. 0 rows returned means the target was already a member.
+  const [updated] = await db
+    .update(squadsTable)
+    .set({ memberIds: sql`${squadsTable.memberIds} || ${JSON.stringify([target.id])}::jsonb` })
+    .where(
+      and(
+        eq(squadsTable.id, id),
+        sql`NOT (${squadsTable.memberIds} @> ${JSON.stringify([target.id])}::jsonb)`,
+      ),
+    )
+    .returning();
+
+  if (!updated) {
     res.status(409).json({ error: "That user is already in the squad." });
     return;
   }
-  const [updated] = await db
-    .update(squadsTable)
-    .set({ memberIds: [...memberIds, target.id] })
-    .where(eq(squadsTable.id, id))
-    .returning();
   res.status(201).json({ squad: updated, addedUser: target });
 
   // Fire-and-forget: notify the newly added user that they were added to this squad,

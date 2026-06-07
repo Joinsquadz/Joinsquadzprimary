@@ -40,6 +40,21 @@ vi.mock("@workspace/db", () => ({
         return Promise.resolve();
       },
     }),
+    // The DELETE route wraps its two deletes in a transaction. Provide a mock
+    // that runs the callback with a tx object sharing the same delete logic.
+    transaction: async (fn: (tx: unknown) => Promise<void>) => {
+      const tx = {
+        delete: (table: unknown) => ({
+          where: () => {
+            if (table === squadMutesRef) {
+              mutesStore.rows = [];
+            }
+            return Promise.resolve();
+          },
+        }),
+      };
+      return fn(tx);
+    },
     insert: () => ({
       values: () => ({
         returning: () => Promise.resolve([]),
