@@ -42,6 +42,7 @@ type PollPayload = {
   respondentCount: number;
   myCells: string[];
   best: { cell: string; count: number; total: number } | null;
+  droppedCount?: number;
 };
 
 // Split a cell key `${day}-${slot}` on the LAST dash so ISO dates (which
@@ -127,6 +128,7 @@ export default function AvailabilityScreen() {
   const [mySet, setMySet] = useState<Set<string>>(new Set());
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [droppedNotice, setDroppedNotice] = useState<string | null>(null);
 
   // Setup state: shown when no poll exists yet so the creator can pick the
   // availability range (start date + number of days) before it's created.
@@ -247,6 +249,13 @@ export default function AvailabilityScreen() {
       setMySet(new Set(payload.myCells));
       setDirty(false);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (payload.droppedCount && payload.droppedCount > 0) {
+        const n = payload.droppedCount;
+        setDroppedNotice(
+          `${n} picked ${n === 1 ? "time was" : "times were"} outside the poll's range and couldn't be saved.`,
+        );
+        setTimeout(() => setDroppedNotice(null), 5000);
+      }
     } catch {
       Alert.alert("Couldn't save", "Network error. Please try again.");
     } finally {
@@ -555,6 +564,12 @@ export default function AvailabilityScreen() {
           </ScrollView>
 
           <View style={[styles.bottomBar, { borderTopColor: colors.border, paddingBottom: botPad + 12, backgroundColor: colors.background }]}>
+            {droppedNotice && (
+              <View style={[styles.droppedBanner, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <Ionicons name="information-circle-outline" size={16} color={colors.mutedForeground} />
+                <Text style={[styles.droppedBannerText, { color: colors.mutedForeground }]}>{droppedNotice}</Text>
+              </View>
+            )}
             {data.best && !dirty && (
               <TouchableOpacity onPress={() => void useThisTime()} style={[styles.secondaryBtn, { borderColor: colors.primary }]}>
                 <Ionicons name={eventId ? "checkmark-circle-outline" : "calendar-outline"} size={18} color={colors.primary} />
@@ -610,6 +625,8 @@ const styles = StyleSheet.create({
   legendText: { fontSize: 12, marginRight: 8 },
   respText: { fontSize: 13, marginTop: 16, fontWeight: "600" },
   bottomBar: { paddingHorizontal: 20, paddingTop: 12, borderTopWidth: 1, gap: 10 },
+  droppedBanner: { flexDirection: "row", alignItems: "flex-start", gap: 8, borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10 },
+  droppedBannerText: { flex: 1, fontSize: 13, lineHeight: 18 },
   secondaryBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 14, borderWidth: 1.5, paddingVertical: 13 },
   secondaryBtnText: { fontSize: 15, fontWeight: "800" },
   saveBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", borderRadius: 14, paddingVertical: 15 },

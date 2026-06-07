@@ -243,11 +243,13 @@ router.put("/availability/polls/:id/me", requireAuth, async (req: Request, res: 
     for (const day of poll.days) {
       for (const slot of poll.slots) validCells.add(`${day}-${slot}`);
     }
-    const cells = [...new Set(parsed.data.cells)].filter((c) => validCells.has(c));
+    const deduped = [...new Set(parsed.data.cells)];
+    const cells = deduped.filter((c) => validCells.has(c));
+    const droppedCount = deduped.length - cells.length;
 
     await storage.upsertAvailabilityResponse(poll.id, userId, cells, "manual");
     const responses = await storage.getAvailabilityResponses(poll.id);
-    res.json(buildPollPayload(poll, responses, userId));
+    res.json({ ...buildPollPayload(poll, responses, userId), droppedCount });
   } catch (err) {
     logger.error({ err }, "Error saving availability response");
     res.status(500).json({ error: "Failed to save availability" });
