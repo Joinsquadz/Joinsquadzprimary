@@ -48,7 +48,7 @@ function getFriendCodeInitials(u: FoundUser): string {
 export default function SquadDetailScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { events, getSquad, updateSquad, regenerateInviteCode, leaveSquad, currentUser, addMemberByFriendCode, removeMember } = useData();
+  const { events, squads, getSquad, updateSquad, regenerateInviteCode, leaveSquad, currentUser, addMemberByFriendCode, removeMember } = useData();
   const { resolveUser, prefetchUsers, seedUser } = useUserCache();
   const { getSquadConversation } = useMessages();
   const { authToken } = useAuth();
@@ -65,8 +65,40 @@ export default function SquadDetailScreen() {
   const [addingUserId, setAddingUserId] = useState<string | null>(null);
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
 
+  type MemberProfileData = {
+    name: string;
+    friendCode: string | null;
+    profileImageUrl: string | null;
+    sharedSquads: Array<{ id: string; name: string; emoji: string; color: string }>;
+  };
+  const [memberProfileOpen, setMemberProfileOpen] = useState(false);
+  const [profileMember, setProfileMember] = useState<ResolvedUser | null>(null);
+  const [profileData, setProfileData] = useState<MemberProfileData | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [quickAddingSquadId, setQuickAddingSquadId] = useState<string | null>(null);
+
   const [showLongPressHint, setShowLongPressHint] = useState(false);
   const hintOpacity = useRef(new Animated.Value(0)).current;
+
+  const openMemberProfile = async (member: ResolvedUser) => {
+    setProfileMember(member);
+    setProfileData(null);
+    setProfileLoading(true);
+    setMemberProfileOpen(true);
+    try {
+      const headers = { "Content-Type": "application/json", ...buildAuthHeaders(authToken) };
+      const res = await fetch(`${API_BASE}/api/users/${member.id}/profile`, { headers });
+      if (res.ok) setProfileData(await res.json() as MemberProfileData);
+    } catch { /* leave null — modal shows name/initials from cache */ } finally {
+      setProfileLoading(false);
+    }
+  };
+
+  const handleQuickAdd = async (squadId: string, friendCode: string) => {
+    setQuickAddingSquadId(squadId);
+    await addMemberByFriendCode(squadId, friendCode);
+    setQuickAddingSquadId(null);
+  };
 
   const resetAddMemberModal = () => {
     setNameQuery("");
@@ -434,10 +466,11 @@ export default function SquadDetailScreen() {
             return (
               <View key={m.id} style={{ position: "relative" }}>
                 <TouchableOpacity
+                  onPress={!isSelf ? () => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); void openMemberProfile(m); } : undefined}
                   onLongPress={isSelf && !isCreator ? handleLeaveSquad : undefined}
                   delayLongPress={400}
                   style={[styles.memberCard, { backgroundColor: colors.card, borderColor: colors.border }]}
-                  activeOpacity={1}
+                  activeOpacity={isSelf ? 1 : 0.7}
                 >
                   {isBeingRemoved ? (
                     <ActivityIndicator size="small" color={colors.primary} style={{ height: 44 }} />
@@ -460,7 +493,7 @@ export default function SquadDetailScreen() {
               </View>
             );
           })}
-          {isCreator && (
+          {(isCreator || (squad.membersCanInvite ?? false)) && (
             <TouchableOpacity
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -570,6 +603,98 @@ export default function SquadDetailScreen() {
           ))
         )}
       </ScrollView>
+
+      {/* ---- Member Profile Modal ---- */}
+      <Modal
+        visible={memberProfileOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setMemberProfileOpen(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border, paddingBottom: botPad + 16 }]}>
+            {profileLoading && !profileData ? (
+              <ActivityIndicator size="large" color={colors.primary} style={{ marginVertical: 40 }} />
+            ) : profileMember ? (
+              <>
+                {/* Profile header */}
+                <View style={{ alignItems: "center", marginBottom: 16 }}>
+                  <UserAvatar
+                    initials={profileMember.initials}
+                    color={profileMember.color}
+                    imageUrl={profileData?.profileImageUrl ?? profileMember.profileImageUrl}
+                    size={72}
+                    fontSize={24}
+                  />
+                  <Text style={[styles.modalTitle, { marginBottom: 2, marginTop: 12 }]}>
+                    {profileData?.name ?? profileMember.name}
+                  </Text>
+                  {profileData?.friendCode ? (
+                    <Text style={[styles.profileFriendCode, { color: colors.mutedForeground, backgroundColor: colors.card }]}>
+                      #{profileData.friendCode}
+                    </Text>
+                  ) : null}
+                </View>
+
+                {/* Shared squads */}
+                {profileData && profileData.sharedSquads.length > 0 && (
+                  <>
+                    <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>Shared Squadz</Text>
+                    {profileData.sharedSquads.map((sq) => (
+                      <View key={sq.id} style={[styles.foundUserCard, { borderColor: colors.border }]}>
+                        <Text style={{ fontSize: 20 }}>{sq.emoji}</Text>
+                        <Text style={[styles.foundUserName, { color: colors.foreground, flex: 1 }]}>{sq.name}</Text>
+                      </View>
+                    ))}
+                  </>
+                )}
+
+                {/* Quick-add to other squads */}
+                {profileData && profileData.friendCode && (() => {
+                  const canAddTo = squads.filter(
+                    (s) =>
+                      s.memberIds.includes(currentUser.id) &&
+                      !s.memberIds.includes(profileMember.id) &&
+                      (s.creatorId === currentUser.id || (s.membersCanInvite ?? false)),
+                  );
+                  if (canAddTo.length === 0) return null;
+                  return (
+                    <>
+                      <Text style={[styles.fieldLabel, { color: colors.mutedForeground, marginTop: 12 }]}>Add to another Squad</Text>
+                      {canAddTo.map((sq) => (
+                        <TouchableOpacity
+                          key={sq.id}
+                          onPress={() => { void handleQuickAdd(sq.id, profileData.friendCode!); }}
+                          disabled={quickAddingSquadId === sq.id}
+                          style={[styles.foundUserCard, { borderColor: colors.primary + "50", opacity: quickAddingSquadId === sq.id ? 0.6 : 1 }]}
+                        >
+                          <Text style={{ fontSize: 20 }}>{sq.emoji}</Text>
+                          <Text style={[styles.foundUserName, { color: colors.foreground, flex: 1 }]}>{sq.name}</Text>
+                          {quickAddingSquadId === sq.id ? (
+                            <ActivityIndicator size="small" color={colors.primary} />
+                          ) : (
+                            <View style={[styles.addResultBtn, { backgroundColor: colors.primary }]}>
+                              <Ionicons name="add" size={14} color="#fff" />
+                              <Text style={styles.addResultBtnText}>Add</Text>
+                            </View>
+                          )}
+                        </TouchableOpacity>
+                      ))}
+                    </>
+                  );
+                })()}
+              </>
+            ) : null}
+
+            <TouchableOpacity
+              onPress={() => setMemberProfileOpen(false)}
+              style={[styles.modalBtn, { backgroundColor: colors.card, marginTop: 16 }]}
+            >
+              <Text style={[styles.modalBtnText, { color: colors.mutedForeground }]}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {/* ---- Add Member Modal ---- */}
       <Modal
@@ -739,6 +864,24 @@ export default function SquadDetailScreen() {
               )}
             </View>
 
+            {isCreator && (
+              <View style={[styles.actionRow, { borderColor: colors.border }]}>
+                <Ionicons name="person-add-outline" size={20} color={colors.foreground} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.actionText, { color: colors.foreground }]}>Members can invite others</Text>
+                  <Text style={[styles.actionSub, { color: colors.mutedForeground }]}>
+                    {squad.membersCanInvite ? "All members can add people to this squad" : "Only you can add people to this squad"}
+                  </Text>
+                </View>
+                <Switch
+                  value={squad.membersCanInvite ?? false}
+                  onValueChange={(v) => { updateSquad(squad.id, { membersCanInvite: v }); }}
+                  trackColor={{ false: colors.border, true: colors.primary + "80" }}
+                  thumbColor={squad.membersCanInvite ? colors.primary : colors.mutedForeground}
+                />
+              </View>
+            )}
+
             <TouchableOpacity onPress={shareInvite} style={[styles.actionRow, { borderColor: colors.border }]}>
               <Ionicons name="share-social-outline" size={20} color={colors.primary} />
               <Text style={[styles.actionText, { color: colors.foreground }]}>Share invite link</Text>
@@ -894,4 +1037,5 @@ const styles = StyleSheet.create({
   newLinkCode: { fontSize: 11, marginTop: 2 },
   shareNowBtn: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7 },
   shareNowBtnText: { color: "#fff", fontSize: 12, fontWeight: "800" },
+  profileFriendCode: { fontSize: 13, fontWeight: "600", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, marginTop: 4, overflow: "hidden" },
 });

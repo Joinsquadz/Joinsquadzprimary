@@ -136,7 +136,7 @@ type AppContextType = {
   squads: Squad[];
   getSquad: (id: string) => Squad | undefined;
   addSquad: (input: { name: string; description?: string; emoji: string; color: string; isPublic?: boolean }) => Promise<string>;
-  updateSquad: (id: string, patch: Partial<Pick<Squad, "name" | "description" | "emoji" | "color" | "isPublic">>) => void;
+  updateSquad: (id: string, patch: Partial<Pick<Squad, "name" | "description" | "emoji" | "color" | "isPublic" | "membersCanInvite">>) => void;
   regenerateInviteCode: (squadId: string) => Promise<{ error?: string; inviteCode?: string }>;
   leaveSquad: (id: string) => void;
   joinSquad: (squadId: string) => Promise<{ error?: string }>;
@@ -237,6 +237,7 @@ function dbSquadToSquad(s: Record<string, unknown>): Squad {
     isPublic: (s.isPublic as boolean) ?? false,
     creatorId: s.creatorId as string | undefined,
     inviteCode: s.inviteCode as string | null | undefined,
+    membersCanInvite: (s.membersCanInvite as boolean) ?? false,
     muted: (s.muted as boolean) ?? false,
   };
 }
@@ -935,7 +936,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [apiFetch, apiUser]);
 
   const updateSquad = useCallback(
-    (sid: string, patch: Partial<Pick<Squad, "name" | "description" | "emoji" | "color" | "isPublic">>) => {
+    (sid: string, patch: Partial<Pick<Squad, "name" | "description" | "emoji" | "color" | "isPublic" | "membersCanInvite">>) => {
       // Optimistic update
       setSquads((prev) => prev.map((s) => (s.id === sid ? { ...s, ...patch } : s)));
       void apiFetch(`/api/squads/${sid}`, { method: "PATCH", body: JSON.stringify(patch) })

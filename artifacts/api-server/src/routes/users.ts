@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { db, usersTable, friendshipsTable } from "@workspace/db";
+import { db, usersTable, friendshipsTable, squadsTable } from "@workspace/db";
 import { requireAuth } from "../middleware/currentUser";
 import { logger } from "../lib/logger";
 
@@ -196,6 +196,48 @@ router.delete("/users/friends/:friendId", requireAuth, async (req: Request, res:
   } catch (err) {
     logger.error({ err }, "Error removing friend");
     res.status(500).json({ error: "Failed to remove friend" });
+  }
+});
+
+router.get("/users/:id/profile", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const targetId = req.params.id as string;
+  const requesterId = (req.user as { id: string }).id;
+  try {
+    const [target] = await db
+      .select({
+        id: usersTable.id,
+        firstName: usersTable.firstName,
+        lastName: usersTable.lastName,
+        profileImageUrl: usersTable.profileImageUrl,
+        friendCode: usersTable.friendCode,
+      })
+      .from(usersTable)
+      .where(eq(usersTable.id, targetId));
+    if (!target) {
+      res.status(404).json({ error: "User not found" });
+      return;
+    }
+    // Squads where both the requester and the target are members.
+    const sharedSquads = await db
+      .select({ id: squadsTable.id, name: squadsTable.name, emoji: squadsTable.emoji, color: squadsTable.color })
+      .from(squadsTable)
+      .where(
+        and(
+          sql`${squadsTable.memberIds} @> ${JSON.stringify([requesterId])}::jsonb`,
+          sql`${squadsTable.memberIds} @> ${JSON.stringify([targetId])}::jsonb`,
+        ),
+      );
+    const name = [target.firstName, target.lastName].filter(Boolean).join(" ") || "Unknown";
+    res.json({
+      id: target.id,
+      name,
+      friendCode: target.friendCode ?? null,
+      profileImageUrl: target.profileImageUrl ?? null,
+      sharedSquads,
+    });
+  } catch (err) {
+    logger.error({ err }, "Error fetching user profile");
+    res.status(500).json({ error: "Failed to fetch profile" });
   }
 });
 

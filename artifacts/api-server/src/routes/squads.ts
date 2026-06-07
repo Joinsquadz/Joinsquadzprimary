@@ -44,6 +44,7 @@ const UpdateSquadBody = z.object({
   emoji: z.string().optional(),
   color: z.string().optional(),
   isPublic: z.boolean().optional(),
+  membersCanInvite: z.boolean().optional(),
   memberIds: z.array(z.string()).optional(),
 });
 
@@ -294,6 +295,12 @@ router.patch("/squads/:id", requireAuth, async (req: Request, res: Response): Pr
     return;
   }
 
+  // Only the squad creator can change invite permissions.
+  if (parsed.data.membersCanInvite !== undefined && existing.creatorId !== userId) {
+    res.status(403).json({ error: "Only the squad creator can change invite permissions." });
+    return;
+  }
+
   // Detect newly added members before applying the update.
   const addedMemberIds = parsed.data.memberIds
     ? parsed.data.memberIds.filter((id) => !memberIds.includes(id))
@@ -531,8 +538,13 @@ router.post("/squads/:id/members", requireAuth, async (req: Request, res: Respon
     res.status(404).json({ error: "Squad not found" });
     return;
   }
-  if (squad.creatorId !== requesterId) {
+  const membersCanInvite = (squad.membersCanInvite as boolean | null) ?? false;
+  if (!membersCanInvite && squad.creatorId !== requesterId) {
     res.status(403).json({ error: "Only the squad creator can add members" });
+    return;
+  }
+  if (membersCanInvite && !(squad.memberIds as string[]).includes(requesterId)) {
+    res.status(403).json({ error: "You must be a squad member to add others." });
     return;
   }
   const code = parsed.data.friendCode.toUpperCase().trim();
