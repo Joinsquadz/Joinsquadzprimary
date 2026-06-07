@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
+import { AppState } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { API_BASE } from "@/lib/api";
 import { clearProfileCache } from "@/hooks/useUserProfiles";
@@ -334,6 +335,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       void fetchSquads();
     }
   }, [authToken, fetchEvents, fetchSquads]);
+
+  // Silent squad refresh (no loading spinner) used for foreground polling.
+  const refreshSquads = useCallback(async () => {
+    try {
+      const res = await apiFetch("/api/squads");
+      if (!res.ok) return;
+      const data = await res.json() as Record<string, unknown>[];
+      setSquads(data.map(dbSquadToSquad));
+    } catch {
+      // Network unavailable — keep current data
+    }
+  }, [apiFetch]);
+
+  // Refresh squads whenever the app returns to the foreground so that users
+  // who were just added to a squad see it immediately without a manual reload.
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active" && isLoggedIn) void refreshSquads();
+    });
+    return () => sub.remove();
+  }, [isLoggedIn, refreshSquads]);
 
   useEffect(() => {
     AsyncStorage.getItem(AUTH_TOKEN_KEY).then(token => {

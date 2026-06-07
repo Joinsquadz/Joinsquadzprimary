@@ -257,6 +257,30 @@ router.post("/squads/:id/members", requireAuth, async (req: Request, res: Respon
     .where(eq(squadsTable.id, id))
     .returning();
   res.status(201).json({ squad: updated, addedUser: target });
+
+  // Fire-and-forget: notify the newly added user that they were added to this squad.
+  (async () => {
+    try {
+      const adder = await storage.getUser(userId);
+      const adderName = adder?.firstName
+        ? adder.lastName
+          ? `${adder.firstName} ${adder.lastName}`
+          : adder.firstName
+        : "Someone";
+      const tokens = await storage.getPushTokensForUsers([target.id]);
+      await sendPushNotifications(
+        tokens,
+        {
+          title: "You were added to a squad",
+          body: `${adderName} added you to "${squad.name}"`,
+          data: { screen: "squad", squadId: squad.id },
+        },
+        { onStaleToken: (token) => storage.clearPushToken(token) },
+      );
+    } catch (err) {
+      logger.error({ err }, "Error sending member-added push notification");
+    }
+  })();
 });
 
 router.post("/squads/:id/join", requireAuth, async (req: Request, res: Response): Promise<void> => {
