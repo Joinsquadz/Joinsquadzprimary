@@ -280,7 +280,7 @@ export default function ProfileScreen() {
 
   async function handleUpgrade() {
     setUpgradeLoading(true);
-    const result = await startProCheckout(API_BASE, authHeaders());
+    const result = await startProCheckout(authToken);
     if (!result.ok) {
       Alert.alert("Checkout Error", result.error);
     }

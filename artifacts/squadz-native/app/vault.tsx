@@ -352,7 +352,7 @@ export default function VaultScreen() {
     // Mark that the next foreground is a checkout return so we poll for the
     // upgrade instead of doing a plain refetch.
     awaitingUpgrade.current = true;
-    const result = await startProCheckout(API_BASE, authHeaders());
+    const result = await startProCheckout(authToken);
     if (!result.ok) {
       awaitingUpgrade.current = false;
       Alert.alert("Checkout Error", result.error);

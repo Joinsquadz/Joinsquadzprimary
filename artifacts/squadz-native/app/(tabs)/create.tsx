@@ -156,7 +156,7 @@ export default function CreateEventScreen() {
 
   async function handleUpgrade() {
     setUpgradeLoading(true);
-    const result = await startProCheckout(API_BASE, authHeaders());
+    const result = await startProCheckout(authToken);
     if (result.ok) {
       setShowUpgradeModal(false);
     } else {
