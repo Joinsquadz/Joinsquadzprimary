@@ -412,6 +412,7 @@ export default function AvailabilityScreen() {
   };
 
   const openRangePicker = () => {
+    lastInteractionRef.current = Date.now();
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setPickerDate(rangeStart);
     setPickerOpen(true);
@@ -521,6 +522,7 @@ export default function AvailabilityScreen() {
                   <TouchableOpacity
                     key={n}
                     onPress={() => {
+                      lastInteractionRef.current = Date.now();
                       Haptics.selectionAsync();
                       setRangeDays(n);
                     }}
