@@ -27,7 +27,7 @@ SplashScreen.preventAutoHideAsync();
 
 const queryClient = new QueryClient();
 
-const AUTH_SCREENS = ["login", "signup", "onboarding", "invite"];
+const AUTH_SCREENS = ["login", "signup", "onboarding", "invite", "add"];
 
 function AuthGuard() {
   const { isLoggedIn } = useAuth();
@@ -165,6 +165,7 @@ function RootLayoutNav() {
         <Stack.Screen name="settings/edit-profile" />
         <Stack.Screen name="settings/notifications" />
         <Stack.Screen name="settings/privacy" />
+        <Stack.Screen name="add/friend/[code]" />
       </Stack>
     </>
   );

@@ -60,11 +60,20 @@ export default function FriendsScreen() {
 
   const friendUsers = friends.map((id) => resolveUser(id));
 
+  function buildInviteUrl(code: string): string {
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      return `${window.location.origin}/api/add/friend/${code}`;
+    }
+    return `${API_BASE}/api/add/friend/${code}`;
+  }
+
   function handleShareCode() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const inviteUrl = buildInviteUrl(friendCode ?? "");
     Share.share({
-      message: `Add me on Squadz! Use my friend code: ${friendCode} 👥\nDownload the app at squadz.app`,
-      title: "Join me on Squadz",
+      message: `Add me on Squadz! 👥\n\nTap the link to add me instantly:\n${inviteUrl}\n\nOr use code: ${friendCode}`,
+      url: inviteUrl,
+      title: "Add me on Squadz",
     });
   }
 
@@ -93,7 +102,8 @@ export default function FriendsScreen() {
 
   async function handleSmsInvite() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const msg = `Hey! Join me on Squadz 🎉 Add me as a friend with my code: ${friendCode}\nDownload the app: squadz.app`;
+    const inviteUrl = buildInviteUrl(friendCode ?? "");
+    const msg = `Hey! Add me on Squadz 🎉\n\nTap the link: ${inviteUrl}\n\nOr use my code: ${friendCode}`;
     if (Platform.OS !== "web") {
       try {
         const SMS = await import("expo-sms");
@@ -106,7 +116,7 @@ export default function FriendsScreen() {
         // fall through to Share
       }
     }
-    Share.share({ message: msg, title: "Join me on Squadz" });
+    Share.share({ message: msg, title: "Add me on Squadz" });
   }
 
   async function handleAddFriend() {
@@ -201,7 +211,7 @@ export default function FriendsScreen() {
             <View style={[styles.qrWrap, { borderTopColor: colors.border }]}>
               <View style={[styles.qrBox, { backgroundColor: "#fff" }]}>
                 <QRCode
-                  value={`squadz://friend/${friendCode}`}
+                  value={buildInviteUrl(friendCode ?? "")}
                   size={160}
                   color="#0A0A0F"
                   backgroundColor="#ffffff"

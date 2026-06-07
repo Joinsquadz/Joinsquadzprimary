@@ -326,22 +326,31 @@ export default function ProfileScreen() {
     }
   }
 
+  function buildInviteUrl(code: string): string {
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      return `${window.location.origin}/api/add/friend/${code}`;
+    }
+    return `${API_BASE}/api/add/friend/${code}`;
+  }
+
   async function handleShareFriendCode() {
     if (!friendCode) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const inviteUrl = buildInviteUrl(friendCode);
     if (Platform.OS === "web") {
       try {
-        await navigator.clipboard.writeText(friendCode);
+        await navigator.clipboard.writeText(`${friendCode} — ${inviteUrl}`);
         setCodeCopied(true);
         setTimeout(() => setCodeCopied(false), 2000);
       } catch {
-        Alert.alert("Your Friend Code", friendCode);
+        Alert.alert("Your Friend Code", `${friendCode}\n\n${inviteUrl}`);
       }
     } else {
       try {
         await Share.share({
-          message: `Add me on Squadz! My friend code is ${friendCode}`,
-          title: "My Squadz Friend Code",
+          message: `Add me on Squadz! 👥\n\nTap the link to add me instantly:\n${inviteUrl}\n\nOr use code: ${friendCode}`,
+          url: inviteUrl,
+          title: "Add me on Squadz",
         });
       } catch {
         // User dismissed share sheet — no action needed

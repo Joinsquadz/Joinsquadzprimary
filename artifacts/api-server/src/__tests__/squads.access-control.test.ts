@@ -49,6 +49,12 @@ vi.mock("@workspace/db", () => ({
     userId: "user_id",
     squadId: "squad_id",
   },
+  usersTable: {
+    id: "id",
+    firstName: "first_name",
+    lastName: "last_name",
+    profileImageUrl: "profile_image_url",
+  },
 }));
 
 vi.mock("../lib/logger");
