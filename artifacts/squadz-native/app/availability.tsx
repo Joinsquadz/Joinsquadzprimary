@@ -155,6 +155,18 @@ export default function AvailabilityScreen() {
   // be skipped during rapid selection (avoids mid-tap redraws).
   const lastInteractionRef = useRef<number>(0);
 
+  // While the iOS date-picker sheet is open the user may spin the spinner for
+  // many seconds — far longer than INTERACTION_QUIET_MS.  Continuously
+  // re-stamp lastInteractionRef every second so the background-refresh guard
+  // holds for the full duration the sheet is visible.  The interval is cleared
+  // as soon as pickerOpen becomes false (Done / Cancel), at which point the
+  // normal 4 s quiet window counts down from that final stamp.
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const id = setInterval(() => { lastInteractionRef.current = Date.now(); }, 1_000);
+    return () => clearInterval(id);
+  }, [pickerOpen]);
+
   // Live indicator: timestamp of last successful background refresh.
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   // Ticks every 30 s to keep the "Updated X ago" label fresh.
