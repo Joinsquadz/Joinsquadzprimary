@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { eq, sql, inArray } from "drizzle-orm";
+import { eq, sql, inArray, isNull, and } from "drizzle-orm";
 import { z } from "zod";
-import { db, squadsTable, usersTable } from "@workspace/db";
+import { db, squadsTable, usersTable, squadRemovalNoticesTable } from "@workspace/db";
 import { requireAuth } from "../middleware/currentUser";
 import { storage } from "../storage";
 import { logger } from "../lib/logger";
@@ -482,8 +482,17 @@ router.delete("/squads/:id/members/:userId", requireAuth, async (req: Request, r
       })();
     }
   } else {
-    // Fire-and-forget: creator removed a member — notify the removed user.
+    // Fire-and-forget: creator removed a member — record an in-app notice AND notify via push.
     (async () => {
+      try {
+        // Persist an in-app notice so the user sees it even if they missed the push.
+        await db.insert(squadRemovalNoticesTable).values({
+          userId: targetUserId,
+          squadName: squad.name,
+        });
+      } catch (err) {
+        logger.error({ err }, "Error inserting squad removal notice");
+      }
       try {
         const tokens = await storage.getPushTokensForUsers([targetUserId], { requireNotifySquadLeave: true });
         await sendPushNotifications(
@@ -500,6 +509,32 @@ router.delete("/squads/:id/members/:userId", requireAuth, async (req: Request, r
       }
     })();
   }
+});
+
+// Return all unseen removal notices for the authenticated user.
+router.get("/squads/removal-notices", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const userId = (req.user as { id: string }).id;
+  const notices = await db
+    .select()
+    .from(squadRemovalNoticesTable)
+    .where(and(eq(squadRemovalNoticesTable.userId, userId), isNull(squadRemovalNoticesTable.seenAt)));
+  res.json(notices);
+});
+
+// Dismiss (mark as seen) a single removal notice.
+router.delete("/squads/removal-notices/:noticeId", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const noticeId = parseId(req.params.noticeId);
+  const userId = (req.user as { id: string }).id;
+  const [notice] = await db.select().from(squadRemovalNoticesTable).where(eq(squadRemovalNoticesTable.id, noticeId));
+  if (!notice || notice.userId !== userId) {
+    res.status(404).json({ error: "Notice not found" });
+    return;
+  }
+  await db
+    .update(squadRemovalNoticesTable)
+    .set({ seenAt: new Date() })
+    .where(eq(squadRemovalNoticesTable.id, noticeId));
+  res.sendStatus(204);
 });
 
 router.post("/squads/:id/join", requireAuth, async (req: Request, res: Response): Promise<void> => {

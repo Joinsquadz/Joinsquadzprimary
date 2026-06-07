@@ -7,15 +7,22 @@ import {
   TouchableOpacity,
   Platform,
   Image,
+  Animated,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useData } from "@/context/AppContext";
 import { useUserCache } from "@/context/UserCacheContext";
 import { API_BASE } from "@/lib/api";
+
+type RemovalNotice = {
+  id: string;
+  squadName: string;
+  createdAt: string;
+};
 
 export default function SquadsScreen() {
   const colors = useColors();
@@ -23,6 +30,7 @@ export default function SquadsScreen() {
   const { squads, events, currentUser, authToken } = useData();
   const { resolveUser, prefetchUsers } = useUserCache();
   const [mutedSquadIds, setMutedSquadIds] = useState<Set<string>>(new Set());
+  const [notices, setNotices] = useState<RemovalNotice[]>([]);
 
   const fetchMutedSquadIds = useCallback(async () => {
     if (!authToken) return;
@@ -40,6 +48,40 @@ export default function SquadsScreen() {
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 84 : 100);
+
+  const fetchNotices = useCallback(async () => {
+    if (!authToken) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/squads/removal-notices`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (!res.ok) return;
+      const data = await res.json() as RemovalNotice[];
+      setNotices(data);
+    } catch {
+      // Network unavailable — keep current notices
+    }
+  }, [authToken]);
+
+  const dismissNotice = useCallback(async (noticeId: string) => {
+    if (!authToken) return;
+    setNotices((prev) => prev.filter((n) => n.id !== noticeId));
+    try {
+      await fetch(`${API_BASE}/api/squads/removal-notices/${noticeId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+    } catch {
+      // Best-effort; the optimistic removal already happened
+    }
+  }, [authToken]);
+
+  // Fetch notices whenever the screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      void fetchNotices();
+    }, [fetchNotices]),
+  );
 
   // Pre-load all squad member profiles
   useEffect(() => {
@@ -69,6 +111,15 @@ export default function SquadsScreen() {
         contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: botPad }}
         showsVerticalScrollIndicator={false}
       >
+        {notices.map((notice) => (
+          <RemovalBanner
+            key={notice.id}
+            squadName={notice.squadName}
+            onDismiss={() => dismissNotice(notice.id)}
+            colors={colors}
+          />
+        ))}
+
         <Text style={[styles.countLabel, { color: colors.mutedForeground }]}>
           {squads.length} squad{squads.length !== 1 ? "s" : ""}
         </Text>
@@ -152,6 +203,54 @@ export default function SquadsScreen() {
     </View>
   );
 }
+
+type ColorsLike = {
+  card: string;
+  border: string;
+  foreground: string;
+  mutedForeground: string;
+  primary: string;
+};
+
+function RemovalBanner({
+  squadName,
+  onDismiss,
+  colors,
+}: {
+  squadName: string;
+  onDismiss: () => void;
+  colors: ColorsLike;
+}) {
+  return (
+    <View style={[bannerStyles.container, { backgroundColor: colors.card, borderColor: colors.border }]}>
+      <Ionicons name="information-circle-outline" size={18} color={colors.mutedForeground} style={{ marginTop: 1 }} />
+      <Text style={[bannerStyles.text, { color: colors.foreground }]}>
+        You were removed from{" "}
+        <Text style={{ fontWeight: "800" }}>{squadName}</Text>
+      </Text>
+      <TouchableOpacity onPress={onDismiss} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+        <Ionicons name="close" size={18} color={colors.mutedForeground} />
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+const bannerStyles = StyleSheet.create({
+  container: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 14,
+    marginBottom: 12,
+  },
+  text: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+});
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
