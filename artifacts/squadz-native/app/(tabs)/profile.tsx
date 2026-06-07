@@ -123,6 +123,8 @@ export default function ProfileScreen() {
   const [calSyncLoading, setCalSyncLoading] = useState(false);
   const [highlightCalSync, setHighlightCalSync] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
+  const [devPushToken, setDevPushToken] = useState<string | null>(null);
+  const [tokenCopied, setTokenCopied] = useState(false);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 84 : 100);
@@ -173,6 +175,25 @@ export default function ProfileScreen() {
     }
     void fetchEventCount();
   }, [authHeaders]);
+
+  // Fetch push token in development builds so testers can copy it
+  useEffect(() => {
+    if (!__DEV__ || Platform.OS === "web") return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const Notifications = await import("expo-notifications");
+        const perm = await Notifications.getPermissionsAsync();
+        const granted = perm.granted || perm.status === "granted";
+        if (!granted || cancelled) return;
+        const tokenData = await Notifications.getExpoPushTokenAsync();
+        if (!cancelled) setDevPushToken(tokenData.data);
+      } catch {
+        // Push token unavailable (simulator without credentials, etc.) — silently skip
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // Load persisted calendar sync preference
   useEffect(() => {
@@ -300,6 +321,23 @@ export default function ProfileScreen() {
       } catch {
         // User dismissed share sheet — no action needed
       }
+    }
+  }
+
+  async function handleCopyPushToken() {
+    if (!devPushToken) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    try {
+      if (Platform.OS === "web") {
+        await navigator.clipboard.writeText(devPushToken);
+      } else {
+        const Clipboard = await import("expo-clipboard");
+        await Clipboard.setStringAsync(devPushToken);
+      }
+      setTokenCopied(true);
+      setTimeout(() => setTokenCopied(false), 2000);
+    } catch {
+      Alert.alert("Expo Push Token", devPushToken);
     }
   }
 
@@ -625,6 +663,35 @@ export default function ProfileScreen() {
             ))}
           </View>
         ))}
+
+        {__DEV__ && devPushToken ? (
+          <View style={styles.settingsGroup}>
+            <Text style={[styles.devSectionTitle, { color: colors.mutedForeground }]}>Developer / Staging</Text>
+            <TouchableOpacity
+              onPress={() => { void handleCopyPushToken(); }}
+              activeOpacity={0.7}
+              style={[styles.settingRow, styles.settingFirst, styles.settingLast, { backgroundColor: colors.card, borderColor: colors.border }]}
+            >
+              <Ionicons name="phone-portrait-outline" size={20} color={colors.mutedForeground} />
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text style={[styles.devTokenLabel, { color: colors.mutedForeground }]}>Expo Push Token</Text>
+                <Text style={[styles.devTokenValue, { color: colors.foreground }]} numberOfLines={1} ellipsizeMode="middle">
+                  {devPushToken}
+                </Text>
+              </View>
+              <View style={[styles.friendCodeAction, { backgroundColor: tokenCopied ? colors.green + "20" : colors.primary + "12", borderColor: tokenCopied ? colors.green + "50" : colors.primary + "30" }]}>
+                <Ionicons
+                  name={tokenCopied ? "checkmark" : "copy-outline"}
+                  size={15}
+                  color={tokenCopied ? colors.green : colors.primary}
+                />
+                <Text style={[styles.friendCodeActionText, { color: tokenCopied ? colors.green : colors.primary }]}>
+                  {tokenCopied ? "Copied!" : "Copy"}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+        ) : null}
       </ScrollView>
     </View>
   );
@@ -679,4 +746,7 @@ const styles = StyleSheet.create({
   eventUsageRemaining: { fontSize: 11, fontWeight: "700" },
   eventUsageTrack: { height: 5, borderRadius: 3, overflow: "hidden" },
   eventUsageFill: { height: "100%", borderRadius: 3 },
+  devSectionTitle: { fontSize: 11, fontWeight: "700", letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 8 },
+  devTokenLabel: { fontSize: 10, fontWeight: "600", letterSpacing: 0.4, textTransform: "uppercase" },
+  devTokenValue: { fontSize: 12, fontFamily: "monospace", letterSpacing: 0.3 },
 });
