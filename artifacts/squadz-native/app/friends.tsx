@@ -204,7 +204,7 @@ export default function FriendsScreen() {
 
         {/* Invite more */}
         <TouchableOpacity
-          onPress={() => router.push("/onboarding" as never)}
+          onPress={handleShareCode}
           style={[styles.inviteMoreBtn, { borderColor: colors.primary + "40" }]}
         >
           <Ionicons name="mail-outline" size={20} color={colors.primary} />

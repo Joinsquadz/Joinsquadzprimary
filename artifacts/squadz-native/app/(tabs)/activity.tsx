@@ -35,9 +35,13 @@ export default function ActivityScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const [tab, setTab] = useState<Tab>("reminders");
+  const [reminders, setReminders] = useState(REMINDERS);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 84 : 100);
+
+  const dismissReminder = (id: string) =>
+    setReminders((prev) => prev.filter((r) => r.id !== id));
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -54,9 +58,9 @@ export default function ActivityScreen() {
               <Text style={[styles.tabText, { color: tab === t ? "#fff" : colors.mutedForeground }]}>
                 {t === "reminders" ? "Reminders" : "Feed"}
               </Text>
-              {t === "reminders" && (
+              {t === "reminders" && reminders.length > 0 && (
                 <View style={[styles.tabBadge, { backgroundColor: tab === t ? "rgba(255,255,255,0.25)" : colors.primary }]}>
-                  <Text style={[styles.tabBadgeText, { color: tab === t ? "#fff" : "#fff" }]}>4</Text>
+                  <Text style={[styles.tabBadgeText, { color: tab === t ? "#fff" : "#fff" }]}>{reminders.length}</Text>
                 </View>
               )}
             </TouchableOpacity>
@@ -69,7 +73,17 @@ export default function ActivityScreen() {
         showsVerticalScrollIndicator={false}
       >
         {tab === "reminders"
-          ? REMINDERS.map((r) => (
+          ? reminders.length === 0
+            ? (
+              <View style={styles.emptyState}>
+                <Text style={{ fontSize: 40, marginBottom: 10 }}>🎉</Text>
+                <Text style={[styles.emptyTitle, { color: colors.foreground }]}>You're all caught up</Text>
+                <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>
+                  No reminders right now. New nudges will show up here.
+                </Text>
+              </View>
+            )
+            : reminders.map((r) => (
               <View key={r.id} style={[styles.reminderCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
                 <View style={[styles.reminderIcon, { backgroundColor: r.color + "20" }]}>
                   <Ionicons name={r.icon} size={22} color={r.color} />
@@ -85,8 +99,23 @@ export default function ActivityScreen() {
                       router.push(`/event/${r.eventId}` as never);
                     } else {
                       Alert.alert("Join Request", "Alex Chen wants to join The Usual Suspects.", [
-                        { text: "Decline", style: "cancel" },
-                        { text: "Approve", style: "default" },
+                        {
+                          text: "Decline",
+                          style: "destructive",
+                          onPress: () => {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            dismissReminder(r.id);
+                          },
+                        },
+                        {
+                          text: "Approve",
+                          style: "default",
+                          onPress: () => {
+                            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                            dismissReminder(r.id);
+                            Alert.alert("Approved", "Alex Chen is now in The Usual Suspects. 🎉");
+                          },
+                        },
                       ]);
                     }
                   }}
@@ -129,6 +158,9 @@ const styles = StyleSheet.create({
   reminderSub: { fontSize: 12 },
   reminderAction: { borderRadius: 20, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 6 },
   reminderActionText: { fontSize: 12, fontWeight: "700" },
+  emptyState: { alignItems: "center", paddingVertical: 64, paddingHorizontal: 32 },
+  emptyTitle: { fontSize: 17, fontWeight: "800", marginBottom: 6 },
+  emptySub: { fontSize: 13, textAlign: "center", lineHeight: 18 },
   feedItem: { flexDirection: "row", gap: 12, paddingVertical: 14, borderBottomWidth: 1 },
   feedEmoji: { fontSize: 20, marginTop: 1 },
   feedBody: { flex: 1 },

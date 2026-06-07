@@ -41,7 +41,7 @@ export default function CreateEventScreen() {
   const insets = useSafeAreaInsets();
   const { addEvent, squads } = useData();
   const { authToken } = useAuth();
-  const prefill = useLocalSearchParams<{ prefillDate?: string; prefillSquad?: string }>();
+  const prefill = useLocalSearchParams<{ prefillDate?: string; prefillSquad?: string; prefillTitle?: string; prefillEmoji?: string }>();
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + TAB_BAR_H;
 
@@ -80,11 +80,14 @@ export default function CreateEventScreen() {
   const [pickerDate, setPickerDate] = useState(new Date());
   const [pickerStep, setPickerStep] = useState<"date" | "time" | null>(null);
 
-  // Apply a time / squad chosen via the "Find the Best Time" picker.
+  // Apply a time / squad chosen via the "Find the Best Time" picker, or a
+  // title / emoji passed from an AI suggestion on the Home screen.
   useEffect(() => {
     if (prefill.prefillDate) setDate(prefill.prefillDate);
     if (prefill.prefillSquad) setSelectedSquad(prefill.prefillSquad);
-  }, [prefill.prefillDate, prefill.prefillSquad]);
+    if (prefill.prefillTitle) setTitle(prefill.prefillTitle);
+    if (prefill.prefillEmoji) setSelectedEmoji(prefill.prefillEmoji);
+  }, [prefill.prefillDate, prefill.prefillSquad, prefill.prefillTitle, prefill.prefillEmoji]);
 
   const resetForm = () => {
     setTitle(""); setLocation(""); setDate(""); setDescription("");

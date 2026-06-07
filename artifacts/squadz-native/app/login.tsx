@@ -474,7 +474,14 @@ export default function LoginScreen() {
             onPress={handleVerify}
             label={hasInvite ? `Join ${params.inviteTitle} →` : "Verify & Sign In →"}
           />
-          <TouchableOpacity style={{ marginTop: 18, alignItems: "center" }}>
+          <TouchableOpacity
+            style={{ marginTop: 18, alignItems: "center" }}
+            onPress={() => {
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              setOtp(["", "", "", "", "", ""]);
+              Alert.alert("Code sent", "We sent you a new 6-digit code.");
+            }}
+          >
             <Text style={[{ fontSize: 13, color: colors.mutedForeground }]}>
               Didn't get it?{"  "}
               <Text style={{ color: colors.primary }}>Resend code</Text>

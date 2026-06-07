@@ -670,7 +670,7 @@ export default function VaultScreen() {
                 <View style={[styles.filterBadge, { backgroundColor: colors.primary + "18", borderColor: colors.primary + "40" }]}>
                   <Ionicons name={eventId ? "calendar-outline" : "people-outline"} size={14} color={colors.primary} />
                   <Text style={[styles.filterBadgeText, { color: colors.primary }]}>{filterLabel}</Text>
-                  <TouchableOpacity onPress={() => router.push("/vault" as never)}>
+                  <TouchableOpacity onPress={() => router.replace("/vault" as never)}>
                     <Ionicons name="close" size={14} color={colors.primary} />
                   </TouchableOpacity>
                 </View>

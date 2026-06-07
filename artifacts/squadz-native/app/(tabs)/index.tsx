@@ -213,7 +213,13 @@ export default function HomeScreen() {
             {AI_SUGGESTIONS.map((s) => (
               <TouchableOpacity
                 key={s.title}
-                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push("/(tabs)/create"); }}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  router.push({
+                    pathname: "/(tabs)/create",
+                    params: { prefillTitle: s.title, prefillEmoji: s.emoji },
+                  });
+                }}
                 style={[styles.suggestionCard, { backgroundColor: colors.card, borderColor: colors.border }]}
               >
                 <View style={[styles.suggestionIcon, { backgroundColor: s.color + "22" }]}>
