@@ -45,8 +45,8 @@ function resolveApiBase(): string {
 const API_BASE = resolveApiBase();
 
 type VaultPhoto =
-  | { id: number; eventId: string | null; uploadedAt: string; url: string; uploaderId: string; locked: false }
-  | { id: number; eventId: string | null; uploadedAt: string; locked: true };
+  | { id: number; eventId: string | null; uploadedAt: string; url: string; uploaderId: string; eventTitle: string | null; eventEmoji: string | null; squadName: string | null; locked: false }
+  | { id: number; eventId: string | null; uploadedAt: string; eventTitle: string | null; eventEmoji: string | null; squadName: string | null; locked: true };
 
 interface SquadVaultPhoto {
   id: number;
@@ -172,14 +172,14 @@ export default function VaultScreen() {
   const squadNames = useMemo(() => {
     const seen = new Set<string>();
     const out: string[] = [];
-    for (const e of events) {
-      if (e.squadName && !seen.has(e.squadName)) {
-        seen.add(e.squadName);
-        out.push(e.squadName);
+    for (const p of photos) {
+      if (p.squadName && !seen.has(p.squadName)) {
+        seen.add(p.squadName);
+        out.push(p.squadName);
       }
     }
     return out;
-  }, [events]);
+  }, [photos]);
 
   const initialized = useRef(false);
   const scrollRef = useRef<ScrollView>(null);
@@ -207,11 +207,8 @@ export default function VaultScreen() {
 
   const visiblePhotos = useMemo(() => {
     if (activeSquad === "all") return photos;
-    return photos.filter(p => {
-      if (!p.eventId) return false;
-      return eventsById.get(p.eventId)?.squadName === activeSquad;
-    });
-  }, [photos, activeSquad, eventsById]);
+    return photos.filter(p => p.squadName === activeSquad);
+  }, [photos, activeSquad]);
 
   const filterLabel = eventName
     ? decodeURIComponent(eventName)
@@ -533,7 +530,6 @@ export default function VaultScreen() {
   const selectedPhoto = visiblePhotos.find(p => p.id === selected) ?? null;
   const selectedSquadPhoto = squadPhotos.find(p => p.id === selected) ?? null;
   const lockedCount = photos.filter(p => p.locked).length;
-  const selectedEvent = selectedPhoto?.eventId ? eventsById.get(selectedPhoto.eventId) ?? null : null;
 
   const uploaderName = (p: SquadVaultPhoto): string => {
     const name = [p.uploaderFirstName, p.uploaderLastName].filter(Boolean).join(" ").trim();
@@ -791,10 +787,10 @@ export default function VaultScreen() {
               {selectedPhoto && !selectedPhoto.locked && (
                 <View style={[styles.detailCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
                   <Text style={[styles.detailTitle, { color: colors.foreground }]}>
-                    {selectedEvent ? `${selectedEvent.emoji} ${selectedEvent.title}` : "Vault photo"}
+                    {selectedPhoto.eventTitle ? `${selectedPhoto.eventEmoji ?? "🎉"} ${selectedPhoto.eventTitle}` : "Vault photo"}
                   </Text>
                   <Text style={[styles.detailMeta, { color: colors.mutedForeground }]}>
-                    {selectedEvent ? `${selectedEvent.squadName} · ` : ""}
+                    {selectedPhoto.squadName ? `${selectedPhoto.squadName} · ` : ""}
                     {new Date(selectedPhoto.uploadedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                   </Text>
                 </View>

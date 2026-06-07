@@ -525,6 +525,9 @@ interface VaultPhoto {
   url?: string;
   uploadedAt: string;
   eventId?: string | null;
+  eventTitle?: string | null;
+  eventEmoji?: string | null;
+  squadName?: string | null;
   locked?: boolean;
 }
 
@@ -574,14 +577,14 @@ function PhotoVaultTab({ justUpgraded }: { justUpgraded?: boolean }) {
   const squadNames = React.useMemo(() => {
     const seen = new Set<string>();
     const out: string[] = [];
-    for (const e of events) {
-      if (e.squadName && !seen.has(e.squadName)) {
-        seen.add(e.squadName);
-        out.push(e.squadName);
+    for (const p of photos) {
+      if (p.squadName && !seen.has(p.squadName)) {
+        seen.add(p.squadName);
+        out.push(p.squadName);
       }
     }
     return out;
-  }, [events]);
+  }, [photos]);
 
   React.useEffect(() => {
     fetch('/api/subscription', { credentials: 'include' })
@@ -696,15 +699,10 @@ function PhotoVaultTab({ justUpgraded }: { justUpgraded?: boolean }) {
 
   const visiblePhotos = React.useMemo(() => {
     if (activeSquad === "all") return photos;
-    return photos.filter(p => {
-      if (!p.eventId) return false;
-      const ev = eventsById.get(p.eventId);
-      return ev?.squadName === activeSquad;
-    });
-  }, [photos, activeSquad, eventsById]);
+    return photos.filter(p => p.squadName === activeSquad);
+  }, [photos, activeSquad]);
 
   const selectedPhoto = visiblePhotos.find(p => p.id === selected) ?? null;
-  const selectedEvent = selectedPhoto?.eventId ? eventsById.get(selectedPhoto.eventId) ?? null : null;
   const imageUrl = (objectPath: string) => `/api/storage${objectPath}`;
 
   if (isPro === null) {
@@ -845,10 +843,10 @@ function PhotoVaultTab({ justUpgraded }: { justUpgraded?: boolean }) {
         {selectedPhoto && !selectedPhoto.locked && (
           <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 16, padding: "14px 16px", marginBottom: 20 }}>
             <div style={{ fontFamily: font, fontWeight: 700, fontSize: 15, color: T.text, marginBottom: 4 }}>
-              {selectedEvent ? `${selectedEvent.emoji} ${selectedEvent.title}` : "Vault photo"}
+              {selectedPhoto.eventTitle ? `${selectedPhoto.eventEmoji ?? "🎉"} ${selectedPhoto.eventTitle}` : "Vault photo"}
             </div>
             <div style={{ fontSize: 12, color: T.textSub }}>
-              {selectedEvent ? `${selectedEvent.squadName} · ` : ""}
+              {selectedPhoto.squadName ? `${selectedPhoto.squadName} · ` : ""}
               {new Date(selectedPhoto.uploadedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
             </div>
           </div>

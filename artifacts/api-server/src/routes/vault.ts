@@ -1,9 +1,8 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { z } from "zod";
 import { requireAuth } from "../middleware/currentUser";
-import { storage } from "../storage";
+import { storage, type EnrichedPhoto } from "../storage";
 import { logger } from "../lib/logger";
-import type { Photo } from "@workspace/db/schema";
 
 const router: IRouter = Router();
 
@@ -64,7 +63,7 @@ router.get("/vault/photos", requireAuth, async (req: Request, res: Response): Pr
 
     const isPro = await resolveProStatus(user);
 
-    let rawPhotos: Photo[] = [];
+    let rawPhotos: EnrichedPhoto[] = [];
 
     if (eventId) {
       const event = await storage.getEvent(eventId);
@@ -91,8 +90,19 @@ router.get("/vault/photos", requireAuth, async (req: Request, res: Response): Pr
     const cutoff = new Date(Date.now() - PHOTO_VAULT_DAYS * 24 * 60 * 60 * 1000);
     const photos = rawPhotos.map(photo => {
       const locked = !isPro && photo.uploadedAt < cutoff;
+      // Event labels are not sensitive, so keep them on locked photos too. This
+      // lets clients label and squad-filter photos (incl. ones over 30 days)
+      // without refetching events. Only the url is withheld when locked.
       return locked
-        ? { id: photo.id, eventId: photo.eventId, uploadedAt: photo.uploadedAt, locked: true as const }
+        ? {
+            id: photo.id,
+            eventId: photo.eventId,
+            uploadedAt: photo.uploadedAt,
+            eventTitle: photo.eventTitle,
+            eventEmoji: photo.eventEmoji,
+            squadName: photo.squadName,
+            locked: true as const,
+          }
         : { ...photo, locked: false as const };
     });
 

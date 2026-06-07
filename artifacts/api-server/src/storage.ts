@@ -24,6 +24,31 @@ export class PhotoUrlConflictError extends Error {
   }
 }
 
+/**
+ * A vault photo enriched with its linked event's display fields, joined in the
+ * query so the API can label photos without the client refetching all events.
+ * The event fields are null when the photo isn't tied to an event (or the
+ * event was deleted).
+ */
+export type EnrichedPhoto = Photo & {
+  eventTitle: string | null;
+  eventEmoji: string | null;
+  squadName: string | null;
+};
+
+const enrichedPhotoColumns = {
+  id: photosTable.id,
+  eventId: photosTable.eventId,
+  uploaderId: photosTable.uploaderId,
+  url: photosTable.url,
+  squadId: photosTable.squadId,
+  sharedToSquad: photosTable.sharedToSquad,
+  uploadedAt: photosTable.uploadedAt,
+  eventTitle: eventsTable.title,
+  eventEmoji: eventsTable.emoji,
+  squadName: eventsTable.squadName,
+} as const;
+
 export class Storage {
   async getProduct(productId: string) {
     const result = await db.execute(
@@ -152,17 +177,19 @@ export class Storage {
     return event ?? null;
   }
 
-  async getPhotosByEventId(eventId: string): Promise<Photo[]> {
+  async getPhotosByEventId(eventId: string): Promise<EnrichedPhoto[]> {
     return db
-      .select()
+      .select(enrichedPhotoColumns)
       .from(photosTable)
+      .leftJoin(eventsTable, eq(photosTable.eventId, eventsTable.id))
       .where(eq(photosTable.eventId, eventId));
   }
 
-  async getPhotosByUploaderId(uploaderId: string): Promise<Photo[]> {
+  async getPhotosByUploaderId(uploaderId: string): Promise<EnrichedPhoto[]> {
     return db
-      .select()
+      .select(enrichedPhotoColumns)
       .from(photosTable)
+      .leftJoin(eventsTable, eq(photosTable.eventId, eventsTable.id))
       .where(eq(photosTable.uploaderId, uploaderId))
       .orderBy(desc(photosTable.uploadedAt));
   }
@@ -238,7 +265,7 @@ export class Storage {
   async getPhotosBySquadId(
     squadId: string,
     userId: string,
-  ): Promise<{ photos: Photo[]; authorized: boolean }> {
+  ): Promise<{ photos: EnrichedPhoto[]; authorized: boolean }> {
     const [squad] = await db
       .select()
       .from(squadsTable)
@@ -258,8 +285,9 @@ export class Storage {
 
     const eventIds = events.map(e => e.id);
     const photos = await db
-      .select()
+      .select(enrichedPhotoColumns)
       .from(photosTable)
+      .leftJoin(eventsTable, eq(photosTable.eventId, eventsTable.id))
       .where(inArray(photosTable.eventId, eventIds));
 
     return { photos, authorized: true };
