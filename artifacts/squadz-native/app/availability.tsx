@@ -1151,15 +1151,38 @@ export default function AvailabilityScreen() {
                 const freeIds = new Set(data.cellUsers?.[selectedCell] ?? []);
                 const freeMembers = (data.members ?? []).filter((m) => freeIds.has(m.id));
                 const isFree = mySet.has(selectedCell);
+                const isMeUnsaved =
+                  isFree && currentUser != null && !freeIds.has(currentUser.id);
+                const totalFreeCount = freeMembers.length + (isMeUnsaved ? 1 : 0);
 
                 return (
                   <>
-                    {freeMembers.length > 0 ? (
+                    {totalFreeCount > 0 ? (
                       <>
                         <Text style={[styles.cellSheetSectionLabel, { color: colors.mutedForeground }]}>
-                          {freeMembers.length} {freeMembers.length === 1 ? "person" : "people"} free
+                          {totalFreeCount} {totalFreeCount === 1 ? "person" : "people"} free
                         </Text>
                         <View style={styles.cellSheetMemberList}>
+                          {isMeUnsaved && currentUser && (
+                            <View key="me-unsaved" style={[styles.cellSheetMemberRow, styles.cellSheetMemberRowUnsaved]}>
+                              <View
+                                style={[
+                                  styles.cellSheetAvatar,
+                                  { backgroundColor: colors.primary + "88", borderColor: colors.primary, borderWidth: 1.5, borderStyle: "dashed" },
+                                ]}
+                              >
+                                <Text style={styles.cellSheetAvatarInitial}>
+                                  {currentUser.initials.charAt(0).toUpperCase()}
+                                </Text>
+                              </View>
+                              <Text style={[styles.cellSheetMemberName, { color: colors.foreground }]}>
+                                {currentUser.name}
+                              </Text>
+                              <View style={[styles.unsavedBadge, { backgroundColor: colors.primary + "22", borderColor: colors.primary + "66" }]}>
+                                <Text style={[styles.unsavedBadgeText, { color: colors.primary }]}>unsaved</Text>
+                              </View>
+                            </View>
+                          )}
                           {freeMembers.map((m) => (
                             <View key={m.id} style={styles.cellSheetMemberRow}>
                               <View
@@ -1475,6 +1498,9 @@ const styles = StyleSheet.create({
   cellSheetSectionLabel: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 14 },
   cellSheetMemberList: { gap: 12, marginBottom: 24 },
   cellSheetMemberRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  cellSheetMemberRowUnsaved: { opacity: 0.85 },
+  unsavedBadge: { borderRadius: 6, borderWidth: 1, paddingHorizontal: 7, paddingVertical: 2, marginLeft: "auto" },
+  unsavedBadgeText: { fontSize: 11, fontWeight: "700", letterSpacing: 0.2 },
   cellSheetAvatar: { width: 40, height: 40, borderRadius: 20, borderWidth: 1.5, alignItems: "center", justifyContent: "center", overflow: "hidden" },
   cellSheetAvatarImage: { width: 40, height: 40, borderRadius: 20 },
   cellSheetAvatarInitial: { fontSize: 16, fontWeight: "800", color: "#fff" },
