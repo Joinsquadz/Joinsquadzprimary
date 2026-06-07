@@ -1,4 +1,5 @@
 - [Squadz design parity](squadz-design-parity.md) — web app is the visual source of truth; mobile mirrors it via SquadzIcon SVG + GradientButton, not PNG logo / flat buttons.
+- [OIDC web iframe](oidc-web-iframe.md) — Replit-OIDC web sign-in can't complete in the canvas iframe (blocked storage + framed IdP); detect embedded, open standalone tab.
 - [api-server verification](api-server-verification.md) — verify with `run test` not typecheck (vitest.config rootDir error is pre-existing); restart workflow to pick up new routes.
 - [Squad photo roll-up](squad-photo-rollup.md) — curated per-squad vault via photos.squadId+sharedToSquad; member-only routes, share only your OWN photos; web SquadDetail is mock, mobile is functional.
 - [Object storage read ACL (closed)](object-storage-acl-gap.md) — /objects/* now auth+ACL gated; photos.url is DB-unique for provenance; residual: request-url still unauthenticated.
