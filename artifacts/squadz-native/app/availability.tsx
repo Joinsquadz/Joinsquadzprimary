@@ -154,6 +154,14 @@ export default function AvailabilityScreen() {
   // be skipped during rapid selection (avoids mid-tap redraws).
   const lastInteractionRef = useRef<number>(0);
 
+  // Live indicator: timestamp of last successful background refresh.
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+  // Ticks every 30 s to keep the "Updated X ago" label fresh.
+  const [, setTick] = useState(0);
+  // True for INTERACTION_QUIET_MS after the last cell tap — hides the badge.
+  const [isInQuietWindow, setIsInQuietWindow] = useState(false);
+  const quietWindowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const authHeaders = useCallback((): Record<string, string> => {
     return {
       "Content-Type": "application/json",
@@ -240,6 +248,7 @@ export default function AvailabilityScreen() {
       if (!dirtyRef.current) {
         setMySet(new Set(payload.myCells));
       }
+      setLastRefreshed(new Date());
     } catch {
       // Ignore network errors during background refresh — never surface them
     }
@@ -262,6 +271,12 @@ export default function AvailabilityScreen() {
     };
   }, [refreshInBackground]);
 
+  // Tick every 30 s so the "Updated X ago" label stays current.
+  useEffect(() => {
+    const id = setInterval(() => setTick((n) => n + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
   useEffect(() => {
     if (!squadId && !eventId) {
       setError("Missing squad or event.");
@@ -279,6 +294,10 @@ export default function AvailabilityScreen() {
 
   const toggleCell = (cell: string) => {
     lastInteractionRef.current = Date.now();
+    // Suppress the live badge while the user is actively tapping cells.
+    setIsInQuietWindow(true);
+    if (quietWindowTimerRef.current) clearTimeout(quietWindowTimerRef.current);
+    quietWindowTimerRef.current = setTimeout(() => setIsInQuietWindow(false), INTERACTION_QUIET_MS);
     Haptics.selectionAsync();
     setMySet((prev) => {
       const next = new Set(prev);
@@ -602,6 +621,19 @@ export default function AvailabilityScreen() {
 
             {/* Grid */}
             <View style={styles.gridWrap}>
+              {lastRefreshed && !isInQuietWindow && (
+                <View style={styles.liveRow}>
+                  <View style={[styles.liveDot, { backgroundColor: colors.primary }]} />
+                  <Text style={[styles.liveText, { color: colors.mutedForeground }]}>
+                    {(() => {
+                      const diffS = Math.floor((Date.now() - lastRefreshed.getTime()) / 1000);
+                      if (diffS < 60) return "Updated just now";
+                      const diffM = Math.floor(diffS / 60);
+                      return `Updated ${diffM}m ago`;
+                    })()}
+                  </Text>
+                </View>
+              )}
               <View style={styles.gridHeaderRow}>
                 <View style={styles.timeLabelCol} />
                 {data.poll.days.map((d) => {
@@ -707,6 +739,9 @@ const styles = StyleSheet.create({
   bestLabel: { fontSize: 11, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.6 },
   bestValue: { fontSize: 17, fontWeight: "800", marginTop: 1 },
   bestSub: { fontSize: 12, marginTop: 1 },
+  liveRow: { flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 10 },
+  liveDot: { width: 6, height: 6, borderRadius: 3 },
+  liveText: { fontSize: 11, fontWeight: "600" },
   gridWrap: { marginTop: 20 },
   gridHeaderRow: { flexDirection: "row", marginBottom: 6 },
   timeLabelCol: { width: 38 },
