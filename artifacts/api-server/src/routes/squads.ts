@@ -37,6 +37,7 @@ const UpdateSquadBody = z.object({
   emoji: z.string().optional(),
   color: z.string().optional(),
   isPublic: z.boolean().optional(),
+  memberIds: z.array(z.string()).optional(),
 });
 
 router.get("/squads", requireAuth, async (req: Request, res: Response): Promise<void> => {
@@ -116,8 +117,43 @@ router.patch("/squads/:id", requireAuth, async (req: Request, res: Response): Pr
     res.status(403).json({ error: "Access denied" });
     return;
   }
+
+  // Detect newly added members before applying the update.
+  const addedMemberIds = parsed.data.memberIds
+    ? parsed.data.memberIds.filter((id) => !memberIds.includes(id))
+    : [];
+
   const [squad] = await db.update(squadsTable).set(parsed.data).where(eq(squadsTable.id, id)).returning();
   res.json(squad);
+
+  // Fire-and-forget: notify existing members (not the actor) when new members are added.
+  if (addedMemberIds.length > 0) {
+    const recipientIds = memberIds.filter((id) => id !== userId);
+    if (recipientIds.length > 0) {
+      (async () => {
+        try {
+          const adder = await storage.getUser(userId);
+          const adderName = adder?.firstName
+            ? adder.lastName
+              ? `${adder.firstName} ${adder.lastName}`
+              : adder.firstName
+            : "Someone";
+          const tokens = await storage.getPushTokensForUsers(recipientIds);
+          await sendPushNotifications(
+            tokens,
+            {
+              title: squad.name,
+              body: `${adderName} added a new member to "${squad.name}"`,
+              data: { screen: "squad", squadId: squad.id },
+            },
+            { onStaleToken: (token) => storage.clearPushToken(token) },
+          );
+        } catch (err) {
+          logger.error({ err }, "Error sending squad member-added push notifications");
+        }
+      })();
+    }
+  }
 });
 
 router.delete("/squads/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {
