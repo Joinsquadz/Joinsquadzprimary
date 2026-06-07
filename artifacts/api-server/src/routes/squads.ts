@@ -307,6 +307,26 @@ router.post("/squads/:id/join", requireAuth, async (req: Request, res: Response)
     .returning();
   res.json(updated);
 
+  // Fire-and-forget: welcome the joiner.
+  (async () => {
+    try {
+      const [joinerToken] = await storage.getPushTokensForUsers([userId]);
+      if (joinerToken) {
+        await sendPushNotifications(
+          [joinerToken],
+          {
+            title: `Welcome to ${squad.name}!`,
+            body: `You're now a member of ${squad.name}.`,
+            data: { screen: "squad", squadId: squad.id },
+          },
+          { onStaleToken: (token) => storage.clearPushToken(token) },
+        );
+      }
+    } catch (err) {
+      logger.error({ err }, "Error sending welcome push to squad joiner");
+    }
+  })();
+
   // Fire-and-forget: notify existing members that someone new joined.
   if (memberIds.length > 0) {
     (async () => {
