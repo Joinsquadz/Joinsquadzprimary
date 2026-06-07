@@ -22,6 +22,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useData, useAuth, type FoundUser } from "@/context/AppContext";
+import { useMutedSquads } from "@/context/MutedSquadsContext";
 import { useMessages } from "@/context/MessagesContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -225,6 +226,8 @@ export default function SquadDetailScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [squad?.id]);
 
+  const { mutedSquadIds, setSquadMuted } = useMutedSquads();
+
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [editName, setEditName] = useState("");
   const [editEmoji, setEditEmoji] = useState("🔥");
@@ -305,19 +308,17 @@ export default function SquadDetailScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setEditName(squad.name);
     setEditEmoji(squad.emoji);
+    // Seed local switch state from the shared context (no network round-trip needed)
+    setMuted(mutedSquadIds.has(squad.id));
     setSettingsOpen(true);
-    // Load current mute status
-    fetch(`${API_BASE}/api/squads/${squad.id}/mute`, { headers: authHeaders() })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { muted?: boolean } | null) => {
-        if (d != null) setMuted(Boolean(d.muted));
-      })
-      .catch(() => null);
   };
 
   const toggleMute = async (value: boolean) => {
     setMuteLoading(true);
     setMuted(value);
+    // Optimistically update the shared context so the squads list badge
+    // reflects the change immediately, regardless of navigation path.
+    setSquadMuted(squad.id, value);
     try {
       await fetch(`${API_BASE}/api/squads/${squad.id}/mute`, {
         method: "PUT",
@@ -326,7 +327,9 @@ export default function SquadDetailScreen() {
       });
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch {
+      // Roll back both the local and shared state on failure
       setMuted(!value);
+      setSquadMuted(squad.id, !value);
     } finally {
       setMuteLoading(false);
     }

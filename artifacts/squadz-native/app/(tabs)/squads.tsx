@@ -16,6 +16,7 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useData } from "@/context/AppContext";
 import { useUserCache } from "@/context/UserCacheContext";
+import { useMutedSquads } from "@/context/MutedSquadsContext";
 import { API_BASE } from "@/lib/api";
 
 type RemovalNotice = {
@@ -29,6 +30,7 @@ export default function SquadsScreen() {
   const insets = useSafeAreaInsets();
   const { squads, events, currentUser, authToken } = useData();
   const { resolveUser, prefetchUsers } = useUserCache();
+  const { mutedSquadIds, refreshMutedSquads } = useMutedSquads();
   const [notices, setNotices] = useState<RemovalNotice[]>([]);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
@@ -68,11 +70,11 @@ export default function SquadsScreen() {
     }, [fetchNotices]),
   );
 
-  // Re-fetch muted squad IDs on focus so the badge reflects changes made in squad settings
+  // Re-sync muted squad IDs on focus as a safety net (e.g. another device changed the state)
   useFocusEffect(
     useCallback(() => {
-      void fetchMutedSquadIds();
-    }, [fetchMutedSquadIds]),
+      void refreshMutedSquads();
+    }, [refreshMutedSquads]),
   );
 
   // Pre-load all squad member profiles
@@ -135,7 +137,7 @@ export default function SquadsScreen() {
                 <View style={styles.squadBody}>
                   <View style={styles.squadNameRow}>
                     <Text style={[styles.squadName, { color: colors.foreground }]}>{squad.name}</Text>
-                    {squad.muted && (
+                    {mutedSquadIds.has(squad.id) && (
                       <View style={[styles.mutedBadge, { backgroundColor: colors.surfaceUp }]}>
                         <Ionicons name="notifications-off-outline" size={11} color={colors.mutedForeground} />
                         <Text style={[styles.mutedBadgeText, { color: colors.mutedForeground }]}>Muted</Text>

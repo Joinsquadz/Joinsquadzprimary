@@ -18,6 +18,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AppProvider, useAuth } from "@/context/AppContext";
 import { MessagesProvider } from "@/context/MessagesContext";
 import { UserCacheProvider } from "@/context/UserCacheContext";
+import { MutedSquadsProvider } from "@/context/MutedSquadsContext";
 import { installWebAlert } from "@/lib/webAlert";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
@@ -143,6 +144,11 @@ function PushNotificationManager() {
   return null;
 }
 
+function MutedSquadsConnector({ children }: { children: React.ReactNode }) {
+  const { authToken } = useAuth();
+  return <MutedSquadsProvider authToken={authToken}>{children}</MutedSquadsProvider>;
+}
+
 function RootLayoutNav() {
   return (
     <>
@@ -194,11 +200,13 @@ export default function RootLayout() {
           <GestureHandlerRootView style={{ flex: 1 }}>
             <KeyboardProvider>
               <AppProvider>
-                <UserCacheProvider>
-                  <MessagesProvider>
-                    <RootLayoutNav />
-                  </MessagesProvider>
-                </UserCacheProvider>
+                <MutedSquadsConnector>
+                  <UserCacheProvider>
+                    <MessagesProvider>
+                      <RootLayoutNav />
+                    </MessagesProvider>
+                  </UserCacheProvider>
+                </MutedSquadsConnector>
               </AppProvider>
             </KeyboardProvider>
           </GestureHandlerRootView>
