@@ -25,6 +25,12 @@ vi.mock("@workspace/db", () => ({
   photosTable: { url: "url", uploaderId: "uploader_id" },
 }));
 
+// `vi.mock` is hoisted above imports, so this static import resolves against the
+// mocked `@workspace/db`. Importing at collection time (not inside each `it()`)
+// keeps the one-time, heavy transform of the storage dependency graph out of the
+// 5000ms per-test timeout, which otherwise flakes under parallel contention.
+import { storage } from "../storage";
+
 const OWNER = "owner-id";
 
 describe("storage.addPhoto eventId persistence", () => {
@@ -34,14 +40,12 @@ describe("storage.addPhoto eventId persistence", () => {
   });
 
   it("stores the eventId on the new row when provided", async () => {
-    const { storage } = await import("../storage");
     const result = await storage.addPhoto(OWNER, "/objects/uploads/with-event.jpg", "evt-1");
     expect(capturedInsert.value?.eventId).toBe("evt-1");
     expect(result.eventId).toBe("evt-1");
   });
 
   it("stores null when no eventId is provided", async () => {
-    const { storage } = await import("../storage");
     const result = await storage.addPhoto(OWNER, "/objects/uploads/no-event.jpg");
     expect(capturedInsert.value?.eventId).toBeNull();
     expect(result.eventId).toBeNull();
