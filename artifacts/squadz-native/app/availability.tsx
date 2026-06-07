@@ -51,6 +51,7 @@ type MemberInfo = {
 type PollPayload = {
   poll: { id: string; createdBy: string; title: string; days: string[]; slots: string[]; updatedAt: string | null };
   heatmap: { cell: string; count: number }[];
+  cellUsers?: Record<string, string[]>;
   respondentCount: number;
   myCells: string[];
   myResponseUpdatedAt: string | null;
@@ -191,6 +192,9 @@ export default function AvailabilityScreen() {
 
   // Which respondents' times are being highlighted (empty = normal heatmap view).
   const [selectedMemberIds, setSelectedMemberIds] = useState<Set<string>>(new Set());
+
+  // Cell detail sheet — shown when user taps a heatmap cell.
+  const [selectedCell, setSelectedCell] = useState<string | null>(null);
 
   // Edit range state: host-only modal to update an existing poll's date range and title.
   const [editRangeOpen, setEditRangeOpen] = useState(false);
@@ -460,6 +464,21 @@ export default function AvailabilityScreen() {
       return next;
     });
     setDirty(true);
+  };
+
+  const openCellSheet = (cell: string) => {
+    stampInteraction();
+    setIsInQuietWindow(true);
+    if (quietWindowTimerRef.current) clearTimeout(quietWindowTimerRef.current);
+    quietWindowTimerRef.current = setTimeout(() => setIsInQuietWindow(false), INTERACTION_QUIET_MS);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    holdInteraction();
+    setSelectedCell(cell);
+  };
+
+  const closeCellSheet = () => {
+    setSelectedCell(null);
+    releaseInteraction();
   };
 
   const save = async () => {
@@ -878,7 +897,7 @@ export default function AvailabilityScreen() {
                     return (
                       <TouchableOpacity
                         key={cell}
-                        onPress={() => toggleCell(cell)}
+                        onPress={() => openCellSheet(cell)}
                         activeOpacity={0.7}
                         style={[styles.cell, cellStyle(cell)]}
                       >
@@ -1028,6 +1047,100 @@ export default function AvailabilityScreen() {
           </View>
         </>
       ) : null}
+
+      {/* Cell detail sheet — who's free at a given time slot */}
+      <Modal
+        visible={selectedCell !== null}
+        animationType="slide"
+        transparent
+        onRequestClose={closeCellSheet}
+      >
+        <View style={styles.pickerOverlay}>
+          <View style={[styles.cellSheet, { backgroundColor: colors.background, paddingBottom: insets.bottom + 12 }]}>
+            <View style={[styles.pickerToolbar, { borderBottomColor: colors.border }]}>
+              <View style={styles.pickerBtn} />
+              <Text style={[styles.pickerTitle, { color: colors.foreground }]}>
+                {selectedCell ? prettyCell(selectedCell) : ""}
+              </Text>
+              <TouchableOpacity onPress={closeCellSheet} style={styles.pickerBtn}>
+                <Text style={[styles.pickerBtnText, { color: colors.mutedForeground }]}>Done</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 20, paddingBottom: 8 }}>
+              {/* Who's free */}
+              {(() => {
+                if (!selectedCell || !data) return null;
+                const freeIds = new Set(data.cellUsers?.[selectedCell] ?? []);
+                const freeMembers = (data.members ?? []).filter((m) => freeIds.has(m.id));
+                const isFree = mySet.has(selectedCell);
+
+                return (
+                  <>
+                    {freeMembers.length > 0 ? (
+                      <>
+                        <Text style={[styles.cellSheetSectionLabel, { color: colors.mutedForeground }]}>
+                          {freeMembers.length} {freeMembers.length === 1 ? "person" : "people"} free
+                        </Text>
+                        <View style={styles.cellSheetMemberList}>
+                          {freeMembers.map((m) => (
+                            <View key={m.id} style={styles.cellSheetMemberRow}>
+                              <View
+                                style={[
+                                  styles.cellSheetAvatar,
+                                  { backgroundColor: colors.primary, borderColor: colors.primary },
+                                ]}
+                              >
+                                {m.avatarUrl ? (
+                                  <Image source={{ uri: m.avatarUrl }} style={styles.cellSheetAvatarImage} />
+                                ) : (
+                                  <Text style={styles.cellSheetAvatarInitial}>
+                                    {m.displayName.charAt(0).toUpperCase()}
+                                  </Text>
+                                )}
+                              </View>
+                              <Text style={[styles.cellSheetMemberName, { color: colors.foreground }]}>
+                                {m.displayName}
+                              </Text>
+                            </View>
+                          ))}
+                        </View>
+                      </>
+                    ) : (
+                      <Text style={[styles.cellSheetEmpty, { color: colors.mutedForeground }]}>
+                        No one marked free yet — be the first!
+                      </Text>
+                    )}
+
+                    <TouchableOpacity
+                      onPress={() => {
+                        toggleCell(selectedCell);
+                        closeCellSheet();
+                      }}
+                      style={[
+                        styles.cellSheetToggleBtn,
+                        {
+                          backgroundColor: isFree ? colors.card : colors.primary,
+                          borderColor: isFree ? colors.border : colors.primary,
+                        },
+                      ]}
+                    >
+                      <Ionicons
+                        name={isFree ? "close-circle-outline" : "checkmark-circle-outline"}
+                        size={18}
+                        color={isFree ? colors.mutedForeground : "#fff"}
+                      />
+                      <Text style={[styles.cellSheetToggleBtnText, { color: isFree ? colors.mutedForeground : "#fff" }]}>
+                        {isFree ? "I'm no longer free" : "Mark me as free"}
+                      </Text>
+                    </TouchableOpacity>
+                  </>
+                );
+              })()}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       {/* Edit range modal — host only */}
       <Modal
@@ -1248,4 +1361,15 @@ const styles = StyleSheet.create({
   editRangeNote: { fontSize: 13, lineHeight: 18, marginTop: 18 },
   rangeUpdatedBanner: { flexDirection: "row", alignItems: "flex-start", gap: 8, borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, marginTop: 14 },
   rangeUpdatedText: { flex: 1, fontSize: 13, lineHeight: 18, fontWeight: "600" },
+  cellSheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "70%" },
+  cellSheetSectionLabel: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 14 },
+  cellSheetMemberList: { gap: 12, marginBottom: 24 },
+  cellSheetMemberRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  cellSheetAvatar: { width: 40, height: 40, borderRadius: 20, borderWidth: 1.5, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  cellSheetAvatarImage: { width: 40, height: 40, borderRadius: 20 },
+  cellSheetAvatarInitial: { fontSize: 16, fontWeight: "800", color: "#fff" },
+  cellSheetMemberName: { fontSize: 15, fontWeight: "600" },
+  cellSheetEmpty: { fontSize: 14, lineHeight: 20, marginBottom: 24 },
+  cellSheetToggleBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 14, borderWidth: 1.5, paddingVertical: 14, marginTop: 4 },
+  cellSheetToggleBtnText: { fontSize: 15, fontWeight: "800" },
 });

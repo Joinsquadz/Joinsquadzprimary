@@ -95,9 +95,12 @@ function buildPollPayload(
   userId: string,
 ) {
   const counts = new Map<string, number>();
+  const cellUsers: Record<string, string[]> = {};
   for (const r of responses) {
     for (const cell of r.cells) {
       counts.set(cell, (counts.get(cell) ?? 0) + 1);
+      if (!cellUsers[cell]) cellUsers[cell] = [];
+      cellUsers[cell].push(r.userId);
     }
   }
 
@@ -143,6 +146,7 @@ function buildPollPayload(
       updatedAt: poll.updatedAt?.toISOString() ?? null,
     },
     heatmap,
+    cellUsers,
     respondentCount,
     myCells: myResponse?.cells ?? [],
     myResponseUpdatedAt: myResponse?.updatedAt?.toISOString() ?? null,
