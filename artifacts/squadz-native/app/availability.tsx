@@ -196,6 +196,21 @@ export default function AvailabilityScreen() {
   // Cell detail sheet — shown when user taps a heatmap cell.
   const [selectedCell, setSelectedCell] = useState<string | null>(null);
 
+  // Which avatar is showing its name tooltip (auto-dismisses after 2 s).
+  const [tooltipMemberId, setTooltipMemberId] = useState<string | null>(null);
+  const tooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showTooltip = useCallback((memberId: string) => {
+    if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current);
+    setTooltipMemberId(memberId);
+    tooltipTimerRef.current = setTimeout(() => setTooltipMemberId(null), 2000);
+  }, []);
+
+  const clearTooltip = useCallback(() => {
+    if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current);
+    setTooltipMemberId(null);
+  }, []);
+
   // Edit range state: host-only modal to update an existing poll's date range and title.
   const [editRangeOpen, setEditRangeOpen] = useState(false);
   const [editTitle, setEditTitle] = useState("");
@@ -950,6 +965,7 @@ export default function AvailabilityScreen() {
                       onPress={() => {
                         Haptics.selectionAsync();
                         setSelectedMemberIds(new Set());
+                        clearTooltip();
                       }}
                       style={[styles.filterBanner, { backgroundColor: "#F59E0B22", borderColor: "#F59E0B" }]}
                     >
@@ -964,37 +980,48 @@ export default function AvailabilityScreen() {
                 <View style={styles.memberRow}>
                   {data.members.map((m) => {
                     const isSelected = selectedMemberIds.has(m.id);
+                    const showingTooltip = m.id === tooltipMemberId;
                     if (m.hasResponded) {
                       return (
-                        <TouchableOpacity
-                          key={m.id}
-                          onPress={() => {
-                            Haptics.selectionAsync();
-                            setSelectedMemberIds((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(m.id)) next.delete(m.id);
-                              else next.add(m.id);
-                              return next;
-                            });
-                          }}
-                          activeOpacity={0.7}
-                          style={[
-                            styles.memberAvatar,
-                            {
-                              backgroundColor: isSelected ? "#F59E0B" : colors.primary,
-                              borderColor: isSelected ? "#F59E0B" : colors.primary,
-                              borderWidth: isSelected ? 2.5 : 1.5,
-                            },
-                          ]}
-                        >
-                          {m.avatarUrl ? (
-                            <Image source={{ uri: m.avatarUrl }} style={styles.memberAvatarImage} />
-                          ) : (
-                            <Text style={[styles.memberInitial, { color: "#fff" }]}>
-                              {m.displayName.charAt(0).toUpperCase()}
-                            </Text>
+                        <View key={m.id} style={styles.memberAvatarWrap}>
+                          {showingTooltip && (
+                            <View style={[styles.avatarTooltip, { backgroundColor: colors.foreground }]}>
+                              <Text style={[styles.avatarTooltipText, { color: colors.background }]} numberOfLines={1}>
+                                {m.displayName}
+                              </Text>
+                              <View style={[styles.avatarTooltipArrow, { borderTopColor: colors.foreground }]} />
+                            </View>
                           )}
-                        </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => {
+                              Haptics.selectionAsync();
+                              setSelectedMemberIds((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(m.id)) next.delete(m.id);
+                                else next.add(m.id);
+                                return next;
+                              });
+                              showTooltip(m.id);
+                            }}
+                            activeOpacity={0.7}
+                            style={[
+                              styles.memberAvatar,
+                              {
+                                backgroundColor: isSelected ? "#F59E0B" : colors.primary,
+                                borderColor: isSelected ? "#F59E0B" : colors.primary,
+                                borderWidth: isSelected ? 2.5 : 1.5,
+                              },
+                            ]}
+                          >
+                            {m.avatarUrl ? (
+                              <Image source={{ uri: m.avatarUrl }} style={styles.memberAvatarImage} />
+                            ) : (
+                              <Text style={[styles.memberInitial, { color: "#fff" }]}>
+                                {m.displayName.charAt(0).toUpperCase()}
+                              </Text>
+                            )}
+                          </TouchableOpacity>
+                        </View>
                       );
                     }
                     return (
@@ -1340,6 +1367,29 @@ const styles = StyleSheet.create({
   memberAvatar: { width: 36, height: 36, borderRadius: 18, borderWidth: 1.5, alignItems: "center", justifyContent: "center", overflow: "hidden" },
   memberAvatarImage: { width: 36, height: 36, borderRadius: 18 },
   memberInitial: { fontSize: 14, fontWeight: "800" },
+  memberAvatarWrap: { alignItems: "center" },
+  avatarTooltip: {
+    position: "absolute",
+    bottom: 42,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    zIndex: 10,
+    alignItems: "center",
+    maxWidth: 120,
+  },
+  avatarTooltipText: { fontSize: 11, fontWeight: "700", textAlign: "center" },
+  avatarTooltipArrow: {
+    position: "absolute",
+    bottom: -5,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 5,
+    borderRightWidth: 5,
+    borderTopWidth: 5,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+  },
   memberPendingText: { fontSize: 12, marginTop: 8, fontWeight: "600" },
   filterBanner: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 10, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 7, marginBottom: 10 },
   filterDot: { width: 6, height: 6, borderRadius: 3 },
