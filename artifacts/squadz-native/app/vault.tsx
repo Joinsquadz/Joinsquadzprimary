@@ -285,8 +285,12 @@ export default function VaultScreen() {
         return;
       }
       if (!res.ok) return;
-      const data = await res.json() as { photos: VaultPhoto[] };
-      setPickerPhotos(data.photos ?? []);
+      const data = await res.json() as { photos: VaultPhoto[]; isPro?: boolean };
+      if (!data.isPro) {
+        setPickerRequiresPro(true);
+        return;
+      }
+      setPickerPhotos((data.photos ?? []).filter(p => !p.locked && !!p.url));
     } catch {
       // silently fail
     } finally {
@@ -345,6 +349,7 @@ export default function VaultScreen() {
 
   const selectedPhoto = photos.find(p => p.id === selected) ?? null;
   const selectedSquadPhoto = squadPhotos.find(p => p.id === selected) ?? null;
+  const lockedCount = photos.filter(p => p.locked).length;
 
   const uploaderName = (p: SquadVaultPhoto): string => {
     const name = [p.uploaderFirstName, p.uploaderLastName].filter(Boolean).join(" ").trim();
@@ -474,46 +479,6 @@ export default function VaultScreen() {
         <View style={styles.center}>
           <ActivityIndicator color={colors.primary} size="large" />
         </View>
-      ) : !isPro ? (
-        <ScrollView
-          contentContainerStyle={[styles.scroll, { paddingBottom: botPad + 24 }]}
-          showsVerticalScrollIndicator={false}
-        >
-          <View style={[styles.lockCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Text style={styles.lockIcon}>🔒</Text>
-            <Text style={[styles.lockTitle, { color: colors.foreground }]}>Photo Vault is a Pro feature</Text>
-            <Text style={[styles.lockBody, { color: colors.mutedForeground }]}>
-              Upload unlimited squad photos. They're private, organized by event, and downloadable to
-              your device anytime — only visible to squad members.
-            </Text>
-            <View style={styles.featurePills}>
-              {["🖼️ Private gallery", "📁 By event", "⬇️ Download anytime"].map((f) => (
-                <View key={f} style={[styles.pill, { backgroundColor: colors.background, borderColor: colors.border }]}>
-                  <Text style={[styles.pillText, { color: colors.mutedForeground }]}>{f}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-
-          <View style={styles.blurGrid}>
-            {[...Array(6)].map((_, i) => (
-              <View key={i} style={[styles.gridCell, { backgroundColor: colors.card, opacity: 0.35 }]}>
-                <Ionicons name="image-outline" size={28} color={colors.mutedForeground} />
-              </View>
-            ))}
-          </View>
-
-          <TouchableOpacity
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              router.back();
-            }}
-            style={[styles.upgradeBtn, { backgroundColor: colors.primary }]}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.upgradeBtnText}>⚡ Upgrade to Pro — $20/year</Text>
-          </TouchableOpacity>
-        </ScrollView>
       ) : (
         <ScrollView
           ref={scrollRef}
@@ -542,38 +507,57 @@ export default function VaultScreen() {
                 {photos.length} {photos.length === 1 ? "photo" : "photos"} · tap to view
               </Text>
 
+              {!isPro && lockedCount > 0 && (
+                <TouchableOpacity
+                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.back(); }}
+                  style={[styles.lockBanner, { backgroundColor: colors.card, borderColor: colors.border }]}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.lockBannerIcon}>🔒</Text>
+                  <View style={styles.lockBannerText}>
+                    <Text style={[styles.lockBannerTitle, { color: colors.foreground }]}>
+                      {lockedCount} older {lockedCount === 1 ? "photo is" : "photos are"} locked
+                    </Text>
+                    <Text style={[styles.lockBannerBody, { color: colors.mutedForeground }]}>
+                      Upgrade to see older photos — anything over 30 days old.
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color={colors.primary} />
+                </TouchableOpacity>
+              )}
+
               {photos.length > 0 ? (
                 <View style={styles.grid}>
                   {photos.map(p => (
-                    <TouchableOpacity
-                      key={p.id}
-                      onPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        setSelected(selected === p.id ? null : p.id);
-                      }}
-                      style={[styles.gridCell, {
-                        borderWidth: 2,
-                        borderColor: selected === p.id ? colors.primary : "transparent",
-                      }]}
-                      activeOpacity={0.8}
-                    >
-                      {p.locked ? (
-                        <View style={[styles.lockedCell, { backgroundColor: colors.card }]}>
-                          <Ionicons name="lock-closed" size={20} color={colors.mutedForeground} />
-                        </View>
-                      ) : (
+                    p.locked ? (
+                      <TouchableOpacity
+                        key={p.id}
+                        onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.back(); }}
+                        style={[styles.gridCell, { backgroundColor: colors.card, alignItems: "center", justifyContent: "center" }]}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons name="lock-closed" size={24} color={colors.mutedForeground} />
+                        <Text style={[styles.lockedCellText, { color: colors.mutedForeground }]}>Pro only</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity
+                        key={p.id}
+                        onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSelected(selected === p.id ? null : p.id); }}
+                        style={[styles.gridCell, { borderWidth: 2, borderColor: selected === p.id ? colors.primary : "transparent" }]}
+                        activeOpacity={0.8}
+                      >
                         <Image
-                          source={{ uri: imageUrl((p as Extract<VaultPhoto, { locked: false }>).url), headers: authHeaders() as Record<string, string> }}
+                          source={{ uri: imageUrl(p.url), headers: authHeaders() as Record<string, string> }}
                           style={styles.gridImage}
                           contentFit="cover"
                         />
-                      )}
-                      {selected === p.id && (
-                        <View style={[styles.checkBadge, { backgroundColor: colors.primary }]}>
-                          <Ionicons name="checkmark" size={10} color="#fff" />
-                        </View>
-                      )}
-                    </TouchableOpacity>
+                        {selected === p.id && (
+                          <View style={[styles.checkBadge, { backgroundColor: colors.primary }]}>
+                            <Ionicons name="checkmark" size={10} color="#fff" />
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    )
                   ))}
                 </View>
               ) : (
@@ -583,7 +567,9 @@ export default function VaultScreen() {
                   <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>
                     {filterLabel
                       ? `No photos uploaded to ${filterLabel} yet.`
-                      : "Upload your first squad memory below"}
+                      : isPro
+                        ? "Upload your first squad memory below"
+                        : "Photos from your squadz will show up here"}
                   </Text>
                 </View>
               )}
@@ -603,24 +589,34 @@ export default function VaultScreen() {
                 </View>
               )}
 
-              <TouchableOpacity
-                style={[styles.uploadBtn, { borderColor: colors.border }]}
-                activeOpacity={0.7}
-                onPress={handleUpload}
-                disabled={isUploading}
-              >
-                {isUploading ? (
-                  <ActivityIndicator color={colors.mutedForeground} />
-                ) : (
-                  <Ionicons name="add" size={28} color={colors.mutedForeground} />
-                )}
-                <Text style={[styles.uploadLabel, { color: colors.mutedForeground }]}>
-                  {isUploading ? "Uploading…" : "Upload photos"}
-                </Text>
-                <Text style={[styles.uploadSub, { color: colors.mutedForeground }]}>
-                  Add memories from your last event
-                </Text>
-              </TouchableOpacity>
+              {isPro ? (
+                <TouchableOpacity
+                  style={[styles.uploadBtn, { borderColor: colors.border }]}
+                  activeOpacity={0.7}
+                  onPress={handleUpload}
+                  disabled={isUploading}
+                >
+                  {isUploading ? (
+                    <ActivityIndicator color={colors.mutedForeground} />
+                  ) : (
+                    <Ionicons name="add" size={28} color={colors.mutedForeground} />
+                  )}
+                  <Text style={[styles.uploadLabel, { color: colors.mutedForeground }]}>
+                    {isUploading ? "Uploading…" : "Upload photos"}
+                  </Text>
+                  <Text style={[styles.uploadSub, { color: colors.mutedForeground }]}>
+                    Add memories from your last event
+                  </Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.back(); }}
+                  style={[styles.upgradeBtn, { backgroundColor: colors.primary }]}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.upgradeBtnText}>⚡ Upgrade to Pro — $20/year</Text>
+                </TouchableOpacity>
+              )}
             </>
           )}
         </ScrollView>
@@ -750,13 +746,20 @@ const styles = StyleSheet.create({
   proBadgeText: { fontSize: 10, fontWeight: "900", fontFamily: "Inter_700Bold", letterSpacing: 0.8 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 48 },
   scroll: { padding: 20 },
-  lockCard: { borderRadius: 20, borderWidth: 1, padding: 28, alignItems: "center", marginBottom: 20 },
-  lockIcon: { fontSize: 56, marginBottom: 14 },
-  lockTitle: { fontSize: 20, fontWeight: "700", fontFamily: "Inter_700Bold", textAlign: "center", marginBottom: 10 },
-  lockBody: { fontSize: 14, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 21, marginBottom: 20 },
-  featurePills: { flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center" },
-  pill: { borderRadius: 20, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 5 },
-  pillText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  lockBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 14,
+    marginBottom: 16,
+  },
+  lockBannerIcon: { fontSize: 26 },
+  lockBannerText: { flex: 1 },
+  lockBannerTitle: { fontSize: 14, fontWeight: "700", fontFamily: "Inter_700Bold", marginBottom: 2 },
+  lockBannerBody: { fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 17 },
+  lockedCellText: { fontSize: 9, fontFamily: "Inter_600SemiBold", marginTop: 4 },
   upgradeBtn: {
     borderRadius: 14,
     padding: 16,

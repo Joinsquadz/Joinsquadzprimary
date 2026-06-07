@@ -522,9 +522,10 @@ const PRO_FEATURES = [
 
 interface VaultPhoto {
   id: number;
-  url: string;
+  url?: string;
   uploadedAt: string;
   eventId?: string | null;
+  locked?: boolean;
 }
 
 async function downloadVaultPhoto(url: string, label: string, id: number): Promise<boolean> {
@@ -573,7 +574,7 @@ function PhotoVaultTab({ onUpgrade }: { onUpgrade?: () => void }) {
   }, []);
 
   React.useEffect(() => {
-    if (isPro) fetchPhotos();
+    if (isPro !== null) fetchPhotos();
   }, [isPro, fetchPhotos]);
 
   const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -629,90 +630,86 @@ function PhotoVaultTab({ onUpgrade }: { onUpgrade?: () => void }) {
     );
   }
 
-  if (!isPro) {
-    return (
-      <div style={{ flex: 1, overflowY: "auto" }}>
-        <div style={{ padding: "20px 20px 40px" }}>
-          <div style={{ fontFamily: "'Georgia', serif", fontSize: 24, fontWeight: 700, color: T.white, marginBottom: 4 }}>📷 Photo Vault</div>
-          <div style={{ fontSize: 13, color: T.textSub, marginBottom: 24, fontFamily: font }}>Private squad memories</div>
-
-          <div style={{
-            background: `linear-gradient(135deg, ${T.purple}22, ${T.blue}18)`,
-            border: `1px solid ${T.purple}40`,
-            borderRadius: 20,
-            padding: "32px 24px",
-            textAlign: "center",
-            marginBottom: 24,
-          }}>
-            <div style={{ fontSize: 56, marginBottom: 16 }}>🔒</div>
-            <div style={{ fontFamily: "'Georgia', serif", fontSize: 20, fontWeight: 700, color: T.white, marginBottom: 8 }}>
-              Photo Vault is a Pro feature
-            </div>
-            <div style={{ fontSize: 14, color: T.textSub, fontFamily: font, lineHeight: 1.5, marginBottom: 24 }}>
-              See every photo from all your squadz and events in one place — and download any of them to your device, anytime.
-            </div>
-            <div style={{ display: "flex", gap: 12, justifyContent: "center", marginBottom: 24 }}>
-              {["🖼️ All in one place", "⬇️ Download anytime", "🔐 Private to you"].map(f => (
-                <div key={f} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 20, padding: "5px 12px", fontSize: 12, color: T.textSub, fontFamily: font, fontWeight: 600 }}>{f}</div>
-              ))}
-            </div>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4, borderRadius: 14, overflow: "hidden", filter: "blur(3px) brightness(0.5)", pointerEvents: "none", marginBottom: 24 }}>
-            {[...Array(6)].map((_, i) => (
-              <div key={i} style={{ aspectRatio: "1", background: `${T.surface}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28 }}>📷</div>
-            ))}
-          </div>
-
-          <button
-            onClick={onUpgrade}
-            style={{ width: "100%", borderRadius: 14, border: "none", background: `linear-gradient(135deg, ${T.accent}, #FF8050)`, color: "#fff", fontFamily: font, fontWeight: 800, fontSize: 15, padding: "14px 20px", cursor: "pointer", boxShadow: `0 6px 20px ${T.accent}40` }}
-          >
-            ⚡ Upgrade to Pro — $20/year
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const lockedCount = photos.filter(p => p.locked).length;
 
   return (
     <div style={{ flex: 1, overflowY: "auto" }}>
       <div style={{ padding: "20px 20px 40px" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
           <div style={{ fontFamily: "'Georgia', serif", fontSize: 24, fontWeight: 700, color: T.white }}>📷 Photo Vault</div>
-          <div style={{ background: T.gold + "22", border: `1px solid ${T.gold}60`, borderRadius: 6, padding: "2px 8px", fontSize: 10, fontWeight: 900, color: T.gold, letterSpacing: "0.08em", fontFamily: fontMono }}>PRO</div>
+          {isPro && (
+            <div style={{ background: T.gold + "22", border: `1px solid ${T.gold}60`, borderRadius: 6, padding: "2px 8px", fontSize: 10, fontWeight: 900, color: T.gold, letterSpacing: "0.08em", fontFamily: fontMono }}>PRO</div>
+          )}
         </div>
         <div style={{ fontSize: 13, color: T.textSub, marginBottom: 20, fontFamily: font }}>
           Private squad memories · {photos.length} {photos.length === 1 ? "photo" : "photos"}
         </div>
 
+        {!isPro && lockedCount > 0 && (
+          <div
+            onClick={onUpgrade}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              background: `linear-gradient(135deg, ${T.purple}22, ${T.blue}18)`,
+              border: `1px solid ${T.purple}40`,
+              borderRadius: 14,
+              padding: "14px 16px",
+              marginBottom: 20,
+              cursor: "pointer",
+            }}
+          >
+            <div style={{ fontSize: 28, lineHeight: 1 }}>🔒</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontFamily: font, fontWeight: 700, fontSize: 14, color: T.white, marginBottom: 2 }}>
+                {lockedCount} older {lockedCount === 1 ? "photo is" : "photos are"} locked
+              </div>
+              <div style={{ fontSize: 12, color: T.textSub, fontFamily: font }}>
+                Upgrade to see older photos — anything over 30 days old.
+              </div>
+            </div>
+            <div style={{ fontSize: 18, color: T.accent }}>→</div>
+          </div>
+        )}
+
         {photos.length > 0 ? (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4, borderRadius: 14, overflow: "hidden", marginBottom: 20 }}>
             {photos.map(p => (
-              <div
-                key={p.id}
-                onClick={() => setSelected(selected === p.id ? null : p.id)}
-                style={{ aspectRatio: "1", overflow: "hidden", cursor: "pointer", position: "relative", border: selected === p.id ? `2px solid ${T.accent}` : "2px solid transparent", transition: "border-color 0.15s", background: T.surface }}>
-                <img
-                  src={imageUrl(p.url)}
-                  alt="vault photo"
-                  style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-                />
-                {selected === p.id && (
-                  <div style={{ position: "absolute", bottom: 4, right: 4, width: 18, height: 18, background: T.accent, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#fff" }}>✓</div>
-                )}
-              </div>
+              p.locked ? (
+                <div
+                  key={p.id}
+                  onClick={onUpgrade}
+                  style={{ aspectRatio: "1", overflow: "hidden", cursor: "pointer", position: "relative", border: "2px solid transparent", background: T.surface, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4 }}>
+                  <div style={{ fontSize: 24 }}>🔒</div>
+                  <div style={{ fontSize: 9, color: T.textDim, fontFamily: font, fontWeight: 600, textAlign: "center", padding: "0 4px" }}>Pro only</div>
+                </div>
+              ) : (
+                <div
+                  key={p.id}
+                  onClick={() => setSelected(selected === p.id ? null : p.id)}
+                  style={{ aspectRatio: "1", overflow: "hidden", cursor: "pointer", position: "relative", border: selected === p.id ? `2px solid ${T.accent}` : "2px solid transparent", transition: "border-color 0.15s", background: T.surface }}>
+                  <img
+                    src={imageUrl(p.url!)}
+                    alt="vault photo"
+                    style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                  />
+                  {selected === p.id && (
+                    <div style={{ position: "absolute", bottom: 4, right: 4, width: 18, height: 18, background: T.accent, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#fff" }}>✓</div>
+                  )}
+                </div>
+              )
             ))}
           </div>
         ) : (
           <div style={{ border: `1px dashed ${T.border}`, borderRadius: 14, padding: "32px 20px", textAlign: "center", marginBottom: 20 }}>
             <div style={{ fontSize: 36, marginBottom: 10 }}>📷</div>
             <div style={{ fontFamily: font, fontWeight: 700, fontSize: 14, color: T.textSub, marginBottom: 4 }}>No photos yet</div>
-            <div style={{ fontSize: 12, color: T.textDim }}>Upload your first squad memory below</div>
+            <div style={{ fontSize: 12, color: T.textDim }}>{isPro ? "Upload your first squad memory below" : "Photos from your squadz will show up here"}</div>
           </div>
         )}
 
-        {selectedPhoto && (
+        {selectedPhoto && !selectedPhoto.locked && (
           <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 16, padding: "14px 16px", marginBottom: 20 }}>
             <div style={{ fontFamily: font, fontWeight: 700, fontSize: 15, color: T.text, marginBottom: 4 }}>
               {new Date(selectedPhoto.uploadedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
@@ -723,31 +720,36 @@ function PhotoVaultTab({ onUpgrade }: { onUpgrade?: () => void }) {
           </div>
         )}
 
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          multiple
-          style={{ display: "none" }}
-          onChange={handleFileChange}
-        />
-        <div
-          style={{ border: `1.5px dashed ${T.border}`, borderRadius: 16, padding: "24px 20px", textAlign: "center", cursor: isUploading ? "default" : "pointer", opacity: isUploading ? 0.7 : 1 }}
-          onClick={() => !isUploading && fileInputRef.current?.click()}
-        >
-          <div style={{ fontSize: 28, marginBottom: 8 }}>{isUploading ? "⏳" : "+"}</div>
-          <div style={{ fontFamily: font, fontWeight: 700, fontSize: 14, color: T.textSub, marginBottom: 4 }}>
-            {isUploading ? "Uploading…" : "Upload photos"}
-          </div>
-          <div style={{ fontSize: 12, color: T.textDim }}>Add memories from your last event</div>
-        </div>
+        {isPro ? (
+          <>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              style={{ display: "none" }}
+              onChange={handleFileChange}
+            />
+            <div
+              style={{ border: `1.5px dashed ${T.border}`, borderRadius: 16, padding: "24px 20px", textAlign: "center", cursor: isUploading ? "default" : "pointer", opacity: isUploading ? 0.7 : 1 }}
+              onClick={() => !isUploading && fileInputRef.current?.click()}
+            >
+              <div style={{ fontSize: 28, marginBottom: 8 }}>{isUploading ? "⏳" : "+"}</div>
+              <div style={{ fontFamily: font, fontWeight: 700, fontSize: 14, color: T.textSub, marginBottom: 4 }}>
+                {isUploading ? "Uploading…" : "Upload photos"}
+              </div>
+              <div style={{ fontSize: 12, color: T.textDim }}>Add memories from your last event</div>
+            </div>
+          </>
+        ) : (
+          <button
+            onClick={onUpgrade}
+            style={{ width: "100%", borderRadius: 14, border: "none", background: `linear-gradient(135deg, ${T.accent}, #FF8050)`, color: "#fff", fontFamily: font, fontWeight: 800, fontSize: 15, padding: "14px 20px", cursor: "pointer", boxShadow: `0 6px 20px ${T.accent}40` }}
+          >
+            ⚡ Upgrade to Pro — $20/year
+          </button>
+        )}
       </div>
-
-      {toast && (
-        <div style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: 96, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 24, padding: "11px 18px", fontSize: 13, color: T.text, fontFamily: font, fontWeight: 600, boxShadow: "0 4px 16px rgba(0,0,0,0.4)", zIndex: 50 }}>
-          {toast}
-        </div>
-      )}
     </div>
   );
 }
