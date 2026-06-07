@@ -197,6 +197,49 @@ describe("POST /api/squads — push notifications", () => {
     expect(calledWith).toContain(MEMBER_A);
     expect(calledWithOpts).toEqual({ requireNotifySquadJoin: true });
   });
+
+  it("sends push only to opted-in members when some added members opted out", async () => {
+    // Storage layer returns only MEMBER_A's token because MEMBER_B opted out of squad-join pushes
+    mockGetPushTokensForUsers.mockResolvedValue([TOKEN_A]);
+
+    const app = makeApp({ id: CREATOR_ID });
+    await request(app)
+      .post("/api/squads")
+      .send({ name: "Weekend Crew", memberIds: [MEMBER_A, MEMBER_B] });
+
+    await vi.waitFor(() => {
+      expect(mockSendPushNotifications).toHaveBeenCalledTimes(1);
+    });
+
+    const [tokens] = mockSendPushNotifications.mock.calls[0] as [string[], ...unknown[]];
+    expect(tokens).toContain(TOKEN_A);
+    expect(tokens).not.toContain(TOKEN_B);
+  });
+
+  it("calls sendPushNotifications with an empty token list when all added members opted out", async () => {
+    // Storage layer returns [] because all added members set notifySquadJoin=false
+    mockGetPushTokensForUsers.mockResolvedValue([]);
+
+    const app = makeApp({ id: CREATOR_ID });
+    await request(app)
+      .post("/api/squads")
+      .send({ name: "Weekend Crew", memberIds: [MEMBER_A, MEMBER_B] });
+
+    await vi.waitFor(() => {
+      expect(mockGetPushTokensForUsers).toHaveBeenCalledTimes(1);
+    });
+
+    // getPushTokensForUsers was called with the opt-out filter, returned empty
+    const [, opts] = mockGetPushTokensForUsers.mock.calls[0] as [string[], Record<string, unknown>];
+    expect(opts.requireNotifySquadJoin).toBe(true);
+
+    // sendPushNotifications is invoked but receives an empty token list (no delivery occurs)
+    await vi.waitFor(() => {
+      expect(mockSendPushNotifications).toHaveBeenCalledTimes(1);
+    });
+    const [tokens] = mockSendPushNotifications.mock.calls[0] as [string[], ...unknown[]];
+    expect(tokens).toHaveLength(0);
+  });
 });
 
 describe("DELETE /api/squads/:id — push notifications", () => {
