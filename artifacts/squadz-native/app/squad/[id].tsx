@@ -24,6 +24,7 @@ import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { UserAvatar } from "@/components/UserAvatar";
 import { EventCard } from "@/components/EventCard";
 import { getUserById, goingCount } from "@/data/mock";
+import { useUserProfiles } from "@/hooks/useUserProfiles";
 
 const EMOJIS = ["🔥", "🎉", "🎮", "🏖️", "🍕", "🎸", "⚽", "🎬", "🍻", "🎊", "🏀", "🎲", "🧗", "🎤", "🏠", "💼"];
 
@@ -79,6 +80,9 @@ export default function SquadDetailScreen() {
   const [editName, setEditName] = useState("");
   const [editEmoji, setEditEmoji] = useState("🔥");
 
+  const memberIds = squad?.memberIds ?? [];
+  const memberProfiles = useUserProfiles(memberIds, authToken);
+
   const goBack = () => (router.canGoBack() ? router.back() : router.replace("/(tabs)" as never));
 
   if (!squad) {
@@ -92,10 +96,20 @@ export default function SquadDetailScreen() {
     );
   }
 
-  const members = squad.memberIds.map((id) => {
-    const u = getUserById(id);
-    if (id === currentUser.id) return { ...u, profileImageUrl: currentUser.profileImageUrl };
-    return u;
+  const members = squad.memberIds.map((mid) => {
+    if (mid === currentUser.id) {
+      return {
+        id: currentUser.id,
+        name: currentUser.name,
+        initials: currentUser.initials,
+        color: currentUser.color,
+        profileImageUrl: currentUser.profileImageUrl ?? null,
+      };
+    }
+    const profile = memberProfiles.get(mid);
+    if (profile) return profile;
+    const mock = getUserById(mid);
+    return { id: mock.id, name: mock.name, initials: mock.initials, color: mock.color, profileImageUrl: mock.profileImageUrl ?? null };
   });
   const squadEvents = events.filter((e) => e.squadId === squad.id);
   const inviteLink = `getsquadz.com/squad/${squad.id}`;

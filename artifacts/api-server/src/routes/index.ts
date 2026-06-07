@@ -14,6 +14,7 @@ import conversationsRouter from "./conversations";
 import discoverRouter from "./discover";
 import streaksRouter from "./streaks";
 import pushTokensRouter from "./pushTokens";
+import usersRouter from "./users";
 
 const router: IRouter = Router();
 
@@ -32,5 +33,6 @@ router.use(conversationsRouter);
 router.use(discoverRouter);
 router.use(streaksRouter);
 router.use(pushTokensRouter);
+router.use(usersRouter);
 
 export default router;
