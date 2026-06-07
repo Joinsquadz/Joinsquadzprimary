@@ -45,6 +45,75 @@ const UpdateSquadBody = z.object({
   memberIds: z.array(z.string()).optional(),
 });
 
+router.post("/squads/:id/join", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const id = parseId(req.params.id);
+  const userId = (req.user as { id: string }).id;
+  const [squad] = await db.select().from(squadsTable).where(eq(squadsTable.id, id));
+  if (!squad) {
+    res.status(404).json({ error: "Squad not found" });
+    return;
+  }
+  if (!squad.isPublic) {
+    res.status(403).json({ error: "This squad is private. Use an invite link to join." });
+    return;
+  }
+  const memberIds = (squad.memberIds ?? []) as string[];
+  if (memberIds.includes(userId)) {
+    res.json({ squad, alreadyMember: true });
+    return;
+  }
+  const [updated] = await db
+    .update(squadsTable)
+    .set({ memberIds: [...memberIds, userId] })
+    .where(eq(squadsTable.id, id))
+    .returning();
+  res.status(201).json({ squad: updated, alreadyMember: false });
+
+  // Fire-and-forget: notify existing members that someone joined, and send a
+  // welcome push to the joiner themselves.
+  (async () => {
+    try {
+      const joiner = await storage.getUser(userId);
+      const joinerName = joiner?.firstName ?? "Someone";
+
+      // Notify pre-existing members (opt-in gated).
+      if (memberIds.length > 0) {
+        const unmuted = await storage.filterUnmutedForSquad(memberIds, id);
+        if (unmuted.length > 0) {
+          const tokens = await storage.getPushTokensForUsers(unmuted, { requireNotifySquadJoin: true });
+          if (tokens.length > 0) {
+            await sendPushNotifications(
+              tokens,
+              {
+                title: squad.name,
+                body: `${joinerName} joined ${squad.name}`,
+                data: { screen: "squad", squadId: id },
+              },
+              { onStaleToken: (token) => storage.clearPushToken(token) },
+            );
+          }
+        }
+      }
+
+      // Welcome push to the joiner (not opt-in gated).
+      const joinerTokens = await storage.getPushTokensForUsers([userId]);
+      if (joinerTokens.length > 0) {
+        await sendPushNotifications(
+          joinerTokens,
+          {
+            title: `Welcome to ${squad.name}!`,
+            body: `You're now part of "${squad.name}"`,
+            data: { screen: "squad", squadId: id },
+          },
+          { onStaleToken: (token) => storage.clearPushToken(token) },
+        );
+      }
+    } catch (err) {
+      logger.error({ err }, "Error sending squad-join push notifications");
+    }
+  })();
+});
+
 router.post("/squads/join-via-code", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const userId = (req.user as { id: string }).id;
   const { code } = req.body as { code?: string };
