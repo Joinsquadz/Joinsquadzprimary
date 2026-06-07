@@ -85,7 +85,7 @@ describe("getTotalUnreadCount — squad membership enforcement", () => {
   it("does not count unread messages from squads the user was removed from", async () => {
     const countSpy = vi
       .spyOn(
-        storage as unknown as { countUnreadInConversation: () => Promise<number> },
+        storage as unknown as { countUnreadInConversation: (id: string) => Promise<number> },
         "countUnreadInConversation",
       )
       .mockResolvedValue(5);
