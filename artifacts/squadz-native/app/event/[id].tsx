@@ -62,6 +62,7 @@ export default function EventDetailScreen() {
 
   const [tab, setTab] = useState<EventTab>("overview");
   const [isPro, setIsPro] = useState<boolean | null>(null);
+  const [availabilityTitle, setAvailabilityTitle] = useState<string | null>(null);
   const { authToken } = useAuth();
 
   const authHeaders = useCallback((): HeadersInit => {
@@ -74,6 +75,17 @@ export default function EventDetailScreen() {
       .then((d?: { isPro?: boolean }) => { if (d !== undefined) setIsPro(!!d.isPro); })
       .catch(() => setIsPro(false));
   }, [authHeaders]);
+
+  useEffect(() => {
+    if (!id) return;
+    setAvailabilityTitle(null);
+    fetch(`${API_BASE}/api/availability/polls/find?eventId=${id}`, { headers: authHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then((d?: { poll?: { title?: string } } | null) => {
+        if (d?.poll?.title) setAvailabilityTitle(d.poll.title);
+      })
+      .catch(() => { /* leave null, fall back to default label */ });
+  }, [id, authHeaders]);
 
   // Live-refresh the chat while the Chat tab is open so squad messages appear.
   useEffect(() => {
@@ -455,7 +467,7 @@ export default function EventDetailScreen() {
                 <Ionicons name="sparkles-outline" size={18} color={colors.primary} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.cardBody, { color: colors.foreground, fontWeight: "700" }]}>Find the Best Time</Text>
+                <Text style={[styles.cardBody, { color: colors.foreground, fontWeight: "700" }]}>{availabilityTitle ?? "Find the Best Time"}</Text>
                 <Text style={[styles.cardBody, { color: colors.mutedForeground, fontSize: 13 }]}>Poll everyone & lock in when most can make it</Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={colors.textDim} />

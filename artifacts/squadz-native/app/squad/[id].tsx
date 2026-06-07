@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -17,8 +17,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
-import { useData } from "@/context/AppContext";
+import { useData, useAuth } from "@/context/AppContext";
 import { useMessages } from "@/context/MessagesContext";
+import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { UserAvatar } from "@/components/UserAvatar";
 import { EventCard } from "@/components/EventCard";
 import { getUserById, goingCount } from "@/data/mock";
@@ -30,8 +31,26 @@ export default function SquadDetailScreen() {
   const insets = useSafeAreaInsets();
   const { events, getSquad, updateSquad, leaveSquad } = useData();
   const { getSquadConversation } = useMessages();
+  const { authToken } = useAuth();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [openingChat, setOpeningChat] = useState(false);
+  const [availabilityTitle, setAvailabilityTitle] = useState<string | null>(null);
+
+  const authHeaders = useCallback((): Record<string, string> => ({
+    "Content-Type": "application/json",
+    ...buildAuthHeaders(authToken),
+  }), [authToken]);
+
+  useEffect(() => {
+    if (!id) return;
+    setAvailabilityTitle(null);
+    fetch(`${API_BASE}/api/availability/polls/find?squadId=${id}`, { headers: authHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then((d?: { poll?: { title?: string } } | null) => {
+        if (d?.poll?.title) setAvailabilityTitle(d.poll.title);
+      })
+      .catch(() => { /* leave null, fall back to default label */ });
+  }, [id, authHeaders]);
 
   async function handleOpenChat(squadId: string) {
     if (openingChat) return;
@@ -218,7 +237,7 @@ export default function SquadDetailScreen() {
             <Ionicons name="sparkles-outline" size={20} color={colors.primary} />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={[styles.photosTitle, { color: colors.foreground }]}>Find the Best Time</Text>
+            <Text style={[styles.photosTitle, { color: colors.foreground }]}>{availabilityTitle ?? "Find the Best Time"}</Text>
             <Text style={[styles.photosSub, { color: colors.mutedForeground }]}>Poll the squad · pick a time everyone's free</Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
