@@ -506,6 +506,12 @@ export default function AvailabilityScreen() {
     return m;
   }, [data]);
 
+  const memberMap = useMemo(() => {
+    const m = new Map<string, MemberInfo>();
+    data?.members?.forEach((mem) => m.set(mem.id, mem));
+    return m;
+  }, [data]);
+
   // Intersection of cells where ALL selected respondents are free.
   const selectedMemberCellSet = useMemo<Set<string>>(() => {
     if (selectedMemberIds.size === 0 || !data?.memberCells) return new Set();
@@ -972,6 +978,20 @@ export default function AvailabilityScreen() {
                   {data.poll.days.map((day) => {
                     const cell = `${day}-${slot}`;
                     const c = counts.get(cell) ?? 0;
+                    const isLight = total === 0 || c / total < 0.66;
+                    const countColor = isLight ? colors.foreground : "#fff";
+
+                    // Build mini avatar stack when cellUsers data is available.
+                    const cellUids = data.cellUsers?.[cell];
+                    const freeMembers: MemberInfo[] = cellUids
+                      ? cellUids.map((id) => memberMap.get(id)).filter((m): m is MemberInfo => m !== undefined)
+                      : [];
+
+                    const MINI_MAX = 3;
+                    const showStack = c > 0 && freeMembers.length > 0 && freeMembers.length <= MINI_MAX;
+                    const showOverflow = c > 0 && freeMembers.length > MINI_MAX;
+                    const showFallbackCount = c > 0 && freeMembers.length === 0;
+
                     return (
                       <TouchableOpacity
                         key={cell}
@@ -979,10 +999,37 @@ export default function AvailabilityScreen() {
                         activeOpacity={0.7}
                         style={[styles.cell, cellStyle(cell)]}
                       >
-                        {c > 0 && (
-                          <Text style={[styles.cellCount, { color: total > 0 && c / total >= 0.66 ? "#fff" : colors.foreground }]}>
-                            {c}
-                          </Text>
+                        {showStack && (
+                          <View style={styles.miniStack}>
+                            {freeMembers.map((m, idx) => (
+                              <View
+                                key={m.id}
+                                style={[
+                                  styles.miniAvatar,
+                                  {
+                                    marginLeft: idx === 0 ? 0 : -5,
+                                    zIndex: freeMembers.length - idx,
+                                    backgroundColor: colors.primary,
+                                    borderColor: colors.background,
+                                  },
+                                ]}
+                              >
+                                {m.avatarUrl ? (
+                                  <Image source={{ uri: m.avatarUrl }} style={styles.miniAvatarImg} />
+                                ) : (
+                                  <Text style={styles.miniAvatarLetter}>
+                                    {m.displayName.charAt(0).toUpperCase()}
+                                  </Text>
+                                )}
+                              </View>
+                            ))}
+                          </View>
+                        )}
+                        {showOverflow && (
+                          <Text style={[styles.cellCount, { color: countColor }]}>{c}</Text>
+                        )}
+                        {showFallbackCount && (
+                          <Text style={[styles.cellCount, { color: countColor }]}>{c}</Text>
                         )}
                       </TouchableOpacity>
                     );
@@ -1520,6 +1567,10 @@ const styles = StyleSheet.create({
   editRangeNote: { fontSize: 13, lineHeight: 18, marginTop: 18 },
   rangeUpdatedBanner: { flexDirection: "row", alignItems: "flex-start", gap: 8, borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, marginTop: 14 },
   rangeUpdatedText: { flex: 1, fontSize: 13, lineHeight: 18, fontWeight: "600" },
+  miniStack: { flexDirection: "row", alignItems: "center", justifyContent: "center" },
+  miniAvatar: { width: 16, height: 16, borderRadius: 8, borderWidth: 1.5, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  miniAvatarImg: { width: 16, height: 16, borderRadius: 8 },
+  miniAvatarLetter: { fontSize: 7, fontWeight: "800", color: "#fff" },
   cellSheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "70%" },
   cellSheetSectionLabel: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 14 },
   cellSheetMemberList: { gap: 12, marginBottom: 24 },
