@@ -48,6 +48,7 @@ vi.mock("@workspace/db", () => ({
     profileImageUrl: "profile_image_url",
   },
   squadRemovalNoticesTable: { id: "id", userId: "user_id", seenAt: "seen_at" },
+  squadMutesTable: { id: "id", userId: "user_id", squadId: "squad_id" },
 }));
 
 vi.mock("../storage", () => ({
@@ -190,5 +191,94 @@ describe("POST /api/squads/:id/members", () => {
     expect(res.status).toBe(201);
     expect(res.body.addedUser.id).toBe(TARGET_USER_ID);
     expect(res.body.squad.memberIds).toContain(TARGET_USER_ID);
+  });
+});
+
+// Squad that includes all three non-stranger participants so DELETE tests can
+// exercise every branch without resetting baseSquad.
+const squadWithTarget = {
+  ...baseSquad,
+  memberIds: [CREATOR_ID, NON_CREATOR_MEMBER_ID, TARGET_USER_ID],
+};
+
+describe("DELETE /api/squads/:id/members/:userId", () => {
+  it("returns 401 when unauthenticated", async () => {
+    const app = makeApp();
+    const res = await request(app).delete(
+      `/api/squads/squad-1/members/${TARGET_USER_ID}`,
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 403 when requester is a stranger (not in the squad)", async () => {
+    mockSelectResults.value = [[squadWithTarget]];
+    const app = makeApp({ id: STRANGER_ID });
+    const res = await request(app).delete(
+      `/api/squads/squad-1/members/${TARGET_USER_ID}`,
+    );
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/access denied/i);
+  });
+
+  it("returns 403 when a non-creator member tries to remove a different member", async () => {
+    mockSelectResults.value = [[squadWithTarget]];
+    const app = makeApp({ id: NON_CREATOR_MEMBER_ID });
+    const res = await request(app).delete(
+      `/api/squads/squad-1/members/${TARGET_USER_ID}`,
+    );
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/creator/i);
+  });
+
+  it("returns 403 when a non-creator member tries to remove the squad creator", async () => {
+    mockSelectResults.value = [[squadWithTarget]];
+    const app = makeApp({ id: NON_CREATOR_MEMBER_ID });
+    const res = await request(app).delete(
+      `/api/squads/squad-1/members/${CREATOR_ID}`,
+    );
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/creator/i);
+  });
+
+  it("returns 200 when the creator removes a non-creator member", async () => {
+    const updatedSquad = {
+      ...squadWithTarget,
+      memberIds: [CREATOR_ID, NON_CREATOR_MEMBER_ID],
+    };
+    mockSelectResults.value = [[squadWithTarget]];
+    mockUpdateRows.value = [updatedSquad];
+    const app = makeApp({ id: CREATOR_ID });
+    const res = await request(app).delete(
+      `/api/squads/squad-1/members/${TARGET_USER_ID}`,
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.memberIds).not.toContain(TARGET_USER_ID);
+  });
+
+  it("returns 200 when a member removes themselves (self-leave)", async () => {
+    const updatedSquad = {
+      ...squadWithTarget,
+      memberIds: [CREATOR_ID, TARGET_USER_ID],
+    };
+    mockSelectResults.value = [[squadWithTarget]];
+    mockUpdateRows.value = [updatedSquad];
+    const app = makeApp({ id: NON_CREATOR_MEMBER_ID });
+    const res = await request(app).delete(
+      `/api/squads/squad-1/members/${NON_CREATOR_MEMBER_ID}`,
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.memberIds).not.toContain(NON_CREATOR_MEMBER_ID);
+  });
+
+  it("returns 404 when the target user is not in the squad", async () => {
+    // STRANGER_ID is not in squadWithTarget.memberIds, but the requester is
+    // the creator (so auth passes); the target-not-found 404 fires next.
+    mockSelectResults.value = [[squadWithTarget]];
+    const app = makeApp({ id: CREATOR_ID });
+    const res = await request(app).delete(
+      `/api/squads/squad-1/members/${STRANGER_ID}`,
+    );
+    expect(res.status).toBe(404);
+    expect(res.body.error).toMatch(/not in this squad/i);
   });
 });
