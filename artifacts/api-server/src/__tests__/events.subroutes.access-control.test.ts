@@ -59,29 +59,17 @@ vi.mock("../lib/logger");
 // CPU/transform contention.
 import eventsRouter from "../routes/events";
 import { makeTestApp, type TestUser } from "./helpers/makeTestApp";
+import {
+  HOST_ID,
+  STRANGER_ID,
+  RSVP_USER_ID,
+  makeBaseEvent,
+} from "./helpers/fixtures";
 
 const makeApp = (user?: TestUser) => makeTestApp(eventsRouter, user);
 
-const HOST_ID = "host-user-id";
-const STRANGER_ID = "stranger-user-id";
-const RSVP_USER_ID = "rsvp-user-id";
-
-const baseEvent = {
-  id: "evt-1",
-  title: "Test Event",
-  emoji: "🎉",
-  date: "2026-07-01",
-  location: "Somewhere",
-  squadId: "",
-  squadName: "Personal",
-  hostId: HOST_ID,
-  description: "",
-  inviteCode: "SQ-ABCD",
-  cancelled: false,
-  budget: null,
-  rsvps: { [RSVP_USER_ID]: "going" },
+const baseEvent = makeBaseEvent({
   tasks: [{ id: "t1", title: "Buy drinks", assigneeId: null, done: false }],
-  costs: [],
   polls: [
     {
       id: "poll-1",
@@ -89,9 +77,7 @@ const baseEvent = {
       options: [{ id: "opt-1", label: "Pizza", voterIds: [] }],
     },
   ],
-  messages: [],
-  createdAt: new Date().toISOString(),
-};
+});
 
 beforeEach(() => {
   mockRows.value = [];

@@ -45,21 +45,16 @@ vi.mock("../lib/logger");
 // CPU/transform contention.
 import squadsRouter from "../routes/squads";
 import { makeTestApp, type TestUser } from "./helpers/makeTestApp";
+import {
+  MEMBER_ID,
+  STRANGER_ID,
+  SECOND_MEMBER_ID,
+  makeBaseSquad,
+} from "./helpers/fixtures";
 
 const makeApp = (user?: TestUser) => makeTestApp(squadsRouter, user);
 
-const MEMBER_ID = "member-user-id";
-const STRANGER_ID = "stranger-user-id";
-const SECOND_MEMBER_ID = "second-member-id";
-
-const baseSquad = {
-  id: "squad-1",
-  name: "Test Squad",
-  emoji: "👥",
-  color: "#FF5C3A",
-  memberIds: [MEMBER_ID, SECOND_MEMBER_ID],
-  createdAt: new Date().toISOString(),
-};
+const baseSquad = makeBaseSquad();
 
 describe("GET /api/squads/:id", () => {
   it("returns 401 when unauthenticated", async () => {
