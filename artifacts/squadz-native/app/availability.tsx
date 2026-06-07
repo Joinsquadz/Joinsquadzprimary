@@ -49,6 +49,7 @@ type MemberInfo = {
   hasResponded: boolean;
   needsUpdate: boolean;
   respondedAt: string | null;
+  nudgedAt?: string | null;
 };
 
 type PollPayload = {
@@ -71,6 +72,7 @@ type PollPayload = {
   best: { cell: string; count: number; total: number } | null;
   members?: MemberInfo[];
   droppedCount?: number;
+  nudgedAt?: string | null;
 };
 
 // Split a cell key `${day}-${slot}` on the LAST dash so ISO dates (which
@@ -316,6 +318,12 @@ export default function AvailabilityScreen() {
       if (finished) setTooltipMemberId(null);
     });
   }, [tooltipOpacity]);
+
+  // Nudge state: tracks per-member button state for the poll creator.
+  // 'sending' = in-flight, 'sent' = recently sent (debounce UI), null = idle.
+  const [nudgeState, setNudgeState] = useState<Map<string, "sending" | "sent">>(new Map());
+  // Banner shown to a member who was nudged to fill in their availability.
+  const [nudgedBanner, setNudgedBanner] = useState<string | null>(null);
 
   // Edit range state: host-only modal to update an existing poll's date range and title.
   const [editRangeOpen, setEditRangeOpen] = useState(false);
@@ -633,6 +641,27 @@ export default function AvailabilityScreen() {
     }
   }, [data, authHeaders, editTitle, editStart, editDays]);
 
+  // When poll data arrives, pre-populate nudge button state from server-side
+  // debounce info (nudgedAt per member) and surface the nudged banner if this
+  // user was nudged recently and hasn't responded yet.
+  useEffect(() => {
+    if (!data) return;
+
+    // Seed nudge button state from server-returned nudgedAt per member.
+    const initial = new Map<string, "sending" | "sent">();
+    for (const m of data.members ?? []) {
+      if (m.nudgedAt && !m.hasResponded) {
+        initial.set(m.id, "sent");
+      }
+    }
+    setNudgeState(initial);
+
+    // Show nudged banner if the server says the current user was nudged.
+    if (data.nudgedAt && data.myCells.length === 0) {
+      setNudgedBanner("Your squad creator nudged you to fill in your availability!");
+    }
+  }, [data]);
+
   useEffect(() => {
     if (!squadId && !eventId) {
       setError("Missing squad or event.");
@@ -846,38 +875,50 @@ export default function AvailabilityScreen() {
     return `${prettyDay(first)} – ${prettyDay(last)}`;
   }, [editStart, editDays]);
 
-  const isCreator = data?.poll.createdBy === currentUser?.id;
-
-  // Tracks which member IDs the host has nudged in this session (for UI feedback).
-  const [nudgedIds, setNudgedIds] = useState<Set<string>>(new Set());
-  const [nudgingId, setNudgingId] = useState<string | null>(null);
-
-  const sendNudge = useCallback(async (memberId: string) => {
-    if (!data?.poll.id) return;
-    setNudgingId(memberId);
+  const sendNudge = useCallback(async (targetUserId: string) => {
+    if (!data) return;
+    setNudgeState((prev) => new Map(prev).set(targetUserId, "sending"));
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
       const res = await fetch(`${API_BASE}/api/availability/polls/${data.poll.id}/nudge`, {
         method: "POST",
         headers: authHeaders(),
-        body: JSON.stringify({ targetUserId: memberId }),
+        body: JSON.stringify({ targetUserId }),
       });
-      if (res.ok) {
-        setNudgedIds((prev) => new Set([...prev, memberId]));
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      } else {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        if (res.status === 429) {
-          setNudgedIds((prev) => new Set([...prev, memberId]));
-        } else {
-          Alert.alert("Couldn't send nudge", body.error ?? "Please try again.");
-        }
+      if (res.status === 429) {
+        const body = (await res.json().catch(() => ({}))) as { retryAfterSec?: number };
+        const waitMin = body.retryAfterSec ? Math.ceil(body.retryAfterSec / 60) : 5;
+        Alert.alert("Already nudged", `Please wait about ${waitMin} minute${waitMin !== 1 ? "s" : ""} before nudging again.`);
+        setNudgeState((prev) => {
+          const next = new Map(prev);
+          next.delete(targetUserId);
+          return next;
+        });
+        return;
       }
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        Alert.alert("Couldn't nudge", body.error ?? "Please try again.");
+        setNudgeState((prev) => {
+          const next = new Map(prev);
+          next.delete(targetUserId);
+          return next;
+        });
+        return;
+      }
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setNudgeState((prev) => new Map(prev).set(targetUserId, "sent"));
     } catch {
-      Alert.alert("Couldn't send nudge", "Network error. Please try again.");
-    } finally {
-      setNudgingId(null);
+      Alert.alert("Couldn't nudge", "Network error. Please try again.");
+      setNudgeState((prev) => {
+        const next = new Map(prev);
+        next.delete(targetUserId);
+        return next;
+      });
     }
-  }, [data?.poll.id, authHeaders]);
+  }, [data, authHeaders]);
+
+  const isCreator = data?.poll.createdBy === currentUser?.id;
 
   const total = data?.respondentCount ?? 0;
 
@@ -1257,6 +1298,16 @@ export default function AvailabilityScreen() {
               Updated just now
             </Animated.Text>
 
+            {nudgedBanner && (
+              <View style={[styles.nudgedBanner, { backgroundColor: colors.primary + "18", borderColor: colors.primary + "44" }]}>
+                <Ionicons name="notifications-outline" size={16} color={colors.primary} />
+                <Text style={[styles.nudgedBannerText, { color: colors.foreground }]}>{nudgedBanner}</Text>
+                <TouchableOpacity onPress={() => setNudgedBanner(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Ionicons name="close" size={16} color={colors.mutedForeground} />
+                </TouchableOpacity>
+              </View>
+            )}
+
             {data.members && data.members.length > 0 && (
               <View style={styles.memberSection}>
                 {selectedMemberIds.size > 0 && (() => {
@@ -1297,63 +1348,127 @@ export default function AvailabilityScreen() {
                     </TouchableOpacity>
                   );
                 })()}
-                <View style={styles.memberRow}>
+                {isCreator && data.members.some((m) => !m.hasResponded) && (
+                  <Text style={[styles.memberSectionLabel, { color: colors.mutedForeground }]}>
+                    Tap Nudge to remind pending members
+                  </Text>
+                )}
+                <View style={styles.memberList}>
                   {data.members.map((m) => {
                     const isSelected = selectedMemberIds.has(m.id);
                     const showingTooltip = m.id === tooltipMemberId;
-
                     const upToDate = m.hasResponded && !m.needsUpdate;
                     const stale = m.hasResponded && m.needsUpdate;
-
                     const avatarBg = isSelected ? "#F59E0B" : (upToDate ? colors.primary : stale ? colors.gold : colors.card);
                     const avatarBorder = isSelected ? "#F59E0B" : (upToDate ? colors.primary : stale ? colors.gold : colors.border);
                     const avatarOpacity = upToDate || isSelected ? 1 : stale ? 0.8 : 0.45;
                     const textColor = upToDate || stale || isSelected ? "#fff" : colors.mutedForeground;
-
+                    const nudgeSt = nudgeState.get(m.id);
+                    const canNudge = isCreator && !m.hasResponded;
+                    const isSending = nudgeSt === "sending";
+                    const isSent = nudgeSt === "sent";
                     return (
-                      <View key={m.id} style={styles.memberAvatarWrap}>
-                        {showingTooltip && (
-                          <Animated.View style={[styles.avatarTooltip, { backgroundColor: colors.foreground, opacity: tooltipOpacity }]}>
-                            <Text style={[styles.avatarTooltipText, { color: colors.background }]} numberOfLines={1}>
-                              {m.displayName}
-                            </Text>
-                            <View style={[styles.avatarTooltipArrow, { borderTopColor: colors.foreground }]} />
-                          </Animated.View>
-                        )}
-                        <TouchableOpacity
-                          onPress={() => {
-                            Haptics.selectionAsync();
-                            setSelectedMemberIds((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(m.id)) next.delete(m.id);
-                              else next.add(m.id);
-                              return next;
-                            });
-                          }}
-                          onLongPress={() => {
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                            showTooltip(m.id);
-                          }}
-                          delayLongPress={500}
-                          activeOpacity={0.7}
-                          style={[
-                            styles.memberAvatar,
-                            {
-                              backgroundColor: avatarBg,
-                              borderColor: avatarBorder,
-                              borderWidth: isSelected ? 2.5 : 1.5,
-                              opacity: avatarOpacity,
-                            },
-                          ]}
-                        >
-                          {m.avatarUrl ? (
-                            <Image source={{ uri: m.avatarUrl }} style={styles.memberAvatarImage} />
-                          ) : (
-                            <Text style={[styles.memberInitial, { color: textColor }]}>
-                              {m.displayName.charAt(0).toUpperCase()}
-                            </Text>
+                      <View key={m.id} style={styles.memberItem}>
+                        <View style={styles.memberAvatarWrap}>
+                          {showingTooltip && (
+                            <Animated.View style={[styles.avatarTooltip, { backgroundColor: colors.foreground, opacity: tooltipOpacity }]}>
+                              <Text style={[styles.avatarTooltipText, { color: colors.background }]} numberOfLines={1}>
+                                {m.displayName}
+                              </Text>
+                              <View style={[styles.avatarTooltipArrow, { borderTopColor: colors.foreground }]} />
+                            </Animated.View>
                           )}
-                        </TouchableOpacity>
+                          {m.hasResponded ? (
+                            <TouchableOpacity
+                              onPress={() => {
+                                Haptics.selectionAsync();
+                                setSelectedMemberIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(m.id)) next.delete(m.id);
+                                  else next.add(m.id);
+                                  return next;
+                                });
+                                showTooltip(m.id);
+                              }}
+                              onLongPress={() => {
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                showTooltip(m.id);
+                              }}
+                              delayLongPress={500}
+                              activeOpacity={0.7}
+                              style={[
+                                styles.memberAvatar,
+                                {
+                                  backgroundColor: avatarBg,
+                                  borderColor: avatarBorder,
+                                  borderWidth: isSelected ? 2.5 : 1.5,
+                                  opacity: avatarOpacity,
+                                },
+                              ]}
+                            >
+                              {m.avatarUrl ? (
+                                <Image source={{ uri: m.avatarUrl }} style={styles.memberAvatarImage} />
+                              ) : (
+                                <Text style={[styles.memberInitial, { color: textColor }]}>
+                                  {m.displayName.charAt(0).toUpperCase()}
+                                </Text>
+                              )}
+                            </TouchableOpacity>
+                          ) : (
+                            <View
+                              style={[
+                                styles.memberAvatar,
+                                {
+                                  backgroundColor: colors.card,
+                                  borderColor: colors.border,
+                                  opacity: 0.45,
+                                },
+                              ]}
+                            >
+                              {m.avatarUrl ? (
+                                <Image source={{ uri: m.avatarUrl }} style={styles.memberAvatarImage} />
+                              ) : (
+                                <Text style={[styles.memberInitial, { color: colors.mutedForeground }]}>
+                                  {m.displayName.charAt(0).toUpperCase()}
+                                </Text>
+                              )}
+                            </View>
+                          )}
+                          {m.hasResponded && (
+                            <View style={[styles.respondedDot, { backgroundColor: isSelected ? "#F59E0B" : stale ? colors.gold : colors.primary }]}>
+                              <Ionicons name="checkmark" size={8} color="#fff" />
+                            </View>
+                          )}
+                        </View>
+                        <Text
+                          style={[styles.memberName, { color: m.hasResponded ? colors.foreground : colors.mutedForeground }]}
+                          numberOfLines={1}
+                        >
+                          {m.displayName}
+                        </Text>
+                        {canNudge && (
+                          <TouchableOpacity
+                            onPress={() => { if (!isSending && !isSent) void sendNudge(m.id); }}
+                            disabled={isSending || isSent}
+                            style={[
+                              styles.nudgeBtn,
+                              {
+                                backgroundColor: isSent ? colors.card : colors.primary + "22",
+                                borderColor: isSent ? colors.border : colors.primary + "66",
+                                opacity: isSending ? 0.6 : 1,
+                              },
+                            ]}
+                          >
+                            <Ionicons
+                              name={isSent ? "checkmark-circle-outline" : "notifications-outline"}
+                              size={13}
+                              color={isSent ? colors.textDim : colors.primary}
+                            />
+                            <Text style={[styles.nudgeBtnText, { color: isSent ? colors.textDim : colors.primary }]}>
+                              {isSending ? "…" : isSent ? "Sent" : "Nudge"}
+                            </Text>
+                          </TouchableOpacity>
+                        )}
                       </View>
                     );
                   })}
@@ -1369,8 +1484,8 @@ export default function AvailabilityScreen() {
                     {data.members
                       .filter((m) => m.needsUpdate)
                       .map((m) => {
-                        const nudged = nudgedIds.has(m.id);
-                        const nudging = nudgingId === m.id;
+                        const nudged = nudgeState.get(m.id) === "sent";
+                        const nudging = nudgeState.get(m.id) === "sending";
                         return (
                           <View key={m.id} style={styles.pendingMemberRow}>
                             <View style={[styles.pendingAvatar, { backgroundColor: m.hasResponded ? colors.gold + "33" : colors.border + "33", borderColor: m.hasResponded ? colors.gold : colors.border }]}>
@@ -1886,11 +2001,14 @@ const styles = StyleSheet.create({
   respText: { fontSize: 13, marginTop: 16, fontWeight: "600" },
   updatedText: { fontSize: 11, fontWeight: "600", marginTop: 4 },
   memberSection: { marginTop: 12 },
-  memberRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  memberSectionLabel: { fontSize: 12, fontWeight: "600", marginBottom: 10 },
+  memberList: { gap: 8 },
+  memberItem: { flexDirection: "row", alignItems: "center", gap: 10 },
+  memberAvatarWrap: { position: "relative", alignItems: "center" },
   memberAvatar: { width: 36, height: 36, borderRadius: 18, borderWidth: 1.5, alignItems: "center", justifyContent: "center", overflow: "hidden" },
   memberAvatarImage: { width: 36, height: 36, borderRadius: 18 },
+  respondedDot: { position: "absolute", bottom: -2, right: -2, width: 14, height: 14, borderRadius: 7, alignItems: "center", justifyContent: "center" },
   memberInitial: { fontSize: 14, fontWeight: "800" },
-  memberAvatarWrap: { alignItems: "center" },
   avatarTooltip: {
     position: "absolute",
     bottom: 42,
@@ -1913,6 +2031,7 @@ const styles = StyleSheet.create({
     borderLeftColor: "transparent",
     borderRightColor: "transparent",
   },
+  memberName: { flex: 1, fontSize: 14, fontWeight: "600" },
   memberPendingText: { fontSize: 12, marginTop: 8, fontWeight: "600" },
   pendingCountBtn: { flexDirection: "row", alignItems: "center", gap: 5, alignSelf: "flex-start", marginBottom: 10, paddingVertical: 4, paddingHorizontal: 2 },
   pendingCountText: { fontSize: 12, fontWeight: "600" },
@@ -1927,8 +2046,10 @@ const styles = StyleSheet.create({
   pendingInitial: { fontSize: 12, fontWeight: "800" },
   pendingName: { fontSize: 13, fontWeight: "700" },
   pendingStatus: { fontSize: 11, marginTop: 1 },
-  nudgeBtn: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 8, borderWidth: 1.5, paddingHorizontal: 8, paddingVertical: 5 },
-  nudgeBtnText: { fontSize: 11, fontWeight: "700" },
+  nudgeBtn: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 20, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 5 },
+  nudgeBtnText: { fontSize: 12, fontWeight: "700" },
+  nudgedBanner: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 12, borderWidth: 1, padding: 12, marginTop: 16 },
+  nudgedBannerText: { flex: 1, fontSize: 13, fontWeight: "600" },
   bottomBar: { paddingHorizontal: 20, paddingTop: 12, borderTopWidth: 1, gap: 10 },
   droppedBanner: { flexDirection: "row", alignItems: "flex-start", gap: 8, borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10 },
   droppedBannerText: { flex: 1, fontSize: 13, lineHeight: 18 },

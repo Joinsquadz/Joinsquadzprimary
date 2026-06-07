@@ -107,7 +107,7 @@ export async function checkPushReceipts(
   const ticketIds = [..._pendingTickets.keys()];
   if (ticketIds.length === 0) return { staleTokens };
 
-  const chunks = expo.chunkPushReceiptIds(ticketIds);
+  const chunks = expo.chunkPushNotificationReceiptIds(ticketIds);
 
   for (const chunk of chunks) {
     try {

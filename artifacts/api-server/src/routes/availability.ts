@@ -13,6 +13,7 @@ type MemberInfo = {
   hasResponded: boolean;
   needsUpdate: boolean;
   respondedAt: string | null;
+  nudgedAt?: string | null;
 };
 
 function toDisplayName(user: { firstName?: string | null; lastName?: string | null; email?: string | null }): string {
@@ -45,25 +46,31 @@ async function buildMembersField(
     const memberIds: string[] = (squad?.memberIds as string[] | null) ?? [];
     const allIds = [...new Set([...memberIds, ...respondentIds])];
     const users = await storage.getUsers(allIds);
-    return users.map((u) => ({
-      id: u.id,
-      displayName: toDisplayName(u),
-      avatarUrl: u.profileImageUrl ?? null,
-      hasResponded: respondentIds.has(u.id),
-      needsUpdate: memberNeedsUpdate(u.id),
-      respondedAt: responseMap.get(u.id)?.updatedAt?.toISOString() ?? null,
-    }));
+    return users.map((u) => {
+      const resp = responseMap.get(u.id);
+      return {
+        id: u.id,
+        displayName: toDisplayName(u),
+        avatarUrl: u.profileImageUrl ?? null,
+        hasResponded: respondentIds.has(u.id),
+        needsUpdate: memberNeedsUpdate(u.id),
+        respondedAt: resp?.updatedAt?.toISOString() ?? null,
+      };
+    });
   }
   if (respondentIds.size > 0) {
     const users = await storage.getUsers([...respondentIds]);
-    return users.map((u) => ({
-      id: u.id,
-      displayName: toDisplayName(u),
-      avatarUrl: u.profileImageUrl ?? null,
-      hasResponded: true,
-      needsUpdate: memberNeedsUpdate(u.id),
-      respondedAt: responseMap.get(u.id)?.updatedAt?.toISOString() ?? null,
-    }));
+    return users.map((u) => {
+      const resp = responseMap.get(u.id);
+      return {
+        id: u.id,
+        displayName: toDisplayName(u),
+        avatarUrl: u.profileImageUrl ?? null,
+        hasResponded: true,
+        needsUpdate: memberNeedsUpdate(u.id),
+        respondedAt: resp?.updatedAt?.toISOString() ?? null,
+      };
+    });
   }
   return [];
 }
@@ -74,6 +81,8 @@ async function resolveUpdatedByName(poll: AvailabilityPoll): Promise<string | nu
   if (!users.length) return null;
   return toDisplayName(users[0]);
 }
+
+const NUDGE_DEBOUNCE_MS = 5 * 60 * 1000; // 5 minutes
 
 const router: IRouter = Router();
 
@@ -115,6 +124,10 @@ const UpdatePollBody = z
   .refine((d) => d.title !== undefined || d.days || d.slots, {
     message: "At least one of title, days, or slots must be provided",
   });
+
+const NudgeBody = z.object({
+  targetUserId: z.string().min(1),
+});
 
 type AggregatedCell = { cell: string; count: number };
 
@@ -190,6 +203,44 @@ function buildPollPayload(
   };
 }
 
+/** Attach per-member nudge timestamps and the current user's nudge banner info
+ *  to a poll payload. Called after buildMembersField. */
+async function enrichWithNudgeData(
+  pollId: string,
+  userId: string,
+  isCreator: boolean,
+  members: MemberInfo[],
+  respondentIds: Set<string>,
+): Promise<{ members: MemberInfo[]; nudgedAt: string | null }> {
+  const pendingIds = members.filter((m) => !m.hasResponded).map((m) => m.id);
+
+  // For the creator: attach per-member last-nudge times (within debounce window)
+  // so the mobile client can pre-disable nudge buttons on load.
+  let recentNudgeMap = new Map<string, Date>();
+  if (isCreator && pendingIds.length > 0) {
+    recentNudgeMap = await storage.getRecentNudgesFromUser(
+      pollId,
+      userId,
+      pendingIds,
+      NUDGE_DEBOUNCE_MS,
+    );
+  }
+
+  const enrichedMembers = members.map((m) => {
+    const nudgeDate = recentNudgeMap.get(m.id);
+    return { ...m, nudgedAt: nudgeDate ? nudgeDate.toISOString() : null };
+  });
+
+  // For the nudged user: check if they were nudged recently and haven't responded.
+  let nudgedAt: string | null = null;
+  if (!respondentIds.has(userId)) {
+    const nudgeDate = await storage.getLatestNudgeForUser(pollId, userId);
+    if (nudgeDate) nudgedAt = nudgeDate.toISOString();
+  }
+
+  return { members: enrichedMembers, nudgedAt };
+}
+
 /**
  * POST /api/availability/polls
  * Create (or reuse) a poll for a squad or event. Caller must be a member of the
@@ -249,7 +300,12 @@ router.post("/availability/polls", requireAuth, async (req: Request, res: Respon
       buildMembersField(poll, responses),
       resolveUpdatedByName(poll),
     ]);
-    res.status(existing ? 200 : 201).json({ ...buildPollPayload(poll, responses, userId, updatedByName), members });
+    const isCreator = poll.createdBy === userId;
+    const respondentIds = new Set(responses.map((r) => r.userId));
+    const { members: enrichedMembers, nudgedAt } = await enrichWithNudgeData(
+      poll.id, userId, isCreator, members, respondentIds,
+    );
+    res.status(existing ? 200 : 201).json({ ...buildPollPayload(poll, responses, userId, updatedByName), members: enrichedMembers, nudgedAt });
   } catch (err) {
     logger.error({ err }, "Error creating availability poll");
     res.status(500).json({ error: "Failed to create poll" });
@@ -282,7 +338,12 @@ router.get("/availability/polls/find", requireAuth, async (req: Request, res: Re
       buildMembersField(poll, responses),
       resolveUpdatedByName(poll),
     ]);
-    res.json({ ...buildPollPayload(poll, responses, userId, updatedByName), members });
+    const isCreator = poll.createdBy === userId;
+    const respondentIds = new Set(responses.map((r) => r.userId));
+    const { members: enrichedMembers, nudgedAt } = await enrichWithNudgeData(
+      poll.id, userId, isCreator, members, respondentIds,
+    );
+    res.json({ ...buildPollPayload(poll, responses, userId, updatedByName), members: enrichedMembers, nudgedAt });
   } catch (err) {
     logger.error({ err }, "Error finding availability poll");
     res.status(500).json({ error: "Failed to find poll" });
@@ -311,7 +372,12 @@ router.get("/availability/polls/:id", requireAuth, async (req: Request, res: Res
       buildMembersField(poll, responses),
       resolveUpdatedByName(poll),
     ]);
-    res.json({ ...buildPollPayload(poll, responses, userId, updatedByName), members });
+    const isCreator = poll.createdBy === userId;
+    const respondentIds = new Set(responses.map((r) => r.userId));
+    const { members: enrichedMembers, nudgedAt } = await enrichWithNudgeData(
+      poll.id, userId, isCreator, members, respondentIds,
+    );
+    res.json({ ...buildPollPayload(poll, responses, userId, updatedByName), members: enrichedMembers, nudgedAt });
   } catch (err) {
     logger.error({ err }, "Error fetching availability poll");
     res.status(500).json({ error: "Failed to fetch poll" });
@@ -440,8 +506,8 @@ router.patch("/availability/polls/:id", requireAuth, async (req: Request, res: R
 
 /**
  * POST /api/availability/polls/:id/nudge
- * Send a push notification to a member who hasn't filled in their availability.
- * Only the poll creator may call this. Rate-limited to one nudge per member per poll.
+ * Send a nudge notification to a pending member. Only the poll creator may call
+ * this. Enforces a 5-minute debounce per (sender, target) to prevent spam.
  */
 router.post("/availability/polls/:id/nudge", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
@@ -458,44 +524,46 @@ router.post("/availability/polls/:id/nudge", requireAuth, async (req: Request, r
       return;
     }
 
-    const TargetBody = z.object({ targetUserId: z.string().min(1) });
-    const parsed = TargetBody.safeParse(req.body);
+    const parsed = NudgeBody.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json({ error: "targetUserId is required" });
+      res.status(400).json({ error: parsed.error.message });
       return;
     }
     const { targetUserId } = parsed.data;
 
-    // Verify the target is actually a pending member (hasn't responded or
-    // responded before a range update) — guards against nudging arbitrary users.
+    if (targetUserId === userId) {
+      res.status(400).json({ error: "Cannot nudge yourself" });
+      return;
+    }
+
+    // Verify the target is actually a pending member (hasn't responded yet).
     const responses = await storage.getAvailabilityResponses(pollId);
-    const members = await buildMembersField(poll, responses);
-    const target = members.find((m) => m.id === targetUserId);
-    if (!target) {
-      res.status(404).json({ error: "Member not found in this poll" });
-      return;
-    }
-    if (!target.needsUpdate) {
-      res.status(422).json({ error: "This member has already responded" });
+    const respondentIds = new Set(responses.map((r) => r.userId));
+    if (respondentIds.has(targetUserId)) {
+      res.status(400).json({ error: "This member has already responded" });
       return;
     }
 
-    // Enforce one-nudge-per-member-per-poll rate limit.
-    const alreadyNudged = await storage.hasNudgedMember(pollId, targetUserId);
-    if (alreadyNudged) {
-      res.status(429).json({ error: "You have already sent a nudge to this member" });
+    // Debounce: reject if a nudge was already sent recently.
+    const recent = await storage.getRecentNudge(pollId, userId, targetUserId, NUDGE_DEBOUNCE_MS);
+    if (recent) {
+      const retryAfterMs = NUDGE_DEBOUNCE_MS - (Date.now() - recent.sentAt.getTime());
+      const retryAfterSec = Math.ceil(retryAfterMs / 1000);
+      res.status(429).json({
+        error: "Nudge sent too recently — please wait a few minutes before nudging again",
+        retryAfterSec,
+        debounced: true,
+      });
       return;
     }
 
-    // Record the nudge BEFORE sending so a DB failure doesn't allow retries.
-    const recorded = await storage.recordNudge(pollId, targetUserId);
-    if (!recorded) {
-      // Race condition: another request just recorded it.
-      res.status(429).json({ error: "You have already sent a nudge to this member" });
-      return;
-    }
+    await storage.createNudge(pollId, userId, targetUserId);
 
-    res.json({ ok: true });
+    // Look up the sender's name for a friendlier response message.
+    const [sender] = await storage.getUsers([userId]);
+    const senderName = sender ? toDisplayName(sender) : "Someone";
+
+    res.json({ ok: true, debounced: false, message: `${senderName} nudged the member successfully` });
 
     // Fire-and-forget: send the push notification after responding to the host.
     void (async () => {
@@ -508,13 +576,13 @@ router.post("/availability/polls/:id/nudge", requireAuth, async (req: Request, r
           : { screen: "availability", eventId: poll.eventId ?? "" };
 
         const senderUsers = await storage.getUsers([userId]);
-        const senderName = senderUsers.length ? toDisplayName(senderUsers[0]) : "Your host";
+        const senderDisplayName = senderUsers.length ? toDisplayName(senderUsers[0]) : "Your host";
 
         await sendPushNotifications(
           tokens,
           {
             title: "Fill in your availability 📅",
-            body: `${senderName} is waiting for your times — add them now`,
+            body: `${senderDisplayName} is waiting for your times — add them now`,
             data: scopeData,
           },
           { onStaleToken: (token) => storage.clearPushToken(token) },
@@ -524,7 +592,7 @@ router.post("/availability/polls/:id/nudge", requireAuth, async (req: Request, r
       }
     })();
   } catch (err) {
-    logger.error({ err }, "Error processing nudge request");
+    logger.error({ err }, "Error sending availability nudge");
     res.status(500).json({ error: "Failed to send nudge" });
   }
 });
@@ -566,7 +634,12 @@ router.put("/availability/polls/:id/me", requireAuth, async (req: Request, res: 
       buildMembersField(poll, responses),
       resolveUpdatedByName(poll),
     ]);
-    res.json({ ...buildPollPayload(poll, responses, userId, updatedByName), members, droppedCount });
+    const isCreator = poll.createdBy === userId;
+    const respondentIds = new Set(responses.map((r) => r.userId));
+    const { members: enrichedMembers, nudgedAt } = await enrichWithNudgeData(
+      poll.id, userId, isCreator, members, respondentIds,
+    );
+    res.json({ ...buildPollPayload(poll, responses, userId, updatedByName), members: enrichedMembers, nudgedAt, droppedCount });
 
     // Fire-and-forget: push notification to the poll creator when a member
     // re-submits their availability after the host updated the date range.

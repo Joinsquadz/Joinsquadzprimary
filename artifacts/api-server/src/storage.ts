@@ -556,6 +556,94 @@ export class Storage {
     return false;
   }
 
+  // ---- Availability Nudges ----
+
+  /** Returns the most recent nudge from `fromUserId` → `toUserId` in this poll
+   *  within `windowMs`, or null if none exists. Used for debounce checks. */
+  async getRecentNudge(
+    pollId: string,
+    fromUserId: string,
+    toUserId: string,
+    windowMs: number,
+  ): Promise<{ sentAt: Date } | null> {
+    const since = new Date(Date.now() - windowMs);
+    const [row] = await db
+      .select({ sentAt: availabilityNudgesTable.sentAt })
+      .from(availabilityNudgesTable)
+      .where(
+        and(
+          eq(availabilityNudgesTable.pollId, pollId),
+          eq(availabilityNudgesTable.fromUserId, fromUserId),
+          eq(availabilityNudgesTable.toUserId, toUserId),
+          gte(availabilityNudgesTable.sentAt, since),
+        ),
+      )
+      .orderBy(desc(availabilityNudgesTable.sentAt))
+      .limit(1);
+    return row ?? null;
+  }
+
+  /** Records a new nudge from `fromUserId` → `toUserId` in this poll. */
+  async createNudge(pollId: string, fromUserId: string, toUserId: string): Promise<void> {
+    await db
+      .insert(availabilityNudgesTable)
+      .values({ pollId, fromUserId, toUserId });
+  }
+
+  /** Returns the most recent time `toUserId` was nudged in this poll within
+   *  the last 24 hours, or null if no recent nudge exists. Used to surface a
+   *  banner to the nudged member when they open the availability screen. */
+  async getLatestNudgeForUser(
+    pollId: string,
+    toUserId: string,
+  ): Promise<Date | null> {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const [row] = await db
+      .select({ sentAt: availabilityNudgesTable.sentAt })
+      .from(availabilityNudgesTable)
+      .where(
+        and(
+          eq(availabilityNudgesTable.pollId, pollId),
+          eq(availabilityNudgesTable.toUserId, toUserId),
+          gte(availabilityNudgesTable.sentAt, since),
+        ),
+      )
+      .orderBy(desc(availabilityNudgesTable.sentAt))
+      .limit(1);
+    return row?.sentAt ?? null;
+  }
+
+  /** Returns the last nudge sent from `fromUserId` to each target in `toUserIds`
+   *  within `windowMs`, keyed by toUserId. Used for per-member debounce info
+   *  returned to the creator so the UI can pre-disable buttons. */
+  async getRecentNudgesFromUser(
+    pollId: string,
+    fromUserId: string,
+    toUserIds: string[],
+    windowMs: number,
+  ): Promise<Map<string, Date>> {
+    if (toUserIds.length === 0) return new Map();
+    const since = new Date(Date.now() - windowMs);
+    const rows = await db
+      .select({ toUserId: availabilityNudgesTable.toUserId, sentAt: availabilityNudgesTable.sentAt })
+      .from(availabilityNudgesTable)
+      .where(
+        and(
+          eq(availabilityNudgesTable.pollId, pollId),
+          eq(availabilityNudgesTable.fromUserId, fromUserId),
+          inArray(availabilityNudgesTable.toUserId, toUserIds),
+          gte(availabilityNudgesTable.sentAt, since),
+        ),
+      )
+      .orderBy(desc(availabilityNudgesTable.sentAt));
+
+    const result = new Map<string, Date>();
+    for (const row of rows) {
+      if (!result.has(row.toUserId)) result.set(row.toUserId, row.sentAt);
+    }
+    return result;
+  }
+
   // Add an email to the marketing waitlist. Idempotent: re-submitting the same
   // email is a no-op rather than an error.
   async addToWaitlist(email: string, source: string): Promise<void> {
@@ -938,38 +1026,6 @@ export class Storage {
       if (await this.getConversationForMember(row.conversationId, userId)) return true;
     }
     return false;
-  }
-
-  // ---- Availability nudges ----
-
-  /**
-   * Record that the poll creator nudged a specific member. Uses INSERT … ON
-   * CONFLICT DO NOTHING so a duplicate attempt is silently ignored; the caller
-   * should check `hasNudgedMember` first to return a meaningful 429.
-   * Returns true when the row was inserted, false when a duplicate was skipped.
-   */
-  async recordNudge(pollId: string, targetUserId: string): Promise<boolean> {
-    const result = await db
-      .insert(availabilityNudgesTable)
-      .values({ pollId, targetUserId })
-      .onConflictDoNothing()
-      .returning({ id: availabilityNudgesTable.id });
-    return result.length > 0;
-  }
-
-  /** True when the host has already sent a nudge to this member for this poll. */
-  async hasNudgedMember(pollId: string, targetUserId: string): Promise<boolean> {
-    const rows = await db
-      .select({ id: availabilityNudgesTable.id })
-      .from(availabilityNudgesTable)
-      .where(
-        and(
-          eq(availabilityNudgesTable.pollId, pollId),
-          eq(availabilityNudgesTable.targetUserId, targetUserId),
-        ),
-      )
-      .limit(1);
-    return rows.length > 0;
   }
 
   // ---- Push tokens ----
