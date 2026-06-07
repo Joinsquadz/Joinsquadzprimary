@@ -269,7 +269,18 @@ describe("POST /api/availability/polls", () => {
     expect(storageMock.createAvailabilityPoll).toHaveBeenCalled();
   });
 
-  it("trims whitespace from title before storing (201)", async () => {
+  it("rejects a whitespace-only title with 400", async () => {
+    storageMock.canAccessAvailabilityPoll.mockResolvedValue(true);
+    storageMock.findAvailabilityPoll.mockResolvedValue(null);
+    const app = await makeApp({ id: MEMBER_ID });
+    const res = await request(app)
+      .post("/api/availability/polls")
+      .send({ squadId: "squad-1", title: "   " });
+    expect(res.status).toBe(400);
+    expect(storageMock.createAvailabilityPoll).not.toHaveBeenCalled();
+  });
+
+  it("accepts a non-empty title and passes it trimmed to storage (201)", async () => {
     storageMock.canAccessAvailabilityPoll.mockResolvedValue(true);
     storageMock.findAvailabilityPoll.mockResolvedValue(null);
     storageMock.createAvailabilityPoll.mockResolvedValue(basePoll);
@@ -277,10 +288,10 @@ describe("POST /api/availability/polls", () => {
     const app = await makeApp({ id: MEMBER_ID });
     const res = await request(app)
       .post("/api/availability/polls")
-      .send({ squadId: "squad-1", title: "   " });
+      .send({ squadId: "squad-1", title: "  Weekend Hangout  " });
     expect(res.status).toBe(201);
     const calledWith = storageMock.createAvailabilityPoll.mock.calls[0][0] as { title?: string };
-    expect(calledWith.title).toBe("");
+    expect(calledWith.title).toBe("Weekend Hangout");
   });
 });
 
