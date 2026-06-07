@@ -1,9 +1,10 @@
+import { useEffect } from "react";
 import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useColors } from "@/hooks/useColors";
 import { useData } from "@/context/AppContext";
-import { getUserById } from "@/data/mock";
+import { useUserCache } from "@/context/UserCacheContext";
 
 interface EventCardProps {
   id: string;
@@ -28,8 +29,12 @@ export function EventCard({
 }: EventCardProps) {
   const colors = useColors();
   const { currentUser } = useData();
-  const host = getUserById(hostId);
+  const { resolveUser, prefetchUsers } = useUserCache();
+  const host = resolveUser(hostId);
   const isHost = hostId === currentUser.id;
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { prefetchUsers([hostId]); }, [hostId]);
 
   return (
     <TouchableOpacity

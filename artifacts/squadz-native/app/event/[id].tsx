@@ -25,11 +25,10 @@ import { useData, useAuth } from "@/context/AppContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { UserAvatar } from "@/components/UserAvatar";
 import {
-  getUserById,
   goingCount,
   type RsvpStatus,
 } from "@/data/mock";
-import { useUserProfiles, type UserProfile } from "@/hooks/useUserProfiles";
+import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
 
 type EventTab = "overview" | "guests" | "tasks" | "costs" | "chat" | "photos" | "admin";
 
@@ -62,7 +61,25 @@ export default function EventDetailScreen() {
     currentUser,
   } = useData();
 
+  const event = getEvent(id ?? "");
   const [tab, setTab] = useState<EventTab>("overview");
+  const { resolveUser, prefetchUsers } = useUserCache();
+
+  // Pre-load all user profiles referenced in this event
+  useEffect(() => {
+    if (!event) return;
+    const s = getSquad(event.squadId);
+    const ids = [
+      event.hostId,
+      ...(s?.memberIds ?? []),
+      ...Object.keys(event.rsvps),
+      ...event.tasks.filter((t) => t.assigneeId).map((t) => t.assigneeId!),
+      ...event.costs.map((c) => c.paidById),
+      ...event.messages.map((m) => m.senderId),
+    ];
+    prefetchUsers(ids);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [event?.id]);
   const [isPro, setIsPro] = useState<boolean | null>(null);
   const [availabilityTitle, setAvailabilityTitle] = useState<string | null>(null);
   const { authToken } = useAuth();
@@ -129,35 +146,6 @@ export default function EventDetailScreen() {
 
   const goBack = () => (router.canGoBack() ? router.back() : router.replace("/(tabs)" as never));
 
-  const event = getEvent(id ?? "e1");
-
-  const eventUserIds = event ? Array.from(new Set([
-    event.hostId,
-    ...Object.keys(event.rsvps),
-    ...(getSquad(event.squadId)?.memberIds ?? []),
-    ...event.tasks.filter((t) => t.assigneeId).map((t) => t.assigneeId as string),
-    ...event.costs.map((c) => c.paidById),
-    ...event.costs.flatMap((c) => c.shares.map((s) => s.userId)),
-    ...event.messages.map((m) => m.senderId),
-  ])) : [];
-  const eventUserProfiles = useUserProfiles(eventUserIds, authToken);
-
-  function resolveUser(uid: string): UserProfile {
-    if (uid === currentUser.id) {
-      return {
-        id: currentUser.id,
-        name: currentUser.name,
-        initials: currentUser.initials,
-        color: currentUser.color,
-        profileImageUrl: currentUser.profileImageUrl ?? null,
-      };
-    }
-    const profile = eventUserProfiles.get(uid);
-    if (profile) return profile;
-    const mock = getUserById(uid);
-    return { id: mock.id, name: mock.name, initials: mock.initials, color: mock.color, profileImageUrl: mock.profileImageUrl ?? null };
-  }
-
   if (!event) {
     return (
       <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: topPad }]}>
@@ -169,10 +157,16 @@ export default function EventDetailScreen() {
     );
   }
 
-  const host = resolveUser(event.hostId);
   const isHost = event.hostId === currentUser.id;
   const squad = getSquad(event.squadId);
-  const squadMembers = squad ? squad.memberIds.map((mid) => resolveUser(mid)) : [resolveUser(currentUser.id)];
+
+  function resolveForDisplay(userId: string): ResolvedUser {
+    if (userId === currentUser.id) return currentUser as unknown as ResolvedUser;
+    return resolveUser(userId);
+  }
+
+  const host = resolveForDisplay(event.hostId);
+  const squadMembers = squad ? squad.memberIds.map((mid) => resolveForDisplay(mid)) : [resolveForDisplay(currentUser.id)];
   const squadName = squad?.name ?? event.squadName;
   const myRsvp = event.rsvps[currentUser.id] ?? null;
 
@@ -188,7 +182,7 @@ export default function EventDetailScreen() {
   const budgetOver = budgetRemaining < 0;
 
   const attendees = Object.entries(event.rsvps).map(([uid, status]) => ({
-    user: resolveUser(uid),
+    user: resolveForDisplay(uid),
     status,
   }));
 
@@ -663,7 +657,7 @@ export default function EventDetailScreen() {
               {event.tasks.filter((t) => t.done).length}/{event.tasks.length} complete
             </Text>
             {event.tasks.map((task) => {
-              const assignee = task.assigneeId ? resolveUser(task.assigneeId) : null;
+              const assignee = task.assigneeId ? resolveForDisplay(task.assigneeId) : null;
               return (
                 <View key={task.id} style={[styles.taskRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
                   <TouchableOpacity onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); toggleTask(event.id, task.id); }}>
@@ -761,7 +755,7 @@ export default function EventDetailScreen() {
                         <Text style={[styles.settleAllClear, { color: colors.mutedForeground }]}>You're all settled up 🎉</Text>
                       ) : (
                         settleLines.map((line) => {
-                          const other = resolveUser(line.userId);
+                          const other = resolveForDisplay(line.userId);
                           const iOwe = line.net < 0;
                           const amt = Math.abs(line.net);
                           const note = `${event.title} — settle up`;
@@ -801,7 +795,7 @@ export default function EventDetailScreen() {
                   );
                 })()}
                 {event.costs.map((cost) => {
-                  const payer = resolveUser(cost.paidById);
+                  const payer = resolveForDisplay(cost.paidById);
                   const myShare = cost.shares.find((s) => s.userId === currentUser.id)?.amount ?? 0;
                   return (
                     <View key={cost.id} style={[styles.costRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -940,7 +934,7 @@ export default function EventDetailScreen() {
               </View>
             ) : (
               event.messages.map((m) => {
-                const sender = resolveUser(m.senderId);
+                const sender = resolveForDisplay(m.senderId);
                 const mine = m.senderId === currentUser.id;
                 return (
                   <View key={m.id} style={[styles.msgRow, mine && { flexDirection: "row-reverse" }]}>

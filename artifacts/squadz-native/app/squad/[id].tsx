@@ -23,8 +23,8 @@ import { useMessages } from "@/context/MessagesContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { UserAvatar } from "@/components/UserAvatar";
 import { EventCard } from "@/components/EventCard";
-import { getUserById, goingCount } from "@/data/mock";
-import { useUserProfiles } from "@/hooks/useUserProfiles";
+import { goingCount } from "@/data/mock";
+import { useUserCache } from "@/context/UserCacheContext";
 
 const EMOJIS = ["🔥", "🎉", "🎮", "🏖️", "🍕", "🎸", "⚽", "🎬", "🍻", "🎊", "🏀", "🎲", "🧗", "🎤", "🏠", "💼"];
 
@@ -32,6 +32,7 @@ export default function SquadDetailScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { events, getSquad, updateSquad, leaveSquad, currentUser } = useData();
+  const { resolveUser, prefetchUsers } = useUserCache();
   const { getSquadConversation } = useMessages();
   const { authToken } = useAuth();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -76,12 +77,15 @@ export default function SquadDetailScreen() {
 
   const squad = getSquad(id ?? "s1");
 
+  // Pre-load member profiles
+  useEffect(() => {
+    if (squad) prefetchUsers(squad.memberIds);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [squad?.id]);
+
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [editName, setEditName] = useState("");
   const [editEmoji, setEditEmoji] = useState("🔥");
-
-  const memberIds = squad?.memberIds ?? [];
-  const memberProfiles = useUserProfiles(memberIds, authToken);
 
   const goBack = () => (router.canGoBack() ? router.back() : router.replace("/(tabs)" as never));
 
@@ -97,19 +101,8 @@ export default function SquadDetailScreen() {
   }
 
   const members = squad.memberIds.map((mid) => {
-    if (mid === currentUser.id) {
-      return {
-        id: currentUser.id,
-        name: currentUser.name,
-        initials: currentUser.initials,
-        color: currentUser.color,
-        profileImageUrl: currentUser.profileImageUrl ?? null,
-      };
-    }
-    const profile = memberProfiles.get(mid);
-    if (profile) return profile;
-    const mock = getUserById(mid);
-    return { id: mock.id, name: mock.name, initials: mock.initials, color: mock.color, profileImageUrl: mock.profileImageUrl ?? null };
+    if (mid === currentUser.id) return currentUser as unknown as ReturnType<typeof resolveUser>;
+    return resolveUser(mid);
   });
   const squadEvents = events.filter((e) => e.squadId === squad.id);
   const inviteLink = `getsquadz.com/squad/${squad.id}`;

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -15,13 +15,15 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useData } from "@/context/AppContext";
-import { getUserById, goingCount } from "@/data/mock";
+import { goingCount } from "@/data/mock";
+import { useUserCache } from "@/context/UserCacheContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
 export default function InviteScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { events, authToken } = useData();
+  const { resolveUser, prefetchUsers } = useUserCache();
   const params = useLocalSearchParams<{ eventId?: string; code?: string }>();
   const [accepted, setAccepted] = useState(false);
   const [joining, setJoining] = useState(false);
@@ -30,6 +32,12 @@ export default function InviteScreen() {
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
 
   const event = params.eventId ? events.find((e) => e.id === params.eventId) : events[0];
+
+  // Pre-load host profile
+  useEffect(() => {
+    if (event) prefetchUsers([event.hostId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [event?.hostId]);
   const inviteCode = params.code ?? event?.inviteCode ?? "BBQ-7K2M";
 
   if (!event) {
@@ -42,7 +50,7 @@ export default function InviteScreen() {
     );
   }
 
-  const host = getUserById(event.hostId);
+  const host = resolveUser(event.hostId);
   const inviteParams = {
     inviteCode,
     inviteTitle: event.title,

@@ -17,7 +17,8 @@ import { useColors } from "@/hooks/useColors";
 import { useAuth, useData } from "@/context/AppContext";
 import { EventCard } from "@/components/EventCard";
 import { SkeletonBox } from "@/components/SkeletonBox";
-import { goingCount, getUserById } from "@/data/mock";
+import { goingCount } from "@/data/mock";
+import { useUserCache } from "@/context/UserCacheContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
 type DiscoverEvent = { id: string; emoji: string; title: string; date: string; inviteCode: string };
@@ -61,8 +62,16 @@ export default function HomeScreen() {
       .catch(() => {});
   }, [authToken]);
 
+  const { resolveUser, prefetchUsers } = useUserCache();
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const upNext = events[0] ?? null;
+
+  // Pre-load user profiles shown in the hero card RSVP pips
+  useEffect(() => {
+    if (!upNext) return;
+    prefetchUsers(Object.keys(upNext.rsvps));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [upNext?.id]);
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -124,7 +133,7 @@ export default function HomeScreen() {
                       .filter(([, s]) => s === "going")
                       .slice(0, 5)
                       .map(([uid], i) => {
-                        const u = getUserById(uid);
+                        const u = resolveUser(uid);
                         return (
                           <View key={uid} style={[styles.heroPip, { marginLeft: i > 0 ? -8 : 0, backgroundColor: u.color }]}>
                             <Text style={styles.heroPipText}>{u.initials[0]}</Text>

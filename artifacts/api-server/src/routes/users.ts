@@ -1,40 +1,43 @@
-import { Router, type IRouter, type Request, type Response } from "express";
+import { Router, type IRouter } from "express";
 import { inArray } from "drizzle-orm";
+import { z } from "zod";
 import { db, usersTable } from "@workspace/db";
 import { requireAuth } from "../middleware/currentUser";
-import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
-router.get("/users/batch", requireAuth, async (req: Request, res: Response): Promise<void> => {
-  try {
-    const raw = typeof req.query.ids === "string" ? req.query.ids : "";
-    const ids = raw
-      .split(",")
-      .map((id) => id.trim())
-      .filter(Boolean)
-      .slice(0, 100);
+const MAX_IDS = 100;
 
-    if (ids.length === 0) {
-      res.json([]);
-      return;
-    }
-
-    const users = await db
-      .select({
-        id: usersTable.id,
-        firstName: usersTable.firstName,
-        lastName: usersTable.lastName,
-        profileImageUrl: usersTable.profileImageUrl,
-      })
-      .from(usersTable)
-      .where(inArray(usersTable.id, ids));
-
-    res.json(users);
-  } catch (err) {
-    logger.error({ err }, "Error fetching user batch");
-    res.status(500).json({ error: "Failed to fetch users" });
+router.get("/api/users", requireAuth, async (req, res) => {
+  const rawIds = req.query.ids;
+  if (!rawIds || typeof rawIds !== "string") {
+    res.status(400).json({ error: "ids query param required (comma-separated)" });
+    return;
   }
+
+  const ids = rawIds
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .slice(0, MAX_IDS);
+
+  const parseResult = z.array(z.string().min(1)).safeParse(ids);
+  if (!parseResult.success || ids.length === 0) {
+    res.status(400).json({ error: "Invalid ids" });
+    return;
+  }
+
+  const rows = await db
+    .select({
+      id: usersTable.id,
+      firstName: usersTable.firstName,
+      lastName: usersTable.lastName,
+      profileImageUrl: usersTable.profileImageUrl,
+    })
+    .from(usersTable)
+    .where(inArray(usersTable.id, ids));
+
+  res.json(rows);
 });
 
 export default router;

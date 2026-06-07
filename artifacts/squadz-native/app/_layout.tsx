@@ -17,6 +17,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AppProvider, useAuth } from "@/context/AppContext";
 import { MessagesProvider } from "@/context/MessagesContext";
+import { UserCacheProvider } from "@/context/UserCacheContext";
 import { installWebAlert } from "@/lib/webAlert";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
@@ -191,9 +192,11 @@ export default function RootLayout() {
           <GestureHandlerRootView style={{ flex: 1 }}>
             <KeyboardProvider>
               <AppProvider>
-                <MessagesProvider>
-                  <RootLayoutNav />
-                </MessagesProvider>
+                <UserCacheProvider>
+                  <MessagesProvider>
+                    <RootLayoutNav />
+                  </MessagesProvider>
+                </UserCacheProvider>
               </AppProvider>
             </KeyboardProvider>
           </GestureHandlerRootView>

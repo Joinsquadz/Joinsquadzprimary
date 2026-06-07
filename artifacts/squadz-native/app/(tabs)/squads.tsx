@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import {
   View,
   Text,
@@ -13,15 +14,23 @@ import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useData } from "@/context/AppContext";
-import { getUserById } from "@/data/mock";
+import { useUserCache } from "@/context/UserCacheContext";
 
 export default function SquadsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { squads, events, currentUser } = useData();
+  const { resolveUser, prefetchUsers } = useUserCache();
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 84 : 100);
+
+  // Pre-load all squad member profiles
+  useEffect(() => {
+    const ids = squads.flatMap((s) => s.memberIds);
+    if (ids.length > 0) prefetchUsers(ids);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [squads]);
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -54,7 +63,7 @@ export default function SquadsScreen() {
         ) : (
           squads.map((squad) => {
             const squadEvents = events.filter((e) => e.squadId === squad.id);
-            const members = squad.memberIds.slice(0, 5).map(getUserById);
+            const members = squad.memberIds.slice(0, 5).map((mid) => resolveUser(mid));
             return (
               <TouchableOpacity
                 key={squad.id}

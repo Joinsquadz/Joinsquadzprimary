@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -19,7 +19,8 @@ import QRCode from "react-native-qrcode-svg";
 import { useColors } from "@/hooks/useColors";
 import { useData } from "@/context/AppContext";
 import { useMessages } from "@/context/MessagesContext";
-import { USERS, getUserById } from "@/data/mock";
+import { USERS } from "@/data/mock";
+import { useUserCache } from "@/context/UserCacheContext";
 
 const NON_ME = USERS.filter((u) => u.id !== "me");
 
@@ -27,11 +28,18 @@ export default function FriendsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { friends, friendCode, addFriend, removeFriend } = useData();
+  const { resolveUser, prefetchUsers } = useUserCache();
   const { startDirectConversation } = useMessages();
   const [codeInput, setCodeInput] = useState("");
   const [showQR, setShowQR] = useState(false);
   const [messagingId, setMessagingId] = useState<string | null>(null);
   const inputRef = useRef<TextInput>(null);
+
+  // Pre-load friend profiles
+  useEffect(() => {
+    if (friends.length > 0) prefetchUsers(friends);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [friends]);
 
   async function handleMessage(userId: string) {
     if (messagingId) return;
@@ -49,7 +57,7 @@ export default function FriendsScreen() {
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
 
-  const friendUsers = friends.map(getUserById);
+  const friendUsers = friends.map((id) => resolveUser(id));
 
   function handleShareCode() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -99,7 +107,7 @@ export default function FriendsScreen() {
   }
 
   function handleRemove(userId: string) {
-    const user = getUserById(userId);
+    const user = resolveUser(userId);
     Alert.alert(`Remove ${user.name}?`, "They'll no longer appear in your friends list.", [
       { text: "Cancel", style: "cancel" },
       {
