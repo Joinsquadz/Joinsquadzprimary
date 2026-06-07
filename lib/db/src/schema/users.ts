@@ -19,6 +19,9 @@ export const usersTable = pgTable("users", {
   firstName: text("first_name"),
   lastName: text("last_name"),
   profileImageUrl: text("profile_image_url"),
+  passwordHash: text("password_hash"),
+  phone: text("phone"),
+  emailVerified: boolean("email_verified").notNull().default(false),
   stripeCustomerId: text("stripe_customer_id"),
   stripeSubscriptionId: text("stripe_subscription_id"),
   calendarSyncEnabled: boolean("calendar_sync_enabled").notNull().default(false),
@@ -37,3 +40,26 @@ export const insertUserSchema = createInsertSchema(usersTable).omit({ createdAt:
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof usersTable.$inferSelect;
 export type UpsertUser = typeof usersTable.$inferInsert;
+
+// Single-use tokens for email verification and password reset. Only a SHA-256
+// hash of the token is stored; the raw token is sent in the emailed link.
+export const authTokensTable = pgTable(
+  "auth_tokens",
+  {
+    id: text("id").primaryKey().default(sql`gen_random_uuid()`),
+    userId: text("user_id")
+      .notNull()
+      .references(() => usersTable.id, { onDelete: "cascade" }),
+    type: text("type").notNull(), // "email_verify" | "password_reset"
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => [
+    index("IDX_auth_tokens_token_hash").on(table.tokenHash),
+    index("IDX_auth_tokens_user_id").on(table.userId),
+  ],
+);
+
+export type AuthToken = typeof authTokensTable.$inferSelect;

@@ -91,7 +91,7 @@ export async function authMiddleware(
 
   const refreshed = await refreshIfExpired(sid, session);
   if (!refreshed) {
-    if (bearerToken) {
+    if (bearerToken && session.access_token) {
       // Session expired and couldn't refresh — try the stored access token via OIDC userinfo
       const user = await getUserFromAccessToken(session.access_token);
       if (user) {

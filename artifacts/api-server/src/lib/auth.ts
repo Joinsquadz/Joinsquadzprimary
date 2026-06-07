@@ -11,9 +11,41 @@ export const SESSION_TTL = 7 * 24 * 60 * 60 * 1000;
 
 export interface SessionData {
   user: AuthUser;
-  access_token: string;
+  // Optional: OIDC sessions carry an access token; local email/password
+  // sessions do not. authMiddleware only touches these for OIDC refresh, which
+  // is gated on `expires_at` (absent for local sessions).
+  access_token?: string;
   refresh_token?: string;
   expires_at?: number;
+}
+
+// ── Local email/password credential hashing ────────────────────────────────
+// Uses Node's built-in scrypt (no native deps / esbuild issues). The stored
+// string is self-describing: `scrypt$<N>$<saltHex>$<hashHex>`.
+const SCRYPT_COST = 16384; // N
+const SCRYPT_KEYLEN = 64;
+
+export function hashPassword(password: string): string {
+  const salt = crypto.randomBytes(16);
+  const derived = crypto.scryptSync(password, salt, SCRYPT_KEYLEN, {
+    N: SCRYPT_COST,
+  });
+  return `scrypt$${SCRYPT_COST}$${salt.toString("hex")}$${derived.toString("hex")}`;
+}
+
+export function verifyPassword(password: string, stored: string): boolean {
+  try {
+    const [scheme, costStr, saltHex, hashHex] = stored.split("$");
+    if (scheme !== "scrypt" || !costStr || !saltHex || !hashHex) return false;
+    const salt = Buffer.from(saltHex, "hex");
+    const expected = Buffer.from(hashHex, "hex");
+    const derived = crypto.scryptSync(password, salt, expected.length, {
+      N: Number(costStr),
+    });
+    return crypto.timingSafeEqual(derived, expected);
+  } catch {
+    return false;
+  }
 }
 
 let oidcConfig: client.Configuration | null = null;

@@ -773,3 +773,139 @@ export class EmailService {
 }
 
 export const emailService = new EmailService();
+
+// ── Account auth emails (email verification + password reset) ───────────────
+
+function buildAuthEmailHtml(opts: {
+  title: string;
+  intro: string;
+  buttonLabel: string;
+  url: string;
+  footnote: string;
+}): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${opts.title}</title>
+</head>
+<body style="margin:0;padding:0;background:#0f0f1a;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;color:#e8e8f0;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#0f0f1a;padding:40px 16px;">
+    <tr>
+      <td align="center">
+        <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;">
+          <tr>
+            <td align="center" style="padding-bottom:32px;">
+              <div style="font-size:28px;font-weight:800;letter-spacing:-0.5px;color:#ffffff;">Squadz</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="background:#1a1a2e;border-radius:16px;padding:40px;border:1px solid rgba(255,255,255,0.08);">
+              <p style="margin:0 0 8px;font-size:24px;font-weight:700;color:#ffffff;">${opts.title}</p>
+              <p style="margin:0 0 32px;font-size:15px;color:#9898b0;line-height:1.5;">${opts.intro}</p>
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td align="center">
+                    <a href="${opts.url}"
+                       style="display:inline-block;padding:14px 32px;background:linear-gradient(135deg,#FF5C3A,#A855F7);color:#ffffff;text-decoration:none;border-radius:10px;font-size:15px;font-weight:700;letter-spacing:0.2px;">
+                      ${opts.buttonLabel}
+                    </a>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:28px 0 0;font-size:13px;color:#9898b0;text-align:center;line-height:1.5;">
+                ${opts.footnote}
+              </p>
+              <p style="margin:18px 0 0;font-size:12px;color:#55556a;text-align:center;word-break:break-all;">
+                Or paste this link into your browser:<br/>${opts.url}
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
+export async function sendVerificationEmail(opts: {
+  toEmail: string;
+  verifyUrl: string;
+}): Promise<void> {
+  const subject = "Confirm your Squadz email";
+  const html = buildAuthEmailHtml({
+    title: "Confirm your email 🎉",
+    intro:
+      "Welcome to Squadz! Tap the button below to confirm your email address and finish setting up your account.",
+    buttonLabel: "Confirm Email",
+    url: opts.verifyUrl,
+    footnote: "This link expires in 24 hours. If you didn't create a Squadz account, you can ignore this email.",
+  });
+  const text = [
+    "Welcome to Squadz!",
+    "",
+    "Confirm your email address:",
+    opts.verifyUrl,
+    "",
+    "This link expires in 24 hours.",
+  ].join("\n");
+
+  const transport = createTransport();
+  const from = process.env.SMTP_FROM ?? "Squadz <noreply@squadz.app>";
+  if (!transport) {
+    // Only surface the tokenized URL in non-production so a developer can
+    // complete the flow without SMTP. Never log raw tokens in production.
+    logger.info(
+      {
+        to: opts.toEmail,
+        subject,
+        ...(process.env.NODE_ENV !== "production" ? { verifyUrl: opts.verifyUrl } : {}),
+      },
+      "Verification email (SMTP not configured — logged only)",
+    );
+    return;
+  }
+  await transport.sendMail({ from, to: opts.toEmail, subject, text, html });
+  logger.info({ to: opts.toEmail }, "Verification email sent");
+}
+
+export async function sendPasswordResetEmail(opts: {
+  toEmail: string;
+  resetUrl: string;
+}): Promise<void> {
+  const subject = "Reset your Squadz password";
+  const html = buildAuthEmailHtml({
+    title: "Reset your password",
+    intro:
+      "We received a request to reset your Squadz password. Tap the button below to choose a new one.",
+    buttonLabel: "Reset Password",
+    url: opts.resetUrl,
+    footnote: "This link expires in 1 hour. If you didn't request this, you can safely ignore this email — your password won't change.",
+  });
+  const text = [
+    "Reset your Squadz password:",
+    opts.resetUrl,
+    "",
+    "This link expires in 1 hour. If you didn't request this, ignore this email.",
+  ].join("\n");
+
+  const transport = createTransport();
+  const from = process.env.SMTP_FROM ?? "Squadz <noreply@squadz.app>";
+  if (!transport) {
+    // Only surface the tokenized URL in non-production so a developer can
+    // complete the flow without SMTP. Never log raw tokens in production.
+    logger.info(
+      {
+        to: opts.toEmail,
+        subject,
+        ...(process.env.NODE_ENV !== "production" ? { resetUrl: opts.resetUrl } : {}),
+      },
+      "Password reset email (SMTP not configured — logged only)",
+    );
+    return;
+  }
+  await transport.sendMail({ from, to: opts.toEmail, subject, text, html });
+  logger.info({ to: opts.toEmail }, "Password reset email sent");
+}

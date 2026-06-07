@@ -67,12 +67,26 @@ export type NewEventInput = {
   squadId: string | null;
 };
 
+type AuthResult = { ok: boolean; error?: string };
+
 type AppContextType = {
   isLoggedIn: boolean;
   currentUser: typeof ME;
   inviteCtx: InviteCtx | null;
   authToken: string | null;
+  emailVerified: boolean;
+  phone: string | null;
   login: (token?: string) => void;
+  registerWithEmail: (input: {
+    email: string;
+    password: string;
+    firstName?: string;
+    lastName?: string;
+    phone?: string;
+  }) => Promise<AuthResult>;
+  loginWithEmail: (email: string, password: string) => Promise<AuthResult>;
+  forgotPassword: (email: string) => Promise<AuthResult>;
+  resendVerification: () => Promise<AuthResult>;
   logout: () => void;
   refreshUser: () => Promise<void>;
   setInviteCtx: (ctx: InviteCtx | null) => void;
@@ -122,7 +136,13 @@ const AppContext = createContext<AppContextType>({
   currentUser: ME,
   inviteCtx: null,
   authToken: null,
+  emailVerified: false,
+  phone: null,
   login: noop,
+  registerWithEmail: async () => ({ ok: false }),
+  loginWithEmail: async () => ({ ok: false }),
+  forgotPassword: async () => ({ ok: false }),
+  resendVerification: async () => ({ ok: false }),
   logout: noop,
   refreshUser: async () => {},
   setInviteCtx: noop,
@@ -190,6 +210,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [apiUser, setApiUser] = useState<ApiUser | null>(null);
+  const [emailVerified, setEmailVerified] = useState(false);
+  const [phone, setPhone] = useState<string | null>(null);
   const [inviteCtx, setInviteCtx] = useState<InviteCtx | null>(null);
   const [events, setEvents] = useState<Event[]>([]);
   const [squads, setSquads] = useState<Squad[]>([]);
@@ -220,13 +242,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const fetchApiUser = useCallback(async (token: string) => {
     try {
-      const res = await fetch(`${API_BASE}/api/auth/user`, {
+      const res = await fetch(`${API_BASE}/api/auth/me`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) return;
-      const { user } = await res.json() as { user: ApiUser | null };
+      const { user, emailVerified: verified, phone: userPhone } =
+        (await res.json()) as {
+          user: ApiUser | null;
+          emailVerified?: boolean;
+          phone?: string | null;
+        };
       if (user) {
         setApiUser(user);
+        setEmailVerified(Boolean(verified));
+        setPhone(userPhone ?? null);
         currentUserIdRef.current = user.id;
       }
     } catch {
@@ -312,15 +341,146 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setIsLoggedIn(true);
   }, [fetchApiUser]);
 
+  // Persist a token + the auth payload returned by register/login. Avoids an
+  // extra /auth/me round-trip on the happy path. `markLoggedIn` is true for
+  // login (go straight to the app) but false for register, which routes through
+  // onboarding first — onboarding's login() flips the flag once setup is done,
+  // avoiding an AuthGuard race that would yank the user out of signup early.
+  const applyAuthSession = useCallback(
+    (
+      token: string,
+      payload: { user: ApiUser; emailVerified?: boolean; phone?: string | null },
+      markLoggedIn: boolean,
+    ) => {
+      AsyncStorage.setItem(AUTH_TOKEN_KEY, token).catch(() => {});
+      setAuthToken(token);
+      setApiUser(payload.user);
+      setEmailVerified(Boolean(payload.emailVerified));
+      setPhone(payload.phone ?? null);
+      currentUserIdRef.current = payload.user.id;
+      if (markLoggedIn) setIsLoggedIn(true);
+    },
+    [],
+  );
+
+  const registerWithEmail = useCallback(
+    async (input: {
+      email: string;
+      password: string;
+      firstName?: string;
+      lastName?: string;
+      phone?: string;
+    }): Promise<AuthResult> => {
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/register`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input),
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          token?: string;
+          user?: ApiUser;
+          emailVerified?: boolean;
+          phone?: string | null;
+          error?: string;
+        };
+        if (!res.ok || !data.token || !data.user) {
+          return { ok: false, error: data.error ?? "Couldn't create your account. Please try again." };
+        }
+        applyAuthSession(
+          data.token,
+          { user: data.user, emailVerified: data.emailVerified, phone: data.phone },
+          false,
+        );
+        return { ok: true };
+      } catch {
+        return { ok: false, error: "Network error. Please check your connection and try again." };
+      }
+    },
+    [applyAuthSession],
+  );
+
+  const loginWithEmail = useCallback(
+    async (email: string, password: string): Promise<AuthResult> => {
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password }),
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          token?: string;
+          user?: ApiUser;
+          emailVerified?: boolean;
+          phone?: string | null;
+          error?: string;
+        };
+        if (!res.ok || !data.token || !data.user) {
+          return { ok: false, error: data.error ?? "Incorrect email or password." };
+        }
+        applyAuthSession(
+          data.token,
+          { user: data.user, emailVerified: data.emailVerified, phone: data.phone },
+          true,
+        );
+        return { ok: true };
+      } catch {
+        return { ok: false, error: "Network error. Please check your connection and try again." };
+      }
+    },
+    [applyAuthSession],
+  );
+
+  const forgotPassword = useCallback(async (email: string): Promise<AuthResult> => {
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/forgot-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        return { ok: false, error: data.error ?? "Couldn't send the reset email. Please try again." };
+      }
+      return { ok: true };
+    } catch {
+      return { ok: false, error: "Network error. Please check your connection and try again." };
+    }
+  }, []);
+
+  const resendVerification = useCallback(async (): Promise<AuthResult> => {
+    if (!authToken) return { ok: false, error: "You're not signed in." };
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/resend-verification`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (!res.ok) return { ok: false, error: "Couldn't resend the email. Please try again." };
+      return { ok: true };
+    } catch {
+      return { ok: false, error: "Network error. Please check your connection and try again." };
+    }
+  }, [authToken]);
+
   const logout = useCallback(() => {
+    const token = authToken;
+    if (token) {
+      // Fire-and-forget server-side session teardown.
+      fetch(`${API_BASE}/api/auth/logout`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {});
+    }
     AsyncStorage.multiRemove(ALL_APP_STORAGE_KEYS).catch(() => {});
     setAuthToken(null);
     setApiUser(null);
+    setEmailVerified(false);
+    setPhone(null);
     setEvents([]);
     setSquads([]);
     setIsLoggedIn(false);
     currentUserIdRef.current = ME.id;
-  }, []);
+  }, [authToken]);
 
   const applyEventUpdate = useCallback((updated: Record<string, unknown>) => {
     setEvents((prev) =>
@@ -687,7 +847,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         currentUser,
         inviteCtx,
         authToken,
+        emailVerified,
+        phone,
         login,
+        registerWithEmail,
+        loginWithEmail,
+        forgotPassword,
+        resendVerification,
         logout,
         refreshUser,
         setInviteCtx,

@@ -73,3 +73,6 @@ SMTP_FROM = "Squadz <javier@joinsquadz.com>"
 
 [userenv.development]
 ENABLE_EMAIL_PREVIEW_TEST = "true"
+
+[objectStorage]
+defaultBucketID = "replit-objstore-bd05c8f7-1da6-4f29-911a-7d60d1dfe0bd"
