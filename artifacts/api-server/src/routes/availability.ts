@@ -56,7 +56,7 @@ const CreatePollBody = z
   .object({
     squadId: z.string().optional(),
     eventId: z.string().optional(),
-    title: z.string().max(120).optional(),
+    title: z.string().trim().max(120).optional(),
     days: z.array(z.string().max(20)).max(14).optional(),
     slots: z.array(z.string().max(20)).max(48).optional(),
   })

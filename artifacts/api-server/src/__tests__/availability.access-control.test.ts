@@ -268,6 +268,20 @@ describe("POST /api/availability/polls", () => {
     expect(res.status).toBe(201);
     expect(storageMock.createAvailabilityPoll).toHaveBeenCalled();
   });
+
+  it("trims whitespace from title before storing (201)", async () => {
+    storageMock.canAccessAvailabilityPoll.mockResolvedValue(true);
+    storageMock.findAvailabilityPoll.mockResolvedValue(null);
+    storageMock.createAvailabilityPoll.mockResolvedValue(basePoll);
+    storageMock.getAvailabilityResponses.mockResolvedValue([]);
+    const app = await makeApp({ id: MEMBER_ID });
+    const res = await request(app)
+      .post("/api/availability/polls")
+      .send({ squadId: "squad-1", title: "   " });
+    expect(res.status).toBe(201);
+    const calledWith = storageMock.createAvailabilityPoll.mock.calls[0][0] as { title?: string };
+    expect(calledWith.title).toBe("");
+  });
 });
 
 describe("PATCH /api/availability/polls/:id", () => {
