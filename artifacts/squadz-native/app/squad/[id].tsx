@@ -46,7 +46,7 @@ function getFriendCodeInitials(u: FoundUser): string {
 export default function SquadDetailScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { events, getSquad, updateSquad, leaveSquad, currentUser, addMemberByFriendCode, removeMember } = useData();
+  const { events, getSquad, updateSquad, regenerateInviteCode, leaveSquad, currentUser, addMemberByFriendCode, removeMember } = useData();
   const { resolveUser, prefetchUsers, seedUser } = useUserCache();
   const { getSquadConversation } = useMessages();
   const { authToken } = useAuth();
@@ -230,6 +230,7 @@ export default function SquadDetailScreen() {
   const [editEmoji, setEditEmoji] = useState("🔥");
   const [muted, setMuted] = useState(false);
   const [muteLoading, setMuteLoading] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
 
   const goBack = () => (router.canGoBack() ? router.back() : router.replace("/(tabs)" as never));
 
@@ -678,6 +679,47 @@ export default function SquadDetailScreen() {
               <Text style={[styles.actionText, { color: colors.foreground }]}>Share invite link</Text>
               <Ionicons name="chevron-forward" size={16} color={colors.textDim} />
             </TouchableOpacity>
+
+            {isCreator && (
+              <TouchableOpacity
+                onPress={async () => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  Alert.alert(
+                    "Regenerate invite link?",
+                    "The old link will stop working immediately. Anyone who hasn't joined yet will need the new link.",
+                    [
+                      { text: "Cancel", style: "cancel" },
+                      {
+                        text: "Regenerate",
+                        style: "destructive",
+                        onPress: async () => {
+                          setRegenerating(true);
+                          const result = await regenerateInviteCode(squad.id);
+                          setRegenerating(false);
+                          if (result.error) {
+                            Alert.alert("Error", result.error);
+                          } else {
+                            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                          }
+                        },
+                      },
+                    ],
+                  );
+                }}
+                disabled={regenerating}
+                style={[styles.actionRow, { borderColor: colors.border, opacity: regenerating ? 0.6 : 1 }]}
+              >
+                {regenerating ? (
+                  <ActivityIndicator size="small" color={colors.destructive} />
+                ) : (
+                  <Ionicons name="refresh-outline" size={20} color={colors.destructive} />
+                )}
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.actionText, { color: colors.destructive }]}>Regenerate invite link</Text>
+                  <Text style={[styles.actionSub, { color: colors.mutedForeground }]}>Revoke the current link and create a new one</Text>
+                </View>
+              </TouchableOpacity>
+            )}
 
             <TouchableOpacity onPress={() => { setSettingsOpen(false); handleLeaveSquad(); }} style={[styles.actionRow, { borderColor: colors.border }]}>
               <Ionicons name="exit-outline" size={20} color={colors.destructive} />

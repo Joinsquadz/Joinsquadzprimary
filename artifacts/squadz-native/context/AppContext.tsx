@@ -123,6 +123,7 @@ type AppContextType = {
   getSquad: (id: string) => Squad | undefined;
   addSquad: (input: { name: string; emoji: string; color: string; isPublic?: boolean }) => Promise<string>;
   updateSquad: (id: string, patch: Partial<Pick<Squad, "name" | "emoji" | "color" | "isPublic">>) => void;
+  regenerateInviteCode: (squadId: string) => Promise<{ error?: string }>;
   leaveSquad: (id: string) => void;
   joinSquad: (squadId: string) => Promise<{ error?: string }>;
   joinSquadByCode: (code: string) => Promise<{ error?: string; squad?: Squad; alreadyMember?: boolean }>;
@@ -177,6 +178,7 @@ const AppContext = createContext<AppContextType>({
   getSquad: () => undefined,
   addSquad: asyncNoop,
   updateSquad: noop,
+  regenerateInviteCode: async () => ({}),
   leaveSquad: noop,
   joinSquad: async () => ({}),
   joinSquadByCode: async () => ({}),
@@ -867,6 +869,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [apiFetch],
   );
 
+  const regenerateInviteCode = useCallback(async (squadId: string): Promise<{ error?: string }> => {
+    try {
+      const res = await apiFetch(`/api/squads/${squadId}/invite/regenerate`, { method: "POST" });
+      if (res.status === 403) return { error: "Only the squad creator can regenerate the invite link." };
+      if (!res.ok) return { error: "Something went wrong. Please try again." };
+      const updated = await res.json() as Record<string, unknown>;
+      setSquads((prev) => prev.map((s) => (s.id === squadId ? dbSquadToSquad(updated) : s)));
+      return {};
+    } catch {
+      return { error: "Network error. Please try again." };
+    }
+  }, [apiFetch]);
+
   const leaveSquad = useCallback((sid: string) => {
     setSquads((prev) => prev.filter((s) => s.id !== sid));
     void apiFetch(`/api/squads/${sid}`, { method: "DELETE" }).catch(() => {});
@@ -1013,6 +1028,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         getSquad,
         addSquad,
         updateSquad,
+        regenerateInviteCode,
         leaveSquad,
         joinSquad,
         joinSquadByCode,

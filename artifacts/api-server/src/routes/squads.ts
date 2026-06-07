@@ -607,6 +607,27 @@ router.delete("/squads/removal-notices/:noticeId", requireAuth, async (req: Requ
   res.sendStatus(204);
 });
 
+router.post("/squads/:id/invite/regenerate", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const id = parseId(req.params.id);
+  const userId = (req.user as { id: string }).id;
+  const [existing] = await db.select().from(squadsTable).where(eq(squadsTable.id, id));
+  if (!existing) {
+    res.status(404).json({ error: "Squad not found" });
+    return;
+  }
+  if (existing.creatorId !== userId) {
+    res.status(403).json({ error: "Only the squad creator can regenerate the invite link." });
+    return;
+  }
+  const newCode = generateInviteCode();
+  const [updated] = await db
+    .update(squadsTable)
+    .set({ inviteCode: newCode })
+    .where(eq(squadsTable.id, id))
+    .returning();
+  res.json(updated);
+});
+
 router.post("/squads/:id/join", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const id = parseId(req.params.id);
   const userId = (req.user as { id: string }).id;
