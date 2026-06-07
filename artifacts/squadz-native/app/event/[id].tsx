@@ -176,12 +176,15 @@ export default function EventDetailScreen() {
   const squadName = squad?.name ?? event.squadName;
   const myRsvp = event.rsvps[currentUser.id] ?? null;
 
+  // All RSVP'd users (includes invite-link joiners who aren't squad members)
+  const costParticipants = Object.keys(event.rsvps).map((uid) => resolveUser(uid));
+
   const spent = event.costs.reduce((s, c) => s + c.amount, 0);
   const hasBudget = event.budget != null;
   const budgetVal = event.budget ?? 0;
   const budgetRemaining = budgetVal - spent;
   const budgetPct = budgetVal > 0 ? Math.min(100, (spent / budgetVal) * 100) : 0;
-  const budgetPerPerson = budgetVal / Math.max(1, squadMembers.length);
+  const budgetPerPerson = budgetVal / Math.max(1, costParticipants.length);
   const budgetOver = budgetRemaining < 0;
 
   const attendees = Object.entries(event.rsvps).map(([uid, status]) => ({
@@ -263,7 +266,7 @@ export default function EventDetailScreen() {
     setCostModal(true);
   };
   const totalNum = parseFloat(costTotal) || 0;
-  const shareValues = squadMembers.map((m) => parseFloat(costShares[m.id] || "0") || 0);
+  const shareValues = costParticipants.map((m) => parseFloat(costShares[m.id] || "0") || 0);
   const hasNegative = shareValues.some((v) => v < 0);
   const assignedNum = shareValues.reduce((sum, v) => sum + v, 0);
   const remaining = totalNum - assignedNum;
@@ -271,11 +274,11 @@ export default function EventDetailScreen() {
 
   const splitEvenly = () => {
     if (totalNum <= 0) return;
-    const per = Math.floor((totalNum / squadMembers.length) * 100) / 100;
+    const per = Math.floor((totalNum / costParticipants.length) * 100) / 100;
     const next: Record<string, string> = {};
     let running = 0;
-    squadMembers.forEach((m, i) => {
-      if (i === squadMembers.length - 1) {
+    costParticipants.forEach((m, i) => {
+      if (i === costParticipants.length - 1) {
         next[m.id] = (Math.round((totalNum - running) * 100) / 100).toFixed(2);
       } else {
         next[m.id] = per.toFixed(2);
@@ -298,7 +301,7 @@ export default function EventDetailScreen() {
       Alert.alert("Bill not covered", `Assign the full $${totalNum.toFixed(2)} across people. $${remaining.toFixed(2)} left.`);
       return;
     }
-    const shares = squadMembers
+    const shares = costParticipants
       .map((m) => ({ userId: m.id, amount: parseFloat(costShares[m.id] || "0") || 0 }))
       .filter((s) => s.amount > 0);
     addCost(event.id, { description: costDesc.trim(), amount: totalNum, shares });
@@ -1079,7 +1082,7 @@ export default function EventDetailScreen() {
               </View>
 
               <Text style={[styles.assignLabel, { color: colors.mutedForeground }]}>Who owes what</Text>
-              {squadMembers.map((m) => (
+              {costParticipants.map((m) => (
                 <View key={m.id} style={[styles.assignRow, { borderColor: colors.border }]}>
                   <UserAvatar initials={m.initials} color={m.color} imageUrl={m.profileImageUrl} size={32} fontSize={11} />
                   <Text style={[styles.assignName, { color: colors.foreground }]}>{m.name.split(" ")[0]}{m.id === currentUser.id ? " (You)" : ""}</Text>
