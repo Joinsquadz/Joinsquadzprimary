@@ -416,11 +416,15 @@ router.patch("/availability/polls/:id", requireAuth, async (req: Request, res: R
           ? { screen: "availability", squadId: poll.squadId }
           : { screen: "availability", eventId: poll.eventId ?? "" };
 
-        await sendPushNotifications(tokens, {
-          title: "Availability poll updated",
-          body: "The availability poll has been updated — re-enter your times",
-          data: scopeData,
-        });
+        await sendPushNotifications(
+          tokens,
+          {
+            title: "Availability poll updated",
+            body: "The availability poll has been updated — re-enter your times",
+            data: scopeData,
+          },
+          { onStaleToken: (token) => storage.clearPushToken(token) },
+        );
       } catch (err) {
         logger.error({ err }, "Error sending poll-update push notifications");
       }

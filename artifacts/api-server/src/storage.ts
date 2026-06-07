@@ -948,6 +948,13 @@ export class Storage {
       .where(eq(usersTable.id, userId));
   }
 
+  async clearPushToken(token: string): Promise<void> {
+    await db
+      .update(usersTable)
+      .set({ pushToken: null })
+      .where(eq(usersTable.pushToken, token));
+  }
+
   async getPushTokensForUsers(
     userIds: string[],
     opts: { requireNotifyReminders?: boolean } = {},
