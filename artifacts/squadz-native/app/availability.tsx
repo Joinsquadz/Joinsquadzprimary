@@ -50,7 +50,16 @@ type MemberInfo = {
 };
 
 type PollPayload = {
-  poll: { id: string; createdBy: string; title: string; days: string[]; slots: string[]; updatedAt: string | null };
+  poll: {
+    id: string;
+    createdBy: string;
+    title: string;
+    days: string[];
+    slots: string[];
+    updatedAt: string | null;
+    updatedBy: string | null;
+    updatedByName: string | null;
+  };
   heatmap: { cell: string; count: number }[];
   cellUsers?: Record<string, string[]>;
   respondentCount: number;
@@ -96,6 +105,17 @@ function computeRange(start: Date, count: number): string[] {
 function formatSlot(slot: string): string {
   const m = /^(\d{1,2})\s*(AM|PM)$/i.exec(slot);
   return m ? `${m[1]} ${m[2].toUpperCase()}` : slot;
+}
+
+// Format an ISO timestamp into a compact "Jun 7" or "Jun 7, 2025" label.
+function formatUpdatedDate(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const now = new Date();
+  const sameYear = d.getFullYear() === now.getFullYear();
+  const month = MONTH_SHORT[d.getMonth()];
+  const day = d.getDate();
+  return sameYear ? `${month} ${day}` : `${month} ${day}, ${d.getFullYear()}`;
 }
 
 // Column header label for a poll day. Dated polls show weekday + M/D
@@ -683,9 +703,16 @@ export default function AvailabilityScreen() {
         >
           <Ionicons name="chevron-back" size={24} color={colors.foreground} />
         </TouchableOpacity>
-        <Text style={[styles.title, { color: colors.foreground }]}>
-          {(data?.poll.title) || "Find the Best Time"}
-        </Text>
+        <View style={styles.headerTitleBlock}>
+          <Text style={[styles.title, { color: colors.foreground }]} numberOfLines={1}>
+            {(data?.poll.title) || "Find the Best Time"}
+          </Text>
+          {data?.poll.updatedAt && data.poll.updatedByName ? (
+            <Text style={[styles.renamedByText, { color: colors.mutedForeground }]} numberOfLines={1}>
+              Renamed by {data.poll.updatedByName} · {formatUpdatedDate(data.poll.updatedAt)}
+            </Text>
+          ) : null}
+        </View>
         {isCreator && (
           <TouchableOpacity onPress={openEditRange} style={styles.editRangeBtn}>
             <Ionicons name="calendar-outline" size={20} color={colors.primary} />
@@ -1346,7 +1373,9 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   header: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 12, paddingBottom: 12, borderBottomWidth: 1 },
   backBtn: { padding: 8 },
+  headerTitleBlock: { flex: 1, justifyContent: "center" },
   title: { fontSize: 24, fontWeight: "900" },
+  renamedByText: { fontSize: 11, fontWeight: "500", marginTop: 2 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, padding: 24 },
   errorText: { fontSize: 15, textAlign: "center" },
   retryBtn: { borderRadius: 10, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 8 },

@@ -65,6 +65,13 @@ async function buildMembersField(
   return [];
 }
 
+async function resolveUpdatedByName(poll: AvailabilityPoll): Promise<string | null> {
+  if (!poll.updatedBy) return null;
+  const users = await storage.getUsers([poll.updatedBy]);
+  if (!users.length) return null;
+  return toDisplayName(users[0]);
+}
+
 const router: IRouter = Router();
 
 function parseId(raw: unknown): string {
@@ -112,6 +119,7 @@ function buildPollPayload(
   poll: AvailabilityPoll,
   responses: { userId: string; cells: string[]; updatedAt: Date }[],
   userId: string,
+  updatedByName?: string | null,
 ) {
   const counts = new Map<string, number>();
   const cellUsers: Record<string, string[]> = {};
@@ -163,6 +171,8 @@ function buildPollPayload(
       days: poll.days,
       slots: poll.slots,
       updatedAt: poll.updatedAt?.toISOString() ?? null,
+      updatedBy: poll.updatedBy ?? null,
+      updatedByName: updatedByName ?? null,
     },
     heatmap,
     cellUsers,
@@ -232,8 +242,11 @@ router.post("/availability/polls", requireAuth, async (req: Request, res: Respon
       }));
 
     const responses = await storage.getAvailabilityResponses(poll.id);
-    const members = await buildMembersField(poll, responses);
-    res.status(existing ? 200 : 201).json({ ...buildPollPayload(poll, responses, userId), members });
+    const [members, updatedByName] = await Promise.all([
+      buildMembersField(poll, responses),
+      resolveUpdatedByName(poll),
+    ]);
+    res.status(existing ? 200 : 201).json({ ...buildPollPayload(poll, responses, userId, updatedByName), members });
   } catch (err) {
     logger.error({ err }, "Error creating availability poll");
     res.status(500).json({ error: "Failed to create poll" });
@@ -262,8 +275,11 @@ router.get("/availability/polls/find", requireAuth, async (req: Request, res: Re
       return;
     }
     const responses = await storage.getAvailabilityResponses(poll.id);
-    const members = await buildMembersField(poll, responses);
-    res.json({ ...buildPollPayload(poll, responses, userId), members });
+    const [members, updatedByName] = await Promise.all([
+      buildMembersField(poll, responses),
+      resolveUpdatedByName(poll),
+    ]);
+    res.json({ ...buildPollPayload(poll, responses, userId, updatedByName), members });
   } catch (err) {
     logger.error({ err }, "Error finding availability poll");
     res.status(500).json({ error: "Failed to find poll" });
@@ -288,8 +304,11 @@ router.get("/availability/polls/:id", requireAuth, async (req: Request, res: Res
       return;
     }
     const responses = await storage.getAvailabilityResponses(poll.id);
-    const members = await buildMembersField(poll, responses);
-    res.json({ ...buildPollPayload(poll, responses, userId), members });
+    const [members, updatedByName] = await Promise.all([
+      buildMembersField(poll, responses),
+      resolveUpdatedByName(poll),
+    ]);
+    res.json({ ...buildPollPayload(poll, responses, userId, updatedByName), members });
   } catch (err) {
     logger.error({ err }, "Error fetching availability poll");
     res.status(500).json({ error: "Failed to fetch poll" });
@@ -323,10 +342,13 @@ router.patch("/availability/polls/:id", requireAuth, async (req: Request, res: R
     const prevDays = poll.days as string[];
     const prevSlots = poll.slots as string[];
 
-    const updatedPoll = await storage.updateAvailabilityPoll(poll.id, parsed.data);
+    const updatedPoll = await storage.updateAvailabilityPoll(poll.id, parsed.data, userId);
     const responses = await storage.getAvailabilityResponses(updatedPoll.id);
-    const members = await buildMembersField(updatedPoll, responses);
-    res.json({ ...buildPollPayload(updatedPoll, responses, userId), members });
+    const [members, updatedByName] = await Promise.all([
+      buildMembersField(updatedPoll, responses),
+      resolveUpdatedByName(updatedPoll),
+    ]);
+    res.json({ ...buildPollPayload(updatedPoll, responses, userId, updatedByName), members });
 
     // Only fire push notifications when the date range (days or slots) actually
     // changed — title-only patches don't require members to re-enter their times.
@@ -442,8 +464,11 @@ router.put("/availability/polls/:id/me", requireAuth, async (req: Request, res: 
 
     await storage.upsertAvailabilityResponse(poll.id, userId, cells, "manual");
     const responses = await storage.getAvailabilityResponses(poll.id);
-    const members = await buildMembersField(poll, responses);
-    res.json({ ...buildPollPayload(poll, responses, userId), members, droppedCount });
+    const [members, updatedByName] = await Promise.all([
+      buildMembersField(poll, responses),
+      resolveUpdatedByName(poll),
+    ]);
+    res.json({ ...buildPollPayload(poll, responses, userId, updatedByName), members, droppedCount });
   } catch (err) {
     logger.error({ err }, "Error saving availability response");
     res.status(500).json({ error: "Failed to save availability" });

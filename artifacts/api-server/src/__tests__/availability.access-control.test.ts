@@ -341,7 +341,7 @@ describe("PATCH /api/availability/polls/:id", () => {
       .patch("/api/availability/polls/poll-1")
       .send({ days: newDays });
     expect(res.status).toBe(200);
-    expect(storageMock.updateAvailabilityPoll).toHaveBeenCalledWith("poll-1", { days: newDays });
+    expect(storageMock.updateAvailabilityPoll).toHaveBeenCalledWith("poll-1", { days: newDays }, MEMBER_ID);
     expect(res.body.poll.days).toEqual(newDays);
   });
 
@@ -381,7 +381,7 @@ describe("PATCH /api/availability/polls/:id", () => {
       .patch("/api/availability/polls/poll-1")
       .send({ title: "Our Friday Hang" });
     expect(res.status).toBe(200);
-    expect(storageMock.updateAvailabilityPoll).toHaveBeenCalledWith("poll-1", { title: "Our Friday Hang" });
+    expect(storageMock.updateAvailabilityPoll).toHaveBeenCalledWith("poll-1", { title: "Our Friday Hang" }, MEMBER_ID);
     expect(res.body.poll.title).toBe("Our Friday Hang");
   });
 
@@ -395,7 +395,7 @@ describe("PATCH /api/availability/polls/:id", () => {
       .patch("/api/availability/polls/poll-1")
       .send({ title: "" });
     expect(res.status).toBe(200);
-    expect(storageMock.updateAvailabilityPoll).toHaveBeenCalledWith("poll-1", { title: "" });
+    expect(storageMock.updateAvailabilityPoll).toHaveBeenCalledWith("poll-1", { title: "" }, MEMBER_ID);
     expect(res.body.poll.title).toBe("");
   });
 
@@ -409,7 +409,7 @@ describe("PATCH /api/availability/polls/:id", () => {
       .patch("/api/availability/polls/poll-1")
       .send({ title: "   " });
     expect(res.status).toBe(200);
-    expect(storageMock.updateAvailabilityPoll).toHaveBeenCalledWith("poll-1", { title: "" });
+    expect(storageMock.updateAvailabilityPoll).toHaveBeenCalledWith("poll-1", { title: "" }, MEMBER_ID);
     expect(res.body.poll.title).toBe("");
   });
 });
