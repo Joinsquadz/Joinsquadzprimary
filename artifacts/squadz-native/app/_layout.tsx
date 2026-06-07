@@ -263,6 +263,7 @@ function RootLayoutNav() {
         <Stack.Screen name="onboarding" />
         <Stack.Screen name="invite" />
         <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="create" />
         <Stack.Screen name="event/[id]" />
         <Stack.Screen name="squad/[id]" />
         <Stack.Screen name="squad/join" />

@@ -838,8 +838,8 @@ export default function AvailabilityScreen() {
       return;
     }
     // Squad / create flow → start an event prefilled with the winning slot.
-    router.navigate({
-      pathname: "/(tabs)/create",
+    router.push({
+      pathname: "/create",
       params: { prefillDate: friendly, prefillSquad: squadId ?? "" },
     } as never);
   };

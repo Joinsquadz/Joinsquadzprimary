@@ -15,6 +15,7 @@ import {
   ActivityIndicator,
   Animated,
   Switch,
+  KeyboardAvoidingView,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -252,7 +253,15 @@ export default function SquadDetailScreen() {
   }
 
   const members = squad.memberIds.map((mid) => {
-    if (mid === currentUser.id) return currentUser as unknown as ReturnType<typeof resolveUser>;
+    if (mid === currentUser.id) {
+      return {
+        id: currentUser.id,
+        name: currentUser.name,
+        initials: currentUser.initials,
+        color: currentUser.color,
+        profileImageUrl: currentUser.profileImageUrl ?? null,
+      };
+    }
     return resolveUser(mid);
   });
   const squadEvents = events.filter((e) => e.squadId === squad.id);
@@ -538,7 +547,7 @@ export default function SquadDetailScreen() {
             <TouchableOpacity
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                router.navigate({ pathname: "/(tabs)/create", params: { prefillSquad: squad.id } } as never);
+                router.push({ pathname: "/create", params: { prefillSquad: squad.id } } as never);
               }}
               style={[styles.emptyCta, { borderColor: colors.border }]}
             >
@@ -569,7 +578,10 @@ export default function SquadDetailScreen() {
         animationType="slide"
         onRequestClose={() => { setAddMemberOpen(false); resetAddMemberModal(); }}
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
           <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border, paddingBottom: botPad + 16 }]}>
             <Text style={[styles.modalTitle, { color: colors.foreground }]}>Add a member</Text>
             <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>Search by name</Text>
@@ -656,7 +668,7 @@ export default function SquadDetailScreen() {
               <Text style={[styles.modalBtnText, { color: "#fff" }]}>Done</Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* ---- Settings Modal ---- */}

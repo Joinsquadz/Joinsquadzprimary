@@ -42,17 +42,31 @@ function colorFromId(id: string): string {
   return USER_COLORS[Math.abs(hash) % USER_COLORS.length];
 }
 
+// Turn an email local-part into a friendly display name, e.g.
+// "jordan.park@x.com" -> "Jordan Park", "jdoe@x.com" -> "Jdoe".
+function nameFromEmail(email: string): string {
+  const local = (email.split("@")[0] ?? "").trim();
+  const words = local.replace(/[._\-+]+/g, " ").trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "";
+  return words.map((w) => w[0].toUpperCase() + w.slice(1)).join(" ");
+}
+
 function getInitials(u: ApiUser): string {
   if (u.firstName && u.lastName) return `${u.firstName[0]}${u.lastName[0]}`.toUpperCase();
   if (u.firstName) return u.firstName.slice(0, 2).toUpperCase();
-  if (u.email) return u.email.slice(0, 2).toUpperCase();
+  const fromEmail = u.email ? nameFromEmail(u.email) : "";
+  if (fromEmail) {
+    const parts = fromEmail.split(" ");
+    return (parts.length > 1 ? `${parts[0][0]}${parts[1][0]}` : fromEmail.slice(0, 2)).toUpperCase();
+  }
   return "U?";
 }
 
 function getUserName(u: ApiUser): string {
   if (u.firstName && u.lastName) return `${u.firstName} ${u.lastName}`;
   if (u.firstName) return u.firstName;
-  return u.email ?? "Unknown User";
+  const fromEmail = u.email ? nameFromEmail(u.email) : "";
+  return fromEmail || "You";
 }
 
 export type InviteCtx = {

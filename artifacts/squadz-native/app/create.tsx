@@ -21,10 +21,8 @@ import { useColors } from "@/hooks/useColors";
 import { useData, useAuth } from "@/context/AppContext";
 import { startProCheckout } from "@/lib/checkout";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
-import { TAB_BAR_HEIGHT } from "@/constants/layout";
 
 const EMOJIS = ["🔥", "🎉", "🎮", "🏖️", "🍕", "🎸", "⚽", "🎬", "🍻", "🎊"];
-const TAB_BAR_H = TAB_BAR_HEIGHT;
 const FREE_EVENT_LIMIT = 3;
 
 function formatPickedDate(d: Date): string {
@@ -45,7 +43,7 @@ export default function CreateEventScreen() {
   const { authToken } = useAuth();
   const prefill = useLocalSearchParams<{ prefillDate?: string; prefillSquad?: string; prefillTitle?: string; prefillEmoji?: string }>();
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
-  const botPad = insets.bottom + TAB_BAR_H;
+  const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
 
   const [title, setTitle] = useState("");
   const [location, setLocation] = useState("");
@@ -124,7 +122,7 @@ export default function CreateEventScreen() {
         .then((data: { count: number } | null) => { if (data) setMyEventCount(data.count); })
         .catch(() => {});
       resetForm();
-      router.push(`/event/${id}` as never);
+      router.replace(`/event/${id}` as never);
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : "Failed to create event. Please try again.");
     } finally {
@@ -199,6 +197,13 @@ export default function CreateEventScreen() {
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: topPad + 8, borderBottomColor: colors.border }]}>
+        <TouchableOpacity
+          onPress={() => (router.canGoBack() ? router.back() : router.replace("/(tabs)" as never))}
+          hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }}
+          style={styles.headerBack}
+        >
+          <Ionicons name="chevron-back" size={26} color={colors.foreground} />
+        </TouchableOpacity>
         <Text style={[styles.title, { color: colors.foreground }]}>New Event</Text>
       </View>
 
@@ -492,7 +497,8 @@ export default function CreateEventScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  header: { paddingHorizontal: 20, paddingBottom: 12, borderBottomWidth: 1 },
+  header: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1 },
+  headerBack: { padding: 4, marginLeft: -4 },
   title: { fontSize: 28, fontWeight: "900" },
   limitBanner: {
     flexDirection: "row", alignItems: "center", gap: 6,

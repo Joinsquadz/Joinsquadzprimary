@@ -210,7 +210,7 @@ export default function HomeScreen() {
             <TouchableOpacity
               style={[styles.streakNudge, { backgroundColor: colors.card, borderColor: "#FFB54740" }]}
               onPress={() => {
-                router.navigate({ pathname: "/(tabs)/create" } as never);
+                router.push("/create" as never);
               }}
             >
               <Text style={styles.streakEmoji}>🔥</Text>
@@ -324,14 +324,14 @@ export default function HomeScreen() {
                       } else if (a.kind === "open-event") {
                         router.push(`/event/${a.eventId}`);
                       } else {
-                        router.navigate({
-                          pathname: "/(tabs)/create",
+                        router.push({
+                          pathname: "/create",
                           params: {
                             ...(a.prefillTitle ? { prefillTitle: a.prefillTitle } : {}),
                             ...(a.prefillEmoji ? { prefillEmoji: a.prefillEmoji } : {}),
                             ...(a.squadId ? { prefillSquad: a.squadId } : {}),
                           },
-                        });
+                        } as never);
                       }
                     }}
                     style={[styles.suggestionCard, { backgroundColor: colors.card, borderColor: colors.border }]}
@@ -446,7 +446,7 @@ export default function HomeScreen() {
                 onPress={() => {
                   setFabOpen(false);
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                  router.navigate({ pathname: "/(tabs)/create" } as never);
+                  router.push("/create" as never);
                 }}
                 style={[styles.fabMini, { backgroundColor: colors.card, borderColor: colors.border }]}
               >

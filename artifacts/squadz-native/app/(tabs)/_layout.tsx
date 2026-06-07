@@ -37,7 +37,6 @@ function NativeTabLayout() {
         <Label>You</Label>
       </NativeTabs.Trigger>
       {/* Hidden destinations: navigable via router.navigate but not shown in the tab bar. */}
-      <NativeTabs.Trigger name="create" hidden />
       <NativeTabs.Trigger name="events" hidden />
       <NativeTabs.Trigger name="photos" hidden />
     </NativeTabs>
@@ -141,7 +140,6 @@ function ClassicTabLayout() {
             ),
         }}
       />
-      <Tabs.Screen name="create" options={{ tabBarButton: () => null }} />
       <Tabs.Screen name="events" options={{ tabBarButton: () => null }} />
       <Tabs.Screen name="photos" options={{ tabBarButton: () => null }} />
     </Tabs>
