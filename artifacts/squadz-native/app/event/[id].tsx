@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useFocusEffect } from "expo-router";
 import {
   View,
   Text,
@@ -76,16 +77,19 @@ export default function EventDetailScreen() {
       .catch(() => setIsPro(false));
   }, [authHeaders]);
 
-  useEffect(() => {
-    if (!id) return;
-    setAvailabilityTitle(null);
-    fetch(`${API_BASE}/api/availability/polls/find?eventId=${id}`, { headers: authHeaders() })
-      .then(r => r.ok ? r.json() : null)
-      .then((d?: { poll?: { title?: string } } | null) => {
-        if (d?.poll?.title) setAvailabilityTitle(d.poll.title);
-      })
-      .catch(() => { /* leave null, fall back to default label */ });
-  }, [id, authHeaders]);
+  useFocusEffect(
+    useCallback(() => {
+      if (!id) return;
+      let active = true;
+      fetch(`${API_BASE}/api/availability/polls/find?eventId=${id}`, { headers: authHeaders() })
+        .then(r => r.ok ? r.json() : null)
+        .then((d?: { poll?: { title?: string } } | null) => {
+          if (active) setAvailabilityTitle(d?.poll?.title ?? null);
+        })
+        .catch(() => { /* leave existing title on error */ });
+      return () => { active = false; };
+    }, [id, authHeaders])
+  );
 
   // Live-refresh the chat while the Chat tab is open so squad messages appear.
   useEffect(() => {
