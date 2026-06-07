@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   View,
   Text,
@@ -10,6 +10,8 @@ import {
   Alert,
   Modal,
   TextInput,
+  AppState,
+  type AppStateStatus,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -139,6 +141,15 @@ export default function AvailabilityScreen() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerDate, setPickerDate] = useState<Date>(new Date());
 
+  // Keep a ref that always reflects the latest `dirty` value so the polling
+  // interval callback doesn't capture a stale closure.
+  const dirtyRef = useRef(dirty);
+  useEffect(() => { dirtyRef.current = dirty; }, [dirty]);
+
+  // Keep a ref that tells background polling whether a real poll is loaded.
+  const hasPollRef = useRef(false);
+  useEffect(() => { hasPollRef.current = data !== null; }, [data]);
+
   const authHeaders = useCallback((): Record<string, string> => {
     return {
       "Content-Type": "application/json",
@@ -204,6 +215,44 @@ export default function AvailabilityScreen() {
       setCreating(false);
     }
   }, [authHeaders, squadId, eventId, rangeStart, rangeDays]);
+
+  // Silently re-fetches the poll and updates the heatmap + best-time card.
+  // The user's own unsaved picks (mySet) are only synced when there are no
+  // pending changes so we never clobber work in progress.
+  const refreshInBackground = useCallback(async () => {
+    if (!hasPollRef.current) return;
+    try {
+      const qs = new URLSearchParams(squadId ? { squadId } : { eventId: eventId ?? "" });
+      const res = await fetch(`${API_BASE}/api/availability/polls/find?${qs.toString()}`, {
+        headers: authHeaders(),
+      });
+      if (!res.ok) return;
+      const payload = (await res.json()) as PollPayload;
+      setData(payload);
+      if (!dirtyRef.current) {
+        setMySet(new Set(payload.myCells));
+      }
+    } catch {
+      // Ignore network errors during background refresh — never surface them
+    }
+  }, [authHeaders, squadId, eventId]);
+
+  // Set up a 20-second polling interval while the screen is mounted, and also
+  // trigger an immediate refresh when the app returns to the foreground.
+  useEffect(() => {
+    const POLL_MS = 20_000;
+    const intervalId = setInterval(() => { void refreshInBackground(); }, POLL_MS);
+
+    const handleAppState = (next: AppStateStatus) => {
+      if (next === "active") void refreshInBackground();
+    };
+    const sub = AppState.addEventListener("change", handleAppState);
+
+    return () => {
+      clearInterval(intervalId);
+      sub.remove();
+    };
+  }, [refreshInBackground]);
 
   useEffect(() => {
     if (!squadId && !eventId) {
