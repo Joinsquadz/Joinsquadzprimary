@@ -35,9 +35,18 @@ vi.mock("../lib/auth", () => ({
   updateSession: vi.fn(async () => {}),
 }));
 
-async function makeApp() {
-  vi.resetModules();
-  const { authMiddleware } = await import("../middlewares/authMiddleware");
+// `vi.mock` is hoisted above these imports, so the static imports below still
+// resolve against the mocked `../lib/auth`. Importing the middleware here at
+// collection time — instead of via `vi.resetModules()` + `await import(...)`
+// inside `makeApp` — keeps the one-time, heavy transform of the middleware
+// dependency graph (real `openid-client`) out of the timed test/hook window,
+// which otherwise flakes under parallel CPU/transform contention. The mocks
+// read hoisted refs dynamically per request, so no per-test module reset is
+// needed for the values to stay fresh.
+import { authMiddleware } from "../middlewares/authMiddleware";
+import { clearSession } from "../lib/auth";
+
+function makeApp() {
   const app = express();
   app.use(express.json());
   app.use(authMiddleware);
@@ -110,7 +119,6 @@ describe("authMiddleware — Bearer token path", () => {
   });
 
   it("does not call clearSession when Bearer token session is not found", async () => {
-    const { clearSession } = await import("../lib/auth");
     mockOidcUser.value = null;
 
     const app = await makeApp();

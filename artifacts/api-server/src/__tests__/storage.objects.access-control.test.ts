@@ -33,10 +33,17 @@ vi.mock("../lib/logger", () => ({
   },
 }));
 
+// `vi.mock` is hoisted above this import, so the static import below still
+// resolves against the mocked modules. Importing the router here at collection
+// time — instead of via `await import(...)` inside `makeApp` — keeps the
+// one-time, heavy transform of the router dependency graph (real drizzle schema)
+// out of the timed test/hook window, which otherwise flakes under parallel
+// CPU/transform contention.
+import storageRouter from "../routes/storage";
+
 type TestUser = { id: string; email?: string };
 
-async function makeApp(user?: TestUser) {
-  const { default: storageRouter } = await import("../routes/storage");
+function makeApp(user?: TestUser) {
   const app = express();
   app.use(express.json());
   app.use((req: Request, _res: Response, next: NextFunction) => {

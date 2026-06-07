@@ -26,10 +26,18 @@ vi.mock("../lib/logger", () => ({
   },
 }));
 
+// `vi.mock` is hoisted above these imports, so the static imports below still
+// resolve against the mocked modules. Importing the router (and the mocked
+// storage) here at collection time — instead of via `await import(...)` inside
+// `makeApp`/`beforeEach` — keeps the one-time, heavy transform of the router
+// dependency graph (real drizzle schema) out of the timed test/hook window,
+// which otherwise flakes under parallel CPU/transform contention.
+import vaultRouter from "../routes/vault";
+import { storage } from "../storage";
+
 type TestUser = { id: string; email?: string };
 
-async function makeApp(user?: TestUser) {
-  const { default: vaultRouter } = await import("../routes/vault");
+function makeApp(user?: TestUser) {
   const app = express();
   app.use(express.json());
   app.use((req: Request, _res: Response, next: NextFunction) => {
@@ -53,10 +61,7 @@ const proUserRow = {
 };
 
 describe("POST /api/vault/photos eventId handling", () => {
-  let storage: typeof import("../storage").storage;
-
-  beforeEach(async () => {
-    ({ storage } = await import("../storage"));
+  beforeEach(() => {
     vi.mocked(storage.getUser).mockResolvedValue(proUserRow as never);
     vi.mocked(storage.getSubscription).mockResolvedValue({ status: "active" } as never);
   });
@@ -113,10 +118,7 @@ describe("POST /api/vault/photos eventId handling", () => {
 });
 
 describe("GET /api/vault/photos exposes eventId", () => {
-  let storage: typeof import("../storage").storage;
-
-  beforeEach(async () => {
-    ({ storage } = await import("../storage"));
+  beforeEach(() => {
     vi.mocked(storage.getUser).mockResolvedValue(proUserRow as never);
     vi.mocked(storage.getSubscription).mockResolvedValue({ status: "active" } as never);
   });
