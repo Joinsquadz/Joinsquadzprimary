@@ -37,6 +37,38 @@ TEST_PUSH_TOKEN=ExponentPushToken[xxxx] pnpm --filter @workspace/scripts run smo
 - Exit code `0` = PASS, exit code `1` = FAIL (token invalid, quota exceeded, device not registered, etc.).
 - Source: `scripts/src/smoke-test-push.ts`
 
+### Deep links open the app (universal links / app links)
+
+Pre-launch check that a shared squad link (`https://getsquadz.com/squad/join-public?id=<id>`) actually opens the native app. This has an automatable half (the association files are well-formed and non-placeholder) and a manual half (real-device taps), because the identity values must match the *signed* builds and a real device must be observed opening the app.
+
+**Automated check — run against the deployed environment:**
+
+```sh
+SQUADZ_BASE_URL=https://getsquadz.com pnpm --filter @workspace/scripts run smoke-test-deeplinks
+```
+
+- Fetches `/.well-known/apple-app-site-association` and `/.well-known/assetlinks.json` and asserts: HTTP 200 with no redirect, `Content-Type: application/json`, AASA `appID` is in `<TEAM_ID>.<BUNDLE_ID>` form and is **not** the `TEAMID.*` placeholder, paths/components cover `/squad/join-public`, and assetlinks has at least one valid colon-hex SHA-256 fingerprint (not the empty placeholder).
+- Exit code `0` = PASS (well-formed + non-placeholder), `1` = FAIL (misconfigured or env vars unset). A FAIL on the placeholder checks means `IOS_APP_ID` / `ANDROID_SHA256_CERT_FINGERPRINTS` are not set for that environment.
+- Source: `scripts/src/smoke-test-deeplinks.ts`
+
+**Prerequisites (set in the deployment environment for the signed builds):**
+
+- `IOS_APP_ID` = `<TEAM_ID>.com.squadz.app` — from Apple Developer (Team ID + bundle id).
+- `ANDROID_SHA256_CERT_FINGERPRINTS` = comma-separated SHA-256 signing-cert fingerprints — from Play App Signing (Play Console → App integrity) or your keystore.
+
+**Manual round-trip (cannot be automated — requires real hardware):**
+
+1. Apple AASA validator: `https://app-site-association.cdn-apple.com/a/v1/getsquadz.com` (Apple's CDN fetches and validates your AASA).
+2. Google Digital Asset Links tester: <https://developers.google.com/digital-asset-links/tools/generator> (point it at `getsquadz.com` + `com.squadz.app`).
+3. On a real **iOS** device with the signed build installed, tap `https://getsquadz.com/squad/join-public?id=<id>` — it must open the app on the join-public screen (not Safari).
+4. On a real **Android** device with the signed build installed, run `adb shell pm verify-app-links --re-verify com.squadz.app`, then `adb shell pm get-app-links com.squadz.app` — expect the domain to show `verified`. Then tap the link — it must open the app.
+
+**Pass/fail log:**
+
+| Date | Env | Automated check | iOS device tap | Android device tap | Notes |
+| ---- | --- | --------------- | -------------- | ------------------ | ----- |
+| _pending_ | production | — | — | — | Awaiting real `IOS_APP_ID` / `ANDROID_SHA256_CERT_FINGERPRINTS` from signed builds, then physical-device verification. |
+
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9

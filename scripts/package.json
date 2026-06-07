@@ -7,6 +7,7 @@
     "hello": "tsx ./src/hello.ts",
     "seed-products": "tsx ./src/seed-products.ts",
     "smoke-test-push": "tsx ./src/smoke-test-push.ts",
+    "smoke-test-deeplinks": "tsx ./src/smoke-test-deeplinks.ts",
     "backfill-squad-invite-codes": "tsx ./src/backfill-squad-invite-codes.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
