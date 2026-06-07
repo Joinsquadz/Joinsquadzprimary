@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   View,
   Text,
@@ -202,6 +203,13 @@ export default function AvailabilityScreen() {
   // background refresh doesn't resurrect a banner they already saw/dismissed.
   const dismissedRangeUpdateRef = useRef<string | null>(null);
 
+  // "New responses" banner state — shown to the host when members responded
+  // since the host last opened the poll. Cleared immediately once they open it
+  // (the timestamp is persisted to AsyncStorage on each load).
+  const [newResponseCount, setNewResponseCount] = useState(0);
+  const [newResponseBannerVisible, setNewResponseBannerVisible] = useState(false);
+  const newResponseBannerOpacity = useRef(new Animated.Value(0)).current;
+
   // Keep a ref that always reflects the latest `dirty` value so the polling
   // interval callback doesn't capture a stale closure.
   const dirtyRef = useRef(dirty);
@@ -358,6 +366,26 @@ export default function AvailabilityScreen() {
     }
   }, [rangeUpdatedBanner, rangeUpdatedOpacity]);
 
+  // Fade the newResponsesBanner in/out.
+  useEffect(() => {
+    if (newResponseCount > 0) {
+      setNewResponseBannerVisible(true);
+      Animated.timing(newResponseBannerOpacity, {
+        toValue: 1,
+        duration: 150,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      Animated.timing(newResponseBannerOpacity, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (finished) setNewResponseBannerVisible(false);
+      });
+    }
+  }, [newResponseCount, newResponseBannerOpacity]);
+
   // "Updated just now" indicator — fades in on data change, out after ~3s.
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -388,6 +416,17 @@ export default function AvailabilityScreen() {
     setLoading(true);
     setError(null);
     setNeedsSetup(false);
+
+    // Read the last-viewed timestamp BEFORE fetching so we can compare once
+    // the payload arrives. Keyed by the squad/event so different polls don't
+    // share a timestamp.
+    const avKey = `availability_lastviewed_${squadId ?? eventId}`;
+    let lastViewedAt: Date | null = null;
+    try {
+      const stored = await AsyncStorage.getItem(avKey);
+      if (stored) lastViewedAt = new Date(Number(stored));
+    } catch { /* ignore */ }
+
     try {
       const qs = new URLSearchParams(squadId ? { squadId } : { eventId: eventId ?? "" });
       const res = await fetch(`${API_BASE}/api/availability/polls/find?${qs.toString()}`, {
@@ -397,6 +436,8 @@ export default function AvailabilityScreen() {
         // No poll yet — let the creator choose the date range.
         setData(null);
         setNeedsSetup(true);
+        // Mark this "visit" so the next open uses now as baseline.
+        try { await AsyncStorage.setItem(avKey, String(Date.now())); } catch { /* ignore */ }
         return;
       }
       if (!res.ok) {
@@ -420,6 +461,22 @@ export default function AvailabilityScreen() {
       } else {
         setRangeUpdatedBanner(false);
       }
+
+      // Show "new responses" banner when the viewer IS the host and members
+      // have responded since the host's last visit.
+      if (payload.poll.createdBy === currentUser?.id && lastViewedAt !== null) {
+        const count = (payload.members ?? []).filter((m) => {
+          if (m.id === currentUser.id) return false;
+          if (!m.respondedAt) return false;
+          return new Date(m.respondedAt) > lastViewedAt!;
+        }).length;
+        setNewResponseCount(count);
+      } else {
+        setNewResponseCount(0);
+      }
+
+      // Record this view so the next open uses now as the baseline.
+      try { await AsyncStorage.setItem(avKey, String(Date.now())); } catch { /* ignore */ }
     } catch {
       setError("Network error. Please try again.");
     } finally {
@@ -1043,6 +1100,25 @@ export default function AvailabilityScreen() {
                     dismissedRangeUpdateRef.current = data.poll.updatedAt;
                     setRangeUpdatedBanner(false);
                   }}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="close" size={16} color={colors.mutedForeground} />
+                </TouchableOpacity>
+              </Animated.View>
+            )}
+
+            {newResponseBannerVisible && (
+              <Animated.View style={[styles.newResponseBanner, { backgroundColor: colors.primary + "15", borderColor: colors.primary + "55", opacity: newResponseBannerOpacity }]}>
+                <View style={[styles.newResponseBadge, { backgroundColor: colors.primary }]}>
+                  <Text style={styles.newResponseBadgeText}>{newResponseCount}</Text>
+                </View>
+                <Text style={[styles.newResponseText, { color: colors.foreground }]}>
+                  {newResponseCount === 1
+                    ? "1 new availability response since your last visit"
+                    : `${newResponseCount} new availability responses since your last visit`}
+                </Text>
+                <TouchableOpacity
+                  onPress={() => setNewResponseCount(0)}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
                   <Ionicons name="close" size={16} color={colors.mutedForeground} />
@@ -1879,6 +1955,10 @@ const styles = StyleSheet.create({
   editRangeNote: { fontSize: 13, lineHeight: 18, marginTop: 18 },
   rangeUpdatedBanner: { flexDirection: "row", alignItems: "flex-start", gap: 8, borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, marginTop: 14 },
   rangeUpdatedText: { flex: 1, fontSize: 13, lineHeight: 18, fontWeight: "600" },
+  newResponseBanner: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, marginTop: 14 },
+  newResponseBadge: { minWidth: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center", paddingHorizontal: 5 },
+  newResponseBadgeText: { fontSize: 12, fontWeight: "800", color: "#fff" },
+  newResponseText: { flex: 1, fontSize: 13, lineHeight: 18, fontWeight: "600" },
   miniStack: { flexDirection: "row", alignItems: "center", justifyContent: "center" },
   miniAvatar: { width: 16, height: 16, borderRadius: 8, borderWidth: 1.5, alignItems: "center", justifyContent: "center", overflow: "hidden" },
   miniAvatarImg: { width: 16, height: 16, borderRadius: 8 },
