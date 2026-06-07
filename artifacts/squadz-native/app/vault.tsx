@@ -358,7 +358,7 @@ export default function VaultScreen() {
       Alert.alert("Checkout Error", result.error);
     }
     setUpgradeLoading(false);
-  }, [authHeaders]);
+  }, [authToken]);
 
   const imageUrl = (objectPath: string) => `${API_BASE}/api/storage${objectPath}`;
 
@@ -463,10 +463,8 @@ export default function VaultScreen() {
       }
       if (!res.ok) return;
       const data = await res.json() as { photos: VaultPhoto[]; isPro?: boolean };
-      if (!data.isPro) {
-        setPickerRequiresPro(true);
-        return;
-      }
+      // Show only unlocked photos — free users can still roll up recent photos;
+      // locking only hides photos older than 30 days.
       setPickerPhotos((data.photos ?? []).filter(p => !p.locked && !!p.url));
     } catch {
       // silently fail
@@ -881,11 +879,14 @@ export default function VaultScreen() {
                 </>
               ) : (
                 <TouchableOpacity
-                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.back(); }}
-                  style={[styles.upgradeBtn, { backgroundColor: colors.primary }]}
+                  onPress={() => { if (!upgradeLoading) void handleUpgrade(); }}
+                  disabled={upgradeLoading}
+                  style={[styles.upgradeBtn, { backgroundColor: colors.primary, opacity: upgradeLoading ? 0.7 : 1 }]}
                   activeOpacity={0.85}
                 >
-                  <Text style={styles.upgradeBtnText}>⚡ Upgrade to Pro — $20/year</Text>
+                  {upgradeLoading
+                    ? <ActivityIndicator color="#fff" size="small" />
+                    : <Text style={styles.upgradeBtnText}>⚡ Upgrade to Pro — $20/year</Text>}
                 </TouchableOpacity>
               )}
             </>
@@ -925,9 +926,21 @@ export default function VaultScreen() {
                 <ActivityIndicator color={colors.primary} size="large" />
               </View>
             ) : pickerRequiresPro ? (
-              <View style={[styles.proHint, { backgroundColor: colors.gold + "18", borderColor: colors.gold + "40" }]}>
-                <Text style={styles.proHintIcon}>⚡</Text>
-                <Text style={[styles.proHintText, { color: colors.gold }]}>Upgrade to Pro to add your photos</Text>
+              <View style={styles.modalCenter}>
+                <View style={[styles.proHint, { backgroundColor: colors.gold + "18", borderColor: colors.gold + "40" }]}>
+                  <Text style={styles.proHintIcon}>⚡</Text>
+                  <Text style={[styles.proHintText, { color: colors.gold }]}>Upgrade to Pro to roll up photos</Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => { setPickerOpen(false); if (!upgradeLoading) void handleUpgrade(); }}
+                  disabled={upgradeLoading}
+                  style={[styles.upgradeBtn, { backgroundColor: colors.primary, opacity: upgradeLoading ? 0.7 : 1, marginTop: 16 }]}
+                  activeOpacity={0.85}
+                >
+                  {upgradeLoading
+                    ? <ActivityIndicator color="#fff" size="small" />
+                    : <Text style={styles.upgradeBtnText}>⚡ Upgrade to Pro — $20/year</Text>}
+                </TouchableOpacity>
               </View>
             ) : pickerPhotos.length > 0 ? (
               <ScrollView
