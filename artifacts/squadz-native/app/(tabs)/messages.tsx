@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -16,7 +16,26 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AppContext";
 import { useMessages, type ConversationListItem } from "@/context/MessagesContext";
+import type { Event } from "@/types";
 
+// ── colours per type ──────────────────────────────────────────────────────────
+const TYPE_META = {
+  direct: { label: "DM",    bg: "#7C3AED", fg: "#fff" },
+  squad:  { label: "Squad", bg: "#059669", fg: "#fff" },
+  event:  { label: "Event", bg: "#D97706", fg: "#fff" },
+} as const;
+
+// ── unified list item ─────────────────────────────────────────────────────────
+type UnifiedItem =
+  | { kind: "conversation"; data: ConversationListItem }
+  | { kind: "event"; event: Event; lastAt: string; lastText: string };
+
+function itemSortKey(item: UnifiedItem): number {
+  if (item.kind === "conversation") return new Date(item.data.lastMessageAt).getTime();
+  return new Date(item.lastAt).getTime();
+}
+
+// ── helpers ───────────────────────────────────────────────────────────────────
 function timeAgo(iso: string): string {
   const then = new Date(iso).getTime();
   if (Number.isNaN(then)) return "";
@@ -28,11 +47,57 @@ function timeAgo(iso: string): string {
   return `${Math.floor(secs / 604800)}w`;
 }
 
+// ── type pill ─────────────────────────────────────────────────────────────────
+function TypePill({ kind }: { kind: keyof typeof TYPE_META }) {
+  const { label, bg } = TYPE_META[kind];
+  return (
+    <View style={[styles.pill, { backgroundColor: bg + "22", borderColor: bg + "55" }]}>
+      <Text style={[styles.pillText, { color: bg }]}>{label}</Text>
+    </View>
+  );
+}
+
+// ── avatar ────────────────────────────────────────────────────────────────────
+function Avatar({
+  type,
+  emoji,
+  color,
+  initial,
+}: {
+  type: "direct" | "squad" | "event";
+  emoji?: string | null;
+  color?: string | null;
+  initial: string;
+}) {
+  if (type === "event") {
+    return (
+      <View style={[styles.avatar, { backgroundColor: "#D9770622", borderColor: "#D9770644", borderWidth: 1 }]}>
+        <Text style={{ fontSize: 24 }}>{emoji ?? "🗓️"}</Text>
+      </View>
+    );
+  }
+  if (type === "squad") {
+    const bg = (color ?? "#059669") + "22";
+    const border = (color ?? "#059669") + "44";
+    return (
+      <View style={[styles.avatar, { backgroundColor: bg, borderColor: border, borderWidth: 1 }]}>
+        <Text style={{ fontSize: 24 }}>{emoji ?? "👥"}</Text>
+      </View>
+    );
+  }
+  return (
+    <View style={[styles.avatar, { backgroundColor: "#7C3AED" }]}>
+      <Text style={styles.avatarInitial}>{initial.toUpperCase()}</Text>
+    </View>
+  );
+}
+
+// ── main screen ───────────────────────────────────────────────────────────────
 export default function MessagesScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { currentUser } = useAuth();
-  const { conversations, conversationsLoading, refreshConversations } = useMessages();
+  const { currentUser, events, eventsLoading } = useAuth();
+  const { conversations, conversationsLoading, refreshConversations, refreshUnread } = useMessages();
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 84 : 100);
@@ -40,20 +105,53 @@ export default function MessagesScreen() {
   useFocusEffect(
     useCallback(() => {
       void refreshConversations();
-    }, [refreshConversations]),
+      void refreshUnread();
+    }, [refreshConversations, refreshUnread]),
   );
 
-  const openConversation = (c: ConversationListItem) => {
+  // Build event chat items — only events that have at least one message
+  const unifiedList = useMemo<UnifiedItem[]>(() => {
+    const convItems: UnifiedItem[] = conversations.map((c) => ({ kind: "conversation", data: c }));
+
+    const eventItems: UnifiedItem[] = events
+      .filter((e) => e.messages.length > 0 && !e.cancelled)
+      .map((e) => {
+        const last = e.messages[e.messages.length - 1];
+        return {
+          kind: "event",
+          event: e,
+          lastAt: last.time,
+          lastText: last.text,
+        };
+      });
+
+    return [...convItems, ...eventItems].sort((a, b) => itemSortKey(b) - itemSortKey(a));
+  }, [conversations, events]);
+
+  const isLoading = conversationsLoading && eventsLoading && unifiedList.length === 0;
+
+  const openItem = (item: UnifiedItem) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    router.push(`/conversation/${c.id}` as never);
+    if (item.kind === "conversation") {
+      router.push(`/conversation/${item.data.id}` as never);
+    } else {
+      router.push(`/event/${item.event.id}` as never);
+    }
   };
+
+  const handleRefresh = useCallback(() => {
+    void refreshConversations();
+  }, [refreshConversations]);
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: topPad + 8, borderBottomColor: colors.border }]}>
         <Text style={[styles.title, { color: colors.foreground }]}>Messages</Text>
         <TouchableOpacity
-          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push("/friends"); }}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            router.push("/friends");
+          }}
           style={[styles.newBtn, { backgroundColor: colors.primary }]}
         >
           <Ionicons name="create-outline" size={20} color="#fff" />
@@ -64,18 +162,14 @@ export default function MessagesScreen() {
         contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: botPad }}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl
-            refreshing={false}
-            onRefresh={refreshConversations}
-            tintColor={colors.primary}
-          />
+          <RefreshControl refreshing={false} onRefresh={handleRefresh} tintColor={colors.primary} />
         }
       >
-        {conversationsLoading && conversations.length === 0 ? (
+        {isLoading ? (
           <View style={styles.loading}>
             <ActivityIndicator color={colors.primary} />
           </View>
-        ) : conversations.length === 0 ? (
+        ) : unifiedList.length === 0 ? (
           <View style={styles.empty}>
             <Text style={{ fontSize: 52, marginBottom: 14 }}>💬</Text>
             <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No messages yet</Text>
@@ -83,7 +177,10 @@ export default function MessagesScreen() {
               Start a chat with a friend or your squad
             </Text>
             <TouchableOpacity
-              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push("/friends"); }}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push("/friends");
+              }}
               style={[styles.emptyBtn, { borderColor: colors.primary + "40" }]}
             >
               <Ionicons name="person-add-outline" size={18} color={colors.primary} />
@@ -91,66 +188,90 @@ export default function MessagesScreen() {
             </TouchableOpacity>
           </View>
         ) : (
-          conversations.map((c) => {
-            const unread = c.unreadCount > 0;
-            const youSent = c.lastMessageSenderId === currentUser?.id;
-            const preview = c.lastMessagePreview
-              ? `${youSent ? "You: " : ""}${c.lastMessagePreview}`
-              : "No messages yet";
+          unifiedList.map((item) => {
+            if (item.kind === "conversation") {
+              const c = item.data;
+              const unread = c.unreadCount > 0;
+              const youSent = c.lastMessageSenderId === currentUser?.id;
+              const preview = c.lastMessagePreview
+                ? `${youSent ? "You: " : ""}${c.lastMessagePreview}`
+                : "No messages yet";
+              const type = c.type; // "direct" | "squad"
+
+              return (
+                <TouchableOpacity
+                  key={`conv-${c.id}`}
+                  onPress={() => openItem(item)}
+                  style={[styles.row, { borderBottomColor: colors.border }]}
+                  activeOpacity={0.7}
+                >
+                  <Avatar
+                    type={type}
+                    emoji={c.emoji}
+                    color={c.color}
+                    initial={(c.title || "?").charAt(0)}
+                  />
+                  <View style={styles.rowBody}>
+                    <View style={styles.rowTop}>
+                      <TypePill kind={type} />
+                      <Text style={[styles.rowName, { color: colors.foreground }]} numberOfLines={1}>
+                        {c.title}
+                      </Text>
+                      <Text style={[styles.rowTime, { color: unread ? colors.primary : colors.textDim }]}>
+                        {timeAgo(c.lastMessageAt)}
+                      </Text>
+                    </View>
+                    <View style={styles.rowBottom}>
+                      <Text
+                        style={[
+                          styles.rowPreview,
+                          { color: unread ? colors.foreground : colors.mutedForeground, fontWeight: unread ? "700" : "400" },
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {preview}
+                      </Text>
+                      {unread && (
+                        <View style={[styles.badge, { backgroundColor: colors.primary }]}>
+                          <Text style={styles.badgeText}>{c.unreadCount > 99 ? "99+" : c.unreadCount}</Text>
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              );
+            }
+
+            // ── event chat item ───────────────────────────────────────────────
+            const { event, lastAt, lastText } = item;
+            const youSent = event.messages[event.messages.length - 1]?.senderId === currentUser?.id;
+            const preview = `${youSent ? "You: " : ""}${lastText}`;
+
             return (
               <TouchableOpacity
-                key={c.id}
-                onPress={() => openConversation(c)}
+                key={`event-${event.id}`}
+                onPress={() => openItem(item)}
                 style={[styles.row, { borderBottomColor: colors.border }]}
                 activeOpacity={0.7}
               >
-                {c.type === "squad" ? (
-                  <View
-                    style={[
-                      styles.avatar,
-                      { backgroundColor: (c.color ?? colors.primary) + "22", borderColor: (c.color ?? colors.primary) + "30", borderWidth: 1 },
-                    ]}
-                  >
-                    <Text style={{ fontSize: 24 }}>{c.emoji ?? "👥"}</Text>
-                  </View>
-                ) : (
-                  <View style={[styles.avatar, { backgroundColor: colors.primary }]}>
-                    <Text style={styles.avatarInitial}>
-                      {(c.title || "?").trim().charAt(0).toUpperCase()}
-                    </Text>
-                  </View>
-                )}
-
+                <Avatar type="event" emoji={event.emoji} initial={event.title.charAt(0)} />
                 <View style={styles.rowBody}>
                   <View style={styles.rowTop}>
-                    <Text
-                      style={[styles.rowName, { color: colors.foreground }]}
-                      numberOfLines={1}
-                    >
-                      {c.title}
+                    <TypePill kind="event" />
+                    <Text style={[styles.rowName, { color: colors.foreground }]} numberOfLines={1}>
+                      {event.title}
                     </Text>
-                    <Text style={[styles.rowTime, { color: unread ? colors.primary : colors.textDim }]}>
-                      {timeAgo(c.lastMessageAt)}
+                    <Text style={[styles.rowTime, { color: colors.textDim }]}>
+                      {timeAgo(lastAt)}
                     </Text>
                   </View>
                   <View style={styles.rowBottom}>
                     <Text
-                      style={[
-                        styles.rowPreview,
-                        { color: unread ? colors.foreground : colors.mutedForeground, fontWeight: unread ? "700" : "400" },
-                      ]}
+                      style={[styles.rowPreview, { color: colors.mutedForeground }]}
                       numberOfLines={1}
                     >
-                      {c.type === "squad" && !youSent ? "" : ""}
                       {preview}
                     </Text>
-                    {unread && (
-                      <View style={[styles.badge, { backgroundColor: colors.primary }]}>
-                        <Text style={styles.badgeText}>
-                          {c.unreadCount > 99 ? "99+" : c.unreadCount}
-                        </Text>
-                      </View>
-                    )}
                   </View>
                 </View>
               </TouchableOpacity>
@@ -178,8 +299,8 @@ const styles = StyleSheet.create({
   avatar: { width: 54, height: 54, borderRadius: 27, alignItems: "center", justifyContent: "center", flexShrink: 0 },
   avatarInitial: { color: "#fff", fontSize: 20, fontWeight: "800" },
   rowBody: { flex: 1, gap: 4 },
-  rowTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  rowName: { fontSize: 16, fontWeight: "700", flex: 1 },
+  rowTop: { flexDirection: "row", alignItems: "center", gap: 6 },
+  rowName: { fontSize: 15, fontWeight: "700", flex: 1 },
   rowTime: { fontSize: 12, fontWeight: "600", flexShrink: 0 },
   rowBottom: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
   rowPreview: { fontSize: 14, flex: 1 },
@@ -188,6 +309,10 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center", flexShrink: 0,
   },
   badgeText: { color: "#fff", fontSize: 11, fontWeight: "800" },
+  pill: {
+    borderRadius: 5, borderWidth: 1, paddingHorizontal: 5, paddingVertical: 1, flexShrink: 0,
+  },
+  pillText: { fontSize: 10, fontWeight: "800", letterSpacing: 0.3 },
   empty: { alignItems: "center", paddingTop: 80, paddingBottom: 40 },
   emptyTitle: { fontSize: 20, fontWeight: "800", marginBottom: 8 },
   emptySub: { fontSize: 14, textAlign: "center", lineHeight: 20, marginBottom: 20 },
