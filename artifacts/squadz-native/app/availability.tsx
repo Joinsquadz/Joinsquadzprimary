@@ -234,6 +234,9 @@ export default function AvailabilityScreen() {
   const save = async () => {
     if (!data) return;
     setSaving(true);
+    // Snapshot the current grid so we can detect if it changed server-side.
+    const prevDays = data.poll.days;
+    const prevSlots = data.poll.slots;
     try {
       const res = await fetch(`${API_BASE}/api/availability/polls/${data.poll.id}/me`, {
         method: "PUT",
@@ -245,17 +248,53 @@ export default function AvailabilityScreen() {
         return;
       }
       const payload = (await res.json()) as PollPayload;
-      setData(payload);
-      setMySet(new Set(payload.myCells));
-      setDirty(false);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      if (payload.droppedCount && payload.droppedCount > 0) {
-        const n = payload.droppedCount;
-        setDroppedNotice(
-          `${n} picked ${n === 1 ? "time was" : "times were"} outside the poll's range and couldn't be saved.`,
-        );
-        setTimeout(() => setDroppedNotice(null), 5000);
+      const dropped = payload.droppedCount ?? 0;
+
+      if (dropped > 0) {
+        // Detect whether the poll's grid itself changed (dates recreated / range shifted).
+        const gridChanged =
+          payload.poll.days.length !== prevDays.length ||
+          payload.poll.slots.length !== prevSlots.length ||
+          payload.poll.days.some((d, i) => d !== prevDays[i]) ||
+          payload.poll.slots.some((s, i) => s !== prevSlots[i]);
+
+        if (gridChanged) {
+          // Re-fetch via the find endpoint to guarantee the grid is fully in
+          // sync with the current server state (the PUT payload is sufficient
+          // but a fresh GET confirms nothing else changed concurrently).
+          let refreshed: PollPayload = payload;
+          try {
+            const qs = new URLSearchParams(squadId ? { squadId } : { eventId: eventId ?? "" });
+            const refreshRes = await fetch(`${API_BASE}/api/availability/polls/find?${qs.toString()}`, {
+              headers: authHeaders(),
+            });
+            if (refreshRes.ok) {
+              refreshed = (await refreshRes.json()) as PollPayload;
+            }
+          } catch {
+            // Fall back to the PUT response if the refresh request fails.
+          }
+          setData(refreshed);
+          setMySet(new Set(refreshed.myCells));
+          setDroppedNotice(
+            `The poll's dates changed — the grid has been updated. ${dropped} ${dropped === 1 ? "selection was" : "selections were"} outside the new range and couldn't be saved.`,
+          );
+        } else {
+          setData(payload);
+          setMySet(new Set(payload.myCells));
+          setDroppedNotice(
+            `${dropped} picked ${dropped === 1 ? "time was" : "times were"} outside the poll's range and couldn't be saved.`,
+          );
+        }
+        setDirty(false);
+        setTimeout(() => setDroppedNotice(null), 6000);
+      } else {
+        setData(payload);
+        setMySet(new Set(payload.myCells));
+        setDirty(false);
       }
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch {
       Alert.alert("Couldn't save", "Network error. Please try again.");
     } finally {
