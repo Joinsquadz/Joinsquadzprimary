@@ -860,6 +860,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         initials: getInitials(apiUser),
         color: colorFromId(apiUser.id),
         avatar: getInitials(apiUser),
+        profileImageUrl: apiUser.profileImageUrl,
       }
     : ME;
 

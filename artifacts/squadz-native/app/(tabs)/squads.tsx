@@ -5,6 +5,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Platform,
+  Image,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -17,7 +18,7 @@ import { getUserById } from "@/data/mock";
 export default function SquadsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { squads, events } = useData();
+  const { squads, events, currentUser } = useData();
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 84 : 100);
@@ -69,17 +70,24 @@ export default function SquadsScreen() {
                     {squad.memberIds.length} members · {squadEvents.length} event{squadEvents.length !== 1 ? "s" : ""}
                   </Text>
                   <View style={styles.memberAvatars}>
-                    {members.map((m, i) => (
-                      <View
-                        key={m.id}
-                        style={[
-                          styles.memberAvatar,
-                          { backgroundColor: m.color, marginLeft: i > 0 ? -7 : 0, borderColor: colors.card },
-                        ]}
-                      >
-                        <Text style={styles.memberInitial}>{m.initials[0]}</Text>
-                      </View>
-                    ))}
+                    {members.map((m, i) => {
+                      const photoUrl = m.id === currentUser.id ? currentUser.profileImageUrl : m.profileImageUrl;
+                      return (
+                        <View
+                          key={m.id}
+                          style={[
+                            styles.memberAvatar,
+                            { backgroundColor: m.color, marginLeft: i > 0 ? -7 : 0, borderColor: colors.card },
+                          ]}
+                        >
+                          {photoUrl ? (
+                            <Image source={{ uri: photoUrl }} style={styles.memberAvatarImage} />
+                          ) : (
+                            <Text style={styles.memberInitial}>{m.initials[0]}</Text>
+                          )}
+                        </View>
+                      );
+                    })}
                     {squad.memberIds.length > 5 && (
                       <View style={[styles.memberAvatar, { backgroundColor: colors.surfaceUp, marginLeft: -7, borderColor: colors.card }]}>
                         <Text style={[styles.memberInitial, { color: colors.mutedForeground }]}>
@@ -129,7 +137,9 @@ const styles = StyleSheet.create({
     width: 24, height: 24, borderRadius: 12,
     alignItems: "center", justifyContent: "center",
     borderWidth: 2,
+    overflow: "hidden",
   },
+  memberAvatarImage: { width: 24, height: 24, borderRadius: 12 },
   memberInitial: { fontSize: 9, fontWeight: "800", color: "#fff" },
   empty: { alignItems: "center", paddingTop: 60, paddingBottom: 40 },
   emptyTitle: { fontSize: 20, fontWeight: "800", marginBottom: 8 },

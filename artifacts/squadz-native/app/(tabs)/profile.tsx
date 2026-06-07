@@ -426,7 +426,7 @@ export default function ProfileScreen() {
           </Animated.View>
         )}
         <View style={[styles.profileCard, { paddingTop: showSuccessBanner ? 16 : topPad + 20, borderBottomColor: colors.border }]}>
-          <UserAvatar initials={currentUser.initials} color={currentUser.color} size={80} fontSize={28} />
+          <UserAvatar initials={currentUser.initials} color={currentUser.color} imageUrl={currentUser.profileImageUrl} size={80} fontSize={28} />
           <View style={styles.nameRow}>
             <Text style={[styles.name, { color: colors.foreground }]}>{currentUser.name}</Text>
             {checkingPro ? (

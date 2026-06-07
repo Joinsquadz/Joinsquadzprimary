@@ -3,6 +3,7 @@ export type User = {
   name: string;
   initials: string;
   color: string;
+  profileImageUrl?: string | null;
 };
 
 export type RsvpStatus = "going" | "maybe" | "notgoing";

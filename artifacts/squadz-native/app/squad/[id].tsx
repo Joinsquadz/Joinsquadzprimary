@@ -30,7 +30,7 @@ const EMOJIS = ["🔥", "🎉", "🎮", "🏖️", "🍕", "🎸", "⚽", "🎬"
 export default function SquadDetailScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { events, getSquad, updateSquad, leaveSquad } = useData();
+  const { events, getSquad, updateSquad, leaveSquad, currentUser } = useData();
   const { getSquadConversation } = useMessages();
   const { authToken } = useAuth();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -92,7 +92,11 @@ export default function SquadDetailScreen() {
     );
   }
 
-  const members = squad.memberIds.map(getUserById);
+  const members = squad.memberIds.map((id) => {
+    const u = getUserById(id);
+    if (id === currentUser.id) return { ...u, profileImageUrl: currentUser.profileImageUrl };
+    return u;
+  });
   const squadEvents = events.filter((e) => e.squadId === squad.id);
   const inviteLink = `getsquadz.com/squad/${squad.id}`;
 
@@ -174,7 +178,7 @@ export default function SquadDetailScreen() {
         <View style={styles.membersGrid}>
           {members.map((m) => (
             <View key={m.id} style={[styles.memberCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <UserAvatar initials={m.initials} color={m.color} size={44} fontSize={15} />
+              <UserAvatar initials={m.initials} color={m.color} imageUrl={m.profileImageUrl} size={44} fontSize={15} />
               <Text style={[styles.memberName, { color: colors.foreground }]} numberOfLines={1}>
                 {m.name.split(" ")[0]}
               </Text>

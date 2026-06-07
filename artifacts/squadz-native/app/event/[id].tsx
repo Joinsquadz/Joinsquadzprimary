@@ -141,10 +141,14 @@ export default function EventDetailScreen() {
     );
   }
 
-  const host = getUserById(event.hostId);
+  const host = withPhoto(getUserById(event.hostId));
   const isHost = event.hostId === currentUser.id;
   const squad = getSquad(event.squadId);
-  const squadMembers = squad ? squad.memberIds.map(getUserById) : [getUserById(currentUser.id)];
+  function withPhoto(u: ReturnType<typeof getUserById>) {
+    if (u.id === currentUser.id) return { ...u, profileImageUrl: currentUser.profileImageUrl };
+    return u;
+  }
+  const squadMembers = squad ? squad.memberIds.map((id) => withPhoto(getUserById(id))) : [withPhoto(getUserById(currentUser.id))];
   const squadName = squad?.name ?? event.squadName;
   const myRsvp = event.rsvps[currentUser.id] ?? null;
 
@@ -157,7 +161,7 @@ export default function EventDetailScreen() {
   const budgetOver = budgetRemaining < 0;
 
   const attendees = Object.entries(event.rsvps).map(([uid, status]) => ({
-    user: getUserById(uid),
+    user: withPhoto(getUserById(uid)),
     status,
   }));
 
@@ -574,7 +578,7 @@ export default function EventDetailScreen() {
             <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <Text style={[styles.cardTitle, { color: colors.mutedForeground }]}>Host</Text>
               <View style={styles.hostRow}>
-                <UserAvatar initials={host.initials} color={host.color} size={40} fontSize={14} />
+                <UserAvatar initials={host.initials} color={host.color} imageUrl={host.profileImageUrl} size={40} fontSize={14} />
                 <Text style={[styles.hostName, { color: colors.foreground }]}>{host.name}{isHost ? " (You)" : ""}</Text>
               </View>
             </View>
@@ -611,7 +615,7 @@ export default function EventDetailScreen() {
             </Text>
             {attendees.map(({ user: u, status }) => (
               <View key={u.id} style={[styles.guestRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                <UserAvatar initials={u.initials} color={u.color} size={44} fontSize={15} />
+                <UserAvatar initials={u.initials} color={u.color} imageUrl={u.profileImageUrl} size={44} fontSize={15} />
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.guestName, { color: colors.foreground }]}>{u.name}{u.id === currentUser.id ? " (You)" : ""}</Text>
                   <Text style={[styles.guestStatus, { color: statusColor(status) }]}>{STATUS_LABEL[status]}</Text>
@@ -632,7 +636,7 @@ export default function EventDetailScreen() {
               {event.tasks.filter((t) => t.done).length}/{event.tasks.length} complete
             </Text>
             {event.tasks.map((task) => {
-              const assignee = task.assigneeId ? getUserById(task.assigneeId) : null;
+              const assignee = task.assigneeId ? withPhoto(getUserById(task.assigneeId)) : null;
               return (
                 <View key={task.id} style={[styles.taskRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
                   <TouchableOpacity onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); toggleTask(event.id, task.id); }}>
@@ -646,7 +650,7 @@ export default function EventDetailScreen() {
                     {task.title}
                   </Text>
                   {assignee ? (
-                    <UserAvatar initials={assignee.initials} color={assignee.color} size={28} fontSize={10} />
+                    <UserAvatar initials={assignee.initials} color={assignee.color} imageUrl={assignee.profileImageUrl} size={28} fontSize={10} />
                   ) : (
                     <TouchableOpacity
                       onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); claimTask(event.id, task.id); }}
@@ -730,14 +734,14 @@ export default function EventDetailScreen() {
                         <Text style={[styles.settleAllClear, { color: colors.mutedForeground }]}>You're all settled up 🎉</Text>
                       ) : (
                         settleLines.map((line) => {
-                          const other = getUserById(line.userId);
+                          const other = withPhoto(getUserById(line.userId));
                           const iOwe = line.net < 0;
                           const amt = Math.abs(line.net);
                           const note = `${event.title} — settle up`;
                           const firstName = other.name.split(" ")[0];
                           return (
                             <View key={line.userId} style={styles.settleRow}>
-                              <UserAvatar initials={other.initials} color={other.color} size={32} fontSize={11} />
+                              <UserAvatar initials={other.initials} color={other.color} imageUrl={other.profileImageUrl} size={32} fontSize={11} />
                               <View style={{ flex: 1 }}>
                                 <Text style={[styles.settleName, { color: colors.foreground }]}>
                                   {iOwe ? `You owe ${firstName}` : `${firstName} owes you`}
@@ -909,11 +913,11 @@ export default function EventDetailScreen() {
               </View>
             ) : (
               event.messages.map((m) => {
-                const sender = getUserById(m.senderId);
+                const sender = withPhoto(getUserById(m.senderId));
                 const mine = m.senderId === currentUser.id;
                 return (
                   <View key={m.id} style={[styles.msgRow, mine && { flexDirection: "row-reverse" }]}>
-                    <UserAvatar initials={sender.initials} color={sender.color} size={32} fontSize={11} />
+                    <UserAvatar initials={sender.initials} color={sender.color} imageUrl={sender.profileImageUrl} size={32} fontSize={11} />
                     <View style={[styles.msgBubble, { backgroundColor: mine ? colors.primary : colors.card, borderColor: colors.border }]}>
                       {!mine && <Text style={[styles.msgSender, { color: colors.mutedForeground }]}>{sender.name.split(" ")[0]}</Text>}
                       <Text style={[styles.msgText, { color: mine ? "#fff" : colors.foreground }]}>{m.text}</Text>
@@ -1053,7 +1057,7 @@ export default function EventDetailScreen() {
               <Text style={[styles.assignLabel, { color: colors.mutedForeground }]}>Who owes what</Text>
               {squadMembers.map((m) => (
                 <View key={m.id} style={[styles.assignRow, { borderColor: colors.border }]}>
-                  <UserAvatar initials={m.initials} color={m.color} size={32} fontSize={11} />
+                  <UserAvatar initials={m.initials} color={m.color} imageUrl={m.profileImageUrl} size={32} fontSize={11} />
                   <Text style={[styles.assignName, { color: colors.foreground }]}>{m.name.split(" ")[0]}{m.id === currentUser.id ? " (You)" : ""}</Text>
                   <View style={[styles.assignInputWrap, { backgroundColor: colors.card, borderColor: colors.border }]}>
                     <Text style={[styles.dollar, { color: colors.textDim }]}>$</Text>

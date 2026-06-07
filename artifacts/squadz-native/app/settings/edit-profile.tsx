@@ -148,7 +148,7 @@ export default function EditProfileScreen() {
             {photoUri ? (
               <Image source={{ uri: photoUri }} style={styles.avatarImg} />
             ) : (
-              <UserAvatar initials={currentUser.initials} color={currentUser.color} size={96} fontSize={34} />
+              <UserAvatar initials={currentUser.initials} color={currentUser.color} imageUrl={currentUser.profileImageUrl} size={96} fontSize={34} />
             )}
             <View style={[styles.cameraBadge, { backgroundColor: colors.primary, borderColor: colors.background }]}>
               <Ionicons name="camera" size={16} color="#fff" />
