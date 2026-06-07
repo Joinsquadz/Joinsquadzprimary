@@ -31,12 +31,14 @@ vi.mock("@workspace/db", () => ({
 const mockGetPushTokensForUsers = vi.hoisted(() => vi.fn());
 const mockGetUser = vi.hoisted(() => vi.fn());
 const mockClearPushToken = vi.hoisted(() => vi.fn());
+const mockFilterUnmutedForSquad = vi.hoisted(() => vi.fn());
 
 vi.mock("../storage", () => ({
   storage: {
     getPushTokensForUsers: mockGetPushTokensForUsers,
     getUser: mockGetUser,
     clearPushToken: mockClearPushToken,
+    filterUnmutedForSquad: mockFilterUnmutedForSquad,
   },
 }));
 
@@ -84,6 +86,8 @@ beforeEach(() => {
   mockGetPushTokensForUsers.mockResolvedValue([]);
   mockClearPushToken.mockResolvedValue(undefined);
   mockSendPushNotifications.mockResolvedValue({ staleTokens: [] });
+  // Return all pre-existing members as "unmuted" by default
+  mockFilterUnmutedForSquad.mockResolvedValue([MEMBER_A, MEMBER_B]);
 });
 
 // ─── POST /api/squads/:id/join ────────────────────────────────────────────────

@@ -76,7 +76,12 @@ app.listen(port, (err) => {
 // Expo recommends checking push receipts at least 15 minutes after sending so
 // APNs/FCM has had time to report delivery status. Run the check on that cadence.
 const RECEIPT_CHECK_INTERVAL_MS = 15 * 60 * 1000;
+logger.info(
+  { intervalMs: RECEIPT_CHECK_INTERVAL_MS },
+  'Push receipt check scheduled',
+);
 setInterval(() => {
+  logger.info('Running scheduled push receipt check');
   checkPushReceipts({ onStaleToken: (token) => storage.clearPushToken(token) })
     .then(({ staleTokens }) => {
       if (staleTokens.length > 0) {
@@ -84,6 +89,8 @@ setInterval(() => {
           { count: staleTokens.length },
           'Cleared stale push tokens found via receipt check',
         );
+      } else {
+        logger.info('Push receipt check complete — no stale tokens');
       }
     })
     .catch((err) => logger.error({ err }, 'Push receipt check failed'));
