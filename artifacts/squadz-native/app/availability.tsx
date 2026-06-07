@@ -39,12 +39,20 @@ const MONTH_SHORT = [
 
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
+type MemberInfo = {
+  id: string;
+  displayName: string;
+  avatarUrl: string | null;
+  hasResponded: boolean;
+};
+
 type PollPayload = {
   poll: { id: string; createdBy: string; title: string; days: string[]; slots: string[] };
   heatmap: { cell: string; count: number }[];
   respondentCount: number;
   myCells: string[];
   best: { cell: string; count: number; total: number } | null;
+  members?: MemberInfo[];
   droppedCount?: number;
 };
 
@@ -817,6 +825,40 @@ export default function AvailabilityScreen() {
             <Animated.Text style={[styles.updatedText, { color: colors.textDim, opacity: fadeAnim }]}>
               Updated just now
             </Animated.Text>
+
+            {data.members && data.members.length > 0 && (
+              <View style={styles.memberSection}>
+                <View style={styles.memberRow}>
+                  {data.members.map((m) => (
+                    <View
+                      key={m.id}
+                      style={[
+                        styles.memberAvatar,
+                        {
+                          backgroundColor: m.hasResponded ? colors.primary : colors.card,
+                          borderColor: m.hasResponded ? colors.primary : colors.border,
+                          opacity: m.hasResponded ? 1 : 0.45,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.memberInitial,
+                          { color: m.hasResponded ? "#fff" : colors.mutedForeground },
+                        ]}
+                      >
+                        {m.displayName.charAt(0).toUpperCase()}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+                {data.members.some((m) => !m.hasResponded) && (
+                  <Text style={[styles.memberPendingText, { color: colors.textDim }]}>
+                    {data.members.filter((m) => !m.hasResponded).length} still pending
+                  </Text>
+                )}
+              </View>
+            )}
           </ScrollView>
 
           <View style={[styles.bottomBar, { borderTopColor: colors.border, paddingBottom: botPad + 12, backgroundColor: colors.background }]}>
@@ -1031,6 +1073,11 @@ const styles = StyleSheet.create({
   legendText: { fontSize: 12, marginRight: 8 },
   respText: { fontSize: 13, marginTop: 16, fontWeight: "600" },
   updatedText: { fontSize: 11, fontWeight: "600", marginTop: 4 },
+  memberSection: { marginTop: 12 },
+  memberRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  memberAvatar: { width: 36, height: 36, borderRadius: 18, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
+  memberInitial: { fontSize: 14, fontWeight: "800" },
+  memberPendingText: { fontSize: 12, marginTop: 8, fontWeight: "600" },
   bottomBar: { paddingHorizontal: 20, paddingTop: 12, borderTopWidth: 1, gap: 10 },
   droppedBanner: { flexDirection: "row", alignItems: "flex-start", gap: 8, borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10 },
   droppedBannerText: { flex: 1, fontSize: 13, lineHeight: 18 },

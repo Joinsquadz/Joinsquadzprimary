@@ -5,6 +5,47 @@ import { storage } from "../storage";
 import { logger } from "../lib/logger";
 import type { AvailabilityPoll } from "@workspace/db/schema";
 
+type MemberInfo = {
+  id: string;
+  displayName: string;
+  avatarUrl: string | null;
+  hasResponded: boolean;
+};
+
+function toDisplayName(user: { firstName?: string | null; lastName?: string | null; email?: string | null }): string {
+  const full = [user.firstName, user.lastName].filter(Boolean).join(" ");
+  if (full) return full;
+  return user.email?.split("@")[0] ?? "User";
+}
+
+async function buildMembersField(
+  poll: AvailabilityPoll,
+  respondentIds: Set<string>,
+): Promise<MemberInfo[]> {
+  if (poll.squadId) {
+    const squad = await storage.getSquad(poll.squadId);
+    const memberIds: string[] = (squad?.memberIds as string[] | null) ?? [];
+    const allIds = [...new Set([...memberIds, ...respondentIds])];
+    const users = await storage.getUsers(allIds);
+    return users.map((u) => ({
+      id: u.id,
+      displayName: toDisplayName(u),
+      avatarUrl: u.profileImageUrl ?? null,
+      hasResponded: respondentIds.has(u.id),
+    }));
+  }
+  if (respondentIds.size > 0) {
+    const users = await storage.getUsers([...respondentIds]);
+    return users.map((u) => ({
+      id: u.id,
+      displayName: toDisplayName(u),
+      avatarUrl: u.profileImageUrl ?? null,
+      hasResponded: true,
+    }));
+  }
+  return [];
+}
+
 const router: IRouter = Router();
 
 function parseId(raw: unknown): string {
@@ -165,7 +206,9 @@ router.post("/availability/polls", requireAuth, async (req: Request, res: Respon
       }));
 
     const responses = await storage.getAvailabilityResponses(poll.id);
-    res.status(existing ? 200 : 201).json(buildPollPayload(poll, responses, userId));
+    const respondentIds = new Set(responses.map((r) => r.userId));
+    const members = await buildMembersField(poll, respondentIds);
+    res.status(existing ? 200 : 201).json({ ...buildPollPayload(poll, responses, userId), members });
   } catch (err) {
     logger.error({ err }, "Error creating availability poll");
     res.status(500).json({ error: "Failed to create poll" });
@@ -194,7 +237,9 @@ router.get("/availability/polls/find", requireAuth, async (req: Request, res: Re
       return;
     }
     const responses = await storage.getAvailabilityResponses(poll.id);
-    res.json(buildPollPayload(poll, responses, userId));
+    const respondentIds = new Set(responses.map((r) => r.userId));
+    const members = await buildMembersField(poll, respondentIds);
+    res.json({ ...buildPollPayload(poll, responses, userId), members });
   } catch (err) {
     logger.error({ err }, "Error finding availability poll");
     res.status(500).json({ error: "Failed to find poll" });
@@ -219,7 +264,9 @@ router.get("/availability/polls/:id", requireAuth, async (req: Request, res: Res
       return;
     }
     const responses = await storage.getAvailabilityResponses(poll.id);
-    res.json(buildPollPayload(poll, responses, userId));
+    const respondentIds = new Set(responses.map((r) => r.userId));
+    const members = await buildMembersField(poll, respondentIds);
+    res.json({ ...buildPollPayload(poll, responses, userId), members });
   } catch (err) {
     logger.error({ err }, "Error fetching availability poll");
     res.status(500).json({ error: "Failed to fetch poll" });
@@ -291,7 +338,9 @@ router.put("/availability/polls/:id/me", requireAuth, async (req: Request, res: 
 
     await storage.upsertAvailabilityResponse(poll.id, userId, cells, "manual");
     const responses = await storage.getAvailabilityResponses(poll.id);
-    res.json({ ...buildPollPayload(poll, responses, userId), droppedCount });
+    const respondentIds = new Set(responses.map((r) => r.userId));
+    const members = await buildMembersField(poll, respondentIds);
+    res.json({ ...buildPollPayload(poll, responses, userId), members, droppedCount });
   } catch (err) {
     logger.error({ err }, "Error saving availability response");
     res.status(500).json({ error: "Failed to save availability" });

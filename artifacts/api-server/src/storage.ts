@@ -144,6 +144,16 @@ export class Storage {
     return user;
   }
 
+  async getUsers(ids: string[]) {
+    if (ids.length === 0) return [];
+    return db.select().from(usersTable).where(inArray(usersTable.id, ids));
+  }
+
+  async getSquad(id: string) {
+    const [squad] = await db.select().from(squadsTable).where(eq(squadsTable.id, id));
+    return squad ?? null;
+  }
+
   async getUserByStripeCustomerId(stripeCustomerId: string) {
     const [user] = await db
       .select()
