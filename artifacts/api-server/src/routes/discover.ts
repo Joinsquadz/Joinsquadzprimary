@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { and, eq, ne, sql } from "drizzle-orm";
-import { db, eventsTable, squadsTable } from "@workspace/db";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
+import { db, eventsTable, squadsTable, usersTable } from "@workspace/db";
 import { requireAuth } from "../middleware/currentUser";
 import { logger } from "../lib/logger";
 
@@ -24,7 +24,7 @@ router.get("/discover", requireAuth, async (req: Request, res: Response): Promis
       .orderBy(eventsTable.createdAt)
       .limit(20);
 
-    const squads = await db
+    const rawSquads = await db
       .select()
       .from(squadsTable)
       .where(
@@ -35,6 +35,32 @@ router.get("/discover", requireAuth, async (req: Request, res: Response): Promis
       )
       .orderBy(squadsTable.createdAt)
       .limit(20);
+
+    const creatorIds = Array.from(
+      new Set(rawSquads.map((s) => s.creatorId).filter((id): id is string => !!id)),
+    );
+    const creators =
+      creatorIds.length > 0
+        ? await db
+            .select({
+              id: usersTable.id,
+              firstName: usersTable.firstName,
+              lastName: usersTable.lastName,
+            })
+            .from(usersTable)
+            .where(inArray(usersTable.id, creatorIds))
+        : [];
+    const creatorNameById = new Map(
+      creators.map((c) => [
+        c.id,
+        [c.firstName, c.lastName].filter(Boolean).join(" ").trim() || null,
+      ]),
+    );
+
+    const squads = rawSquads.map((s) => ({
+      ...s,
+      creatorName: s.creatorId ? creatorNameById.get(s.creatorId) ?? null : null,
+    }));
 
     res.json({ events, squads });
   } catch (err) {

@@ -8,6 +8,8 @@ import {
   Platform,
   ActivityIndicator,
   RefreshControl,
+  Modal,
+  Pressable,
 } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -24,6 +26,7 @@ type PublicSquad = {
   color: string;
   memberIds: string[];
   creatorId: string | null;
+  creatorName?: string | null;
 };
 
 export default function DiscoverSquadsScreen() {
@@ -40,6 +43,7 @@ export default function DiscoverSquadsScreen() {
   const [joiningId, setJoiningId] = useState<string | null>(null);
   const [joinedIds, setJoinedIds] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<PublicSquad | null>(null);
 
   const fetchSquads = useCallback(async () => {
     if (!authToken) {
@@ -91,6 +95,7 @@ export default function DiscoverSquadsScreen() {
       const data = await res.json() as { squad: PublicSquad; alreadyMember: boolean };
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setJoinedIds((prev) => new Set([...prev, squad.id]));
+      setPreview(null);
       router.replace(`/squad/${data.squad.id}` as never);
     } catch (err) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -163,8 +168,13 @@ export default function DiscoverSquadsScreen() {
                 const isJoining = joiningId === squad.id;
                 const isJoined = joinedIds.has(squad.id);
                 return (
-                  <View
+                  <TouchableOpacity
                     key={squad.id}
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      Haptics.selectionAsync();
+                      setPreview(squad);
+                    }}
                     style={[styles.squadCard, { backgroundColor: colors.card, borderColor: colors.border }]}
                   >
                     <View style={[styles.squadIcon, { backgroundColor: squad.color + "22", borderColor: squad.color + "30" }]}>
@@ -201,13 +211,92 @@ export default function DiscoverSquadsScreen() {
                         <Text style={styles.joinBtnText}>Join</Text>
                       )}
                     </TouchableOpacity>
-                  </View>
+                  </TouchableOpacity>
                 );
               })}
             </>
           )}
         </ScrollView>
       )}
+
+      <Modal
+        visible={preview !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPreview(null)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setPreview(null)}>
+          <Pressable
+            style={[styles.sheet, { backgroundColor: colors.card, paddingBottom: insets.bottom + 24 }]}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={[styles.sheetHandle, { backgroundColor: colors.border }]} />
+
+            {preview && (() => {
+              const isJoining = joiningId === preview.id;
+              const isJoined = joinedIds.has(preview.id);
+              return (
+                <>
+                  <View
+                    style={[
+                      styles.previewIcon,
+                      { backgroundColor: preview.color + "22", borderColor: preview.color + "30" },
+                    ]}
+                  >
+                    <Text style={{ fontSize: 44 }}>{preview.emoji}</Text>
+                  </View>
+
+                  <Text style={[styles.previewName, { color: colors.foreground }]}>{preview.name}</Text>
+
+                  <View style={styles.previewMetaRow}>
+                    <View style={styles.previewMetaItem}>
+                      <Ionicons name="people-outline" size={16} color={colors.mutedForeground} />
+                      <Text style={[styles.previewMetaText, { color: colors.mutedForeground }]}>
+                        {preview.memberIds.length} member{preview.memberIds.length !== 1 ? "s" : ""}
+                      </Text>
+                    </View>
+                    {preview.creatorName ? (
+                      <View style={styles.previewMetaItem}>
+                        <Ionicons name="person-outline" size={16} color={colors.mutedForeground} />
+                        <Text style={[styles.previewMetaText, { color: colors.mutedForeground }]} numberOfLines={1}>
+                          Created by {preview.creatorName}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
+
+                  <TouchableOpacity
+                    onPress={() => handleJoin(preview)}
+                    disabled={isJoining || isJoined}
+                    style={[
+                      styles.previewJoinBtn,
+                      {
+                        backgroundColor: isJoined ? colors.green ?? "#22c55e" : colors.primary,
+                        opacity: isJoining ? 0.7 : 1,
+                      },
+                    ]}
+                  >
+                    {isJoining ? (
+                      <ActivityIndicator color="#fff" size="small" />
+                    ) : isJoined ? (
+                      <>
+                        <Ionicons name="checkmark" size={18} color="#fff" />
+                        <Text style={styles.previewJoinText}>Joined</Text>
+                      </>
+                    ) : (
+                      <Text style={styles.previewJoinText}>Join Squad</Text>
+                    )}
+                  </TouchableOpacity>
+
+                  <TouchableOpacity onPress={() => setPreview(null)} style={styles.previewCancelBtn}>
+                    <Text style={[styles.previewCancelText, { color: colors.mutedForeground }]}>Not now</Text>
+                  </TouchableOpacity>
+                </>
+              );
+            })()}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -279,4 +368,67 @@ const styles = StyleSheet.create({
   emptySub: { fontSize: 14, textAlign: "center", lineHeight: 20 },
   createBtn: { borderRadius: 14, paddingVertical: 13, paddingHorizontal: 28, alignItems: "center" },
   createBtnText: { fontSize: 15, fontWeight: "800" },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "flex-end",
+  },
+  sheet: {
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    alignItems: "center",
+  },
+  sheetHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    marginBottom: 20,
+  },
+  previewIcon: {
+    width: 84,
+    height: 84,
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    marginBottom: 16,
+  },
+  previewName: {
+    fontSize: 24,
+    fontWeight: "800",
+    textAlign: "center",
+    marginBottom: 12,
+  },
+  previewMetaRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 18,
+    marginBottom: 28,
+  },
+  previewMetaItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  previewMetaText: { fontSize: 14, fontWeight: "600" },
+  previewJoinBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    alignSelf: "stretch",
+    borderRadius: 16,
+    paddingVertical: 16,
+    height: 54,
+  },
+  previewJoinText: { fontSize: 16, fontWeight: "800", color: "#fff" },
+  previewCancelBtn: {
+    paddingVertical: 14,
+    alignItems: "center",
+    alignSelf: "stretch",
+  },
+  previewCancelText: { fontSize: 15, fontWeight: "600" },
 });
