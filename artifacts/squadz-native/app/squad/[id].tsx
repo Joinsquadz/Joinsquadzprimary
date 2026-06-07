@@ -445,7 +445,7 @@ export default function SquadDetailScreen() {
                     <UserAvatar initials={m.initials} color={m.color} imageUrl={m.profileImageUrl} size={44} fontSize={15} />
                   )}
                   <Text style={[styles.memberName, { color: colors.foreground }]} numberOfLines={1}>
-                    {m.name.split(" ")[0]}
+                    {m.id === currentUser.id ? "You" : m.name.split(" ")[0]}
                   </Text>
                 </TouchableOpacity>
                 {showRemoveBtn && (
