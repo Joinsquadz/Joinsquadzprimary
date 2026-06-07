@@ -178,6 +178,48 @@ describe("PUT /api/availability/polls/:id/me", () => {
       "manual",
     );
   });
+
+  it("keeps only valid ISO-date cells, dropping wrong dates, wrong slots, and malformed ones", async () => {
+    const datedPoll = {
+      ...basePoll,
+      id: "poll-dated",
+      title: "Pick a Weekend",
+      days: ["2026-06-13", "2026-06-14", "2026-06-15"],
+      slots: ["6PM", "7PM", "8PM", "9PM"],
+    };
+    storageMock.getAvailabilityPoll.mockResolvedValue(datedPoll);
+    storageMock.canAccessAvailabilityPoll.mockResolvedValue(true);
+    storageMock.upsertAvailabilityResponse.mockResolvedValue({});
+    storageMock.getAvailabilityResponses.mockResolvedValue([
+      { userId: MEMBER_ID, cells: ["2026-06-14-8PM"] },
+    ]);
+    const app = await makeApp({ id: MEMBER_ID });
+    const res = await request(app)
+      .put("/api/availability/polls/poll-dated/me")
+      .send({
+        cells: [
+          // valid: dates and slots both in the grid
+          "2026-06-14-8PM",
+          "2026-06-13-6PM",
+          // invalid: date not part of the poll
+          "2026-06-16-8PM",
+          // invalid: slot not part of the poll
+          "2026-06-14-3AM",
+          // invalid: malformed (no slot / not a real cell)
+          "2026-06-14",
+          "bogus",
+          // invalid: a legacy weekday cell leaking into a dated poll
+          "Sat-8PM",
+        ],
+      });
+    expect(res.status).toBe(200);
+    expect(storageMock.upsertAvailabilityResponse).toHaveBeenCalledWith(
+      "poll-dated",
+      MEMBER_ID,
+      ["2026-06-14-8PM", "2026-06-13-6PM"],
+      "manual",
+    );
+  });
 });
 
 describe("POST /api/availability/polls", () => {
