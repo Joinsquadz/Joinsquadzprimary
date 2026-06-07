@@ -42,6 +42,10 @@ vi.mock("@workspace/db", () => ({
     firstName: "first_name",
     lastName: "last_name",
   },
+  friendshipsTable: {
+    ownerId: "owner_id",
+    friendId: "friend_id",
+  },
 }));
 
 vi.mock("../lib/logger");
@@ -70,10 +74,11 @@ describe("GET /api/discover — squad descriptions", () => {
       isPublic: true,
       description,
     });
-    // Order: events, squads, creators.
+    // Order: friends (friendshipsTable), squads, allPublicEvents, creators.
     selectResults.queue = [
-      [],
+      [{ friendId: CREATOR_ID }],
       [publicSquad],
+      [],
       [{ id: CREATOR_ID, firstName: "Cre", lastName: "Ator" }],
     ];
     const app = await makeApp({ id: STRANGER_ID });

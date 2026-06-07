@@ -13,6 +13,7 @@ import {
   Share,
   Alert,
   ActivityIndicator,
+  Switch,
 } from "react-native";
 import { computeSettle, payWithVenmo, payWithCashApp } from "@/lib/settle";
 import { addEventToCalendar, parseEventStart } from "@/lib/calendar";
@@ -646,6 +647,28 @@ export default function EventDetailScreen() {
                 <Text style={[styles.shareInviteText, { color: colors.primary }]}>Share invite link</Text>
               </TouchableOpacity>
             </View>
+
+            {isHost && (
+              <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                  <Ionicons name="globe-outline" size={20} color={colors.foreground} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.cardTitle, { color: colors.foreground, textTransform: "none" }]}>Public event</Text>
+                    <Text style={[styles.cardBody, { color: colors.mutedForeground }]}>
+                      {event.isPublic
+                        ? "Visible on Discover — friends can join directly"
+                        : "Only joinable via invite code"}
+                    </Text>
+                  </View>
+                  <Switch
+                    value={event.isPublic ?? false}
+                    onValueChange={(v) => { updateEvent(event.id, { isPublic: v }); }}
+                    trackColor={{ false: colors.border, true: colors.primary + "80" }}
+                    thumbColor={event.isPublic ? colors.primary : colors.mutedForeground}
+                  />
+                </View>
+              </View>
+            )}
           </View>
         )}
 

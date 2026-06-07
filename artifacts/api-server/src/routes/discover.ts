@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { and, eq, inArray, ne, sql } from "drizzle-orm";
-import { db, eventsTable, squadsTable, usersTable } from "@workspace/db";
+import { db, eventsTable, squadsTable, usersTable, friendshipsTable } from "@workspace/db";
 import { requireAuth } from "../middleware/currentUser";
 import { logger } from "../lib/logger";
 
@@ -40,7 +40,34 @@ router.get("/discover", requireAuth, async (req: Request, res: Response): Promis
   try {
     const userId = (req.user as { id: string }).id;
 
-    const events = await db
+    // Friendships are stored bidirectionally; ownerId row gives all of this user's friends.
+    const friendRows = await db
+      .select({ friendId: friendshipsTable.friendId })
+      .from(friendshipsTable)
+      .where(eq(friendshipsTable.ownerId, userId));
+    const friendIds = friendRows.map((r) => r.friendId);
+
+    if (friendIds.length === 0) {
+      res.json({ events: [], squads: [] });
+      return;
+    }
+
+    // Public squads where at least one friend is a member (jsonb array overlap) and user is not
+    const rawSquads = await db
+      .select()
+      .from(squadsTable)
+      .where(
+        and(
+          eq(squadsTable.isPublic, true),
+          sql`NOT (${squadsTable.memberIds} @> ${JSON.stringify([userId])}::jsonb)`,
+          sql`${squadsTable.memberIds} && ${JSON.stringify(friendIds)}::jsonb`,
+        ),
+      )
+      .orderBy(squadsTable.createdAt)
+      .limit(20);
+
+    // Public events: not cancelled, user isn't host, user hasn't RSVP'd "going"
+    const allPublicEvents = await db
       .select()
       .from(eventsTable)
       .where(
@@ -52,19 +79,16 @@ router.get("/discover", requireAuth, async (req: Request, res: Response): Promis
         ),
       )
       .orderBy(eventsTable.createdAt)
-      .limit(20);
+      .limit(50);
 
-    const rawSquads = await db
-      .select()
-      .from(squadsTable)
-      .where(
-        and(
-          eq(squadsTable.isPublic, true),
-          sql`NOT (${squadsTable.memberIds} @> ${JSON.stringify([userId])}::jsonb)`,
-        ),
-      )
-      .orderBy(squadsTable.createdAt)
-      .limit(20);
+    // Keep only events where at least one friend has RSVP'd "going"
+    const friendSet = new Set(friendIds);
+    const events = allPublicEvents
+      .filter((e) => {
+        const rsvps = (e.rsvps ?? {}) as Record<string, string>;
+        return Object.entries(rsvps).some(([uid, status]) => friendSet.has(uid) && status === "going");
+      })
+      .slice(0, 10);
 
     const creatorIds = Array.from(
       new Set(rawSquads.map((s) => s.creatorId).filter((id): id is string => !!id)),
@@ -72,24 +96,16 @@ router.get("/discover", requireAuth, async (req: Request, res: Response): Promis
     const creators =
       creatorIds.length > 0
         ? await db
-            .select({
-              id: usersTable.id,
-              firstName: usersTable.firstName,
-              lastName: usersTable.lastName,
-            })
+            .select({ id: usersTable.id, firstName: usersTable.firstName, lastName: usersTable.lastName })
             .from(usersTable)
             .where(inArray(usersTable.id, creatorIds))
         : [];
     const creatorNameById = new Map(
-      creators.map((c) => [
-        c.id,
-        [c.firstName, c.lastName].filter(Boolean).join(" ").trim() || null,
-      ]),
+      creators.map((c) => [c.id, [c.firstName, c.lastName].filter(Boolean).join(" ").trim() || null]),
     );
-
     const squads = rawSquads.map((s) => ({
       ...s,
-      creatorName: s.creatorId ? creatorNameById.get(s.creatorId) ?? null : null,
+      creatorName: s.creatorId ? (creatorNameById.get(s.creatorId) ?? null) : null,
     }));
 
     res.json({ events, squads });

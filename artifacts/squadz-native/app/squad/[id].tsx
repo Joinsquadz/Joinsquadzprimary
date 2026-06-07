@@ -882,6 +882,24 @@ export default function SquadDetailScreen() {
               </View>
             )}
 
+            {isCreator && (
+              <View style={[styles.actionRow, { borderColor: colors.border }]}>
+                <Ionicons name="globe-outline" size={20} color={colors.foreground} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.actionText, { color: colors.foreground }]}>Public squad</Text>
+                  <Text style={[styles.actionSub, { color: colors.mutedForeground }]}>
+                    {squad.isPublic ? "Visible on Discover — friends can join directly" : "Only joinable via invite link"}
+                  </Text>
+                </View>
+                <Switch
+                  value={squad.isPublic ?? false}
+                  onValueChange={(v) => { updateSquad(squad.id, { isPublic: v }); }}
+                  trackColor={{ false: colors.border, true: colors.primary + "80" }}
+                  thumbColor={squad.isPublic ? colors.primary : colors.mutedForeground}
+                />
+              </View>
+            )}
+
             <TouchableOpacity onPress={shareInvite} style={[styles.actionRow, { borderColor: colors.border }]}>
               <Ionicons name="share-social-outline" size={20} color={colors.primary} />
               <Text style={[styles.actionText, { color: colors.foreground }]}>Share invite link</Text>
