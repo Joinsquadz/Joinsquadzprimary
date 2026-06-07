@@ -27,6 +27,10 @@ vi.mock("@workspace/db", () => ({
         returning: () => Promise.resolve(mockUpdateRows.value),
       }),
     }),
+    transaction: (fn: (tx: unknown) => Promise<unknown>) =>
+      fn({
+        delete: () => ({ where: () => Promise.resolve() }),
+      }),
   },
   squadsTable: {
     id: "id",

@@ -266,11 +266,12 @@ router.delete("/squads/:id", requireAuth, async (req: Request, res: Response): P
     res.status(403).json({ error: "Access denied" });
     return;
   }
-  await db.delete(squadsTable).where(eq(squadsTable.id, id));
-
-  // Clean up all mute rows for this squad so no orphaned squad_mutes rows
-  // remain after the squad is fully dissolved.
-  await db.delete(squadMutesTable).where(eq(squadMutesTable.squadId, id));
+  // Wrap both deletions in a transaction so a mid-flight crash never leaves
+  // orphaned squad_mutes rows: either both succeed or neither does.
+  await db.transaction(async (tx) => {
+    await tx.delete(squadsTable).where(eq(squadsTable.id, id));
+    await tx.delete(squadMutesTable).where(eq(squadMutesTable.squadId, id));
+  });
 
   res.sendStatus(204);
 
