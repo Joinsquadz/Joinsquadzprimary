@@ -106,8 +106,8 @@ export default function SquadDetailScreen() {
       setSearchError(result.error);
     } else {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setAddMemberOpen(false);
-      resetAddMemberModal();
+      // Stay in the modal — the squad state update flips the row to "In squad"
+      // so the creator can keep adding people without reopening
     }
   };
 
@@ -614,9 +614,9 @@ export default function SquadDetailScreen() {
 
             <TouchableOpacity
               onPress={() => { setAddMemberOpen(false); resetAddMemberModal(); }}
-              style={[styles.modalBtn, { backgroundColor: colors.card, marginTop: 16 }]}
+              style={[styles.modalBtn, { backgroundColor: colors.primary, marginTop: 16 }]}
             >
-              <Text style={[styles.modalBtnText, { color: colors.mutedForeground }]}>Close</Text>
+              <Text style={[styles.modalBtnText, { color: "#fff" }]}>Done</Text>
             </TouchableOpacity>
           </View>
         </View>
