@@ -246,17 +246,43 @@ export default function AvailabilityScreen() {
   // Which avatar is showing its name tooltip (auto-dismisses after 2 s).
   const [tooltipMemberId, setTooltipMemberId] = useState<string | null>(null);
   const tooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tooltipOpacity = useRef(new Animated.Value(0)).current;
+  const tooltipAnimRef = useRef<Animated.CompositeAnimation | null>(null);
 
   const showTooltip = useCallback((memberId: string) => {
     if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current);
+    if (tooltipAnimRef.current) tooltipAnimRef.current.stop();
     setTooltipMemberId(memberId);
-    tooltipTimerRef.current = setTimeout(() => setTooltipMemberId(null), 2000);
-  }, []);
+    tooltipAnimRef.current = Animated.timing(tooltipOpacity, {
+      toValue: 1,
+      duration: 100,
+      useNativeDriver: true,
+    });
+    tooltipAnimRef.current.start();
+    tooltipTimerRef.current = setTimeout(() => {
+      tooltipAnimRef.current = Animated.timing(tooltipOpacity, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      });
+      tooltipAnimRef.current.start(({ finished }) => {
+        if (finished) setTooltipMemberId(null);
+      });
+    }, 2000);
+  }, [tooltipOpacity]);
 
   const clearTooltip = useCallback(() => {
     if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current);
-    setTooltipMemberId(null);
-  }, []);
+    if (tooltipAnimRef.current) tooltipAnimRef.current.stop();
+    tooltipAnimRef.current = Animated.timing(tooltipOpacity, {
+      toValue: 0,
+      duration: 200,
+      useNativeDriver: true,
+    });
+    tooltipAnimRef.current.start(({ finished }) => {
+      if (finished) setTooltipMemberId(null);
+    });
+  }, [tooltipOpacity]);
 
   // Edit range state: host-only modal to update an existing poll's date range and title.
   const [editRangeOpen, setEditRangeOpen] = useState(false);
@@ -1094,12 +1120,12 @@ export default function AvailabilityScreen() {
                     return (
                       <View key={m.id} style={styles.memberAvatarWrap}>
                         {showingTooltip && (
-                          <View style={[styles.avatarTooltip, { backgroundColor: colors.foreground }]}>
+                          <Animated.View style={[styles.avatarTooltip, { backgroundColor: colors.foreground, opacity: tooltipOpacity }]}>
                             <Text style={[styles.avatarTooltipText, { color: colors.background }]} numberOfLines={1}>
                               {m.displayName}
                             </Text>
                             <View style={[styles.avatarTooltipArrow, { borderTopColor: colors.foreground }]} />
-                          </View>
+                          </Animated.View>
                         )}
                         <TouchableOpacity
                           onPress={() => {
