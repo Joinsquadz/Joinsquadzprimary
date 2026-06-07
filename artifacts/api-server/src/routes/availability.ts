@@ -564,6 +564,43 @@ router.put("/availability/polls/:id/me", requireAuth, async (req: Request, res: 
       resolveUpdatedByName(poll),
     ]);
     res.json({ ...buildPollPayload(poll, responses, userId, updatedByName), members, droppedCount });
+
+    // Fire-and-forget: push notification to the poll creator when a member
+    // re-submits their availability after the host updated the date range.
+    void (async () => {
+      try {
+        // Only notify when the host has actually changed the range.
+        if (!poll.updatedAt) return;
+        // Never notify the creator about their own submissions.
+        if (userId === poll.createdBy) return;
+        // Only notify when this submission is more recent than the poll update,
+        // confirming the member is responding to the updated range.
+        const myResponse = responses.find((r) => r.userId === userId);
+        if (!myResponse || new Date(myResponse.updatedAt) <= poll.updatedAt) return;
+
+        const tokens = await storage.getPushTokensForUsers([poll.createdBy], { requireNotifyReminders: true });
+        if (tokens.length === 0) return;
+
+        const memberUsers = await storage.getUsers([userId]);
+        const memberName = memberUsers.length > 0 ? toDisplayName(memberUsers[0]) : "A member";
+
+        const scopeData: Record<string, string> = poll.squadId
+          ? { screen: "availability", squadId: poll.squadId }
+          : { screen: "availability", eventId: poll.eventId ?? "" };
+
+        await sendPushNotifications(
+          tokens,
+          {
+            title: "Availability updated",
+            body: `${memberName} re-submitted their availability`,
+            data: scopeData,
+          },
+          { onStaleToken: (token) => storage.clearPushToken(token) },
+        );
+      } catch (err) {
+        logger.error({ err }, "Error sending poll-response push notification to host");
+      }
+    })();
   } catch (err) {
     logger.error({ err }, "Error saving availability response");
     res.status(500).json({ error: "Failed to save availability" });
