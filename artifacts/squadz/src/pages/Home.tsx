@@ -553,7 +553,33 @@ function PhotoVaultTab({ onUpgrade }: { onUpgrade?: () => void }) {
   const [photos, setPhotos] = React.useState<VaultPhoto[]>([]);
   const [isUploading, setIsUploading] = React.useState(false);
   const [toast, setToast] = React.useState<string | null>(null);
+  const [uploadEventId, setUploadEventId] = React.useState<string>("");
+  const [activeSquad, setActiveSquad] = React.useState<string>("all");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { events } = useEvents();
+
+  const eventsById = React.useMemo(() => {
+    const map = new Map<string, ApiEvent>();
+    for (const e of events) map.set(e.id, e);
+    return map;
+  }, [events]);
+
+  const recentEvents = React.useMemo(
+    () => [...events].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "")),
+    [events],
+  );
+
+  const squadNames = React.useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const e of events) {
+      if (e.squadName && !seen.has(e.squadName)) {
+        seen.add(e.squadName);
+        out.push(e.squadName);
+      }
+    }
+    return out;
+  }, [events]);
 
   React.useEffect(() => {
     fetch('/api/subscription', { credentials: 'include' })
@@ -604,7 +630,7 @@ function PhotoVaultTab({ onUpgrade }: { onUpgrade?: () => void }) {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: objectPath }),
+          body: JSON.stringify(uploadEventId ? { url: objectPath, eventId: uploadEventId } : { url: objectPath }),
         });
       }
       await fetchPhotos();
@@ -617,9 +643,19 @@ function PhotoVaultTab({ onUpgrade }: { onUpgrade?: () => void }) {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
-  }, [fetchPhotos]);
+  }, [fetchPhotos, uploadEventId]);
 
-  const selectedPhoto = photos.find(p => p.id === selected) ?? null;
+  const visiblePhotos = React.useMemo(() => {
+    if (activeSquad === "all") return photos;
+    return photos.filter(p => {
+      if (!p.eventId) return false;
+      const ev = eventsById.get(p.eventId);
+      return ev?.squadName === activeSquad;
+    });
+  }, [photos, activeSquad, eventsById]);
+
+  const selectedPhoto = visiblePhotos.find(p => p.id === selected) ?? null;
+  const selectedEvent = selectedPhoto?.eventId ? eventsById.get(selectedPhoto.eventId) ?? null : null;
   const imageUrl = (objectPath: string) => `/api/storage${objectPath}`;
 
   if (isPro === null) {
@@ -641,7 +677,7 @@ function PhotoVaultTab({ onUpgrade }: { onUpgrade?: () => void }) {
             <div style={{ background: T.gold + "22", border: `1px solid ${T.gold}60`, borderRadius: 6, padding: "2px 8px", fontSize: 10, fontWeight: 900, color: T.gold, letterSpacing: "0.08em", fontFamily: fontMono }}>PRO</div>
           )}
         </div>
-        <div style={{ fontSize: 13, color: T.textSub, marginBottom: 20, fontFamily: font }}>
+        <div style={{ fontSize: 13, color: T.textSub, marginBottom: 16, fontFamily: font }}>
           Private squad memories · {photos.length} {photos.length === 1 ? "photo" : "photos"}
         </div>
 
@@ -673,9 +709,38 @@ function PhotoVaultTab({ onUpgrade }: { onUpgrade?: () => void }) {
           </div>
         )}
 
-        {photos.length > 0 ? (
+        {squadNames.length > 0 && (
+          <div style={{ display: "flex", gap: 8, marginBottom: 16, overflowX: "auto", paddingBottom: 4 }}>
+            {["all", ...squadNames].map(squad => {
+              const isActive = activeSquad === squad;
+              return (
+                <button
+                  key={squad}
+                  onClick={() => { setActiveSquad(squad); setSelected(null); }}
+                  style={{
+                    flexShrink: 0,
+                    background: isActive ? T.accent : T.surface,
+                    border: `1px solid ${isActive ? T.accent : T.border}`,
+                    borderRadius: 20,
+                    padding: "6px 14px",
+                    fontFamily: font,
+                    fontWeight: 700,
+                    fontSize: 12,
+                    color: isActive ? "#fff" : T.textSub,
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {squad === "all" ? "All" : squad}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {visiblePhotos.length > 0 ? (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4, borderRadius: 14, overflow: "hidden", marginBottom: 20 }}>
-            {photos.map(p => (
+            {visiblePhotos.map(p => (
               p.locked ? (
                 <div
                   key={p.id}
@@ -704,24 +769,48 @@ function PhotoVaultTab({ onUpgrade }: { onUpgrade?: () => void }) {
         ) : (
           <div style={{ border: `1px dashed ${T.border}`, borderRadius: 14, padding: "32px 20px", textAlign: "center", marginBottom: 20 }}>
             <div style={{ fontSize: 36, marginBottom: 10 }}>📷</div>
-            <div style={{ fontFamily: font, fontWeight: 700, fontSize: 14, color: T.textSub, marginBottom: 4 }}>No photos yet</div>
-            <div style={{ fontSize: 12, color: T.textDim }}>{isPro ? "Upload your first squad memory below" : "Photos from your squadz will show up here"}</div>
+            <div style={{ fontFamily: font, fontWeight: 700, fontSize: 14, color: T.textSub, marginBottom: 4 }}>
+              {activeSquad === "all" ? "No photos yet" : `No photos for ${activeSquad}`}
+            </div>
+            <div style={{ fontSize: 12, color: T.textDim }}>
+              {activeSquad === "all"
+                ? (isPro ? "Upload your first squad memory below" : "Photos from your squadz will show up here")
+                : "Try another squad or upload below"}
+            </div>
           </div>
         )}
 
         {selectedPhoto && !selectedPhoto.locked && (
           <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 16, padding: "14px 16px", marginBottom: 20 }}>
             <div style={{ fontFamily: font, fontWeight: 700, fontSize: 15, color: T.text, marginBottom: 4 }}>
-              {new Date(selectedPhoto.uploadedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+              {selectedEvent ? `${selectedEvent.emoji} ${selectedEvent.title}` : "Vault photo"}
             </div>
             <div style={{ fontSize: 12, color: T.textSub }}>
-              {selectedPhoto.eventId ? `Event ${selectedPhoto.eventId}` : "Vault photo"}
+              {selectedEvent ? `${selectedEvent.squadName} · ` : ""}
+              {new Date(selectedPhoto.uploadedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
             </div>
           </div>
         )}
 
         {isPro ? (
           <>
+            {recentEvents.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 12, color: T.textSub, fontFamily: font, fontWeight: 600, marginBottom: 6 }}>Add to event (optional)</div>
+                <select
+                  value={uploadEventId}
+                  onChange={e => setUploadEventId(e.target.value)}
+                  disabled={isUploading}
+                  style={{ width: "100%", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "11px 12px", color: T.text, fontFamily: font, fontSize: 14, outline: "none", cursor: "pointer", boxSizing: "border-box" as const }}
+                >
+                  <option value="">No event</option>
+                  {recentEvents.map(ev => (
+                    <option key={ev.id} value={ev.id}>{ev.emoji} {ev.title} — {ev.squadName}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <input
               ref={fileInputRef}
               type="file"
@@ -738,7 +827,11 @@ function PhotoVaultTab({ onUpgrade }: { onUpgrade?: () => void }) {
               <div style={{ fontFamily: font, fontWeight: 700, fontSize: 14, color: T.textSub, marginBottom: 4 }}>
                 {isUploading ? "Uploading…" : "Upload photos"}
               </div>
-              <div style={{ fontSize: 12, color: T.textDim }}>Add memories from your last event</div>
+              <div style={{ fontSize: 12, color: T.textDim }}>
+                {uploadEventId
+                  ? `Tagging to ${eventsById.get(uploadEventId)?.title ?? "selected event"}`
+                  : "Add memories from your last event"}
+              </div>
             </div>
           </>
         ) : (

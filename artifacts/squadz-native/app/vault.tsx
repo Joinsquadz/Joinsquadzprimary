@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   View,
   Text,
@@ -25,7 +25,7 @@ import Constants from "expo-constants";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { useColors } from "@/hooks/useColors";
-import { useAuth } from "@/context/AppContext";
+import { useAuth, useData } from "@/context/AppContext";
 
 const VAULT_SELECTED_KEY = "vault:selectedPhoto";
 const VAULT_SCROLL_KEY = "vault:scrollY";
@@ -140,11 +140,15 @@ export default function VaultScreen() {
   const insets = useSafeAreaInsets();
   const { authToken, currentUser } = useAuth();
   const currentUserId = currentUser?.id ?? null;
+  const { events } = useData();
   const [isPro, setIsPro] = useState<boolean | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [photos, setPhotos] = useState<VaultPhoto[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [photosLoading, setPhotosLoading] = useState(false);
+  const [uploadEventId, setUploadEventId] = useState<string>("");
+  const [activeSquad, setActiveSquad] = useState<string>("all");
+  const [eventPickerOpen, setEventPickerOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
   // Squad vault state (only used when squadId is present)
@@ -156,6 +160,24 @@ export default function VaultScreen() {
   const [pickerLoading, setPickerLoading] = useState(false);
   const [pickerRequiresPro, setPickerRequiresPro] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
+
+  const eventsById = useMemo(() => {
+    const map = new Map<string, (typeof events)[number]>();
+    for (const e of events) map.set(e.id, e);
+    return map;
+  }, [events]);
+
+  const squadNames = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const e of events) {
+      if (e.squadName && !seen.has(e.squadName)) {
+        seen.add(e.squadName);
+        out.push(e.squadName);
+      }
+    }
+    return out;
+  }, [events]);
 
   const initialized = useRef(false);
   const scrollRef = useRef<ScrollView>(null);
@@ -171,6 +193,23 @@ export default function VaultScreen() {
 
   const isContextual = !!(squadId || eventId);
   const isSquadVault = !!squadId;
+
+  const recentEvents = useMemo(
+    () => (squadId ? events.filter(e => e.squadId === squadId) : events),
+    [events, squadId],
+  );
+
+  useEffect(() => {
+    if (eventId) setUploadEventId(eventId);
+  }, [eventId]);
+
+  const visiblePhotos = useMemo(() => {
+    if (activeSquad === "all") return photos;
+    return photos.filter(p => {
+      if (!p.eventId) return false;
+      return eventsById.get(p.eventId)?.squadName === activeSquad;
+    });
+  }, [photos, activeSquad, eventsById]);
 
   const filterLabel = eventName
     ? decodeURIComponent(eventName)
@@ -318,7 +357,11 @@ export default function VaultScreen() {
           await fetch(`${API_BASE}/api/vault/photos`, {
             method: "POST",
             headers: { ...authHeaders(), "Content-Type": "application/json" },
-            body: JSON.stringify({ url: objectPath, eventId: eventId ?? undefined }),
+            body: JSON.stringify(
+              uploadEventId || eventId
+                ? { url: objectPath, eventId: uploadEventId || eventId }
+                : { url: objectPath },
+            ),
           });
         } catch {
           // skip failed individual uploads
@@ -331,7 +374,7 @@ export default function VaultScreen() {
     } finally {
       setIsUploading(false);
     }
-  }, [authHeaders, fetchPhotos, eventId]);
+  }, [authHeaders, fetchPhotos, uploadEventId, eventId]);
 
   const fetchSquadVault = useCallback(async () => {
     if (!squadId) return;
@@ -428,9 +471,10 @@ export default function VaultScreen() {
     }
   }, [squadId, authHeaders, fetchSquadVault]);
 
-  const selectedPhoto = photos.find(p => p.id === selected) ?? null;
+  const selectedPhoto = visiblePhotos.find(p => p.id === selected) ?? null;
   const selectedSquadPhoto = squadPhotos.find(p => p.id === selected) ?? null;
   const lockedCount = photos.filter(p => p.locked).length;
+  const selectedEvent = selectedPhoto?.eventId ? eventsById.get(selectedPhoto.eventId) ?? null : null;
 
   const uploaderName = (p: SquadVaultPhoto): string => {
     const name = [p.uploaderFirstName, p.uploaderLastName].filter(Boolean).join(" ").trim();
@@ -581,7 +625,7 @@ export default function VaultScreen() {
               )}
 
               <Text style={[styles.countLabel, { color: colors.mutedForeground }]}>
-                {photos.length} {photos.length === 1 ? "photo" : "photos"} · tap to view
+                {visiblePhotos.length} {visiblePhotos.length === 1 ? "photo" : "photos"} · tap to view
               </Text>
 
               {!isPro && lockedCount > 0 && (
@@ -603,9 +647,33 @@ export default function VaultScreen() {
                 </TouchableOpacity>
               )}
 
-              {photos.length > 0 ? (
+              {!isContextual && squadNames.length > 0 && (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.chipRow}
+                >
+                  {["all", ...squadNames].map(squad => {
+                    const isActive = activeSquad === squad;
+                    return (
+                      <TouchableOpacity
+                        key={squad}
+                        onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setActiveSquad(squad); setSelected(null); }}
+                        style={[styles.chip, { backgroundColor: isActive ? colors.primary : colors.card, borderColor: isActive ? colors.primary : colors.border }]}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={[styles.chipText, { color: isActive ? "#fff" : colors.mutedForeground }]}>
+                          {squad === "all" ? "All" : squad}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              )}
+
+              {visiblePhotos.length > 0 ? (
                 <View style={styles.grid}>
-                  {photos.map(p => (
+                  {visiblePhotos.map(p => (
                     p.locked ? (
                       <TouchableOpacity
                         key={p.id}
@@ -642,13 +710,17 @@ export default function VaultScreen() {
               ) : (
                 <View style={[styles.emptyState, { borderColor: colors.border }]}>
                   <Text style={styles.emptyIcon}>📷</Text>
-                  <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No photos yet</Text>
+                  <Text style={[styles.emptyTitle, { color: colors.mutedForeground }]}>
+                    {activeSquad === "all" ? "No photos yet" : `No photos for ${activeSquad}`}
+                  </Text>
                   <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>
-                    {filterLabel
-                      ? `No photos uploaded to ${filterLabel} yet.`
-                      : isPro
-                        ? "Upload your first squad memory below"
-                        : "Photos from your squadz will show up here"}
+                    {activeSquad !== "all"
+                      ? "Try another squad or upload below"
+                      : filterLabel
+                        ? `No photos uploaded to ${filterLabel} yet.`
+                        : isPro
+                          ? "Upload your first squad memory below"
+                          : "Photos from your squadz will show up here"}
                   </Text>
                 </View>
               )}
@@ -656,37 +728,79 @@ export default function VaultScreen() {
               {selectedPhoto && !selectedPhoto.locked && (
                 <View style={[styles.detailCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
                   <Text style={[styles.detailTitle, { color: colors.foreground }]}>
-                    {new Date(selectedPhoto.uploadedAt).toLocaleDateString("en-US", {
-                      month: "short",
-                      day: "numeric",
-                      year: "numeric",
-                    })}
+                    {selectedEvent ? `${selectedEvent.emoji} ${selectedEvent.title}` : "Vault photo"}
                   </Text>
                   <Text style={[styles.detailMeta, { color: colors.mutedForeground }]}>
-                    {selectedPhoto.eventId ? `Event ${selectedPhoto.eventId}` : "Vault photo"}
+                    {selectedEvent ? `${selectedEvent.squadName} · ` : ""}
+                    {new Date(selectedPhoto.uploadedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                   </Text>
                 </View>
               )}
 
               {isPro ? (
-                <TouchableOpacity
-                  style={[styles.uploadBtn, { borderColor: colors.border }]}
-                  activeOpacity={0.7}
-                  onPress={handleUpload}
-                  disabled={isUploading}
-                >
-                  {isUploading ? (
-                    <ActivityIndicator color={colors.mutedForeground} />
-                  ) : (
-                    <Ionicons name="add" size={28} color={colors.mutedForeground} />
+                <>
+                  {recentEvents.length > 0 && (
+                    <View style={styles.pickerWrap}>
+                      <Text style={[styles.pickerLabel, { color: colors.mutedForeground }]}>Add to event (optional)</Text>
+                      <TouchableOpacity
+                        style={[styles.pickerBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+                        activeOpacity={0.7}
+                        onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setEventPickerOpen(o => !o); }}
+                        disabled={isUploading}
+                      >
+                        <Text style={[styles.pickerBtnText, { color: uploadEventId ? colors.foreground : colors.mutedForeground }]} numberOfLines={1}>
+                          {uploadEventId ? `${eventsById.get(uploadEventId)?.emoji ?? "🎉"} ${eventsById.get(uploadEventId)?.title ?? "Selected event"}` : "No event"}
+                        </Text>
+                        <Ionicons name={eventPickerOpen ? "chevron-up" : "chevron-down"} size={18} color={colors.mutedForeground} />
+                      </TouchableOpacity>
+                      {eventPickerOpen && (
+                        <View style={[styles.pickerList, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                          <TouchableOpacity
+                            style={styles.pickerItem}
+                            activeOpacity={0.7}
+                            onPress={() => { setUploadEventId(""); setEventPickerOpen(false); }}
+                          >
+                            <Text style={[styles.pickerItemText, { color: colors.mutedForeground }]}>No event</Text>
+                          </TouchableOpacity>
+                          {recentEvents.map(ev => (
+                            <TouchableOpacity
+                              key={ev.id}
+                              style={[styles.pickerItem, { borderTopColor: colors.border, borderTopWidth: 1 }]}
+                              activeOpacity={0.7}
+                              onPress={() => { setUploadEventId(ev.id); setEventPickerOpen(false); }}
+                            >
+                              <Text style={[styles.pickerItemText, { color: colors.foreground }]} numberOfLines={1}>
+                                {ev.emoji} {ev.title}
+                              </Text>
+                              <Text style={[styles.pickerItemSub, { color: colors.mutedForeground }]}>{ev.squadName}</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      )}
+                    </View>
                   )}
-                  <Text style={[styles.uploadLabel, { color: colors.mutedForeground }]}>
-                    {isUploading ? "Uploading…" : "Upload photos"}
-                  </Text>
-                  <Text style={[styles.uploadSub, { color: colors.mutedForeground }]}>
-                    Add memories from your last event
-                  </Text>
-                </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.uploadBtn, { borderColor: colors.border }]}
+                    activeOpacity={0.7}
+                    onPress={handleUpload}
+                    disabled={isUploading}
+                  >
+                    {isUploading ? (
+                      <ActivityIndicator color={colors.mutedForeground} />
+                    ) : (
+                      <Ionicons name="add" size={28} color={colors.mutedForeground} />
+                    )}
+                    <Text style={[styles.uploadLabel, { color: colors.mutedForeground }]}>
+                      {isUploading ? "Uploading…" : "Upload photos"}
+                    </Text>
+                    <Text style={[styles.uploadSub, { color: colors.mutedForeground }]}>
+                      {uploadEventId
+                        ? `Tagging to ${eventsById.get(uploadEventId)?.title ?? "selected event"}`
+                        : "Add memories from your last event"}
+                    </Text>
+                  </TouchableOpacity>
+                </>
               ) : (
                 <TouchableOpacity
                   onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.back(); }}
@@ -856,6 +970,25 @@ const styles = StyleSheet.create({
   },
   filterBadgeText: { fontSize: 13, fontWeight: "700" },
   countLabel: { fontSize: 13, fontFamily: "Inter_400Regular", marginBottom: 12 },
+  chipRow: { flexDirection: "row", gap: 8, paddingBottom: 12 },
+  chip: { borderRadius: 20, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 6 },
+  chipText: { fontSize: 12, fontWeight: "700", fontFamily: "Inter_600SemiBold" },
+  pickerWrap: { marginBottom: 12 },
+  pickerLabel: { fontSize: 12, fontFamily: "Inter_600SemiBold", fontWeight: "600", marginBottom: 6 },
+  pickerBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  pickerBtnText: { fontSize: 14, fontFamily: "Inter_400Regular", flex: 1, marginRight: 8 },
+  pickerList: { borderWidth: 1, borderRadius: 12, marginTop: 6, overflow: "hidden" },
+  pickerItem: { paddingHorizontal: 14, paddingVertical: 12 },
+  pickerItemText: { fontSize: 14, fontFamily: "Inter_600SemiBold", fontWeight: "600" },
+  pickerItemSub: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 4, borderRadius: 14, overflow: "hidden", marginBottom: 16 },
   gridCell: {
     width: "31.8%",
