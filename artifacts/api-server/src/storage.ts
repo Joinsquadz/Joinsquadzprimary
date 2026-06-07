@@ -946,12 +946,19 @@ export class Storage {
       .where(eq(usersTable.id, userId));
   }
 
-  async getPushTokensForUsers(userIds: string[]): Promise<string[]> {
+  async getPushTokensForUsers(
+    userIds: string[],
+    opts: { requireNotifyReminders?: boolean } = {},
+  ): Promise<string[]> {
     if (userIds.length === 0) return [];
+    const conditions = [inArray(usersTable.id, userIds)];
+    if (opts.requireNotifyReminders) {
+      conditions.push(eq(usersTable.notifyReminders, true));
+    }
     const rows = await db
       .select({ pushToken: usersTable.pushToken })
       .from(usersTable)
-      .where(inArray(usersTable.id, userIds));
+      .where(and(...conditions));
     return rows.map((r) => r.pushToken).filter((t): t is string => Boolean(t));
   }
 }

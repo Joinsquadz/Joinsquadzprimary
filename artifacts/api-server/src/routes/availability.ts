@@ -389,7 +389,7 @@ router.patch("/availability/polls/:id", requireAuth, async (req: Request, res: R
 
         if (needsNudge.length === 0) return;
 
-        const tokens = await storage.getPushTokensForUsers(needsNudge);
+        const tokens = await storage.getPushTokensForUsers(needsNudge, { requireNotifyReminders: true });
         const scopeData: Record<string, string> = poll.squadId
           ? { screen: "availability", squadId: poll.squadId }
           : { screen: "availability", eventId: poll.eventId ?? "" };
