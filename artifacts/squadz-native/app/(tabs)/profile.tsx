@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   Animated,
   Share,
+  AppState,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -198,6 +199,31 @@ export default function ProfileScreen() {
     })();
     return () => { cancelled = true; };
   }, []);
+
+  // Re-check push permission when the app returns to foreground (e.g. after tapping "Open Settings")
+  useEffect(() => {
+    if (!__DEV__ || Platform.OS === "web") return;
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state !== "active") return;
+      (async () => {
+        try {
+          const Notifications = await import("expo-notifications");
+          const perm = await Notifications.getPermissionsAsync();
+          const granted = perm.granted || perm.status === "granted";
+          const status = granted ? "granted" : perm.status === "denied" ? "denied" : "undetermined";
+          setDevPushPermission(status);
+          if (!granted) return;
+          if (!devPushToken) {
+            const tokenData = await Notifications.getExpoPushTokenAsync();
+            setDevPushToken(tokenData.data);
+          }
+        } catch {
+          // Notifications API unavailable
+        }
+      })();
+    });
+    return () => sub.remove();
+  }, [devPushToken]);
 
   async function handleGrantPushPermission() {
     try {
@@ -788,10 +814,18 @@ export default function ProfileScreen() {
                 <Text style={[styles.settingLabel, { color: colors.mutedForeground, flex: 1 }]}>Token unavailable (simulator or missing credentials)</Text>
               </View>
             ) : (
-              <View style={[styles.settingRow, styles.settingFirst, styles.settingLast, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <TouchableOpacity
+                onPress={() => { void Linking.openSettings(); }}
+                activeOpacity={0.7}
+                style={[styles.settingRow, styles.settingFirst, styles.settingLast, { backgroundColor: colors.card, borderColor: colors.border }]}
+              >
                 <Ionicons name="notifications-off-outline" size={20} color={colors.mutedForeground} />
                 <Text style={[styles.settingLabel, { color: colors.mutedForeground, flex: 1 }]}>Push token unavailable — notifications denied</Text>
-              </View>
+                <View style={[styles.friendCodeAction, { backgroundColor: colors.primary + "12", borderColor: colors.primary + "30" }]}>
+                  <Ionicons name="settings-outline" size={15} color={colors.primary} />
+                  <Text style={[styles.friendCodeActionText, { color: colors.primary }]}>Open Settings</Text>
+                </View>
+              </TouchableOpacity>
             )}
           </View>
         ) : null}
