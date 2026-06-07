@@ -17,6 +17,7 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useAuth, useData } from "@/context/AppContext";
 import { UserAvatar } from "@/components/UserAvatar";
+import { startProCheckout } from "@/lib/checkout";
 import { router, useLocalSearchParams } from "expo-router";
 import { useState, useEffect, useCallback, useRef } from "react";
 import Constants from "expo-constants";
@@ -310,39 +311,11 @@ export default function ProfileScreen() {
 
   async function handleUpgrade() {
     setUpgradeLoading(true);
-    try {
-      const productsRes = await fetch(`${API_BASE}/api/products-with-prices`);
-      const { data: products } = await productsRes.json() as {
-        data: Array<{ id: string; name: string; prices: Array<{ id: string; recurring: { interval: string } | null }> }>;
-      };
-
-      const pro = products.find(p => p.name === "Squadz Pro");
-      const yearlyPrice = pro?.prices.find(p => p.recurring?.interval === "year");
-
-      if (!yearlyPrice) {
-        Alert.alert("Squadz Pro", "Pro plan not found. Please try again later.");
-        return;
-      }
-
-      const checkoutRes = await fetch(`${API_BASE}/api/checkout`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify({ priceId: yearlyPrice.id }),
-      });
-
-      const { url, error: apiError } = await checkoutRes.json() as { url?: string; error?: string };
-
-      if (apiError || !url) {
-        Alert.alert("Checkout Error", apiError ?? "Failed to start checkout. Please try again.");
-        return;
-      }
-
-      await Linking.openURL(url);
-    } catch {
-      Alert.alert("Error", "Something went wrong. Please try again.");
-    } finally {
-      setUpgradeLoading(false);
+    const result = await startProCheckout(API_BASE, authHeaders());
+    if (!result.ok) {
+      Alert.alert("Checkout Error", result.error);
     }
+    setUpgradeLoading(false);
   }
 
   async function handlePortal() {

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { T, font, fontMono } from "@/lib/data";
+import { startProCheckout } from "@/lib/checkout";
 
 const PRO_FEATURES = [
   "Unlimited events per year",
@@ -51,39 +52,11 @@ export function UpgradeModal({
     if (onUpgrade) { onUpgrade(); return; }
     setLoading(true);
     setError(null);
-    try {
-      const productsRes = await fetch('/api/products-with-prices');
-      const { data: products } = await productsRes.json() as {
-        data: Array<{ id: string; name: string; prices: Array<{ id: string; unit_amount: number; recurring: { interval: string } | null }> }>;
-      };
-
-      const pro = products.find(p => p.name === 'Squadz Pro');
-      const yearlyPrice = pro?.prices.find(p => p.recurring?.interval === 'year');
-
-      if (!yearlyPrice) {
-        setError('Squadz Pro plan not found. Please try again later.');
-        return;
-      }
-
-      // Server resolves the current user from session — no userId sent from client
-      const checkoutRes = await fetch('/api/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ priceId: yearlyPrice.id }),
-      });
-
-      const { url, error: apiError } = await checkoutRes.json() as { url?: string; error?: string };
-      if (apiError || !url) {
-        setError(apiError ?? 'Failed to start checkout. Please try again.');
-        return;
-      }
-
-      window.location.href = url;
-    } catch {
-      setError('Something went wrong. Please try again.');
-    } finally {
-      setLoading(false);
+    const result = await startProCheckout();
+    if (!result.ok) {
+      setError(result.error);
     }
+    setLoading(false);
   }
 
   return (

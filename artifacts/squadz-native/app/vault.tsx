@@ -12,7 +12,6 @@ import {
   Alert,
   Modal,
   Animated,
-  Linking,
   AppState,
 } from "react-native";
 import { Image } from "expo-image";
@@ -28,6 +27,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { useColors } from "@/hooks/useColors";
 import { useAuth, useData } from "@/context/AppContext";
+import { startProCheckout } from "@/lib/checkout";
 
 const VAULT_SELECTED_KEY = "vault:selectedPhoto";
 const VAULT_SCROLL_KEY = "vault:scrollY";
@@ -361,43 +361,15 @@ export default function VaultScreen() {
   const handleUpgrade = useCallback(async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setUpgradeLoading(true);
-    try {
-      const productsRes = await fetch(`${API_BASE}/api/products-with-prices`);
-      const { data: products } = await productsRes.json() as {
-        data: Array<{ id: string; name: string; prices: Array<{ id: string; recurring: { interval: string } | null }> }>;
-      };
-
-      const pro = products.find(p => p.name === "Squadz Pro");
-      const yearlyPrice = pro?.prices.find(p => p.recurring?.interval === "year");
-
-      if (!yearlyPrice) {
-        Alert.alert("Squadz Pro", "Pro plan not found. Please try again later.");
-        return;
-      }
-
-      const checkoutRes = await fetch(`${API_BASE}/api/checkout`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify({ priceId: yearlyPrice.id }),
-      });
-
-      const { url, error: apiError } = await checkoutRes.json() as { url?: string; error?: string };
-
-      if (apiError || !url) {
-        Alert.alert("Checkout Error", apiError ?? "Failed to start checkout. Please try again.");
-        return;
-      }
-
-      // Mark that the next foreground is a checkout return so we poll for the
-      // upgrade instead of doing a plain refetch.
-      awaitingUpgrade.current = true;
-      await Linking.openURL(url);
-    } catch {
+    // Mark that the next foreground is a checkout return so we poll for the
+    // upgrade instead of doing a plain refetch.
+    awaitingUpgrade.current = true;
+    const result = await startProCheckout(API_BASE, authHeaders());
+    if (!result.ok) {
       awaitingUpgrade.current = false;
-      Alert.alert("Error", "Something went wrong. Please try again.");
-    } finally {
-      setUpgradeLoading(false);
+      Alert.alert("Checkout Error", result.error);
     }
+    setUpgradeLoading(false);
   }, [authHeaders]);
 
   const imageUrl = (objectPath: string) => `${API_BASE}/api/storage${objectPath}`;
