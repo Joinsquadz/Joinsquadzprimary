@@ -240,6 +240,9 @@ export default function AvailabilityScreen() {
   // Which respondents' times are being highlighted (empty = normal heatmap view).
   const [selectedMemberIds, setSelectedMemberIds] = useState<Set<string>>(new Set());
 
+  // Pending modal — shown when user taps the "N still pending" label.
+  const [showPendingModal, setShowPendingModal] = useState(false);
+
   // Cell detail sheet — shown when user taps a heatmap cell.
   const [selectedCell, setSelectedCell] = useState<string | null>(null);
 
@@ -297,7 +300,7 @@ export default function AvailabilityScreen() {
   // date-picker is open; release only when both are closed.  The combined
   // boolean ensures closing the inner picker while the sheet remains open
   // does not prematurely release the guard.
-  useModalGuard(editRangeOpen || editPickerOpen, holdInteraction, releaseInteraction);
+  useModalGuard(editRangeOpen || editPickerOpen || showPendingModal, holdInteraction, releaseInteraction);
 
   // "Updated just now" indicator — fades in on data change, out after ~3s.
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -1104,6 +1107,23 @@ export default function AvailabilityScreen() {
                     </TouchableOpacity>
                   ) : null;
                 })()}
+                {(() => {
+                  const notResponded = (data.members ?? []).filter((m) => !m.hasResponded);
+                  if (notResponded.length === 0) return null;
+                  return (
+                    <TouchableOpacity
+                      onPress={() => { void Haptics.selectionAsync(); setShowPendingModal(true); }}
+                      style={styles.pendingCountBtn}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="time-outline" size={13} color={colors.textDim} />
+                      <Text style={[styles.pendingCountText, { color: colors.textDim }]}>
+                        {notResponded.length} still pending
+                      </Text>
+                      <Ionicons name="chevron-forward" size={12} color={colors.textDim} />
+                    </TouchableOpacity>
+                  );
+                })()}
                 <View style={styles.memberRow}>
                   {data.members.map((m) => {
                     const isSelected = selectedMemberIds.has(m.id);
@@ -1341,6 +1361,63 @@ export default function AvailabilityScreen() {
         </View>
       </Modal>
 
+      {/* Pending members modal */}
+      <Modal
+        visible={showPendingModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowPendingModal(false)}
+      >
+        <View style={styles.pickerOverlay}>
+          <View style={[styles.cellSheet, { backgroundColor: colors.background, paddingBottom: insets.bottom + 12 }]}>
+            <View style={[styles.pickerToolbar, { borderBottomColor: colors.border }]}>
+              <View style={styles.pickerBtn} />
+              <Text style={[styles.pickerTitle, { color: colors.foreground }]}>Still pending</Text>
+              <TouchableOpacity onPress={() => setShowPendingModal(false)} style={styles.pickerBtn}>
+                <Text style={[styles.pickerBtnText, { color: colors.mutedForeground }]}>Done</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 20, paddingBottom: 8 }}>
+              {(() => {
+                const notResponded = (data?.members ?? []).filter((m) => !m.hasResponded);
+                if (notResponded.length === 0) {
+                  return (
+                    <Text style={[styles.cellSheetEmpty, { color: colors.mutedForeground }]}>
+                      Everyone has responded!
+                    </Text>
+                  );
+                }
+                return (
+                  <>
+                    <Text style={[styles.cellSheetSectionLabel, { color: colors.mutedForeground }]}>
+                      {notResponded.length} {notResponded.length === 1 ? "person hasn't" : "people haven't"} responded yet
+                    </Text>
+                    <View style={styles.cellSheetMemberList}>
+                      {notResponded.map((m) => (
+                        <View key={m.id} style={styles.cellSheetMemberRow}>
+                          <View style={[styles.cellSheetAvatar, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1.5 }]}>
+                            {m.avatarUrl ? (
+                              <Image source={{ uri: m.avatarUrl }} style={styles.cellSheetAvatarImage} />
+                            ) : (
+                              <Text style={[styles.cellSheetAvatarInitial, { color: colors.mutedForeground }]}>
+                                {m.displayName.charAt(0).toUpperCase()}
+                              </Text>
+                            )}
+                          </View>
+                          <Text style={[styles.cellSheetMemberName, { color: colors.foreground }]}>
+                            {m.displayName}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  </>
+                );
+              })()}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
       {/* Edit range modal — host only */}
       <Modal
         visible={editRangeOpen}
@@ -1556,6 +1633,8 @@ const styles = StyleSheet.create({
     borderRightColor: "transparent",
   },
   memberPendingText: { fontSize: 12, marginTop: 8, fontWeight: "600" },
+  pendingCountBtn: { flexDirection: "row", alignItems: "center", gap: 5, alignSelf: "flex-start", marginBottom: 10, paddingVertical: 4, paddingHorizontal: 2 },
+  pendingCountText: { fontSize: 12, fontWeight: "600" },
   filterBanner: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 10, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 7, marginBottom: 10 },
   filterDot: { width: 6, height: 6, borderRadius: 3 },
   filterBannerText: { flex: 1, fontSize: 12, fontWeight: "700" },
