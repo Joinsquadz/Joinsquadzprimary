@@ -36,6 +36,7 @@ export default function SignupScreen() {
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const hasInvite = !!params.inviteCode;
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
@@ -44,18 +45,25 @@ export default function SignupScreen() {
   const cardBg = { backgroundColor: colors.card, borderColor: colors.border };
 
   const handleCreateAccount = async () => {
+    setErrorMsg(null);
     const trimmedEmail = email.trim();
     const trimmedFirst = firstName.trim();
     if (!trimmedFirst) {
-      Alert.alert("What's your name?", "Enter your first name to continue.");
+      const msg = "Enter your first name to continue.";
+      Alert.alert("What's your name?", msg);
+      setErrorMsg(msg);
       return;
     }
     if (!trimmedEmail) {
-      Alert.alert("Email required", "Enter your email address to create an account.");
+      const msg = "Enter your email address to create an account.";
+      Alert.alert("Email required", msg);
+      setErrorMsg(msg);
       return;
     }
     if (password.length < 8) {
-      Alert.alert("Password too short", "Use at least 8 characters for your password.");
+      const msg = "Use at least 8 characters for your password.";
+      Alert.alert("Password too short", msg);
+      setErrorMsg(msg);
       return;
     }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -69,7 +77,9 @@ export default function SignupScreen() {
     });
     setLoading(false);
     if (!result.ok) {
-      Alert.alert("Couldn't create account", result.error ?? "Please try again.");
+      const msg = result.error ?? "Please try again.";
+      Alert.alert("Couldn't create account", msg);
+      setErrorMsg(msg);
       return;
     }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -202,6 +212,11 @@ export default function SignupScreen() {
             We'll email you a link to confirm your address — you can start using Squadz right away.
           </Text>
 
+          {errorMsg ? (
+            <View style={{ backgroundColor: "#FF3B3018", borderRadius: 10, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: "#FF3B3040" }}>
+              <Text style={{ color: "#FF3B30", fontSize: 13, textAlign: "center" }}>{errorMsg}</Text>
+            </View>
+          ) : null}
           <GradientButton
             onPress={handleCreateAccount}
             disabled={loading}

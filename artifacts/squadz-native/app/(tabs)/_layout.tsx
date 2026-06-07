@@ -136,9 +136,9 @@ function ClassicTabLayout() {
             ),
         }}
       />
-      <Tabs.Screen name="create" options={{ href: null }} />
-      <Tabs.Screen name="events" options={{ href: null }} />
-      <Tabs.Screen name="photos" options={{ href: null }} />
+      <Tabs.Screen name="create" options={{ tabBarButton: () => null }} />
+      <Tabs.Screen name="events" options={{ tabBarButton: () => null }} />
+      <Tabs.Screen name="photos" options={{ tabBarButton: () => null }} />
     </Tabs>
   );
 }

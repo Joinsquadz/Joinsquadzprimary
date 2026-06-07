@@ -55,6 +55,8 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [sendingReset, setSendingReset] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
@@ -62,9 +64,13 @@ export default function LoginScreen() {
   const cardBg = { backgroundColor: colors.card, borderColor: colors.border };
 
   const handleSignIn = async () => {
+    setErrorMsg(null);
+    setSuccessMsg(null);
     const trimmedEmail = email.trim();
     if (!trimmedEmail || !password) {
-      Alert.alert("Missing details", "Enter your email and password to sign in.");
+      const msg = "Enter your email and password to sign in.";
+      Alert.alert("Missing details", msg);
+      setErrorMsg(msg);
       return;
     }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -72,7 +78,9 @@ export default function LoginScreen() {
     const result = await loginWithEmail(trimmedEmail, password);
     setLoading(false);
     if (!result.ok) {
-      Alert.alert("Sign in failed", result.error ?? "Incorrect email or password.");
+      const msg = result.error ?? "Incorrect email or password.";
+      Alert.alert("Sign in failed", msg);
+      setErrorMsg(msg);
       return;
     }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -84,22 +92,27 @@ export default function LoginScreen() {
   };
 
   const handleForgotPassword = async () => {
+    setErrorMsg(null);
+    setSuccessMsg(null);
     const target = email.trim();
     if (!target) {
-      Alert.alert("Enter your email", "Type your email above and we'll send you a reset link.");
+      const msg = "Type your email above and we'll send you a reset link.";
+      Alert.alert("Enter your email", msg);
+      setErrorMsg(msg);
       return;
     }
     setSendingReset(true);
     const result = await forgotPassword(target);
     setSendingReset(false);
     if (!result.ok) {
-      Alert.alert("Couldn't send reset", result.error ?? "Please try again in a moment.");
+      const msg = result.error ?? "Please try again in a moment.";
+      Alert.alert("Couldn't send reset", msg);
+      setErrorMsg(msg);
       return;
     }
-    Alert.alert(
-      "Check your email",
-      `If an account exists for ${target}, we've sent a link to reset your password.`,
-    );
+    const msg = `If an account exists for ${target}, we've sent a reset link.`;
+    Alert.alert("Check your email", msg);
+    setSuccessMsg(msg);
   };
 
   // ── Sign-in screen ───────────────────────────────────────────────────────
@@ -189,6 +202,15 @@ export default function LoginScreen() {
               </Text>
             </TouchableOpacity>
 
+            {errorMsg ? (
+              <View style={{ backgroundColor: "#FF3B3018", borderRadius: 10, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: "#FF3B3040" }}>
+                <Text style={{ color: "#FF3B30", fontSize: 13, textAlign: "center" }}>{errorMsg}</Text>
+              </View>
+            ) : successMsg ? (
+              <View style={{ backgroundColor: "#2ECC8A18", borderRadius: 10, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: "#2ECC8A40" }}>
+                <Text style={{ color: "#2ECC8A", fontSize: 13, textAlign: "center" }}>{successMsg}</Text>
+              </View>
+            ) : null}
             <GradientButton
               onPress={handleSignIn}
               disabled={loading}

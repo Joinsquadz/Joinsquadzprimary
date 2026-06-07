@@ -183,7 +183,7 @@ export default function HomeScreen() {
             <TouchableOpacity
               style={[styles.streakNudge, { backgroundColor: colors.card, borderColor: "#FFB54740" }]}
               onPress={() => {
-                router.push("/(tabs)/create");
+                router.push({ pathname: "/create" } as never);
               }}
             >
               <Text style={styles.streakEmoji}>🔥</Text>
@@ -403,7 +403,7 @@ export default function HomeScreen() {
                 onPress={() => {
                   setFabOpen(false);
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                  router.push("/(tabs)/create" as never);
+                  router.push({ pathname: "/create" } as never);
                 }}
                 style={[styles.fabMini, { backgroundColor: colors.card, borderColor: colors.border }]}
               >
