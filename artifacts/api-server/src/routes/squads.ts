@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
-import { db, squadsTable } from "@workspace/db";
+import { db, squadsTable, usersTable } from "@workspace/db";
 import { requireAuth } from "../middleware/currentUser";
 import { storage } from "../storage";
 import { logger } from "../lib/logger";
@@ -214,6 +214,49 @@ router.delete("/squads/:id/vault/:photoId", requireAuth, async (req: Request, re
     logger.error({ err }, "Error removing photo from squad vault");
     res.status(500).json({ error: "Failed to remove photo" });
   }
+});
+
+const AddMemberBody = z.object({
+  friendCode: z.string().min(1),
+});
+
+router.post("/squads/:id/members", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const id = parseId(req.params.id);
+  const userId = (req.user as { id: string }).id;
+  const parsed = AddMemberBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "friendCode is required." });
+    return;
+  }
+  const { squad, isMember } = await getSquadIfMember(id, userId);
+  if (!squad) {
+    res.status(404).json({ error: "Squad not found" });
+    return;
+  }
+  if (!isMember) {
+    res.status(403).json({ error: "Access denied" });
+    return;
+  }
+  const code = parsed.data.friendCode.toUpperCase().trim();
+  const [target] = await db
+    .select({ id: usersTable.id, firstName: usersTable.firstName, lastName: usersTable.lastName, profileImageUrl: usersTable.profileImageUrl, friendCode: usersTable.friendCode })
+    .from(usersTable)
+    .where(eq(usersTable.friendCode, code));
+  if (!target) {
+    res.status(404).json({ error: "No user found with that friend code." });
+    return;
+  }
+  const memberIds = (squad.memberIds ?? []) as string[];
+  if (memberIds.includes(target.id)) {
+    res.status(409).json({ error: "That user is already in the squad." });
+    return;
+  }
+  const [updated] = await db
+    .update(squadsTable)
+    .set({ memberIds: [...memberIds, target.id] })
+    .where(eq(squadsTable.id, id))
+    .returning();
+  res.status(201).json({ squad: updated, addedUser: target });
 });
 
 router.post("/squads/:id/join", requireAuth, async (req: Request, res: Response): Promise<void> => {

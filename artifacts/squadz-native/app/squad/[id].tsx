@@ -18,7 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
-import { useData, useAuth } from "@/context/AppContext";
+import { useData, useAuth, type FoundUser } from "@/context/AppContext";
 import { useMessages } from "@/context/MessagesContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -28,16 +28,79 @@ import { useUserCache } from "@/context/UserCacheContext";
 
 const EMOJIS = ["🔥", "🎉", "🎮", "🏖️", "🍕", "🎸", "⚽", "🎬", "🍻", "🎊", "🏀", "🎲", "🧗", "🎤", "🏠", "💼"];
 
+function getFriendCodeDisplayName(u: FoundUser): string {
+  if (u.firstName && u.lastName) return `${u.firstName} ${u.lastName}`;
+  if (u.firstName) return u.firstName;
+  return "Unknown User";
+}
+
+function getFriendCodeInitials(u: FoundUser): string {
+  if (u.firstName && u.lastName) return `${u.firstName[0]}${u.lastName[0]}`.toUpperCase();
+  if (u.firstName) return u.firstName.slice(0, 2).toUpperCase();
+  return "?";
+}
+
 export default function SquadDetailScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { events, getSquad, updateSquad, leaveSquad, currentUser } = useData();
+  const { events, getSquad, updateSquad, leaveSquad, currentUser, addMemberByFriendCode } = useData();
   const { resolveUser, prefetchUsers } = useUserCache();
   const { getSquadConversation } = useMessages();
   const { authToken } = useAuth();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [openingChat, setOpeningChat] = useState(false);
   const [availabilityTitle, setAvailabilityTitle] = useState<string | null>(null);
+
+  const [addMemberOpen, setAddMemberOpen] = useState(false);
+  const [friendCodeInput, setFriendCodeInput] = useState("");
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [lookupError, setLookupError] = useState<string | null>(null);
+  const [foundUser, setFoundUser] = useState<FoundUser | null>(null);
+  const [addLoading, setAddLoading] = useState(false);
+
+  const resetAddMemberModal = () => {
+    setFriendCodeInput("");
+    setLookupError(null);
+    setFoundUser(null);
+    setAddLoading(false);
+    setLookupLoading(false);
+  };
+
+  const lookupFriendCode = async () => {
+    const code = friendCodeInput.trim().toUpperCase();
+    if (!code) return;
+    setLookupLoading(true);
+    setLookupError(null);
+    setFoundUser(null);
+    try {
+      const headers: Record<string, string> = { "Content-Type": "application/json", ...buildAuthHeaders(authToken) };
+      const res = await fetch(`${API_BASE}/api/users/by-friend-code/${encodeURIComponent(code)}`, { headers });
+      const data = (await res.json().catch(() => ({}))) as FoundUser & { error?: string };
+      if (!res.ok) {
+        setLookupError(data.error ?? "No user found with that code.");
+      } else {
+        setFoundUser(data);
+      }
+    } catch {
+      setLookupError("Network error. Please try again.");
+    } finally {
+      setLookupLoading(false);
+    }
+  };
+
+  const confirmAddMember = async () => {
+    if (!foundUser || !id) return;
+    setAddLoading(true);
+    const result = await addMemberByFriendCode(id, friendCodeInput.trim().toUpperCase());
+    setAddLoading(false);
+    if (result.error) {
+      setLookupError(result.error);
+    } else {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setAddMemberOpen(false);
+      resetAddMemberModal();
+    }
+  };
 
   const authHeaders = useCallback((): Record<string, string> => ({
     "Content-Type": "application/json",
@@ -192,13 +255,17 @@ export default function SquadDetailScreen() {
             </View>
           ))}
           <TouchableOpacity
-            onPress={shareInvite}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              resetAddMemberModal();
+              setAddMemberOpen(true);
+            }}
             style={[styles.memberCard, styles.addMember, { backgroundColor: colors.card, borderColor: colors.border }]}
           >
             <View style={[styles.addIcon, { backgroundColor: colors.primary + "20" }]}>
               <Ionicons name="person-add-outline" size={20} color={colors.primary} />
             </View>
-            <Text style={[styles.memberName, { color: colors.primary }]}>Invite</Text>
+            <Text style={[styles.memberName, { color: colors.primary }]}>Add</Text>
           </TouchableOpacity>
         </View>
 
@@ -287,6 +354,91 @@ export default function SquadDetailScreen() {
           ))
         )}
       </ScrollView>
+
+      {/* ---- Add Member Modal ---- */}
+      <Modal
+        visible={addMemberOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => { setAddMemberOpen(false); resetAddMemberModal(); }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border, paddingBottom: botPad + 16 }]}>
+            <Text style={[styles.modalTitle, { color: colors.foreground }]}>Add by friend code</Text>
+            <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>Friend Code</Text>
+            <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
+              <TextInput
+                placeholder="e.g. SQ-AB12"
+                placeholderTextColor={colors.textDim}
+                value={friendCodeInput}
+                onChangeText={(t) => {
+                  setFriendCodeInput(t);
+                  setLookupError(null);
+                  setFoundUser(null);
+                }}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                style={[styles.modalInput, { flex: 1, marginBottom: 0, backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
+              />
+              <TouchableOpacity
+                onPress={() => { void lookupFriendCode(); }}
+                disabled={lookupLoading || !friendCodeInput.trim()}
+                style={[styles.searchBtn, { backgroundColor: colors.primary, opacity: (!friendCodeInput.trim() || lookupLoading) ? 0.5 : 1 }]}
+              >
+                {lookupLoading ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Ionicons name="search-outline" size={20} color="#fff" />
+                )}
+              </TouchableOpacity>
+            </View>
+
+            {lookupError && (
+              <View style={[styles.lookupError, { backgroundColor: colors.destructive + "18", borderColor: colors.destructive + "40" }]}>
+                <Ionicons name="alert-circle-outline" size={16} color={colors.destructive} />
+                <Text style={[styles.lookupErrorText, { color: colors.destructive }]}>{lookupError}</Text>
+              </View>
+            )}
+
+            {foundUser && !lookupError && (
+              <View style={[styles.foundUserCard, { backgroundColor: colors.card, borderColor: colors.primary + "40" }]}>
+                <UserAvatar
+                  initials={getFriendCodeInitials(foundUser)}
+                  color="#A855F7"
+                  imageUrl={foundUser.profileImageUrl}
+                  size={44}
+                  fontSize={15}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.foundUserName, { color: colors.foreground }]}>{getFriendCodeDisplayName(foundUser)}</Text>
+                  <Text style={[styles.foundUserCode, { color: colors.mutedForeground }]}>{foundUser.friendCode}</Text>
+                </View>
+                <Ionicons name="checkmark-circle" size={22} color={colors.primary} />
+              </View>
+            )}
+
+            <View style={[styles.modalActions, { marginTop: foundUser || lookupError ? 16 : 4 }]}>
+              <TouchableOpacity
+                onPress={() => { setAddMemberOpen(false); resetAddMemberModal(); }}
+                style={[styles.modalBtn, { backgroundColor: colors.card }]}
+              >
+                <Text style={[styles.modalBtnText, { color: colors.mutedForeground }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => { void confirmAddMember(); }}
+                disabled={!foundUser || addLoading}
+                style={[styles.modalBtn, { backgroundColor: colors.primary, opacity: (!foundUser || addLoading) ? 0.5 : 1 }]}
+              >
+                {addLoading ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={[styles.modalBtnText, { color: "#fff" }]}>Add to Squad</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* ---- Settings Modal ---- */}
       <Modal visible={settingsOpen} transparent animationType="slide" onRequestClose={() => setSettingsOpen(false)}>
@@ -379,4 +531,10 @@ const styles = StyleSheet.create({
   modalActions: { flexDirection: "row", gap: 10, marginTop: 20 },
   modalBtn: { flex: 1, borderRadius: 13, padding: 14, alignItems: "center" },
   modalBtnText: { fontSize: 15, fontWeight: "800" },
+  searchBtn: { width: 50, height: 50, borderRadius: 13, alignItems: "center", justifyContent: "center" },
+  lookupError: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 12, borderWidth: 1, padding: 12, marginBottom: 4 },
+  lookupErrorText: { fontSize: 13, fontWeight: "600", flex: 1 },
+  foundUserCard: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 14, borderWidth: 1.5, padding: 14, marginBottom: 4 },
+  foundUserName: { fontSize: 15, fontWeight: "800" },
+  foundUserCode: { fontSize: 12, marginTop: 2 },
 });
