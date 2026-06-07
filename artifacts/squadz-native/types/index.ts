@@ -75,4 +75,5 @@ export type Squad = {
   memberIds: string[];
   color: string;
   isPublic?: boolean;
+  creatorId?: string | null;
 };

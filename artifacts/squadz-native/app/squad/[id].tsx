@@ -212,7 +212,7 @@ export default function SquadDetailScreen() {
   });
   const squadEvents = events.filter((e) => e.squadId === squad.id);
 
-  const creatorId = squad.memberIds[0] ?? null;
+  const creatorId = squad.creatorId ?? squad.memberIds[0] ?? null;
   const isCreator = currentUser.id === creatorId;
 
   const handleMemberLongPress = (memberId: string, memberName: string) => {
