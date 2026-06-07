@@ -13,20 +13,10 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import Constants from "expo-constants";
 import { useColors } from "@/hooks/useColors";
 import { useData } from "@/context/AppContext";
 import { getUserById, goingCount } from "@/data/mock";
-
-function resolveApiBase(): string {
-  if (process.env.EXPO_PUBLIC_API_URL) return process.env.EXPO_PUBLIC_API_URL;
-  const extra = Constants.expoConfig?.extra as Record<string, string> | undefined;
-  if (extra?.apiBase) return extra.apiBase;
-  if (Platform.OS === "web") return "";
-  const devDomain = process.env.REPLIT_DEV_DOMAIN;
-  if (devDomain) return `https://${devDomain}`;
-  return "";
-}
+import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
 export default function InviteScreen() {
   const colors = useColors();
@@ -65,10 +55,8 @@ export default function InviteScreen() {
     setJoining(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
-      const apiBase = resolveApiBase();
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (authToken) headers.Authorization = `Bearer ${authToken}`;
-      const res = await fetch(`${apiBase}/api/events/join`, {
+      const headers: Record<string, string> = { "Content-Type": "application/json", ...buildAuthHeaders(authToken) };
+      const res = await fetch(`${API_BASE}/api/events/join`, {
         method: "POST",
         headers,
         credentials: "include",

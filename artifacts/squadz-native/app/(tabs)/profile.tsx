@@ -20,38 +20,7 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { startProCheckout } from "@/lib/checkout";
 import { router, useLocalSearchParams } from "expo-router";
 import { useState, useEffect, useCallback, useRef } from "react";
-import Constants from "expo-constants";
-
-/**
- * Resolve the API base URL for native/web environments.
- *
- * In Expo Go / development: REPLIT_DEV_DOMAIN is injected via app.config.js extra.
- * In web (Expo web): relative URLs work fine because the proxy routes /api correctly.
- * In native production builds: set EXPO_PUBLIC_API_URL in the build environment.
- */
-function resolveApiBase(): string {
-  // Production: explicit env var takes priority
-  if (process.env.EXPO_PUBLIC_API_URL) {
-    return process.env.EXPO_PUBLIC_API_URL;
-  }
-  // Expo constants extra (set in app.config.js from REPLIT_DEV_DOMAIN)
-  const extra = Constants.expoConfig?.extra as Record<string, string> | undefined;
-  if (extra?.apiBase) {
-    return extra.apiBase;
-  }
-  // Expo web: relative URLs work via proxy
-  if (Platform.OS === "web") {
-    return "";
-  }
-  // Fallback for Expo Go in Replit: use the dev domain directly
-  const devDomain = process.env.REPLIT_DEV_DOMAIN;
-  if (devDomain) {
-    return `https://${devDomain}`;
-  }
-  return "";
-}
-
-const API_BASE = resolveApiBase();
+import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
 type SettingItem = {
   icon: keyof typeof Ionicons.glyphMap;
@@ -162,7 +131,7 @@ export default function ProfileScreen() {
   const mySquads = squads;
 
   const authHeaders = useCallback((): HeadersInit => {
-    return authToken ? { "Authorization": `Bearer ${authToken}` } : {};
+    return buildAuthHeaders(authToken);
   }, [authToken]);
 
   const checkSubscription = useCallback(async () => {

@@ -18,7 +18,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useData, useAuth } from "@/context/AppContext";
-import Constants from "expo-constants";
+import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { UserAvatar } from "@/components/UserAvatar";
 import {
   getUserById,
@@ -61,22 +61,11 @@ export default function EventDetailScreen() {
   const { authToken } = useAuth();
 
   const authHeaders = useCallback((): HeadersInit => {
-    return authToken ? { Authorization: `Bearer ${authToken}` } : {};
+    return buildAuthHeaders(authToken);
   }, [authToken]);
 
-  function resolveApiBase(): string {
-    if (process.env.EXPO_PUBLIC_API_URL) return process.env.EXPO_PUBLIC_API_URL;
-    const extra = Constants.expoConfig?.extra as Record<string, string> | undefined;
-    if (extra?.apiBase) return extra.apiBase;
-    if (Platform.OS === "web") return "";
-    const devDomain = process.env.REPLIT_DEV_DOMAIN;
-    if (devDomain) return `https://${devDomain}`;
-    return "";
-  }
-
   useEffect(() => {
-    const apiBase = resolveApiBase();
-    fetch(`${apiBase}/api/subscription`, { headers: authHeaders() })
+    fetch(`${API_BASE}/api/subscription`, { headers: authHeaders() })
       .then(r => { if (!r.ok) { setIsPro(false); return; } return r.json(); })
       .then((d?: { isPro?: boolean }) => { if (d !== undefined) setIsPro(!!d.isPro); })
       .catch(() => setIsPro(false));

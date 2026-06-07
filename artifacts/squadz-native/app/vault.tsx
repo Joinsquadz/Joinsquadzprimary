@@ -22,27 +22,15 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import { router, useLocalSearchParams } from "expo-router";
-import Constants from "expo-constants";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { useColors } from "@/hooks/useColors";
 import { useAuth, useData } from "@/context/AppContext";
 import { startProCheckout } from "@/lib/checkout";
+import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
 const VAULT_SELECTED_KEY = "vault:selectedPhoto";
 const VAULT_SCROLL_KEY = "vault:scrollY";
-
-function resolveApiBase(): string {
-  if (process.env.EXPO_PUBLIC_API_URL) return process.env.EXPO_PUBLIC_API_URL;
-  const extra = Constants.expoConfig?.extra as Record<string, string> | undefined;
-  if (extra?.apiBase) return extra.apiBase;
-  if (Platform.OS === "web") return "";
-  const devDomain = process.env.REPLIT_DEV_DOMAIN;
-  if (devDomain) return `https://${devDomain}`;
-  return "";
-}
-
-const API_BASE = resolveApiBase();
 
 type VaultPhoto =
   | { id: number; eventId: string | null; uploadedAt: string; url: string; uploaderId: string; eventTitle: string | null; eventEmoji: string | null; squadName: string | null; locked: false }
@@ -271,7 +259,7 @@ export default function VaultScreen() {
   const awaitingUpgrade = useRef(false);
 
   const authHeaders = useCallback((): HeadersInit => {
-    return authToken ? { Authorization: `Bearer ${authToken}` } : {};
+    return buildAuthHeaders(authToken);
   }, [authToken]);
 
   const checkSubscription = useCallback(async (): Promise<boolean> => {

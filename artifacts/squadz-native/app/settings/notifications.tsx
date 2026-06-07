@@ -13,21 +13,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
-import Constants from "expo-constants";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AppContext";
-
-function resolveApiBase(): string {
-  if (process.env.EXPO_PUBLIC_API_URL) return process.env.EXPO_PUBLIC_API_URL;
-  const extra = Constants.expoConfig?.extra as Record<string, string> | undefined;
-  if (extra?.apiBase) return extra.apiBase;
-  if (Platform.OS === "web") return "";
-  const devDomain = process.env.REPLIT_DEV_DOMAIN;
-  if (devDomain) return `https://${devDomain}`;
-  return "";
-}
-
-const API_BASE = resolveApiBase();
+import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
 type Prefs = {
   notifyEventInvites: boolean;
@@ -54,7 +42,7 @@ export default function NotificationsScreen() {
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
 
   const authHeaders = useCallback((): Record<string, string> => {
-    return authToken ? { Authorization: `Bearer ${authToken}` } : {};
+    return buildAuthHeaders(authToken);
   }, [authToken]);
 
   const load = useCallback(async () => {

@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Platform } from "react-native";
-import Constants from "expo-constants";
+import { API_BASE } from "@/lib/api";
 import {
   ME,
   type Event,
@@ -50,18 +49,6 @@ function getUserName(u: ApiUser): string {
   if (u.firstName) return u.firstName;
   return u.email ?? "Unknown User";
 }
-
-function resolveApiBase(): string {
-  if (process.env.EXPO_PUBLIC_API_URL) return process.env.EXPO_PUBLIC_API_URL;
-  const extra = Constants.expoConfig?.extra as Record<string, string> | undefined;
-  if (extra?.apiBase) return extra.apiBase;
-  if (Platform.OS === "web") return "";
-  const devDomain = process.env.REPLIT_DEV_DOMAIN;
-  if (devDomain) return `https://${devDomain}`;
-  return "";
-}
-
-const API_BASE = resolveApiBase();
 
 export type InviteCtx = {
   code: string;

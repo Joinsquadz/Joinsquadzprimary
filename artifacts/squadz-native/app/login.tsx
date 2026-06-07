@@ -18,8 +18,8 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as WebBrowser from "expo-web-browser";
 import * as Linking from "expo-linking";
-import Constants from "expo-constants";
 import { useColors } from "@/hooks/useColors";
+import { API_BASE } from "@/lib/api";
 import { useAuth } from "@/context/AppContext";
 import { SquadzIcon } from "@/components/SquadzIcon";
 import { GradientButton } from "@/components/GradientButton";
@@ -43,18 +43,6 @@ const PILLS = [
   { icon: "🗳️", label: "Polls", color: "#4A9EFF" },
   { icon: "💬", label: "Group Chat", color: "#A855F7" },
 ];
-
-function resolveApiBase(): string {
-  if (process.env.EXPO_PUBLIC_API_URL) return process.env.EXPO_PUBLIC_API_URL;
-  const extra = Constants.expoConfig?.extra as Record<string, string> | undefined;
-  if (extra?.apiBase) return extra.apiBase;
-  if (Platform.OS === "web") return "";
-  const devDomain = process.env.REPLIT_DEV_DOMAIN;
-  if (devDomain) return `https://${devDomain}`;
-  return "";
-}
-
-const API_BASE = resolveApiBase();
 
 // When the web app runs inside the Replit canvas preview (a cross-origin
 // iframe), the Replit login page can't be framed, so sign-in happens in a

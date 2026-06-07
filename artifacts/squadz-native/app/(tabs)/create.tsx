@@ -19,23 +19,11 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useData, useAuth } from "@/context/AppContext";
 import { startProCheckout } from "@/lib/checkout";
-import Constants from "expo-constants";
+import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
 const EMOJIS = ["🔥", "🎉", "🎮", "🏖️", "🍕", "🎸", "⚽", "🎬", "🍻", "🎊"];
 const TAB_BAR_H = Platform.select({ ios: 49, android: 56, default: 49 }) ?? 49;
 const FREE_EVENT_LIMIT = 3;
-
-
-function resolveApiBase(): string {
-  if (process.env.EXPO_PUBLIC_API_URL) return process.env.EXPO_PUBLIC_API_URL;
-  const extra = Constants.expoConfig?.extra as Record<string, string> | undefined;
-  if (extra?.apiBase) return extra.apiBase;
-  if (Platform.OS === "web") return "";
-  const devDomain = process.env.REPLIT_DEV_DOMAIN;
-  if (devDomain) return `https://${devDomain}`;
-  return "";
-}
-const API_BASE = resolveApiBase();
 
 function formatPickedDate(d: Date): string {
   const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -72,7 +60,7 @@ export default function CreateEventScreen() {
   const atLimit = !isPro && myEventCount >= FREE_EVENT_LIMIT;
 
   const authHeaders = useCallback((): HeadersInit => {
-    return authToken ? { "Authorization": `Bearer ${authToken}` } : {};
+    return buildAuthHeaders(authToken);
   }, [authToken]);
 
   useEffect(() => {

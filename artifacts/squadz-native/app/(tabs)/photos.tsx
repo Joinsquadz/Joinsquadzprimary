@@ -13,24 +13,12 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
-import Constants from "expo-constants";
 
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AppContext";
 import { PLACEHOLDER_PHOTOS, FILTERS, photoFilename, type VaultPhoto } from "@/constants/photos";
 import { downloadPhoto } from "@/lib/downloadPhoto";
-
-function resolveApiBase(): string {
-  if (process.env.EXPO_PUBLIC_API_URL) return process.env.EXPO_PUBLIC_API_URL;
-  const extra = Constants.expoConfig?.extra as Record<string, string> | undefined;
-  if (extra?.apiBase) return extra.apiBase;
-  if (Platform.OS === "web") return "";
-  const devDomain = process.env.REPLIT_DEV_DOMAIN;
-  if (devDomain) return `https://${devDomain}`;
-  return "";
-}
-
-const API_BASE = resolveApiBase();
+import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
 export default function PhotosTab() {
   const colors = useColors();
@@ -50,7 +38,7 @@ export default function PhotosTab() {
   );
 
   const authHeaders = useCallback((): HeadersInit => {
-    return authToken ? { Authorization: `Bearer ${authToken}` } : {};
+    return buildAuthHeaders(authToken);
   }, [authToken]);
 
   useEffect(() => {
