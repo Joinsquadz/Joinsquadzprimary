@@ -34,6 +34,22 @@ vi.mock("@workspace/db", () => ({
     memberIds: "member_ids",
     createdAt: "created_at",
   },
+  usersTable: {
+    id: "id",
+    firstName: "first_name",
+    lastName: "last_name",
+    profileImageUrl: "profile_image_url",
+    friendCode: "friend_code",
+  },
+  squadMutesTable: {
+    userId: "user_id",
+    squadId: "squad_id",
+  },
+  squadRemovalNoticesTable: {
+    id: "id",
+    userId: "user_id",
+    seenAt: "seen_at",
+  },
 }));
 
 const mockGetPushTokensForUsers = vi.hoisted(() => vi.fn());

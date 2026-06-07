@@ -267,6 +267,11 @@ router.delete("/squads/:id", requireAuth, async (req: Request, res: Response): P
     return;
   }
   await db.delete(squadsTable).where(eq(squadsTable.id, id));
+
+  // Clean up all mute rows for this squad so no orphaned squad_mutes rows
+  // remain after the squad is fully dissolved.
+  await db.delete(squadMutesTable).where(eq(squadMutesTable.squadId, id));
+
   res.sendStatus(204);
 
   // Fire-and-forget: notify all other members that the squad has been deleted.

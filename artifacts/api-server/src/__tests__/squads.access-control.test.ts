@@ -49,6 +49,7 @@ vi.mock("@workspace/db", () => ({
     id: "id",
     userId: "user_id",
     squadId: "squad_id",
+    seenAt: "seen_at",
   },
 }));
 
