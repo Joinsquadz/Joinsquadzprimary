@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, count, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { db, eventsTable } from "@workspace/db";
+import { db, eventsTable, usersTable } from "@workspace/db";
 import { storage } from "../storage";
 import { requireAuth } from "../middleware/currentUser";
 import { logger } from "../lib/logger";
@@ -102,6 +102,63 @@ async function getEventAsMember(
   }
   return event;
 }
+
+// GET /events/preview?code=<inviteCode> — public, read-only preview of an event
+// for shareable invite deep-links so a friend can see what they're joining
+// before they sign in. Only exposes non-sensitive fields (no chat, costs, or
+// member PII). Mirrors the public-squad preview (GET /discover/squads/:id).
+router.get("/events/preview", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const rawCode = req.query.code;
+    const code = (Array.isArray(rawCode) ? rawCode[0] : rawCode) as string | undefined;
+    if (!code || typeof code !== "string" || !code.trim()) {
+      res.status(404).json({ error: "This invite isn't available." });
+      return;
+    }
+
+    const [event] = await db
+      .select()
+      .from(eventsTable)
+      .where(eq(eventsTable.inviteCode, code.trim()));
+
+    if (!event) {
+      res.status(404).json({ error: "This invite isn't available." });
+      return;
+    }
+    if (event.cancelled) {
+      res.status(410).json({ error: "This event has been cancelled." });
+      return;
+    }
+
+    let hostName: string | null = null;
+    if (event.hostId) {
+      const [host] = await db
+        .select({
+          firstName: usersTable.firstName,
+          lastName: usersTable.lastName,
+        })
+        .from(usersTable)
+        .where(eq(usersTable.id, event.hostId));
+      hostName =
+        [host?.firstName, host?.lastName].filter(Boolean).join(" ").trim() || null;
+    }
+
+    const rsvps = (event.rsvps ?? {}) as Record<string, string>;
+    const goingCount = Object.values(rsvps).filter((s) => s === "going").length;
+
+    res.json({
+      emoji: event.emoji,
+      title: event.title,
+      hostName,
+      date: event.date,
+      location: event.location,
+      goingCount,
+    });
+  } catch (err) {
+    logger.error({ err }, "Error fetching event preview");
+    res.status(500).json({ error: "Failed to fetch event" });
+  }
+});
 
 // GET /events/count — requires auth, returns user's event count vs free limit
 router.get("/events/count", requireAuth, async (req: Request, res: Response): Promise<void> => {

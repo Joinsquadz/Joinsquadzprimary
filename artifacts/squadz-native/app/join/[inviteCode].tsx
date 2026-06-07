@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -14,6 +14,15 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useData, useAuth } from "@/context/AppContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
+
+type EventPreview = {
+  emoji: string;
+  title: string;
+  hostName: string | null;
+  date: string;
+  location: string;
+  goingCount: number;
+};
 
 /**
  * Event invite deep-link target.
@@ -38,6 +47,36 @@ export default function EventJoinScreen() {
 
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<EventPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(true);
+
+  // Fetch a public, read-only preview so the visitor can see what they're
+  // joining (title, host, date, location) before committing — works whether or
+  // not they're signed in.
+  const fetchPreview = useCallback(async () => {
+    if (!code) {
+      setPreviewLoading(false);
+      return;
+    }
+    setPreviewLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/events/preview?code=${encodeURIComponent(code)}`);
+      if (res.ok) {
+        const data = (await res.json()) as EventPreview;
+        setPreview(data);
+      } else if (res.status === 410) {
+        setError("This event has been cancelled.");
+      }
+    } catch {
+      // Non-fatal: fall back to the generic invite hero if the preview fails.
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, [code]);
+
+  useEffect(() => {
+    void fetchPreview();
+  }, [fetchPreview]);
 
   // Logged-out friends sign in / up first, then bounce back to this screen.
   useEffect(() => {
@@ -118,9 +157,10 @@ export default function EventJoinScreen() {
     );
   }
 
-  // While the logged-out redirect is in flight, show a spinner instead of the
-  // accept UI (avoids a flash of the join button before bouncing to login).
-  if (!loggedIn) {
+  // While the logged-out redirect or the preview fetch is in flight, show a
+  // spinner instead of the accept UI (avoids a flash of the join button before
+  // bouncing to login or before the event details load).
+  if (!loggedIn || previewLoading) {
     return (
       <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: topPad }]}>
         <View style={styles.centerWrap}>
@@ -138,18 +178,43 @@ export default function EventJoinScreen() {
 
       <View style={[styles.hero, { paddingTop: topPad + 20 }]}>
         <Text style={[styles.heroLabel, { color: "rgba(255,255,255,0.7)" }]}>YOU'RE INVITED</Text>
-        <Text style={styles.heroEmoji}>🎉</Text>
-        <Text style={[styles.heroTitle, { color: "#fff" }]}>Join the Event</Text>
-        <Text style={[styles.heroCopy, { color: "rgba(255,255,255,0.8)" }]}>
-          Tap below to RSVP using your invite link
-        </Text>
+        <Text style={styles.heroEmoji}>{preview?.emoji ?? "🎉"}</Text>
+        <Text style={[styles.heroTitle, { color: "#fff" }]}>{preview?.title ?? "Join the Event"}</Text>
+        {preview?.hostName ? (
+          <Text style={[styles.heroCopy, { color: "rgba(255,255,255,0.85)" }]}>
+            Hosted by {preview.hostName}
+          </Text>
+        ) : (
+          <Text style={[styles.heroCopy, { color: "rgba(255,255,255,0.8)" }]}>
+            Tap below to RSVP using your invite link
+          </Text>
+        )}
       </View>
 
       <View style={[styles.body, { paddingBottom: botPad + 24 }]}>
-        <View style={[styles.codeCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.codeLabel, { color: colors.mutedForeground }]}>Invite code</Text>
-          <Text style={[styles.code, { color: colors.primary }]}>{code}</Text>
-        </View>
+        {preview ? (
+          <View style={[styles.detailsCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={styles.detailRow}>
+              <Ionicons name="calendar-outline" size={18} color={colors.primary} />
+              <Text style={[styles.detailText, { color: colors.foreground }]}>{preview.date}</Text>
+            </View>
+            <View style={styles.detailRow}>
+              <Ionicons name="location-outline" size={18} color={colors.primary} />
+              <Text style={[styles.detailText, { color: colors.foreground }]}>{preview.location}</Text>
+            </View>
+            <View style={styles.detailRow}>
+              <Ionicons name="people-outline" size={18} color={colors.primary} />
+              <Text style={[styles.detailText, { color: colors.foreground }]}>
+                {preview.goingCount} going
+              </Text>
+            </View>
+          </View>
+        ) : (
+          <View style={[styles.codeCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Text style={[styles.codeLabel, { color: colors.mutedForeground }]}>Invite code</Text>
+            <Text style={[styles.code, { color: colors.primary }]}>{code}</Text>
+          </View>
+        )}
 
         {error && (
           <View style={[styles.errorBanner, { backgroundColor: colors.destructive + "15", borderColor: colors.destructive + "40" }]}>
@@ -215,6 +280,19 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     letterSpacing: 3,
   },
+  detailsCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 18,
+    gap: 14,
+    marginBottom: 16,
+  },
+  detailRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  detailText: { fontSize: 15, fontWeight: "600", flex: 1 },
   errorBanner: {
     flexDirection: "row",
     alignItems: "center",
