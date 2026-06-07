@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useFocusEffect } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   View,
   Text,
@@ -50,6 +51,7 @@ export default function SquadDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [openingChat, setOpeningChat] = useState(false);
   const [availabilityTitle, setAvailabilityTitle] = useState<string | null>(null);
+  const [newResponseCount, setNewResponseCount] = useState(0);
 
   const [addMemberOpen, setAddMemberOpen] = useState(false);
   const [friendCodeInput, setFriendCodeInput] = useState("");
@@ -111,14 +113,29 @@ export default function SquadDetailScreen() {
     useCallback(() => {
       if (!id) return;
       let active = true;
-      fetch(`${API_BASE}/api/availability/polls/find?squadId=${id}`, { headers: authHeaders() })
-        .then(r => r.ok ? r.json() : null)
-        .then((d?: { poll?: { title?: string } } | null) => {
-          if (active) setAvailabilityTitle(d?.poll?.title ?? null);
-        })
-        .catch(() => { /* leave existing title on error */ });
+      const avKey = `availability_lastviewed_${id}`;
+      Promise.all([
+        fetch(`${API_BASE}/api/availability/polls/find?squadId=${id}`, { headers: authHeaders() })
+          .then(r => r.ok ? r.json() : null)
+          .catch(() => null),
+        AsyncStorage.getItem(avKey).catch(() => null),
+      ]).then(([d, stored]: [{ poll?: { title?: string; createdBy?: string }; members?: { id: string; respondedAt: string | null }[] } | null, string | null]) => {
+        if (!active) return;
+        setAvailabilityTitle(d?.poll?.title ?? null);
+        if (d?.poll?.createdBy === currentUser.id && stored) {
+          const lastViewedAt = new Date(Number(stored));
+          const count = (d.members ?? []).filter((m) => {
+            if (m.id === currentUser.id) return false;
+            if (!m.respondedAt) return false;
+            return new Date(m.respondedAt) > lastViewedAt;
+          }).length;
+          setNewResponseCount(count);
+        } else {
+          setNewResponseCount(0);
+        }
+      });
       return () => { active = false; };
-    }, [id, authHeaders])
+    }, [id, authHeaders, currentUser.id])
   );
 
   async function handleOpenChat(squadId: string) {
@@ -322,6 +339,11 @@ export default function SquadDetailScreen() {
             <Text style={[styles.photosTitle, { color: colors.foreground }]}>{availabilityTitle ?? "Find the Best Time"}</Text>
             <Text style={[styles.photosSub, { color: colors.mutedForeground }]}>Poll the squad · pick a time everyone's free</Text>
           </View>
+          {newResponseCount > 0 && (
+            <View style={[styles.responseBadge, { backgroundColor: colors.primary }]}>
+              <Text style={styles.responseBadgeText}>{newResponseCount}</Text>
+            </View>
+          )}
           <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
         </TouchableOpacity>
 
@@ -537,4 +559,6 @@ const styles = StyleSheet.create({
   foundUserCard: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 14, borderWidth: 1.5, padding: 14, marginBottom: 4 },
   foundUserName: { fontSize: 15, fontWeight: "800" },
   foundUserCode: { fontSize: 12, marginTop: 2 },
+  responseBadge: { minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 5, alignItems: "center", justifyContent: "center", marginRight: 4 },
+  responseBadgeText: { color: "#fff", fontSize: 11, fontWeight: "800" },
 });

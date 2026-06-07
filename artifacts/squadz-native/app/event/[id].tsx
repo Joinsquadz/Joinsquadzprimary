@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useFocusEffect } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   View,
   Text,
@@ -82,6 +83,7 @@ export default function EventDetailScreen() {
   }, [event?.id]);
   const [isPro, setIsPro] = useState<boolean | null>(null);
   const [availabilityTitle, setAvailabilityTitle] = useState<string | null>(null);
+  const [newResponseCount, setNewResponseCount] = useState(0);
   const { authToken } = useAuth();
 
   const authHeaders = useCallback((): HeadersInit => {
@@ -99,14 +101,29 @@ export default function EventDetailScreen() {
     useCallback(() => {
       if (!id) return;
       let active = true;
-      fetch(`${API_BASE}/api/availability/polls/find?eventId=${id}`, { headers: authHeaders() })
-        .then(r => r.ok ? r.json() : null)
-        .then((d?: { poll?: { title?: string } } | null) => {
-          if (active) setAvailabilityTitle(d?.poll?.title ?? null);
-        })
-        .catch(() => { /* leave existing title on error */ });
+      const avKey = `availability_lastviewed_${id}`;
+      Promise.all([
+        fetch(`${API_BASE}/api/availability/polls/find?eventId=${id}`, { headers: authHeaders() })
+          .then(r => r.ok ? r.json() : null)
+          .catch(() => null),
+        AsyncStorage.getItem(avKey).catch(() => null),
+      ]).then(([d, stored]: [{ poll?: { title?: string; createdBy?: string }; members?: { id: string; respondedAt: string | null }[] } | null, string | null]) => {
+        if (!active) return;
+        setAvailabilityTitle(d?.poll?.title ?? null);
+        if (d?.poll?.createdBy === currentUser.id && stored) {
+          const lastViewedAt = new Date(Number(stored));
+          const count = (d.members ?? []).filter((m) => {
+            if (m.id === currentUser.id) return false;
+            if (!m.respondedAt) return false;
+            return new Date(m.respondedAt) > lastViewedAt;
+          }).length;
+          setNewResponseCount(count);
+        } else {
+          setNewResponseCount(0);
+        }
+      });
       return () => { active = false; };
-    }, [id, authHeaders])
+    }, [id, authHeaders, currentUser.id])
   );
 
   // Live-refresh the chat while the Chat tab is open so squad messages appear.
@@ -499,6 +516,11 @@ export default function EventDetailScreen() {
                 <Text style={[styles.cardBody, { color: colors.foreground, fontWeight: "700" }]}>{availabilityTitle ?? "Find the Best Time"}</Text>
                 <Text style={[styles.cardBody, { color: colors.mutedForeground, fontSize: 13 }]}>Poll everyone & lock in when most can make it</Text>
               </View>
+              {newResponseCount > 0 && (
+                <View style={[styles.responseBadge, { backgroundColor: colors.primary }]}>
+                  <Text style={styles.responseBadgeText}>{newResponseCount}</Text>
+                </View>
+              )}
               <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
             </TouchableOpacity>
 
@@ -1392,4 +1414,6 @@ const styles = StyleSheet.create({
   modalActions: { flexDirection: "row", gap: 10, marginTop: 6 },
   modalBtn: { flex: 1, alignItems: "center", justifyContent: "center", borderRadius: 14, paddingVertical: 14 },
   modalBtnText: { fontSize: 15, fontWeight: "800" },
+  responseBadge: { minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 5, alignItems: "center", justifyContent: "center", marginRight: 4 },
+  responseBadgeText: { color: "#fff", fontSize: 11, fontWeight: "800" },
 });
