@@ -12,6 +12,7 @@ export const RSVP_USER_ID = "rsvp-user-id";
 
 export const MEMBER_ID = "member-user-id";
 export const SECOND_MEMBER_ID = "second-member-id";
+export const CREATOR_ID = "creator-user-id";
 
 export function makeBaseEvent(overrides: Record<string, unknown> = {}) {
   return {
@@ -43,7 +44,9 @@ export function makeBaseSquad(overrides: Record<string, unknown> = {}) {
     name: "Test Squad",
     emoji: "👥",
     color: "#FF5C3A",
-    memberIds: [MEMBER_ID, SECOND_MEMBER_ID],
+    memberIds: [CREATOR_ID, MEMBER_ID, SECOND_MEMBER_ID],
+    creatorId: CREATOR_ID,
+    inviteCode: "ORIG-CODE",
     createdAt: new Date().toISOString(),
     ...overrides,
   };

@@ -71,6 +71,7 @@ import {
   MEMBER_ID,
   STRANGER_ID,
   SECOND_MEMBER_ID,
+  CREATOR_ID,
   makeBaseSquad,
 } from "./helpers/fixtures";
 
@@ -182,6 +183,39 @@ describe("DELETE /api/squads/:id", () => {
     mockRows.value = [];
     const app = await makeApp({ id: MEMBER_ID });
     const res = await request(app).delete("/api/squads/nonexistent");
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("POST /api/squads/:id/invite/regenerate", () => {
+  it("returns 401 when unauthenticated", async () => {
+    const app = await makeApp();
+    const res = await request(app).post("/api/squads/squad-1/invite/regenerate");
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 403 when authenticated as a non-creator member", async () => {
+    mockRows.value = [baseSquad];
+    const app = await makeApp({ id: MEMBER_ID });
+    const res = await request(app).post("/api/squads/squad-1/invite/regenerate");
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 200 and a fresh invite code when authenticated as the creator", async () => {
+    const newCode = "NEW-CODE-XYZ";
+    mockRows.value = [baseSquad];
+    mockUpdateRows.value = [{ ...baseSquad, inviteCode: newCode }];
+    const app = await makeApp({ id: CREATOR_ID });
+    const res = await request(app).post("/api/squads/squad-1/invite/regenerate");
+    expect(res.status).toBe(200);
+    expect(res.body.inviteCode).toBe(newCode);
+    expect(res.body.inviteCode).not.toBe(baseSquad.inviteCode);
+  });
+
+  it("returns 404 when squad does not exist", async () => {
+    mockRows.value = [];
+    const app = await makeApp({ id: CREATOR_ID });
+    const res = await request(app).post("/api/squads/nonexistent/invite/regenerate");
     expect(res.status).toBe(404);
   });
 });
