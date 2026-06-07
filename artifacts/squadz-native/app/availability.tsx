@@ -150,6 +150,10 @@ export default function AvailabilityScreen() {
   const hasPollRef = useRef(false);
   useEffect(() => { hasPollRef.current = data !== null; }, [data]);
 
+  // Tracks the last time the user tapped a cell so background refreshes can
+  // be skipped during rapid selection (avoids mid-tap redraws).
+  const lastInteractionRef = useRef<number>(0);
+
   const authHeaders = useCallback((): Record<string, string> => {
     return {
       "Content-Type": "application/json",
@@ -219,8 +223,12 @@ export default function AvailabilityScreen() {
   // Silently re-fetches the poll and updates the heatmap + best-time card.
   // The user's own unsaved picks (mySet) are only synced when there are no
   // pending changes so we never clobber work in progress.
+  // Skips the fetch entirely if the user tapped a cell within the last 4 s to
+  // avoid redrawing the heatmap underneath an active selection.
+  const INTERACTION_QUIET_MS = 4_000;
   const refreshInBackground = useCallback(async () => {
     if (!hasPollRef.current) return;
+    if (Date.now() - lastInteractionRef.current < INTERACTION_QUIET_MS) return;
     try {
       const qs = new URLSearchParams(squadId ? { squadId } : { eventId: eventId ?? "" });
       const res = await fetch(`${API_BASE}/api/availability/polls/find?${qs.toString()}`, {
@@ -270,6 +278,7 @@ export default function AvailabilityScreen() {
   }, [data]);
 
   const toggleCell = (cell: string) => {
+    lastInteractionRef.current = Date.now();
     Haptics.selectionAsync();
     setMySet((prev) => {
       const next = new Set(prev);
