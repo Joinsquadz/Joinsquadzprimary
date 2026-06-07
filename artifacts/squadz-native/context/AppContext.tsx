@@ -570,16 +570,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       description: input.description ?? "",
       isPublic: input.isPublic ?? false,
     };
+
+    let res: Response;
     try {
-      const res = await apiFetch("/api/events", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new Error("Failed to create event");
-      const event = await res.json() as Record<string, unknown>;
-      const mapped = dbEventToEvent(event);
-      // Add initial RSVP for the host
-      setEvents((prev) => [{ ...mapped, rsvps: { ...mapped.rsvps, [hostId]: "going" } }, ...prev]);
-      return mapped.id;
+      res = await apiFetch("/api/events", { method: "POST", body: JSON.stringify(body) });
     } catch {
-      // Fallback: local only
+      // True network/offline error — fall back to a local-only event so the
+      // user can still see what they entered while offline.
       const id = `e${Date.now()}`;
       const newEvent: Event = {
         id,
@@ -601,6 +598,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setEvents((prev) => [newEvent, ...prev]);
       return id;
     }
+
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({})) as { error?: string };
+      throw new Error(errBody.error ?? `Server error ${res.status}`);
+    }
+
+    const event = await res.json() as Record<string, unknown>;
+    const mapped = dbEventToEvent(event);
+    setEvents((prev) => [{ ...mapped, rsvps: { ...mapped.rsvps, [hostId]: "going" } }, ...prev]);
+    return mapped.id;
   }, [squads, apiFetch, apiUser]);
 
   const updateEvent = useCallback(

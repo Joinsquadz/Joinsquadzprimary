@@ -58,6 +58,8 @@ export default function CreateEventScreen() {
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [upgradeLoading, setUpgradeLoading] = useState(false);
   const [myEventCount, setMyEventCount] = useState(0);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const atLimit = !isPro && myEventCount >= FREE_EVENT_LIMIT;
 
@@ -98,28 +100,35 @@ export default function CreateEventScreen() {
   };
 
   const handleCreate = async () => {
+    setCreateError(null);
     if (!title.trim()) {
-      Alert.alert("Missing info", "Please add an event title.");
+      setCreateError("Please add an event title.");
       return;
     }
     if (atLimit) {
       setShowUpgradeModal(true);
       return;
     }
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    const id = await addEvent({
-      title: title.trim(), emoji: selectedEmoji,
-      date: date.trim(), location: location.trim(),
-      description: description.trim(), squadId: selectedSquad,
-      isPublic,
-    });
-    fetch(`${API_BASE}/api/events/count`, { headers: authHeaders() })
-      .then(r => r.ok ? r.json() : null)
-      .then((data: { count: number } | null) => { if (data) setMyEventCount(data.count); })
-      .catch(() => {});
-    Alert.alert("Event created!", `${selectedEmoji} ${title} has been created. Your squad will be notified.`, [
-      { text: "View Event", onPress: () => { resetForm(); router.push(`/event/${id}` as never); } },
-    ]);
+    setCreating(true);
+    try {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      const id = await addEvent({
+        title: title.trim(), emoji: selectedEmoji,
+        date: date.trim(), location: location.trim(),
+        description: description.trim(), squadId: selectedSquad,
+        isPublic,
+      });
+      fetch(`${API_BASE}/api/events/count`, { headers: authHeaders() })
+        .then(r => r.ok ? r.json() : null)
+        .then((data: { count: number } | null) => { if (data) setMyEventCount(data.count); })
+        .catch(() => {});
+      resetForm();
+      router.push(`/event/${id}` as never);
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : "Failed to create event. Please try again.");
+    } finally {
+      setCreating(false);
+    }
   };
 
   const openDatePicker = () => {
@@ -200,6 +209,16 @@ export default function CreateEventScreen() {
           </Text>
           <TouchableOpacity onPress={() => setShowUpgradeModal(true)} style={[styles.limitBannerBtn, { borderColor: colors.primary + "60" }]}>
             <Text style={[styles.limitBannerBtnText, { color: colors.primary }]}>Upgrade</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {createError && (
+        <View style={[styles.limitBanner, { backgroundColor: "#FF3B3018", borderBottomColor: "#FF3B3040" }]}>
+          <Ionicons name="alert-circle-outline" size={14} color="#FF3B30" />
+          <Text style={[styles.limitBannerText, { color: "#FF3B30", flex: 1 }]}>{createError}</Text>
+          <TouchableOpacity onPress={() => setCreateError(null)}>
+            <Ionicons name="close" size={16} color="#FF3B30" />
           </TouchableOpacity>
         </View>
       )}
@@ -352,7 +371,7 @@ export default function CreateEventScreen() {
       <View style={[styles.bottomBar, { borderTopColor: colors.border, paddingBottom: botPad + 8, backgroundColor: colors.background }]}>
         <TouchableOpacity
           onPress={handleCreate}
-          disabled={!title.trim()}
+          disabled={!title.trim() || creating}
           activeOpacity={0.9}
           style={styles.createBtnWrap}
         >
@@ -360,11 +379,11 @@ export default function CreateEventScreen() {
             <LinearGradient
               colors={atLimit ? ["#FF5C3A", "#FF8050"] : ["#FF5C3A", "#FF8050"]}
               start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-              style={styles.createBtn}
+              style={[styles.createBtn, creating && { opacity: 0.7 }]}
             >
-              <Ionicons name={atLimit ? "lock-closed" : "add-circle-outline"} size={20} color="#fff" />
+              <Ionicons name={creating ? "hourglass-outline" : atLimit ? "lock-closed" : "add-circle-outline"} size={20} color="#fff" />
               <Text style={[styles.createBtnText, { color: "#fff" }]}>
-                {atLimit ? "Upgrade to Create Event" : "Create Event"}
+                {creating ? "Creating…" : atLimit ? "Upgrade to Create Event" : "Create Event"}
               </Text>
             </LinearGradient>
           ) : (

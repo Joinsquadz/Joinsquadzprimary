@@ -30,12 +30,15 @@ export function installWebAlert() {
     const text = [title, message].filter(Boolean).join("\n\n");
 
     if (!buttons || buttons.length === 0) {
-      window.alert(text);
+      // No actionable buttons — nothing to invoke.
       return;
     }
 
     if (buttons.length === 1) {
-      window.alert(text);
+      // Single-button dialogs are purely informational — just invoke the
+      // handler directly. window.alert() is blocked in cross-origin iframes
+      // (e.g. the Replit canvas preview) so we skip it to avoid the call
+      // silently throwing before onPress can fire.
       buttons[0].onPress?.();
       return;
     }
