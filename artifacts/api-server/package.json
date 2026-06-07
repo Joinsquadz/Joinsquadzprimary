@@ -17,6 +17,7 @@
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "drizzle-orm": "catalog:",
+    "expo-server-sdk": "^6.1.0",
     "express": "^5.2.1",
     "google-auth-library": "^10.7.0",
     "nodemailer": "^8.0.10",

@@ -491,9 +491,16 @@ export class Storage {
     for (const resp of responses) {
       const trimmed = (resp.cells as string[]).filter((c) => validCells.has(c));
       if (trimmed.length !== (resp.cells as string[]).length) {
+        // Only update `cells` — intentionally NOT touching `updatedAt` here.
+        // `updatedAt` must reflect when the *user* last submitted, not when the
+        // server trimmed out-of-grid cells.  The notification logic uses
+        // `updatedAt` to decide who needs a nudge (anyone whose response
+        // pre-dates the range change), so mutating it here would incorrectly
+        // suppress push notifications for members whose old selections happened
+        // to overlap the new grid.
         await db
           .update(availabilityResponsesTable)
-          .set({ cells: trimmed, updatedAt: new Date() })
+          .set({ cells: trimmed })
           .where(
             and(
               eq(availabilityResponsesTable.pollId, pollId),
@@ -928,6 +935,24 @@ export class Storage {
       if (await this.getConversationForMember(row.conversationId, userId)) return true;
     }
     return false;
+  }
+
+  // ---- Push tokens ----
+
+  async savePushToken(userId: string, token: string): Promise<void> {
+    await db
+      .update(usersTable)
+      .set({ pushToken: token })
+      .where(eq(usersTable.id, userId));
+  }
+
+  async getPushTokensForUsers(userIds: string[]): Promise<string[]> {
+    if (userIds.length === 0) return [];
+    const rows = await db
+      .select({ pushToken: usersTable.pushToken })
+      .from(usersTable)
+      .where(inArray(usersTable.id, userIds));
+    return rows.map((r) => r.pushToken).filter((t): t is string => Boolean(t));
   }
 }
 

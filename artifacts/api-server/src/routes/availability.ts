@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireAuth } from "../middleware/currentUser";
 import { storage } from "../storage";
 import { logger } from "../lib/logger";
+import { sendPushNotifications } from "../lib/pushNotifications";
 import type { AvailabilityPoll } from "@workspace/db/schema";
 
 type MemberInfo = {
@@ -303,9 +304,89 @@ router.patch("/availability/polls/:id", requireAuth, async (req: Request, res: R
       res.status(400).json({ error: parsed.error.message });
       return;
     }
+    // Snapshot the current range before updating so we can detect a real change.
+    const prevDays = poll.days as string[];
+    const prevSlots = poll.slots as string[];
+
     const updatedPoll = await storage.updateAvailabilityPoll(poll.id, parsed.data);
     const responses = await storage.getAvailabilityResponses(updatedPoll.id);
     res.json(buildPollPayload(updatedPoll, responses, userId));
+
+    // Only fire push notifications when the date range (days or slots) actually
+    // changed — title-only patches don't require members to re-enter their times.
+    const newDays = updatedPoll.days as string[];
+    const newSlots = updatedPoll.slots as string[];
+    const rangeChanged =
+      newDays.length !== prevDays.length ||
+      newSlots.length !== prevSlots.length ||
+      newDays.some((d, i) => d !== prevDays[i]) ||
+      newSlots.some((s, i) => s !== prevSlots[i]);
+
+    if (!rangeChanged) {
+      // No grid change — nothing for members to act on.
+      return;
+    }
+
+    // Fire-and-forget: push notifications to participants who haven't re-submitted
+    // since the range was updated. We respond first so the host isn't blocked.
+    void (async () => {
+      try {
+        const pollUpdatedAt = updatedPoll.updatedAt ?? new Date();
+
+        // Gather all participant user IDs for this poll scope.
+        const participantIds = new Set<string>();
+        if (poll.squadId) {
+          const squad = await storage.getSquad(poll.squadId);
+          for (const id of ((squad?.memberIds ?? []) as string[])) {
+            participantIds.add(id);
+          }
+        }
+        if (poll.eventId) {
+          const event = await storage.getEvent(poll.eventId);
+          if (event) {
+            participantIds.add(event.hostId);
+            for (const id of Object.keys(event.rsvps ?? {})) {
+              participantIds.add(id);
+            }
+            if (event.squadId) {
+              const squad = await storage.getSquad(event.squadId);
+              for (const id of ((squad?.memberIds ?? []) as string[])) {
+                participantIds.add(id);
+              }
+            }
+          }
+        }
+        // Also include anyone who has responded (they're participants even if not
+        // currently in the squad/event member list).
+        for (const r of responses) participantIds.add(r.userId);
+
+        // Exclude the host who just made the change.
+        participantIds.delete(userId);
+
+        // Exclude members who already re-submitted AFTER this update.
+        const responseMap = new Map(responses.map((r) => [r.userId, r]));
+        const needsNudge = [...participantIds].filter((id) => {
+          const resp = responseMap.get(id);
+          if (!resp) return true; // never responded → nudge
+          return new Date(resp.updatedAt) < pollUpdatedAt; // responded before update → nudge
+        });
+
+        if (needsNudge.length === 0) return;
+
+        const tokens = await storage.getPushTokensForUsers(needsNudge);
+        const scopeData: Record<string, string> = poll.squadId
+          ? { screen: "availability", squadId: poll.squadId }
+          : { screen: "availability", eventId: poll.eventId ?? "" };
+
+        await sendPushNotifications(tokens, {
+          title: "Availability poll updated",
+          body: "The availability poll has been updated — re-enter your times",
+          data: scopeData,
+        });
+      } catch (err) {
+        logger.error({ err }, "Error sending poll-update push notifications");
+      }
+    })();
   } catch (err) {
     logger.error({ err }, "Error updating availability poll");
     res.status(500).json({ error: "Failed to update poll" });

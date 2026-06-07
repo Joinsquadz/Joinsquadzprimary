@@ -13,6 +13,7 @@ import waitlistRouter from "./waitlist";
 import conversationsRouter from "./conversations";
 import discoverRouter from "./discover";
 import streaksRouter from "./streaks";
+import pushTokensRouter from "./pushTokens";
 
 const router: IRouter = Router();
 
@@ -30,5 +31,6 @@ router.use(waitlistRouter);
 router.use(conversationsRouter);
 router.use(discoverRouter);
 router.use(streaksRouter);
+router.use(pushTokensRouter);
 
 export default router;
