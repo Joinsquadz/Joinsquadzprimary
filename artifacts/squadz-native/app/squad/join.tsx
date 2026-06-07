@@ -28,6 +28,7 @@ export default function SquadJoinScreen() {
 
   const [joining, setJoining] = useState(false);
   const [joined, setJoined] = useState(false);
+  const [revoked, setRevoked] = useState(false);
   const [joinedSquad, setJoinedSquad] = useState<Squad | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,7 +49,9 @@ export default function SquadJoinScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
       const result = await joinSquadByCode(code);
-      if (result.error) {
+      if (result.revoked) {
+        setRevoked(true);
+      } else if (result.error) {
         setError(result.error);
       } else {
         setJoined(true);
@@ -89,6 +92,28 @@ export default function SquadJoinScreen() {
             This invite link is missing a code. Ask for a new one.
           </Text>
           <TouchableOpacity onPress={goHome} style={[styles.btn, { backgroundColor: colors.primary, marginTop: 24 }]}>
+            <Text style={[styles.btnText, { color: "#fff" }]}>Go Home</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  if (revoked) {
+    return (
+      <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: topPad }]}>
+        <TouchableOpacity onPress={goHome} style={[styles.backBtn, { top: topPad + 8 }]}>
+          <Ionicons name="chevron-back" size={24} color={colors.foreground} />
+        </TouchableOpacity>
+        <View style={styles.centerWrap}>
+          <View style={[styles.revokedIcon, { backgroundColor: colors.destructive + "15" }]}>
+            <Ionicons name="link-outline" size={40} color={colors.destructive} />
+          </View>
+          <Text style={[styles.errorTitle, { color: colors.foreground }]}>Link Revoked</Text>
+          <Text style={[styles.errorSub, { color: colors.mutedForeground }]}>
+            This invite link is no longer valid — the squad creator may have regenerated it. Ask them for a fresh link.
+          </Text>
+          <TouchableOpacity onPress={goHome} style={[styles.btn, { backgroundColor: colors.primary, marginTop: 28 }]}>
             <Text style={[styles.btnText, { color: "#fff" }]}>Go Home</Text>
           </TouchableOpacity>
         </View>
@@ -249,6 +274,14 @@ const styles = StyleSheet.create({
     width: 100,
     height: 100,
     borderRadius: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 20,
+  },
+  revokedIcon: {
+    width: 88,
+    height: 88,
+    borderRadius: 28,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 20,

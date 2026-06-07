@@ -126,7 +126,7 @@ type AppContextType = {
   regenerateInviteCode: (squadId: string) => Promise<{ error?: string }>;
   leaveSquad: (id: string) => void;
   joinSquad: (squadId: string) => Promise<{ error?: string }>;
-  joinSquadByCode: (code: string) => Promise<{ error?: string; squad?: Squad; alreadyMember?: boolean }>;
+  joinSquadByCode: (code: string) => Promise<{ error?: string; revoked?: boolean; squad?: Squad; alreadyMember?: boolean }>;
   addMemberByFriendCode: (squadId: string, friendCode: string) => Promise<{ error?: string; user?: FoundUser }>;
   removeMember: (squadId: string, userId: string) => Promise<{ error?: string }>;
 
@@ -932,7 +932,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   const joinSquadByCode = useCallback(
-    async (code: string): Promise<{ error?: string; squad?: Squad; alreadyMember?: boolean }> => {
+    async (code: string): Promise<{ error?: string; revoked?: boolean; squad?: Squad; alreadyMember?: boolean }> => {
       try {
         const res = await apiFetch("/api/squads/join-via-code", {
           method: "POST",
@@ -943,7 +943,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           alreadyMember?: boolean;
           error?: string;
         };
-        if (!res.ok) return { error: data.error ?? "Something went wrong. Please try again." };
+        if (!res.ok) {
+          if (res.status === 404) return { error: data.error ?? "This invite link has been revoked.", revoked: true };
+          return { error: data.error ?? "Something went wrong. Please try again." };
+        }
         const mapped = data.squad ? dbSquadToSquad(data.squad) : undefined;
         if (mapped) {
           setSquads((prev) => {
