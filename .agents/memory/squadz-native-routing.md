@@ -26,6 +26,6 @@ Root Stack screens (`/squad/create`, `/vault`, `/availability`, `/friends`) are 
 fine for those. Verify auth'd flows with the testing skill (signup → onboarding → Home); the
 AuthGuard redirects unauthenticated sessions to /login so plain screenshots can't reach these screens.
 
-**Latent (not yet fixed):** `app/(tabs)/_layout.tsx` `NativeTabLayout` (iOS 26+ liquid glass) never
-registers create/events/photos triggers at all, so on that path they may be unreachable regardless.
-Web/Android/older-iOS use `ClassicTabLayout` which does register them.
+**iOS 26 native path:** `app/(tabs)/_layout.tsx` `NativeTabLayout` (liquid glass) registers
+create/events/photos as `<NativeTabs.Trigger name="..." hidden />` so they're navigable there too.
+Web/Android/older-iOS use `ClassicTabLayout`. Keep both layouts' hidden destinations in sync.

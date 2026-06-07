@@ -21,9 +21,10 @@ import { useColors } from "@/hooks/useColors";
 import { useData, useAuth } from "@/context/AppContext";
 import { startProCheckout } from "@/lib/checkout";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
+import { TAB_BAR_HEIGHT } from "@/constants/layout";
 
 const EMOJIS = ["🔥", "🎉", "🎮", "🏖️", "🍕", "🎸", "⚽", "🎬", "🍻", "🎊"];
-const TAB_BAR_H = Platform.select({ ios: 49, android: 56, default: 49 }) ?? 49;
+const TAB_BAR_H = TAB_BAR_HEIGHT;
 const FREE_EVENT_LIMIT = 3;
 
 function formatPickedDate(d: Date): string {

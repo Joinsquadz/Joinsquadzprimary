@@ -9,6 +9,7 @@ import { Platform, StyleSheet, View, useColorScheme } from "react-native";
 
 import { useColors } from "@/hooks/useColors";
 import { useMessages } from "@/context/MessagesContext";
+import { TAB_BAR_HEIGHT } from "@/constants/layout";
 
 function NativeTabLayout() {
   const { unreadCount } = useMessages();
@@ -63,7 +64,7 @@ function ClassicTabLayout() {
           borderTopWidth: isWeb ? 1 : 0,
           borderTopColor: colors.border,
           elevation: 0,
-          ...(isWeb ? { height: 84 } : {}),
+          ...(isWeb ? { height: TAB_BAR_HEIGHT } : {}),
         },
         tabBarBackground: () =>
           isIOS ? (

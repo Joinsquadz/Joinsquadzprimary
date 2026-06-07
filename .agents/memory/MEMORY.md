@@ -15,4 +15,6 @@
 - [squadz-native vitest setup](squadz-native-vitest.md) — mobile lib unit tests: vitest.config aliases "@" to package root; mock react-native + @/lib/api via vi.hoisted so no native/expo loads under node.
 - [Stripe sync backfill](stripe-sync-backfill.md) — stripe-replit-sync syncBackfill() MUST be called with {object:"all"}; no-arg call silently syncs zero rows, leaving stripe.products empty.
 - [Squad conversation membership](squad-conversation-membership.md) — squad participant rows are append-only/never pruned; every squad-convo access/list/count must re-check CURRENT membership, not trust the row.
-- [squadz-native routing](squadz-native-routing.md) — push hidden tab screens via explicit "/(tabs)/create" etc; bare "/create" silently lands on Home (group default), not the screen.
+- [Drizzle push TTY drift](drizzle-push-tty-drift.md) — non-TTY `drizzle-kit push` aborts on unique-constraint prompts → missing tables → list endpoints 500 → looks like "data deleted"; fix via raw SQL + convert unique INDEX to CONSTRAINT until push runs clean.
+- [Web tab bar overlay](squadz-web-tabbar-overlay.md) — squadz-native web tab bar is absolute+84px and overlays screens; fixed bottom buttons need TAB_BAR_HEIGHT padding (single-sourced in constants/layout.ts) or they're unclickable on web.
+- [squadz-native routing](squadz-native-routing.md) — navigate to hidden tabs (create/events/photos) with router.navigate, NOT router.push (push no-ops → stays on Home); path FORM is irrelevant.
