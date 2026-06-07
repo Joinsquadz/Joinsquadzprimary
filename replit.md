@@ -22,23 +22,30 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/squadz-native` — the Squadz **mobile app** (Expo). This is the actual product; build all new user features here.
+- `artifacts/squadz` — the **web marketing landing page** only (not an app). Entry: `src/pages/Landing.tsx`; brand tokens/font in `src/lib/data.ts` (`T`, `font`), logo in `src/components/SquadzIcon.tsx`.
+- `artifacts/api-server` — Express API. Routes in `src/routes/*` registered via `src/routes/index.ts`; persistence helpers in `src/storage.ts`.
+- `lib/db/src/schema/*` — Drizzle table definitions (source of truth for DB schema), re-exported from `schema/index.ts`.
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- **Mobile is the product; web is marketing.** The web app is a single informational landing page with a real waitlist + app-store "coming soon" CTAs. Every web route renders `Landing` (no in-app web screens, no auth guard).
+- **App feature routes are NOT in the OpenAPI spec.** They use inline Zod validation on the server + plain `fetch` on the client (no Orval codegen). The waitlist endpoints follow this convention. Only add to `openapi.yaml` for contracts that genuinely need generated hooks/schemas.
+- **Waitlist is idempotent.** `addToWaitlist` uses `onConflictDoNothing` on the unique `email`, so re-submits return `{ok:true}` without duplicating rows.
+- **Waitlist count is real, never inflated.** The landing page shows the true `/api/waitlist/count`, and falls back to a non-numeric label below a small threshold rather than fabricating social proof.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+Squadz is a mobile app for friend groups: create squads, find the time everyone is free (overlap heatmap → best time), plan events with RSVPs, group chat tied to the plan, a shared photo vault, and cost splitting. The web presence is a marketing landing page that drives waitlist signups ahead of the iOS/Android launch.
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- Mobile app is the ONLY product. Build new features mobile-only. The web app must stay an informational marketing landing page (no in-app web screens).
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- Verify web changes with `pnpm --filter @workspace/squadz run typecheck` (NOT `build`, which needs workflow-provided `PORT`/`BASE_PATH`).
+- After changing `lib/db` schema, run `pnpm --filter @workspace/db run push` and restart the api-server workflow.
 
 ## Pointers
 

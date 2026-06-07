@@ -5,6 +5,7 @@ import {
   squadsTable,
   availabilityPollsTable,
   availabilityResponsesTable,
+  waitlistTable,
   type Photo,
   type AvailabilityPoll,
   type AvailabilityResponse,
@@ -457,6 +458,20 @@ export class Storage {
       }
     }
     return false;
+  }
+
+  // Add an email to the marketing waitlist. Idempotent: re-submitting the same
+  // email is a no-op rather than an error.
+  async addToWaitlist(email: string, source: string): Promise<void> {
+    await db
+      .insert(waitlistTable)
+      .values({ email, source })
+      .onConflictDoNothing({ target: waitlistTable.email });
+  }
+
+  async getWaitlistCount(): Promise<number> {
+    const [row] = await db.select({ value: count() }).from(waitlistTable);
+    return row?.value ?? 0;
   }
 }
 
