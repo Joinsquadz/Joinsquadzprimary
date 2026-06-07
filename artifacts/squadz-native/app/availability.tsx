@@ -137,6 +137,7 @@ export default function AvailabilityScreen() {
   // availability range (start date + number of days) before it's created.
   const [needsSetup, setNeedsSetup] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [pollTitle, setPollTitle] = useState("");
   const [rangeStart, setRangeStart] = useState<Date>(new Date());
   const [rangeDays, setRangeDays] = useState<number>(DEFAULT_DAY_COUNT);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -175,8 +176,9 @@ export default function AvailabilityScreen() {
   const [isInQuietWindow, setIsInQuietWindow] = useState(false);
   const quietWindowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Edit range state: host-only modal to update an existing poll's date range.
+  // Edit range state: host-only modal to update an existing poll's date range and title.
   const [editRangeOpen, setEditRangeOpen] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
   const [editStart, setEditStart] = useState<Date>(new Date());
   const [editDays, setEditDays] = useState<number>(DEFAULT_DAY_COUNT);
   const [editPickerOpen, setEditPickerOpen] = useState(false);
@@ -245,10 +247,12 @@ export default function AvailabilityScreen() {
     setError(null);
     try {
       const days = computeRange(rangeStart, rangeDays);
+      const body: Record<string, unknown> = { ...(squadId ? { squadId } : { eventId }), days };
+      if (pollTitle.trim()) body.title = pollTitle.trim();
       const res = await fetch(`${API_BASE}/api/availability/polls`, {
         method: "POST",
         headers: authHeaders(),
-        body: JSON.stringify({ ...(squadId ? { squadId } : { eventId }), days }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
@@ -266,7 +270,7 @@ export default function AvailabilityScreen() {
     } finally {
       setCreating(false);
     }
-  }, [authHeaders, squadId, eventId, rangeStart, rangeDays]);
+  }, [authHeaders, squadId, eventId, pollTitle, rangeStart, rangeDays]);
 
   // Silently re-fetches the poll and updates the heatmap + best-time card.
   // The user's own unsaved picks (mySet) are only synced when there are no
@@ -326,11 +330,12 @@ export default function AvailabilityScreen() {
 
   const openEditRange = useCallback(() => {
     if (!data) return;
-    // Pre-populate with the poll's current range so the host sees what's set.
+    // Pre-populate with the poll's current range and title so the host sees what's set.
     const firstDay = data.poll.days[0];
     const d = parseISODate(firstDay);
     setEditStart(d ?? new Date());
     setEditDays(data.poll.days.length);
+    setEditTitle(data.poll.title ?? "");
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setEditRangeOpen(true);
   }, [data]);
@@ -340,10 +345,12 @@ export default function AvailabilityScreen() {
     setUpdating(true);
     try {
       const days = computeRange(editStart, editDays);
+      const patchBody: Record<string, unknown> = { days };
+      patchBody.title = editTitle.trim();
       const res = await fetch(`${API_BASE}/api/availability/polls/${data.poll.id}`, {
         method: "PATCH",
         headers: authHeaders(),
-        body: JSON.stringify({ days }),
+        body: JSON.stringify(patchBody),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
@@ -361,7 +368,7 @@ export default function AvailabilityScreen() {
     } finally {
       setUpdating(false);
     }
-  }, [data, authHeaders, editStart, editDays]);
+  }, [data, authHeaders, editTitle, editStart, editDays]);
 
   useEffect(() => {
     if (!squadId && !eventId) {
@@ -557,7 +564,9 @@ export default function AvailabilityScreen() {
         >
           <Ionicons name="chevron-back" size={24} color={colors.foreground} />
         </TouchableOpacity>
-        <Text style={[styles.title, { color: colors.foreground }]}>Find the Best Time</Text>
+        <Text style={[styles.title, { color: colors.foreground }]}>
+          {(data?.poll.title) || "Find the Best Time"}
+        </Text>
         {isCreator && (
           <TouchableOpacity onPress={openEditRange} style={styles.editRangeBtn}>
             <Ionicons name="calendar-outline" size={20} color={colors.primary} />
@@ -587,6 +596,19 @@ export default function AvailabilityScreen() {
             <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
               Pick the dates everyone should mark their availability for. You can plan for this week or further out.
             </Text>
+
+            <Text style={[styles.setupLabel, { color: colors.mutedForeground }]}>Poll title (optional)</Text>
+            <View style={[styles.dateBtn, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Ionicons name="text-outline" size={18} color={colors.mutedForeground} />
+              <TextInput
+                value={pollTitle}
+                onChangeText={setPollTitle}
+                placeholder="e.g. Summer trip dates"
+                placeholderTextColor={colors.textDim}
+                maxLength={120}
+                style={[styles.dateBtnText, { color: colors.foreground }]}
+              />
+            </View>
 
             <Text style={[styles.setupLabel, { color: colors.mutedForeground }]}>Start date</Text>
             {Platform.OS === "web" ? (
@@ -847,6 +869,19 @@ export default function AvailabilityScreen() {
             </View>
 
             <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 20 }}>
+              <Text style={[styles.setupLabel, { color: colors.mutedForeground }]}>Poll title (optional)</Text>
+              <View style={[styles.dateBtn, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <Ionicons name="text-outline" size={18} color={colors.mutedForeground} />
+                <TextInput
+                  value={editTitle}
+                  onChangeText={setEditTitle}
+                  placeholder="e.g. Summer trip dates"
+                  placeholderTextColor={colors.textDim}
+                  maxLength={120}
+                  style={[styles.dateBtnText, { color: colors.foreground }]}
+                />
+              </View>
+
               <Text style={[styles.setupLabel, { color: colors.mutedForeground }]}>Start date</Text>
               {Platform.OS === "web" ? (
                 <View style={[styles.dateBtn, { backgroundColor: colors.card, borderColor: colors.primary }]}>

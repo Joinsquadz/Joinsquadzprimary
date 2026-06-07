@@ -38,11 +38,12 @@ const UpsertResponseBody = z.object({
 
 const UpdatePollBody = z
   .object({
+    title: z.string().max(120).optional(),
     days: z.array(z.string().max(20)).min(1).max(14).optional(),
     slots: z.array(z.string().max(20)).min(1).max(48).optional(),
   })
-  .refine((d) => d.days || d.slots, {
-    message: "At least one of days or slots must be provided",
+  .refine((d) => d.title !== undefined || d.days || d.slots, {
+    message: "At least one of title, days, or slots must be provided",
   });
 
 type AggregatedCell = { cell: string; count: number };
