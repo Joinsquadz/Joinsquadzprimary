@@ -20,6 +20,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { useColors } from "@/hooks/useColors";
+import { useInteractionGuard } from "@/hooks/useInteractionGuard";
 import { useAuth } from "@/context/AppContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
@@ -160,21 +161,23 @@ export default function AvailabilityScreen() {
   const hasPollRef = useRef(false);
   useEffect(() => { hasPollRef.current = data !== null; }, [data]);
 
-  // Tracks the last time the user tapped a cell so background refreshes can
-  // be skipped during rapid selection (avoids mid-tap redraws).
-  const lastInteractionRef = useRef<number>(0);
+  // Shared guard — any modal/sheet calls hold() when it opens and release()
+  // when it closes; cell taps call stamp().  refreshInBackground uses
+  // isActive() to skip fetches while the user is interacting.
+  const { stamp: stampInteraction, hold: holdInteraction, release: releaseInteraction, isActive: interactionActive } =
+    useInteractionGuard();
 
   // While the iOS date-picker sheet is open the user may spin the spinner for
-  // many seconds — far longer than INTERACTION_QUIET_MS.  Continuously
-  // re-stamp lastInteractionRef every second so the background-refresh guard
-  // holds for the full duration the sheet is visible.  The interval is cleared
-  // as soon as pickerOpen becomes false (Done / Cancel), at which point the
-  // normal 4 s quiet window counts down from that final stamp.
+  // many seconds — far longer than INTERACTION_QUIET_MS.  Delegate to the
+  // shared guard so the quiet window holds for the full duration the sheet is
+  // visible and releases naturally when the sheet closes.
   useEffect(() => {
-    if (!pickerOpen) return;
-    const id = setInterval(() => { lastInteractionRef.current = Date.now(); }, 1_000);
-    return () => clearInterval(id);
-  }, [pickerOpen]);
+    if (pickerOpen) {
+      holdInteraction();
+    } else {
+      releaseInteraction();
+    }
+  }, [pickerOpen, holdInteraction, releaseInteraction]);
 
   // Live indicator: timestamp of last successful background refresh.
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
@@ -288,7 +291,7 @@ export default function AvailabilityScreen() {
   const INTERACTION_QUIET_MS = 4_000;
   const refreshInBackground = useCallback(async () => {
     if (!hasPollRef.current) return;
-    if (Date.now() - lastInteractionRef.current < INTERACTION_QUIET_MS) return;
+    if (interactionActive(INTERACTION_QUIET_MS)) return;
     try {
       const qs = new URLSearchParams(squadId ? { squadId } : { eventId: eventId ?? "" });
       const res = await fetch(`${API_BASE}/api/availability/polls/find?${qs.toString()}`, {
@@ -394,7 +397,7 @@ export default function AvailabilityScreen() {
   }, [data]);
 
   const toggleCell = (cell: string) => {
-    lastInteractionRef.current = Date.now();
+    stampInteraction();
     // Suppress the live badge while the user is actively tapping cells.
     setIsInQuietWindow(true);
     if (quietWindowTimerRef.current) clearTimeout(quietWindowTimerRef.current);
@@ -513,7 +516,7 @@ export default function AvailabilityScreen() {
   };
 
   const openRangePicker = () => {
-    lastInteractionRef.current = Date.now();
+    stampInteraction();
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setPickerDate(rangeStart);
     setPickerOpen(true);
@@ -652,7 +655,7 @@ export default function AvailabilityScreen() {
                   <TouchableOpacity
                     key={n}
                     onPress={() => {
-                      lastInteractionRef.current = Date.now();
+                      stampInteraction();
                       Haptics.selectionAsync();
                       setRangeDays(n);
                     }}
