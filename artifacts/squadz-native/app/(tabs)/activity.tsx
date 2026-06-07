@@ -95,9 +95,7 @@ export default function ActivityScreen() {
                 <TouchableOpacity
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    if (r.eventId) {
-                      router.push(`/event/${r.eventId}` as never);
-                    } else {
+                    if (r.action === "Approve" || r.action === "Review") {
                       Alert.alert("Join Request", "Alex Chen wants to join The Usual Suspects.", [
                         {
                           text: "Decline",
@@ -117,6 +115,8 @@ export default function ActivityScreen() {
                           },
                         },
                       ]);
+                    } else {
+                      dismissReminder(r.id);
                     }
                   }}
                   style={[styles.reminderAction, { backgroundColor: r.color + "20", borderColor: r.color + "40" }]}

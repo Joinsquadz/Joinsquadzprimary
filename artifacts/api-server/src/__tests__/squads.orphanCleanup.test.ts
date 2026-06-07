@@ -35,9 +35,6 @@ vi.mock("@workspace/db", () => ({
     delete: (table: unknown) => ({
       where: () => {
         if (table === squadMutesRef) {
-          // Simulate the DB delete: remove all mutes rows (the route's WHERE
-          // clause targets the entire squadId, so draining the store matches
-          // the real behaviour for a single-squad delete).
           mutesStore.rows = [];
         }
         return Promise.resolve();
@@ -48,6 +45,23 @@ vi.mock("@workspace/db", () => ({
         returning: () => Promise.resolve([]),
       }),
     }),
+    transaction: async (cb: (tx: {
+      delete: (table: unknown) => { where: () => Promise<void> };
+    }) => Promise<void>) => {
+      const tx = {
+        delete: (table: unknown) => ({
+          where: () => {
+            if (table === squadMutesRef) {
+              // Simulate the DB delete inside the transaction: drain mutes rows
+              // for the deleted squad, matching real behaviour.
+              mutesStore.rows = [];
+            }
+            return Promise.resolve();
+          },
+        }),
+      };
+      await cb(tx);
+    },
   },
   squadsTable: {
     id: "id",
