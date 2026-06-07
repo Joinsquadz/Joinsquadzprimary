@@ -73,11 +73,12 @@ export default function OnboardingScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { login } = useAuth();
-  const { friendCode } = useData();
+  const { friendCode, currentUser } = useData();
   const params = useLocalSearchParams<{ inviteEventId?: string; inviteTitle?: string }>();
 
-  const [step, setStep] = useState(0);
-  const [name, setName] = useState("");
+  const hasRealName = currentUser.id !== "me";
+  const [step, setStep] = useState(hasRealName ? 1 : 0);
+  const [name, setName] = useState(hasRealName ? currentUser.name.split(" ")[0] : "");
   const [avatar, setAvatar] = useState<string | null>(null);
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [interests, setInterests] = useState<Set<string>>(new Set());
@@ -180,7 +181,7 @@ export default function OnboardingScreen() {
         <TouchableOpacity
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            step > 0 ? setStep(step - 1) : router.back();
+            step > (hasRealName ? 1 : 0) ? setStep(step - 1) : router.back();
           }}
           style={[styles.backBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
         >
