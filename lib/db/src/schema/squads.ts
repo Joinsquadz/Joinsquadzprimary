@@ -10,6 +10,7 @@ export const squadsTable = pgTable("squads", {
   color: text("color").notNull().default("#FF5C3A"),
   memberIds: jsonb("member_ids").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   isPublic: boolean("is_public").notNull().default(false),
+  creatorId: text("creator_id").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 

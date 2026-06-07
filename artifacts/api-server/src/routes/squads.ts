@@ -57,7 +57,7 @@ router.post("/squads", requireAuth, async (req: Request, res: Response): Promise
   }
   const userId = (req.user as { id: string }).id;
   const memberIds = Array.from(new Set([userId, ...parsed.data.memberIds]));
-  const [squad] = await db.insert(squadsTable).values({ ...parsed.data, memberIds }).returning();
+  const [squad] = await db.insert(squadsTable).values({ ...parsed.data, memberIds, creatorId: userId }).returning();
   res.status(201).json(squad);
 
   // Fire-and-forget: notify added members (not the creator) that they're in a new squad.
@@ -243,19 +243,19 @@ const AddMemberBody = z.object({
 
 router.post("/squads/:id/members", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const id = parseId(req.params.id);
-  const userId = (req.user as { id: string }).id;
+  const requesterId = (req.user as { id: string }).id;
   const parsed = AddMemberBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "friendCode is required." });
     return;
   }
-  const { squad, isMember } = await getSquadIfMember(id, userId);
+  const [squad] = await db.select().from(squadsTable).where(eq(squadsTable.id, id));
   if (!squad) {
     res.status(404).json({ error: "Squad not found" });
     return;
   }
-  if (!isMember) {
-    res.status(403).json({ error: "Access denied" });
+  if (squad.creatorId !== requesterId) {
+    res.status(403).json({ error: "Only the squad creator can add members" });
     return;
   }
   const code = parsed.data.friendCode.toUpperCase().trim();
@@ -282,7 +282,7 @@ router.post("/squads/:id/members", requireAuth, async (req: Request, res: Respon
   // Fire-and-forget: notify the newly added user that they were added to this squad.
   (async () => {
     try {
-      const adder = await storage.getUser(userId);
+      const adder = await storage.getUser(requesterId);
       const adderName = adder?.firstName
         ? adder.lastName
           ? `${adder.firstName} ${adder.lastName}`
@@ -307,39 +307,35 @@ router.post("/squads/:id/members", requireAuth, async (req: Request, res: Respon
 router.delete("/squads/:id/members/:userId", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const id = parseId(req.params.id);
   const targetUserId = parseId(req.params.userId);
-  const actorId = (req.user as { id: string }).id;
-
+  const requesterId = (req.user as { id: string }).id;
   const [squad] = await db.select().from(squadsTable).where(eq(squadsTable.id, id));
   if (!squad) {
     res.status(404).json({ error: "Squad not found" });
     return;
   }
-
   const memberIds = (squad.memberIds ?? []) as string[];
-  const creatorId = memberIds[0] ?? null;
-
-  const isCreator = actorId === creatorId;
-  const isSelf = actorId === targetUserId;
-
+  if (!memberIds.includes(requesterId)) {
+    res.status(403).json({ error: "Access denied" });
+    return;
+  }
+  const isCreator = squad.creatorId === requesterId;
+  const isSelf = requesterId === targetUserId;
   if (!isCreator && !isSelf) {
     res.status(403).json({ error: "Only the squad creator or the member themselves can remove a member." });
     return;
   }
-
   if (!memberIds.includes(targetUserId)) {
     res.status(404).json({ error: "User is not in this squad." });
     return;
   }
-
-  if (isCreator && targetUserId === creatorId) {
+  if (isCreator && targetUserId === squad.creatorId && !isSelf) {
     res.status(400).json({ error: "The creator cannot be removed. Transfer ownership or delete the squad instead." });
     return;
   }
-
-  const updated = memberIds.filter((mid) => mid !== targetUserId);
+  const updatedMemberIds = memberIds.filter((uid) => uid !== targetUserId);
   const [updatedSquad] = await db
     .update(squadsTable)
-    .set({ memberIds: updated })
+    .set({ memberIds: updatedMemberIds })
     .where(eq(squadsTable.id, id))
     .returning();
   res.json(updatedSquad);
