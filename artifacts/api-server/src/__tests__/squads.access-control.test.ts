@@ -32,6 +32,22 @@ vi.mock("@workspace/db", () => ({
     id: "id",
     memberIds: "member_ids",
     createdAt: "created_at",
+    inviteCode: "invite_code",
+  },
+  usersTable: {
+    id: "id",
+    firstName: "first_name",
+    lastName: "last_name",
+    profileImageUrl: "profile_image_url",
+  },
+  squadMutesTable: {
+    userId: "user_id",
+    squadId: "squad_id",
+  },
+  squadRemovalNoticesTable: {
+    id: "id",
+    userId: "user_id",
+    squadId: "squad_id",
   },
 }));
 

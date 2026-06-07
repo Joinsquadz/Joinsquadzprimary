@@ -8,6 +8,8 @@ import {
   Platform,
   ActivityIndicator,
   TouchableOpacity,
+  Modal,
+  FlatList,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -32,6 +34,12 @@ type MutedSquad = {
   emoji: string;
 };
 
+type Squad = {
+  id: string;
+  name: string;
+  emoji: string;
+};
+
 const ROWS: { key: keyof Prefs; icon: keyof typeof Ionicons.glyphMap; label: string; sub: string }[] = [
   { key: "notifyEventInvites", icon: "mail-outline", label: "Event Invites", sub: "When you're invited to an event" },
   { key: "notifyReminders", icon: "alarm-outline", label: "Event Reminders", sub: "Before events you're going to" },
@@ -50,6 +58,11 @@ export default function NotificationsScreen() {
   const [loading, setLoading] = useState(true);
   const [mutedSquads, setMutedSquads] = useState<MutedSquad[]>([]);
   const [unmutingId, setUnmutingId] = useState<string | null>(null);
+
+  const [mutePickerVisible, setMutePickerVisible] = useState(false);
+  const [allSquads, setAllSquads] = useState<Squad[]>([]);
+  const [loadingSquads, setLoadingSquads] = useState(false);
+  const [mutingId, setMutingId] = useState<string | null>(null);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
 
@@ -126,6 +139,45 @@ export default function NotificationsScreen() {
     }
   }
 
+  async function openMutePicker() {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setMutePickerVisible(true);
+    setLoadingSquads(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/squads`, { headers: authHeaders() });
+      if (res.ok) {
+        const data = await res.json() as Squad[];
+        setAllSquads(data);
+      }
+    } catch {
+      // leave empty on error
+    } finally {
+      setLoadingSquads(false);
+    }
+  }
+
+  async function muteSquad(squad: Squad) {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setMutingId(squad.id);
+    try {
+      const res = await fetch(`${API_BASE}/api/squads/${squad.id}/mute`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ muted: true }),
+      });
+      if (res.ok) {
+        setMutedSquads((prev) => [...prev, { id: squad.id, name: squad.name, emoji: squad.emoji }]);
+        setMutePickerVisible(false);
+      }
+    } catch {
+      // leave list unchanged on error
+    } finally {
+      setMutingId(null);
+    }
+  }
+
+  const unmutedSquads = allSquads.filter((s) => !mutedSquads.some((m) => m.id === s.id));
+
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: topPad + 12, borderBottomColor: colors.border }]}>
@@ -179,18 +231,16 @@ export default function NotificationsScreen() {
           </View>
 
           <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>MUTED SQUADS</Text>
-          {mutedSquads.length === 0 ? (
-            <View style={[styles.group, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={[styles.group, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            {mutedSquads.length === 0 ? (
               <View style={[styles.row, { justifyContent: "center" }]}>
                 <Text style={[styles.rowSub, { color: colors.mutedForeground }]}>No squads muted</Text>
               </View>
-            </View>
-          ) : (
-            <View style={[styles.group, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              {mutedSquads.map((squad, i) => (
+            ) : (
+              mutedSquads.map((squad, i) => (
                 <View
                   key={squad.id}
-                  style={[styles.row, i < mutedSquads.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }]}
+                  style={[styles.row, { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }]}
                 >
                   <View style={[styles.iconWrap, { backgroundColor: colors.muted }]}>
                     <Text style={{ fontSize: 18 }}>{squad.emoji}</Text>
@@ -201,20 +251,87 @@ export default function NotificationsScreen() {
                   <TouchableOpacity
                     onPress={() => void unmuteSquad(squad.id)}
                     disabled={unmutingId === squad.id}
-                    style={[styles.unmuteBtn, { borderColor: colors.primary }]}
+                    style={[styles.actionBtn, { borderColor: colors.primary }]}
                   >
                     {unmutingId === squad.id ? (
                       <ActivityIndicator size="small" color={colors.primary} />
                     ) : (
-                      <Text style={[styles.unmuteBtnText, { color: colors.primary }]}>Unmute</Text>
+                      <Text style={[styles.actionBtnText, { color: colors.primary }]}>Unmute</Text>
                     )}
                   </TouchableOpacity>
                 </View>
-              ))}
-            </View>
-          )}
+              ))
+            )}
+            <TouchableOpacity
+              onPress={() => void openMutePicker()}
+              style={[styles.row, styles.addMuteRow]}
+            >
+              <View style={[styles.iconWrap, { backgroundColor: colors.primary + "18" }]}>
+                <Ionicons name="volume-mute-outline" size={18} color={colors.primary} />
+              </View>
+              <Text style={[styles.rowLabel, { flex: 1, color: colors.primary }]}>Mute a squad…</Text>
+              <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+            </TouchableOpacity>
+          </View>
         </ScrollView>
       )}
+
+      <Modal
+        visible={mutePickerVisible}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setMutePickerVisible(false)}
+      >
+        <View style={[styles.modalContainer, { backgroundColor: colors.background }]}>
+          <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+            <View style={{ width: 60 }} />
+            <Text style={[styles.modalTitle, { color: colors.foreground }]}>Mute a Squad</Text>
+            <TouchableOpacity
+              onPress={() => setMutePickerVisible(false)}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              style={{ width: 60, alignItems: "flex-end" }}
+            >
+              <Text style={[styles.modalCancel, { color: colors.primary }]}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+
+          {loadingSquads ? (
+            <View style={styles.center}><ActivityIndicator color={colors.primary} /></View>
+          ) : unmutedSquads.length === 0 ? (
+            <View style={styles.center}>
+              <Text style={[styles.rowSub, { color: colors.mutedForeground }]}>All your squads are already muted.</Text>
+            </View>
+          ) : (
+            <FlatList
+              data={unmutedSquads}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 20 }}
+              ItemSeparatorComponent={() => <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.border }} />}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  onPress={() => void muteSquad(item)}
+                  disabled={mutingId === item.id}
+                  style={[styles.row, { backgroundColor: colors.card }]}
+                >
+                  <View style={[styles.iconWrap, { backgroundColor: colors.muted }]}>
+                    <Text style={{ fontSize: 18 }}>{item.emoji}</Text>
+                  </View>
+                  <Text style={[styles.rowLabel, { flex: 1, color: colors.foreground }]} numberOfLines={1}>
+                    {item.name}
+                  </Text>
+                  {mutingId === item.id ? (
+                    <ActivityIndicator size="small" color={colors.primary} />
+                  ) : (
+                    <View style={[styles.actionBtn, { borderColor: colors.border, backgroundColor: colors.muted }]}>
+                      <Text style={[styles.actionBtnText, { color: colors.foreground }]}>Mute</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              )}
+            />
+          )}
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -228,9 +345,14 @@ const styles = StyleSheet.create({
   sectionLabel: { fontSize: 12, fontWeight: "600", letterSpacing: 0.5, marginTop: 28, marginBottom: 8, marginLeft: 4 },
   group: { borderWidth: 1, borderRadius: 16, overflow: "hidden" },
   row: { flexDirection: "row", alignItems: "center", gap: 14, padding: 14 },
+  addMuteRow: { borderTopWidth: StyleSheet.hairlineWidth },
   iconWrap: { width: 36, height: 36, borderRadius: 11, alignItems: "center", justifyContent: "center" },
   rowLabel: { fontSize: 15, fontWeight: "600" },
   rowSub: { fontSize: 12, marginTop: 2 },
-  unmuteBtn: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, borderWidth: 1, minWidth: 72, alignItems: "center" },
-  unmuteBtnText: { fontSize: 13, fontWeight: "600" },
+  actionBtn: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, borderWidth: 1, minWidth: 72, alignItems: "center" },
+  actionBtnText: { fontSize: 13, fontWeight: "600" },
+  modalContainer: { flex: 1 },
+  modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 16, borderBottomWidth: StyleSheet.hairlineWidth },
+  modalTitle: { fontSize: 17, fontWeight: "700" },
+  modalCancel: { fontSize: 15, fontWeight: "500" },
 });
