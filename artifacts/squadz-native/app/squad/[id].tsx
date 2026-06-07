@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useFocusEffect } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
@@ -13,6 +13,7 @@ import {
   Share,
   Alert,
   ActivityIndicator,
+  Animated,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -59,6 +60,9 @@ export default function SquadDetailScreen() {
   const [lookupError, setLookupError] = useState<string | null>(null);
   const [foundUser, setFoundUser] = useState<FoundUser | null>(null);
   const [addLoading, setAddLoading] = useState(false);
+
+  const [showLongPressHint, setShowLongPressHint] = useState(false);
+  const hintOpacity = useRef(new Animated.Value(0)).current;
 
   const resetAddMemberModal = () => {
     setFriendCodeInput("");
@@ -137,6 +141,28 @@ export default function SquadDetailScreen() {
       return () => { active = false; };
     }, [id, authHeaders, currentUser.id])
   );
+
+  useEffect(() => {
+    if (!id) return;
+    const squadData = getSquad(id);
+    if (!squadData) return;
+    const creatorUserId = squadData.memberIds[0] ?? null;
+    if (currentUser.id !== creatorUserId) return;
+    const hintKey = `hint_member_longpress_seen_${currentUser.id}`;
+    AsyncStorage.getItem(hintKey).then((val) => {
+      if (val) return;
+      setShowLongPressHint(true);
+      Animated.sequence([
+        Animated.timing(hintOpacity, { toValue: 1, duration: 300, useNativeDriver: true }),
+        Animated.delay(2500),
+        Animated.timing(hintOpacity, { toValue: 0, duration: 400, useNativeDriver: true }),
+      ]).start(() => {
+        setShowLongPressHint(false);
+        AsyncStorage.setItem(hintKey, "1").catch(() => {});
+      });
+    }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, currentUser.id]);
 
   async function handleOpenChat(squadId: string) {
     if (openingChat) return;
@@ -294,6 +320,12 @@ export default function SquadDetailScreen() {
 
         {/* Members */}
         <Text style={[styles.sectionTitle, { color: colors.foreground, marginTop: 24 }]}>Members</Text>
+        {showLongPressHint && (
+          <Animated.View style={[styles.longPressHint, { backgroundColor: colors.primary + "18", borderColor: colors.primary + "35", opacity: hintOpacity }]}>
+            <Ionicons name="hand-left-outline" size={14} color={colors.primary} />
+            <Text style={[styles.longPressHintText, { color: colors.primary }]}>Long-press a member to remove</Text>
+          </Animated.View>
+        )}
         <View style={styles.membersGrid}>
           {members.map((m) => {
             const canInteract = isCreator ? m.id !== creatorId : m.id === currentUser.id;
@@ -603,4 +635,6 @@ const styles = StyleSheet.create({
   foundUserCode: { fontSize: 12, marginTop: 2 },
   responseBadge: { minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 5, alignItems: "center", justifyContent: "center", marginRight: 4 },
   responseBadgeText: { color: "#fff", fontSize: 11, fontWeight: "800" },
+  longPressHint: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 10, borderWidth: 1, paddingVertical: 7, paddingHorizontal: 11, marginBottom: 10, alignSelf: "flex-start" },
+  longPressHintText: { fontSize: 12, fontWeight: "600" },
 });
