@@ -12,6 +12,7 @@ type MemberInfo = {
   avatarUrl: string | null;
   hasResponded: boolean;
   needsUpdate: boolean;
+  respondedAt: string | null;
 };
 
 function toDisplayName(user: { firstName?: string | null; lastName?: string | null; email?: string | null }): string {
@@ -50,6 +51,7 @@ async function buildMembersField(
       avatarUrl: u.profileImageUrl ?? null,
       hasResponded: respondentIds.has(u.id),
       needsUpdate: memberNeedsUpdate(u.id),
+      respondedAt: responseMap.get(u.id)?.updatedAt?.toISOString() ?? null,
     }));
   }
   if (respondentIds.size > 0) {
@@ -60,6 +62,7 @@ async function buildMembersField(
       avatarUrl: u.profileImageUrl ?? null,
       hasResponded: true,
       needsUpdate: memberNeedsUpdate(u.id),
+      respondedAt: responseMap.get(u.id)?.updatedAt?.toISOString() ?? null,
     }));
   }
   return [];

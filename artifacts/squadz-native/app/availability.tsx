@@ -47,6 +47,7 @@ type MemberInfo = {
   avatarUrl: string | null;
   hasResponded: boolean;
   needsUpdate: boolean;
+  respondedAt: string | null;
 };
 
 type PollPayload = {
@@ -90,6 +91,19 @@ function toISODate(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  const weeks = Math.floor(days / 7);
+  return `${weeks}w ago`;
 }
 
 // Build `count` consecutive ISO date strings starting at `start`.
@@ -247,6 +261,9 @@ export default function AvailabilityScreen() {
 
   // Pending modal — shown when user taps the "N still pending" label.
   const [showPendingModal, setShowPendingModal] = useState(false);
+
+  // Response timeline — host-only collapsible list of all members + timestamps.
+  const [showTimeline, setShowTimeline] = useState(false);
 
   // Cell detail sheet — shown when user taps a heatmap cell.
   const [selectedCell, setSelectedCell] = useState<string | null>(null);
@@ -1318,6 +1335,88 @@ export default function AvailabilityScreen() {
                       })}
                   </View>
                 )}
+
+                {isCreator && (
+                  <View style={[styles.timelineSection, { borderColor: colors.border }]}>
+                    <TouchableOpacity
+                      onPress={() => { void Haptics.selectionAsync(); setShowTimeline((v) => !v); }}
+                      style={styles.timelineToggleRow}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="list-outline" size={14} color={colors.mutedForeground} />
+                      <Text style={[styles.timelineToggleText, { color: colors.mutedForeground }]}>
+                        Response timeline
+                      </Text>
+                      <Ionicons name={showTimeline ? "chevron-up" : "chevron-down"} size={13} color={colors.textDim} />
+                    </TouchableOpacity>
+
+                    {showTimeline && (() => {
+                      const members = data.members ?? [];
+                      const sorted = [...members].sort((a, b) => {
+                        const rankA = !a.hasResponded ? 2 : a.needsUpdate ? 1 : 0;
+                        const rankB = !b.hasResponded ? 2 : b.needsUpdate ? 1 : 0;
+                        if (rankA !== rankB) return rankA - rankB;
+                        if (a.respondedAt && b.respondedAt) {
+                          return new Date(b.respondedAt).getTime() - new Date(a.respondedAt).getTime();
+                        }
+                        return a.displayName.localeCompare(b.displayName);
+                      });
+
+                      return (
+                        <View style={styles.timelineList}>
+                          {sorted.map((m) => {
+                            const upToDate = m.hasResponded && !m.needsUpdate;
+                            const stale = m.hasResponded && m.needsUpdate;
+                            const pending = !m.hasResponded;
+
+                            const dotColor = upToDate ? colors.primary : stale ? colors.gold : colors.border;
+                            const badgeBg = upToDate
+                              ? colors.primary + "18"
+                              : stale
+                              ? colors.gold + "18"
+                              : colors.card;
+                            const badgeBorder = upToDate
+                              ? colors.primary + "66"
+                              : stale
+                              ? colors.gold + "66"
+                              : colors.border;
+                            const badgeText = upToDate
+                              ? colors.primary
+                              : stale
+                              ? colors.gold
+                              : colors.textDim;
+                            const label = upToDate
+                              ? m.respondedAt ? timeAgo(m.respondedAt) : "Responded"
+                              : stale
+                              ? m.respondedAt ? `${timeAgo(m.respondedAt)} (stale)` : "Stale"
+                              : "Pending";
+
+                            return (
+                              <View key={m.id} style={styles.timelineRow}>
+                                <View style={[styles.timelineDot, { backgroundColor: dotColor }]} />
+                                <View style={[styles.timelineAvatar, { backgroundColor: pending ? colors.card : upToDate ? colors.primary + "22" : colors.gold + "22", borderColor: dotColor }]}>
+                                  {m.avatarUrl ? (
+                                    <Image source={{ uri: m.avatarUrl }} style={styles.timelineAvatarImg} />
+                                  ) : (
+                                    <Text style={[styles.timelineAvatarInitial, { color: pending ? colors.mutedForeground : upToDate ? colors.primary : colors.gold }]}>
+                                      {m.displayName.charAt(0).toUpperCase()}
+                                    </Text>
+                                  )}
+                                </View>
+                                <Text style={[styles.timelineName, { color: colors.foreground, opacity: pending ? 0.6 : 1 }]} numberOfLines={1}>
+                                  {m.displayName}
+                                </Text>
+                                <View style={[styles.timelineBadge, { backgroundColor: badgeBg, borderColor: badgeBorder }]}>
+                                  <Text style={[styles.timelineBadgeText, { color: badgeText }]}>{label}</Text>
+                                </View>
+                              </View>
+                            );
+                          })}
+                        </View>
+                      );
+                    })()}
+                  </View>
+                )}
               </View>
             )}
           </ScrollView>
@@ -1798,4 +1897,16 @@ const styles = StyleSheet.create({
   cellSheetEmpty: { fontSize: 14, lineHeight: 20, marginBottom: 24 },
   cellSheetToggleBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 14, borderWidth: 1.5, paddingVertical: 14, marginTop: 4 },
   cellSheetToggleBtnText: { fontSize: 15, fontWeight: "800" },
+  timelineSection: { marginTop: 12, borderRadius: 12, borderWidth: 1, overflow: "hidden" },
+  timelineToggleRow: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 10 },
+  timelineToggleText: { flex: 1, fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 },
+  timelineList: { paddingHorizontal: 12, paddingBottom: 10, gap: 10 },
+  timelineRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  timelineDot: { width: 7, height: 7, borderRadius: 3.5 },
+  timelineAvatar: { width: 28, height: 28, borderRadius: 14, borderWidth: 1.5, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  timelineAvatarImg: { width: 28, height: 28, borderRadius: 14 },
+  timelineAvatarInitial: { fontSize: 11, fontWeight: "800" },
+  timelineName: { flex: 1, fontSize: 13, fontWeight: "600" },
+  timelineBadge: { borderRadius: 8, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 3 },
+  timelineBadgeText: { fontSize: 11, fontWeight: "700" },
 });
