@@ -188,7 +188,12 @@ export default function SquadDetail() {
           )}
           <div style={{ display: "flex", overflowX: "auto" }}>
             {["events", "photos", "members", "polls", "settings"].map(t => (
-              <button key={t} onClick={() => switchTab(t)} style={{ flex: 1, background: "none", border: "none", padding: "10px 0", cursor: "pointer", fontFamily: font, fontWeight: 700, fontSize: 12, color: tab === t ? "#fff" : "rgba(255,255,255,0.6)", borderBottom: `2px solid ${tab === t ? "#fff" : "transparent"}`, textTransform: "capitalize", flexShrink: 0, minWidth: 60 }}>{t}</button>
+              <button key={t} onClick={() => switchTab(t)} style={{ flex: 1, background: "none", border: "none", padding: "10px 0", cursor: "pointer", fontFamily: font, fontWeight: 700, fontSize: 12, color: tab === t ? "#fff" : "rgba(255,255,255,0.6)", borderBottom: `2px solid ${tab === t ? "#fff" : "transparent"}`, textTransform: "capitalize", flexShrink: 0, minWidth: 60, display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
+                <span>{t}</span>
+                {t === "photos" && squadVault.length > 0 && (
+                  <span style={{ background: tab === t ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.18)", color: "#fff", fontSize: 10, fontWeight: 800, minWidth: 16, height: 16, borderRadius: 8, padding: "0 5px", display: "inline-flex", alignItems: "center", justifyContent: "center", lineHeight: 1, boxSizing: "border-box" }}>{squadVault.length}</span>
+                )}
+              </button>
             ))}
           </div>
         </div>

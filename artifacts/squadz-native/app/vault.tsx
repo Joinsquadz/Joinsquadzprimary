@@ -11,8 +11,11 @@ import {
   NativeScrollEvent,
   Alert,
   Modal,
+  Animated,
 } from "react-native";
 import { Image } from "expo-image";
+import { LinearGradient } from "expo-linear-gradient";
+import { BlurView } from "expo-blur";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -52,6 +55,84 @@ interface SquadVaultPhoto {
   uploaderFirstName?: string | null;
   uploaderLastName?: string | null;
   uploaderImageUrl?: string | null;
+}
+
+const LOCK_GRADIENTS: [string, string][] = [
+  ["#3A2E5C", "#1F1A2E"],
+  ["#2E3A5C", "#1A1F2E"],
+  ["#5C3A2E", "#2E1F1A"],
+  ["#2E5C4A", "#1A2E26"],
+  ["#5C2E4A", "#2E1A26"],
+  ["#4A5C2E", "#262E1A"],
+];
+
+function VaultImage({ uri, style, headers }: { uri: string; style: object; headers?: Record<string, string> }) {
+  const colors = useColors();
+  const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
+  const shimmer = useRef(new Animated.Value(0.4)).current;
+
+  useEffect(() => {
+    if (status !== "loading") return;
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(shimmer, { toValue: 0.9, duration: 700, useNativeDriver: true }),
+        Animated.timing(shimmer, { toValue: 0.4, duration: 700, useNativeDriver: true }),
+      ]),
+    );
+    anim.start();
+    return () => anim.stop();
+  }, [status, shimmer]);
+
+  return (
+    <View style={style}>
+      {status !== "error" && (
+        <Image
+          source={{ uri, headers }}
+          style={StyleSheet.absoluteFill}
+          contentFit="cover"
+          transition={200}
+          onLoad={() => setStatus("loaded")}
+          onError={() => setStatus("error")}
+        />
+      )}
+      {status === "loading" && (
+        <Animated.View
+          pointerEvents="none"
+          style={[StyleSheet.absoluteFill, { backgroundColor: colors.card, opacity: shimmer }]}
+        />
+      )}
+      {status === "error" && (
+        <View style={[StyleSheet.absoluteFill, styles.fallbackCell]}>
+          <LinearGradient
+            colors={["#2A2A38", "#1A1A26"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
+          <BlurView intensity={18} tint="dark" style={StyleSheet.absoluteFill} />
+          <Ionicons name="image-outline" size={22} color={colors.mutedForeground} />
+        </View>
+      )}
+    </View>
+  );
+}
+
+function LockedThumb({ id, style }: { id: number; style: object }) {
+  const pair = LOCK_GRADIENTS[id % LOCK_GRADIENTS.length];
+  return (
+    <View style={style}>
+      <LinearGradient
+        colors={pair}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+      <BlurView intensity={22} tint="dark" style={StyleSheet.absoluteFill} />
+      <View style={styles.lockOverlay}>
+        <Ionicons name="lock-closed" size={20} color="rgba(255,255,255,0.92)" />
+      </View>
+    </View>
+  );
 }
 
 export default function VaultScreen() {
@@ -415,11 +496,7 @@ export default function VaultScreen() {
                   style={[styles.gridCell, { borderWidth: 2, borderColor: selected === p.id ? colors.primary : "transparent" }]}
                   activeOpacity={0.8}
                 >
-                  <Image
-                    source={{ uri: imageUrl(p.url), headers: authHeaders() as Record<string, string> }}
-                    style={styles.gridImage}
-                    contentFit="cover"
-                  />
+                  <VaultImage uri={imageUrl(p.url)} style={styles.gridImage} headers={authHeaders() as Record<string, string>} />
                   <View style={styles.attrOverlay}>
                     <View style={[styles.attrAvatar, { backgroundColor: colors.primary }]}>
                       <Text style={styles.attrAvatarText}>{uploaderInitial(p)}</Text>
@@ -533,11 +610,13 @@ export default function VaultScreen() {
                       <TouchableOpacity
                         key={p.id}
                         onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.back(); }}
-                        style={[styles.gridCell, { backgroundColor: colors.card, alignItems: "center", justifyContent: "center" }]}
+                        style={styles.gridCell}
                         activeOpacity={0.8}
                       >
-                        <Ionicons name="lock-closed" size={24} color={colors.mutedForeground} />
-                        <Text style={[styles.lockedCellText, { color: colors.mutedForeground }]}>Pro only</Text>
+                        <LockedThumb id={p.id} style={styles.gridImage} />
+                        <View style={styles.lockedCellLabel}>
+                          <Text style={[styles.lockedCellText, { color: "rgba(255,255,255,0.92)" }]}>Pro only</Text>
+                        </View>
                       </TouchableOpacity>
                     ) : (
                       <TouchableOpacity
@@ -546,10 +625,10 @@ export default function VaultScreen() {
                         style={[styles.gridCell, { borderWidth: 2, borderColor: selected === p.id ? colors.primary : "transparent" }]}
                         activeOpacity={0.8}
                       >
-                        <Image
-                          source={{ uri: imageUrl(p.url), headers: authHeaders() as Record<string, string> }}
+                        <VaultImage
+                          uri={imageUrl((p as Extract<VaultPhoto, { locked: false }>).url)}
                           style={styles.gridImage}
-                          contentFit="cover"
+                          headers={authHeaders() as Record<string, string>}
                         />
                         {selected === p.id && (
                           <View style={[styles.checkBadge, { backgroundColor: colors.primary }]}>
@@ -665,6 +744,7 @@ export default function VaultScreen() {
               >
                 <View style={styles.grid}>
                   {pickerPhotos.map(p => {
+                    if (p.locked) return null;
                     const picked = pickerSelected.has(p.id);
                     return (
                       <TouchableOpacity
@@ -673,17 +753,7 @@ export default function VaultScreen() {
                         style={[styles.gridCell, { borderWidth: 2, borderColor: picked ? colors.primary : "transparent" }]}
                         activeOpacity={0.8}
                       >
-                        {p.locked ? (
-                          <View style={[styles.lockedCell, { backgroundColor: colors.card }]}>
-                            <Ionicons name="lock-closed" size={20} color={colors.mutedForeground} />
-                          </View>
-                        ) : (
-                          <Image
-                            source={{ uri: imageUrl((p as Extract<VaultPhoto, { locked: false }>).url), headers: authHeaders() as Record<string, string> }}
-                            style={styles.gridImage}
-                            contentFit="cover"
-                          />
-                        )}
+                        <VaultImage uri={imageUrl(p.url)} style={styles.gridImage} headers={authHeaders() as Record<string, string>} />
                         {picked && (
                           <>
                             <View style={[styles.pickOverlay, { backgroundColor: colors.primary + "33" }]} />
@@ -760,6 +830,7 @@ const styles = StyleSheet.create({
   lockBannerTitle: { fontSize: 14, fontWeight: "700", fontFamily: "Inter_700Bold", marginBottom: 2 },
   lockBannerBody: { fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 17 },
   lockedCellText: { fontSize: 9, fontFamily: "Inter_600SemiBold", marginTop: 4 },
+  lockedCellLabel: { position: "absolute", bottom: 6, left: 0, right: 0, alignItems: "center" },
   upgradeBtn: {
     borderRadius: 14,
     padding: 16,
@@ -794,8 +865,9 @@ const styles = StyleSheet.create({
     position: "relative",
     backgroundColor: "#1A1A26",
   },
-  gridImage: { width: "100%", height: "100%" },
-  lockedCell: { flex: 1, width: "100%", alignItems: "center", justifyContent: "center" },
+  gridImage: { width: "100%", height: "100%", position: "relative", overflow: "hidden" },
+  fallbackCell: { alignItems: "center", justifyContent: "center" },
+  lockOverlay: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
   blurGrid: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 16 },
   checkBadge: {
     position: "absolute",
@@ -820,6 +892,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   emptyIcon: { fontSize: 40, marginBottom: 12 },
+  emptyText: { fontSize: 15, fontWeight: "700", fontFamily: "Inter_700Bold", marginBottom: 4, textAlign: "center" },
   emptyTitle: { fontSize: 16, fontWeight: "700", fontFamily: "Inter_700Bold", marginBottom: 4 },
   emptySub: { fontSize: 13, fontFamily: "Inter_400Regular", textAlign: "center" },
   uploadBtn: {
