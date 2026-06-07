@@ -47,6 +47,7 @@ export default function LoginScreen() {
     inviteEmoji?: string;
     inviteHost?: string;
     inviteEventId?: string;
+    publicSquadId?: string;
   }>();
 
   const hasInvite = !!params.inviteCode;
@@ -86,6 +87,8 @@ export default function LoginScreen() {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     if (hasInvite && params.inviteEventId) {
       router.replace(`/event/${params.inviteEventId}` as never);
+    } else if (params.publicSquadId) {
+      router.replace({ pathname: "/squad/join-public", params: { id: params.publicSquadId } } as never);
     } else {
       router.replace("/(tabs)" as never);
     }

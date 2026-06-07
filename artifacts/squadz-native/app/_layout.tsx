@@ -37,8 +37,14 @@ function AuthGuard() {
 
   useEffect(() => {
     const isOnAuthScreen = AUTH_SCREENS.includes(segments[0] as string);
+    // The public-squad preview is reachable by logged-out friends via a shared
+    // deep-link, so it must be allowed even when unauthenticated. The screen
+    // itself routes to login/signup (carrying the squad id) when the user taps
+    // Join while logged out.
+    const isOnPublicSquad =
+      (segments[0] as string) === "squad" && (segments[1] as string) === "join-public";
 
-    if (!isLoggedIn && !isOnAuthScreen) {
+    if (!isLoggedIn && !isOnAuthScreen && !isOnPublicSquad) {
       router.replace("/login" as never);
     } else if (isLoggedIn && (segments[0] === "login" || segments[0] === "signup")) {
       router.replace("/(tabs)" as never);
@@ -260,6 +266,7 @@ function RootLayoutNav() {
         <Stack.Screen name="event/[id]" />
         <Stack.Screen name="squad/[id]" />
         <Stack.Screen name="squad/join" />
+        <Stack.Screen name="squad/join-public" />
         <Stack.Screen name="squad/create" />
         <Stack.Screen name="conversation/[id]" />
         <Stack.Screen name="friends" />

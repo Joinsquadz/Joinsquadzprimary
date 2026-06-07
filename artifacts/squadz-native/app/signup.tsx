@@ -28,6 +28,7 @@ export default function SignupScreen() {
     inviteEmoji?: string;
     inviteHost?: string;
     inviteEventId?: string;
+    publicSquadId?: string;
   }>();
 
   const [firstName, setFirstName] = useState("");
@@ -95,6 +96,11 @@ export default function SignupScreen() {
           inviteHost: params.inviteHost,
           inviteEventId: params.inviteEventId,
         },
+      } as never);
+    } else if (params.publicSquadId) {
+      router.replace({
+        pathname: "/onboarding",
+        params: { publicSquadId: params.publicSquadId },
       } as never);
     } else {
       router.replace("/onboarding" as never);

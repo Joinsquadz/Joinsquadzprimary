@@ -10,6 +10,7 @@ import {
   RefreshControl,
   Modal,
   Pressable,
+  Share,
 } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -106,6 +107,18 @@ export default function DiscoverSquadsScreen() {
     }
   };
 
+  const handleShare = async (squad: PublicSquad) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const link = `https://getsquadz.com/squad/join-public?id=${squad.id}`;
+    try {
+      await Share.share({
+        message: `Join "${squad.emoji} ${squad.name}" on Squadz!\n${link}`,
+      });
+    } catch {
+      // User dismissed the share sheet — nothing to do.
+    }
+  };
+
   const goBack = () => {
     if (router.canGoBack()) router.back();
     else router.replace("/(tabs)" as never);
@@ -195,6 +208,14 @@ export default function DiscoverSquadsScreen() {
                         {squad.memberIds.length} member{squad.memberIds.length !== 1 ? "s" : ""}
                       </Text>
                     </View>
+
+                    <TouchableOpacity
+                      onPress={() => handleShare(squad)}
+                      style={[styles.shareBtn, { borderColor: colors.border }]}
+                      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                    >
+                      <Ionicons name="share-outline" size={18} color={colors.mutedForeground} />
+                    </TouchableOpacity>
 
                     <TouchableOpacity
                       onPress={() => handleJoin(squad)}
@@ -360,6 +381,14 @@ const styles = StyleSheet.create({
     height: 36,
   },
   joinBtnText: { fontSize: 14, fontWeight: "800", color: "#fff" },
+  shareBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   errorBanner: {
     flexDirection: "row",
     alignItems: "center",

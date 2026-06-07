@@ -307,6 +307,14 @@ export default function SquadDetailScreen() {
     });
   };
 
+  const publicLink = `https://getsquadz.com/squad/join-public?id=${squad.id}`;
+  const sharePublicLink = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Share.share({
+      message: `Join "${squad.emoji} ${squad.name}" on Squadz — anyone can join!\n${publicLink}`,
+    });
+  };
+
   const openSettings = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setEditName(squad.name);
@@ -383,6 +391,23 @@ export default function SquadDetailScreen() {
           </View>
           <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
         </TouchableOpacity>
+
+        {/* Public share link — only for public squads */}
+        {squad.isPublic && (
+          <TouchableOpacity
+            onPress={sharePublicLink}
+            style={[styles.inviteBanner, { backgroundColor: colors.card, borderColor: colors.border, marginTop: 10 }]}
+          >
+            <View style={[styles.inviteIcon, { backgroundColor: colors.primary + "20" }]}>
+              <Ionicons name="globe-outline" size={20} color={colors.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.inviteTitle, { color: colors.foreground }]}>Share publicly</Text>
+              <Text style={[styles.inviteSub, { color: colors.mutedForeground }]}>Anyone with the link can join</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
+          </TouchableOpacity>
+        )}
 
         {/* Members */}
         <Text style={[styles.sectionTitle, { color: colors.foreground, marginTop: 24 }]}>Members</Text>

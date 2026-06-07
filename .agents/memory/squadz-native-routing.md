@@ -29,3 +29,13 @@ AuthGuard redirects unauthenticated sessions to /login so plain screenshots can'
 **iOS 26 native path:** `app/(tabs)/_layout.tsx` `NativeTabLayout` (liquid glass) registers
 create/events/photos as `<NativeTabs.Trigger name="..." hidden />` so they're navigable there too.
 Web/Android/older-iOS use `ClassicTabLayout`. Keep both layouts' hidden destinations in sync.
+
+**Latent (not yet fixed):** `app/(tabs)/_layout.tsx` `NativeTabLayout` (iOS 26+ liquid glass) never
+registers create/events/photos triggers at all, so on that path they may be unreachable regardless.
+Web/Android/older-iOS use `ClassicTabLayout` which does register them.
+
+## Public squad share / deep-link
+- A shared public-squad link must be openable by LOGGED-OUT friends: the preview API route is intentionally unauthenticated (exposes only safe metadata, never raw member ids, gated on isPublic), AND the preview screen must be allowlisted in `AuthGuard` (app/_layout.tsx) or the guard bounces unauthenticated users to /login before it renders. **Any new logged-out-reachable deep-link screen needs BOTH an unauth API path and an AuthGuard exception.**
+- Post-auth deep-link targets are threaded as a param through login → (signup → onboarding) and redirected after auth, mirroring the existing invite-event pattern. Reuse that chain for new ones.
+- `useSegments()` returns a typed union of known route names; comparing against a newly-added segment fails typecheck — cast `segments[n] as string` (existing convention).
+- Shared link URLs should include the `https://` scheme for cross-platform tap reliability.

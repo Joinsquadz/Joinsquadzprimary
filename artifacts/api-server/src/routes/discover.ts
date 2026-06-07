@@ -6,6 +6,36 @@ import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
+function parseId(raw: unknown): string {
+  return Array.isArray(raw) ? (raw[0] as string) : (raw as string);
+}
+
+// Public-safe preview of a single squad, used by shareable deep-links so a
+// friend can see what they're joining before they're a member. Only exposes
+// non-sensitive metadata, and only for squads that are explicitly public.
+router.get("/discover/squads/:id", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const id = parseId(req.params.id);
+    const [squad] = await db.select().from(squadsTable).where(eq(squadsTable.id, id));
+    if (!squad || !squad.isPublic) {
+      res.status(404).json({ error: "This squad isn't available to join." });
+      return;
+    }
+    const memberIds = (squad.memberIds ?? []) as string[];
+    res.json({
+      id: squad.id,
+      name: squad.name,
+      emoji: squad.emoji,
+      color: squad.color,
+      memberCount: memberIds.length,
+      isPublic: squad.isPublic,
+    });
+  } catch (err) {
+    logger.error({ err }, "Error fetching public squad preview");
+    res.status(500).json({ error: "Failed to fetch squad" });
+  }
+});
+
 router.get("/discover", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = (req.user as { id: string }).id;
