@@ -73,9 +73,18 @@ function getAllowedReturnHosts(): Set<string> {
   return hosts;
 }
 
-// Validate the app URL the mobile web flow should return to. Must be an https
-// URL on one of this repl's allowed hosts; any fragment is stripped because we
-// append the session token (or error) as a fragment ourselves.
+// Validate the app URL the mobile flow should return to. We accept two shapes,
+// because the same bouncer serves both the Expo *web* app and the *native*
+// (iOS/Android) app:
+//   1. https on one of this repl's allowed hosts — the Expo web build.
+//   2. a native deep-link scheme — the app's own `squadz-native://` scheme
+//      (standalone / dev-client builds), plus Expo Go's `exp://` scheme, which
+//      is only honored outside production since its dev host (LAN/tunnel) varies
+//      and can't be pinned. This lets the native auth session capture the token.
+// Any fragment is stripped because we append the session token (or error) as a
+// fragment ourselves.
+const NATIVE_SCHEME = "squadz-native:";
+
 function sanitizeMobileReturnTo(value: unknown, req: Request): string {
   const fallback = `${getOrigin(req)}/mobile/login`;
   if (typeof value !== "string" || !value) return fallback;
@@ -85,8 +94,13 @@ function sanitizeMobileReturnTo(value: unknown, req: Request): string {
   } catch {
     return fallback;
   }
-  if (u.protocol !== "https:") return fallback;
-  if (!getAllowedReturnHosts().has(u.hostname.toLowerCase())) return fallback;
+  const isHttpsAllowed =
+    u.protocol === "https:" &&
+    getAllowedReturnHosts().has(u.hostname.toLowerCase());
+  const isNativeScheme =
+    u.protocol === NATIVE_SCHEME ||
+    (u.protocol === "exp:" && process.env.NODE_ENV !== "production");
+  if (!isHttpsAllowed && !isNativeScheme) return fallback;
   u.hash = "";
   return u.toString();
 }

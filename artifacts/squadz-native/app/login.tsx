@@ -72,60 +72,6 @@ function generateCodeVerifier(): string {
     .replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
 }
 
-async function generateCodeChallenge(verifier: string): Promise<string> {
-  const data = new TextEncoder().encode(verifier);
-  const digest = await crypto.subtle.digest("SHA-256", data);
-  return btoa(String.fromCharCode(...new Uint8Array(digest)))
-    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
-}
-
-function buildAuthUrl(opts: {
-  replId: string;
-  redirectUri: string;
-  codeChallenge: string;
-  state: string;
-  nonce: string;
-}): URL {
-  const authUrl = new URL("https://replit.com/oidc/auth");
-  authUrl.searchParams.set("client_id", opts.replId);
-  authUrl.searchParams.set("redirect_uri", opts.redirectUri);
-  authUrl.searchParams.set("response_type", "code");
-  authUrl.searchParams.set("scope", "openid email profile offline_access");
-  authUrl.searchParams.set("code_challenge", opts.codeChallenge);
-  authUrl.searchParams.set("code_challenge_method", "S256");
-  authUrl.searchParams.set("state", opts.state);
-  authUrl.searchParams.set("nonce", opts.nonce);
-  authUrl.searchParams.set("prompt", "login consent");
-  return authUrl;
-}
-
-async function exchangeToken(body: {
-  code: string;
-  code_verifier: string;
-  redirect_uri: string;
-  state: string;
-  nonce: string;
-}): Promise<{ token?: string; error?: string }> {
-  try {
-    const res = await fetch(`${API_BASE}/api/mobile-auth/token-exchange`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    return (await res.json()) as { token?: string; error?: string };
-  } catch {
-    return { error: "Network error during sign in. Please try again." };
-  }
-}
-
-function resolveReplId(): string {
-  return (
-    (Constants.expoConfig?.extra?.replId as string | undefined) ??
-    process.env.EXPO_PUBLIC_REPL_ID ??
-    ""
-  );
-}
-
 // True when the web app is running inside any iframe (the Replit preview/canvas
 // embeds the Expo app in one). The OIDC redirect can't complete framed: frames
 // commonly have partitioned/blocked web storage (so the PKCE verifier can't be
@@ -324,38 +270,32 @@ export default function LoginScreen() {
       return;
     }
 
+    // Native (iOS/Android): run the OIDC flow through the server bouncer so the
+    // provider only ever sees a redirect_uri on the main domain (the only host
+    // it accepts). A direct exp:// / squadz-native:// redirect_uri is rejected
+    // by the Replit provider. The bouncer mints the session and redirects back
+    // to this app's deep link with `#token=…`, which the auth session captures.
     setOidcLoading(true);
     try {
-      const codeVerifier = generateCodeVerifier();
-      const codeChallenge = await generateCodeChallenge(codeVerifier);
-      const state = generateCodeVerifier();
-      const nonce = generateCodeVerifier();
-      const replId = resolveReplId();
-
-      const redirectUri = Linking.createURL("/");
-      const authUrl = buildAuthUrl({ replId, redirectUri, codeChallenge, state, nonce });
-      const result = await WebBrowser.openAuthSessionAsync(authUrl.toString(), redirectUri);
-      if (result.type !== "success") { setOidcLoading(false); return; }
-
-      const parsedUrl = new URL(result.url);
-      const code = parsedUrl.searchParams.get("code");
-      const returnedState = parsedUrl.searchParams.get("state");
-
-      if (!code || returnedState !== state) {
-        Alert.alert("Sign In Failed", "Invalid response from authentication provider.");
+      const returnUrl = Linking.createURL("/login");
+      const loginUrl = `${API_BASE}/api/mobile-auth/web-login?returnTo=${encodeURIComponent(returnUrl)}`;
+      const result = await WebBrowser.openAuthSessionAsync(loginUrl, returnUrl);
+      if (result.type !== "success") {
         setOidcLoading(false);
         return;
       }
 
-      const { token, error } = await exchangeToken({
-        code,
-        code_verifier: codeVerifier,
-        redirect_uri: redirectUri,
-        state,
-        nonce,
-      });
-      if (error || !token) {
-        Alert.alert("Sign In Failed", error ?? "Could not complete sign in. Please try again.");
+      const hashIndex = result.url.indexOf("#");
+      const frag = new URLSearchParams(
+        hashIndex >= 0 ? result.url.slice(hashIndex + 1) : "",
+      );
+      const token = frag.get("token");
+      const err = frag.get("error");
+      if (err || !token) {
+        Alert.alert(
+          "Sign In Failed",
+          "Could not complete sign in. Please try again.",
+        );
         setOidcLoading(false);
         return;
       }

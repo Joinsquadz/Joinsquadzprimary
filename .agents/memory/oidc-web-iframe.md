@@ -71,6 +71,27 @@ relay** (both windows are the Expo subdomain origin, so a direct
 - **Why:** OIDC sign-in fundamentally cannot complete *inside* a cross-origin
   embed; either relay the token out-of-band or run the app in its own tab.
 
+## Native (iOS / Expo Go) also goes through the bouncer
+
+Native sign-in must use the **same server bouncer**, not a direct
+`replit.com/oidc/auth` call. A native `redirect_uri` is a deep link
+(`exp://…` in Expo Go, `squadz-native://…` standalone) and the Replit OIDC
+provider **rejects any redirect_uri not on the repl's own domains** → "Sign In
+Failed". (The old direct path was doubly broken — it also sent an empty
+`client_id` because `extra.replId` was never set.)
+- Client: `WebBrowser.openAuthSessionAsync(<bouncer web-login URL with
+  returnTo=Linking.createURL("/login")>, returnUrl)`, then parse `#token` /
+  `#error` from `result.url`. The auth session captures the bouncer's 302 to the
+  custom scheme **including the fragment**.
+- Server `sanitizeMobileReturnTo` must allow the native schemes: the app's own
+  `squadz-native:` always, and Expo Go's `exp:` only when
+  `NODE_ENV !== "production"` (its dev host is an unpinnable LAN/tunnel). Bogus
+  schemes fall back to an https main-domain URL.
+- **Why:** the provider's allowed-redirect rule is identical for web and native;
+  routing both through a main-domain server callback is the only thing it
+  accepts. `POST /api/mobile-auth/token-exchange` is now an orphaned legacy
+  endpoint (no client caller) — safe but removable.
+
 **How to apply:** any Replit-OIDC web flow served off the main domain (Expo
 subdomain, or any non-`REPLIT_DOMAINS` host) must route the OIDC redirect through
 a main-domain server endpoint and hand the result back out-of-band; don't send
