@@ -389,6 +389,52 @@ router.delete("/squads/:id/members/:userId", requireAuth, async (req: Request, r
     .where(eq(squadsTable.id, id))
     .returning();
   res.json(updatedSquad);
+
+  if (isSelf) {
+    // Fire-and-forget: user left — notify remaining members.
+    if (updatedMemberIds.length > 0) {
+      (async () => {
+        try {
+          const leaver = await storage.getUser(targetUserId);
+          const leaverName = leaver?.firstName
+            ? leaver.lastName
+              ? `${leaver.firstName} ${leaver.lastName}`
+              : leaver.firstName
+            : "Someone";
+          const tokens = await storage.getPushTokensForUsers(updatedMemberIds);
+          await sendPushNotifications(
+            tokens,
+            {
+              title: squad.name,
+              body: `${leaverName} left ${squad.name}`,
+              data: { screen: "squad", squadId: squad.id },
+            },
+            { onStaleToken: (token) => storage.clearPushToken(token) },
+          );
+        } catch (err) {
+          logger.error({ err }, "Error sending squad-left push notifications");
+        }
+      })();
+    }
+  } else {
+    // Fire-and-forget: creator removed a member — notify the removed user.
+    (async () => {
+      try {
+        const tokens = await storage.getPushTokensForUsers([targetUserId]);
+        await sendPushNotifications(
+          tokens,
+          {
+            title: "Removed from squad",
+            body: `You've been removed from "${squad.name}"`,
+            data: { screen: "squads" },
+          },
+          { onStaleToken: (token) => storage.clearPushToken(token) },
+        );
+      } catch (err) {
+        logger.error({ err }, "Error sending squad-removed push notification");
+      }
+    })();
+  }
 });
 
 router.post("/squads/:id/join", requireAuth, async (req: Request, res: Response): Promise<void> => {
