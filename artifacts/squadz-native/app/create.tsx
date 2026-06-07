@@ -36,6 +36,33 @@ function formatPickedDate(d: Date): string {
   return `${DAYS[d.getDay()]}, ${MONTHS[d.getMonth()]} ${d.getDate()} · ${h12}:${mm} ${ampm}`;
 }
 
+function Field({
+  icon,
+  placeholder,
+  value,
+  onChangeText,
+  colors,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  placeholder: string;
+  value: string;
+  onChangeText: (v: string) => void;
+  colors: ReturnType<typeof useColors>;
+}) {
+  return (
+    <View style={[styles.field, { backgroundColor: colors.card, borderColor: colors.border }]}>
+      <Ionicons name={icon} size={20} color={colors.mutedForeground} />
+      <TextInput
+        placeholder={placeholder}
+        placeholderTextColor={colors.textDim}
+        value={value}
+        onChangeText={onChangeText}
+        style={[styles.fieldInput, { color: colors.foreground }]}
+      />
+    </View>
+  );
+}
+
 export default function CreateEventScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -176,23 +203,6 @@ export default function CreateEventScreen() {
     setUpgradeLoading(false);
   }
 
-  const Field = ({ icon, placeholder, value, onChangeText }: {
-    icon: keyof typeof Ionicons.glyphMap;
-    placeholder: string;
-    value: string;
-    onChangeText: (v: string) => void;
-  }) => (
-    <View style={[styles.field, { backgroundColor: colors.card, borderColor: colors.border }]}>
-      <Ionicons name={icon} size={20} color={colors.mutedForeground} />
-      <TextInput
-        placeholder={placeholder}
-        placeholderTextColor={colors.textDim}
-        value={value}
-        onChangeText={onChangeText}
-        style={[styles.fieldInput, { color: colors.foreground }]}
-      />
-    </View>
-  );
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -255,13 +265,13 @@ export default function CreateEventScreen() {
 
         <View style={styles.section}>
           <Text style={[styles.label, { color: colors.mutedForeground }]}>Event name</Text>
-          <Field icon="text-outline" placeholder="What are you planning?" value={title} onChangeText={setTitle} />
+          <Field icon="text-outline" placeholder="What are you planning?" value={title} onChangeText={setTitle} colors={colors} />
         </View>
 
         <View style={styles.section}>
           <Text style={[styles.label, { color: colors.mutedForeground }]}>Date & time</Text>
           {Platform.OS === "web" ? (
-            <Field icon="calendar-outline" placeholder="e.g. Sat, Jun 7 · 5:00 PM" value={date} onChangeText={setDate} />
+            <Field icon="calendar-outline" placeholder="e.g. Sat, Jun 7 · 5:00 PM" value={date} onChangeText={setDate} colors={colors} />
           ) : date ? (
             <View style={[styles.dateDisplay, { backgroundColor: colors.card, borderColor: colors.primary }]}>
               <Ionicons name="calendar" size={20} color={colors.primary} />
@@ -302,7 +312,7 @@ export default function CreateEventScreen() {
 
         <View style={styles.section}>
           <Text style={[styles.label, { color: colors.mutedForeground }]}>Location</Text>
-          <Field icon="location-outline" placeholder="Where is it happening?" value={location} onChangeText={setLocation} />
+          <Field icon="location-outline" placeholder="Where is it happening?" value={location} onChangeText={setLocation} colors={colors} />
         </View>
 
         <View style={styles.section}>

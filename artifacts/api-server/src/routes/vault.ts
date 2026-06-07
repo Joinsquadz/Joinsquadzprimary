@@ -116,12 +116,21 @@ router.get("/vault/photos", requireAuth, async (req: Request, res: Response): Pr
 /**
  * POST /api/vault/photos
  *
- * Save a photo URL to the vault (Pro users only). The URL should be an object
- * storage path returned by POST /api/storage/uploads/request-url.
+ * Save a photo URL to the vault. The URL should be an object storage path
+ * returned by POST /api/storage/uploads/request-url.
+ *
+ * Pro subscribers may upload for any event. Free users may upload photos for
+ * events created within the last 30 days — older events require Pro.
  */
 router.post("/vault/photos", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = (req.user as { id: string }).id;
+
+    const parsedBody = AddVaultPhotoBody.safeParse(req.body);
+    if (!parsedBody.success) {
+      res.status(400).json({ error: parsedBody.error.message });
+      return;
+    }
 
     let user = await storage.getUser(userId);
     if (!user) {
@@ -130,14 +139,19 @@ router.post("/vault/photos", requireAuth, async (req: Request, res: Response): P
 
     const isPro = await resolveProStatus(user);
 
-    if (!isPro) {
-      res.status(403).json({ error: "Photo Vault requires a Pro subscription", requiresPro: true });
-      return;
+    // Free users may upload photos for events still within the 30-day window.
+    // After that they need a Pro subscription to keep adding to the vault.
+    let allowUpload = isPro;
+    if (!isPro && parsedBody.data.eventId) {
+      const event = await storage.getEvent(parsedBody.data.eventId);
+      if (event) {
+        const cutoff = new Date(Date.now() - PHOTO_VAULT_DAYS * 24 * 60 * 60 * 1000);
+        allowUpload = event.createdAt !== null && new Date(event.createdAt) > cutoff;
+      }
     }
 
-    const parsedBody = AddVaultPhotoBody.safeParse(req.body);
-    if (!parsedBody.success) {
-      res.status(400).json({ error: parsedBody.error.message });
+    if (!allowUpload) {
+      res.status(403).json({ error: "Photo Vault requires a Pro subscription", requiresPro: true });
       return;
     }
 

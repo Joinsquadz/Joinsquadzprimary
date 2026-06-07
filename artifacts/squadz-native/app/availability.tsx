@@ -26,8 +26,10 @@ import { useInteractionGuard, useModalGuard } from "@/hooks/useInteractionGuard"
 import { useAuth } from "@/context/AppContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
-const DAY_COUNT_OPTIONS = [3, 5, 7, 14];
+const DAY_COUNT_OPTIONS = [3, 5, 7, 14, 21, 30];
 const DEFAULT_DAY_COUNT = 7;
+const ALL_SLOT_OPTIONS: string[] = ["6AM","7AM","8AM","9AM","10AM","11AM","12PM","1PM","2PM","3PM","4PM","5PM","6PM","7PM","8PM","9PM","10PM"];
+const DEFAULT_SLOTS: string[] = ["6PM","7PM","8PM","9PM","10PM"];
 
 const DAY_FULL: Record<string, string> = {
   Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday", Thu: "Thursday",
@@ -198,6 +200,7 @@ export default function AvailabilityScreen() {
   const [pollTitle, setPollTitle] = useState("");
   const [rangeStart, setRangeStart] = useState<Date>(new Date());
   const [rangeDays, setRangeDays] = useState<number>(DEFAULT_DAY_COUNT);
+  const [selectedSlots, setSelectedSlots] = useState<Set<string>>(new Set(DEFAULT_SLOTS));
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerDate, setPickerDate] = useState<Date>(new Date());
 
@@ -330,6 +333,7 @@ export default function AvailabilityScreen() {
   const [editTitle, setEditTitle] = useState("");
   const [editStart, setEditStart] = useState<Date>(new Date());
   const [editDays, setEditDays] = useState<number>(DEFAULT_DAY_COUNT);
+  const [editSlots, setEditSlots] = useState<Set<string>>(new Set(DEFAULT_SLOTS));
   const [editPickerOpen, setEditPickerOpen] = useState(false);
   const [editPickerDate, setEditPickerDate] = useState<Date>(new Date());
   const [updating, setUpdating] = useState(false);
@@ -497,7 +501,8 @@ export default function AvailabilityScreen() {
     setError(null);
     try {
       const days = computeRange(rangeStart, rangeDays);
-      const body: Record<string, unknown> = { ...(squadId ? { squadId } : { eventId }), days };
+      const slots = ALL_SLOT_OPTIONS.filter(s => selectedSlots.has(s));
+      const body: Record<string, unknown> = { ...(squadId ? { squadId } : { eventId }), days, slots };
       if (pollTitle.trim()) body.title = pollTitle.trim();
       const res = await fetch(`${API_BASE}/api/availability/polls`, {
         method: "POST",
@@ -606,6 +611,7 @@ export default function AvailabilityScreen() {
     const d = parseISODate(firstDay);
     setEditStart(d ?? new Date());
     setEditDays(data.poll.days.length);
+    setEditSlots(new Set((data.poll.slots as string[]) ?? DEFAULT_SLOTS));
     setEditTitle(data.poll.title ?? "");
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setEditRangeOpen(true);
@@ -616,7 +622,8 @@ export default function AvailabilityScreen() {
     setUpdating(true);
     try {
       const days = computeRange(editStart, editDays);
-      const patchBody: Record<string, unknown> = { days };
+      const slots = ALL_SLOT_OPTIONS.filter(s => editSlots.has(s));
+      const patchBody: Record<string, unknown> = { days, ...(slots.length > 0 ? { slots } : {}) };
       patchBody.title = editTitle.trim();
       const res = await fetch(`${API_BASE}/api/availability/polls/${data.poll.id}`, {
         method: "PATCH",
@@ -639,7 +646,7 @@ export default function AvailabilityScreen() {
     } finally {
       setUpdating(false);
     }
-  }, [data, authHeaders, editTitle, editStart, editDays]);
+  }, [data, authHeaders, editTitle, editStart, editDays, editSlots]);
 
   // When poll data arrives, pre-populate nudge button state from server-side
   // debounce info (nudgedAt per member) and surface the nudged banner if this
@@ -1059,6 +1066,40 @@ export default function AvailabilityScreen() {
                     ]}
                   >
                     <Text style={[styles.chipText, { color: active ? "#fff" : colors.foreground }]}>{n} days</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <Text style={[styles.setupLabel, { color: colors.mutedForeground }]}>Time slots</Text>
+            <View style={styles.chipRow}>
+              {ALL_SLOT_OPTIONS.map((s) => {
+                const active = selectedSlots.has(s);
+                return (
+                  <TouchableOpacity
+                    key={s}
+                    onPress={() => {
+                      stampInteraction();
+                      Haptics.selectionAsync();
+                      setSelectedSlots((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(s)) {
+                          if (next.size > 1) next.delete(s);
+                        } else {
+                          next.add(s);
+                        }
+                        return next;
+                      });
+                    }}
+                    style={[
+                      styles.chip,
+                      {
+                        backgroundColor: active ? colors.primary : colors.card,
+                        borderColor: active ? colors.primary : colors.border,
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.chipText, { color: active ? "#fff" : colors.foreground }]}>{s}</Text>
                   </TouchableOpacity>
                 );
               })}
@@ -1899,6 +1940,39 @@ export default function AvailabilityScreen() {
                       ]}
                     >
                       <Text style={[styles.chipText, { color: active ? "#fff" : colors.foreground }]}>{n} days</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <Text style={[styles.setupLabel, { color: colors.mutedForeground }]}>Time slots</Text>
+              <View style={styles.chipRow}>
+                {ALL_SLOT_OPTIONS.map((s) => {
+                  const active = editSlots.has(s);
+                  return (
+                    <TouchableOpacity
+                      key={s}
+                      onPress={() => {
+                        Haptics.selectionAsync();
+                        setEditSlots((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(s)) {
+                            if (next.size > 1) next.delete(s);
+                          } else {
+                            next.add(s);
+                          }
+                          return next;
+                        });
+                      }}
+                      style={[
+                        styles.chip,
+                        {
+                          backgroundColor: active ? colors.primary : colors.card,
+                          borderColor: active ? colors.primary : colors.border,
+                        },
+                      ]}
+                    >
+                      <Text style={[styles.chipText, { color: active ? "#fff" : colors.foreground }]}>{s}</Text>
                     </TouchableOpacity>
                   );
                 })}

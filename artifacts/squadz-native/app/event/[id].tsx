@@ -80,7 +80,6 @@ export default function EventDetailScreen() {
     prefetchUsers(ids);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [event?.id]);
-  const [isPro, setIsPro] = useState<boolean | null>(null);
   const [availabilityTitle, setAvailabilityTitle] = useState<string | null>(null);
   const [newResponseCount, setNewResponseCount] = useState(0);
   const { authToken } = useAuth();
@@ -89,12 +88,6 @@ export default function EventDetailScreen() {
     return buildAuthHeaders(authToken);
   }, [authToken]);
 
-  useEffect(() => {
-    fetch(`${API_BASE}/api/subscription`, { headers: authHeaders() })
-      .then(r => { if (!r.ok) { setIsPro(false); return; } return r.json(); })
-      .then((d?: { isPro?: boolean }) => { if (d !== undefined) setIsPro(!!d.isPro); })
-      .catch(() => setIsPro(false));
-  }, [authHeaders]);
 
   useFocusEffect(
     useCallback(() => {
@@ -871,99 +864,53 @@ export default function EventDetailScreen() {
 
         {tab === "photos" && (
           <View style={{ gap: 16 }}>
-            {isPro === null ? (
-              <View style={styles.proLoadingCenter}>
-                <ActivityIndicator color={colors.primary} />
+            <TouchableOpacity
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push(`/vault?eventId=${event.id}&eventName=${encodeURIComponent(event.title)}` as never);
+              }}
+              style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}
+            >
+              <View style={styles.cardHeaderRow}>
+                <View style={{ flex: 1, gap: 4 }}>
+                  <Text style={[styles.cardTitle, { color: colors.mutedForeground }]}>📷 Event Photos</Text>
+                  <Text style={[styles.cardBody, { color: colors.foreground }]}>View all photos from {event.title}</Text>
+                  <Text style={[styles.cardTitle, { color: colors.mutedForeground, marginTop: 4 }]}>Stored in Photo Vault · private to squad members</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={colors.textDim} />
               </View>
-            ) : !isPro ? (
-              <>
-                <View style={[styles.vaultLockCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                  <Text style={styles.vaultLockIcon}>🔒</Text>
-                  <Text style={[styles.vaultLockTitle, { color: colors.foreground }]}>Photo Vault is a Pro feature</Text>
-                  <Text style={[styles.vaultLockBody, { color: colors.mutedForeground }]}>
-                    Upload event photos and keep them forever — private to squad members only.
-                  </Text>
-                  <View style={styles.vaultFeaturePills}>
-                    {["🖼️ Private gallery", "📁 By event", "🔐 Members only"].map(f => (
-                      <View key={f} style={[styles.vaultPill, { backgroundColor: colors.background, borderColor: colors.border }]}>
-                        <Text style={[styles.vaultPillText, { color: colors.mutedForeground }]}>{f}</Text>
-                      </View>
-                    ))}
-                  </View>
-                </View>
-                <View style={[styles.vaultPhotoGrid, { opacity: 0.3 }]}>
-                  {[
-                    { color: "#FF6B3A", emoji: "🔥" },
-                    { color: "#7B6EF6", emoji: "🎳" },
-                    { color: "#F5A623", emoji: "🍕" },
-                  ].map((p, i) => (
-                    <View key={i} style={[styles.vaultGridCell, { backgroundColor: p.color + "30" }]}>
-                      <Text style={[styles.vaultGridEmoji, { opacity: 0 }]}>{p.emoji}</Text>
-                    </View>
-                  ))}
-                </View>
+            </TouchableOpacity>
+            <View style={styles.vaultPhotoGrid}>
+              {[
+                { color: "#FF6B3A", emoji: "🔥" },
+                { color: "#7B6EF6", emoji: "🎳" },
+                { color: "#F5A623", emoji: "🍕" },
+              ].map((p, i) => (
                 <TouchableOpacity
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                    router.push(`/vault?eventId=${event.id}&eventName=${encodeURIComponent(event.title)}` as never);
-                  }}
-                  style={[styles.vaultUpgradeBtn, { backgroundColor: colors.primary }]}
-                  activeOpacity={0.85}
-                >
-                  <Text style={styles.vaultUpgradeBtnText}>⚡ Upgrade to Pro — $20/year</Text>
-                </TouchableOpacity>
-              </>
-            ) : (
-              <>
-                <TouchableOpacity
+                  key={i}
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     router.push(`/vault?eventId=${event.id}&eventName=${encodeURIComponent(event.title)}` as never);
                   }}
-                  style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}
-                >
-                  <View style={styles.cardHeaderRow}>
-                    <View style={{ flex: 1, gap: 4 }}>
-                      <Text style={[styles.cardTitle, { color: colors.mutedForeground }]}>📷 Event Photos</Text>
-                      <Text style={[styles.cardBody, { color: colors.foreground }]}>View all photos from {event.title}</Text>
-                      <Text style={[styles.cardTitle, { color: colors.mutedForeground, marginTop: 4 }]}>Stored in Photo Vault · private to squad members</Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={20} color={colors.textDim} />
-                  </View>
-                </TouchableOpacity>
-                <View style={styles.vaultPhotoGrid}>
-                  {[
-                    { color: "#FF6B3A", emoji: "🔥" },
-                    { color: "#7B6EF6", emoji: "🎳" },
-                    { color: "#F5A623", emoji: "🍕" },
-                  ].map((p, i) => (
-                    <TouchableOpacity
-                      key={i}
-                      onPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        router.push(`/vault?eventId=${event.id}&eventName=${encodeURIComponent(event.title)}` as never);
-                      }}
-                      style={[styles.vaultGridCell, { backgroundColor: p.color + "30" }]}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={styles.vaultGridEmoji}>{p.emoji}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-                <TouchableOpacity
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                    router.push(`/vault?eventId=${event.id}&eventName=${encodeURIComponent(event.title)}` as never);
-                  }}
-                  style={[styles.vaultCta, { backgroundColor: colors.primary + "18", borderColor: colors.primary + "40" }]}
+                  style={[styles.vaultGridCell, { backgroundColor: p.color + "30" }]}
                   activeOpacity={0.8}
                 >
-                  <Ionicons name="images-outline" size={18} color={colors.primary} />
-                  <Text style={[styles.vaultCtaText, { color: colors.primary }]}>Open Photo Vault for this event</Text>
-                  <Ionicons name="chevron-forward" size={16} color={colors.primary} />
+                  <Text style={styles.vaultGridEmoji}>{p.emoji}</Text>
                 </TouchableOpacity>
-              </>
-            )}
+              ))}
+            </View>
+            <TouchableOpacity
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                router.push(`/vault?eventId=${event.id}&eventName=${encodeURIComponent(event.title)}` as never);
+              }}
+              style={[styles.vaultCta, { backgroundColor: colors.primary + "18", borderColor: colors.primary + "40" }]}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="images-outline" size={18} color={colors.primary} />
+              <Text style={[styles.vaultCtaText, { color: colors.primary }]}>Open Photo Vault for this event</Text>
+              <Ionicons name="chevron-forward" size={16} color={colors.primary} />
+            </TouchableOpacity>
           </View>
         )}
 
