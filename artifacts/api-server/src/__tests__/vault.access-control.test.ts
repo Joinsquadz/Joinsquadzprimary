@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import request from "supertest";
-import express, { type Request, type Response, type NextFunction } from "express";
 
 vi.mock("../storage", () => ({
   storage: {
@@ -15,15 +14,7 @@ vi.mock("../storage", () => ({
   },
 }));
 
-vi.mock("../lib/logger", () => ({
-  logger: {
-    info: vi.fn(),
-    error: vi.fn(),
-    warn: vi.fn(),
-    debug: vi.fn(),
-    child: vi.fn().mockReturnThis(),
-  },
-}));
+vi.mock("../lib/logger");
 
 // `vi.mock` is hoisted above these imports, so the static imports below still
 // resolve against the mocked modules. Importing the router (and the mocked
@@ -33,22 +24,9 @@ vi.mock("../lib/logger", () => ({
 // which otherwise flakes under parallel CPU/transform contention.
 import vaultRouter from "../routes/vault";
 import { storage } from "../storage";
+import { makeTestApp, type TestUser } from "./helpers/makeTestApp";
 
-type TestUser = { id: string; email?: string };
-
-function makeApp(user?: TestUser) {
-  const app = express();
-  app.use(express.json());
-  app.use((req: Request, _res: Response, next: NextFunction) => {
-    req.isAuthenticated = function (this: Request) {
-      return user != null;
-    } as Request["isAuthenticated"];
-    if (user) req.user = user as Express.User;
-    next();
-  });
-  app.use("/api", vaultRouter);
-  return app;
-}
+const makeApp = (user?: TestUser) => makeTestApp(vaultRouter, user);
 
 const FREE_USER_ID = "free-user-id";
 const PRO_USER_ID = "pro-user-id";

@@ -27,3 +27,12 @@ timeout. Raising timeouts is a band-aid and was explicitly disallowed.
 router/middleware should follow this shape (reference:
 `storage.addPhoto.provenance.test.ts`). Mocks that read `vi.hoisted` refs
 dynamically per request do NOT need `vi.resetModules()` between cases.
+
+**Shared helper (the default for router access-control tests):** use
+`src/__tests__/helpers/makeTestApp.ts` — `makeTestApp(router, user?)` builds the
+express app with JSON + fake `isAuthenticated`/`req.user` and mounts the router at
+`/api`. Bind it per file with `const makeApp = (u?: TestUser) => makeTestApp(myRouter, u)`
+so the router import stays static below `vi.mock`. The identical logger mock lives
+in `src/lib/__mocks__/logger.ts`; activate it with a bare `vi.mock("../lib/logger")`
+(no factory) — do NOT re-inline the pino-mock object. Per-test `@workspace/db` /
+`../storage` mocks still stay in each file since their hoisted refs differ.

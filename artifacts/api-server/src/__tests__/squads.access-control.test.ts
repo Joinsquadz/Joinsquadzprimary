@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import request from "supertest";
-import express, { type Request, type Response, type NextFunction } from "express";
 
 const mockRows = vi.hoisted(() => ({ value: [] as unknown[] }));
 const mockUpdateRows = vi.hoisted(() => ({ value: [] as unknown[] }));
@@ -36,15 +35,7 @@ vi.mock("@workspace/db", () => ({
   },
 }));
 
-vi.mock("../lib/logger", () => ({
-  logger: {
-    info: vi.fn(),
-    error: vi.fn(),
-    warn: vi.fn(),
-    debug: vi.fn(),
-    child: vi.fn().mockReturnThis(),
-  },
-}));
+vi.mock("../lib/logger");
 
 // `vi.mock` is hoisted above this import, so the static import below still
 // resolves against the mocked modules. Importing the router here at collection
@@ -53,22 +44,9 @@ vi.mock("../lib/logger", () => ({
 // out of the timed test/hook window, which otherwise flakes under parallel
 // CPU/transform contention.
 import squadsRouter from "../routes/squads";
+import { makeTestApp, type TestUser } from "./helpers/makeTestApp";
 
-type TestUser = { id: string; email?: string };
-
-function makeApp(user?: TestUser) {
-  const app = express();
-  app.use(express.json());
-  app.use((req: Request, _res: Response, next: NextFunction) => {
-    req.isAuthenticated = function (this: Request) {
-      return user != null;
-    } as Request["isAuthenticated"];
-    if (user) req.user = user as Express.User;
-    next();
-  });
-  app.use("/api", squadsRouter);
-  return app;
-}
+const makeApp = (user?: TestUser) => makeTestApp(squadsRouter, user);
 
 const MEMBER_ID = "member-user-id";
 const STRANGER_ID = "stranger-user-id";
