@@ -39,7 +39,7 @@ const MONTH_SHORT = [
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 type PollPayload = {
-  poll: { id: string; title: string; days: string[]; slots: string[] };
+  poll: { id: string; createdBy: string; title: string; days: string[]; slots: string[] };
   heatmap: { cell: string; count: number }[];
   respondentCount: number;
   myCells: string[];
@@ -116,7 +116,7 @@ function prettyCell(cell: string | null): string {
 export default function AvailabilityScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { authToken } = useAuth();
+  const { authToken, currentUser } = useAuth();
   const params = useLocalSearchParams<{ squadId?: string; eventId?: string; from?: string }>();
   const squadId = params.squadId || undefined;
   const eventId = params.eventId || undefined;
@@ -161,6 +161,14 @@ export default function AvailabilityScreen() {
   // True for INTERACTION_QUIET_MS after the last cell tap — hides the badge.
   const [isInQuietWindow, setIsInQuietWindow] = useState(false);
   const quietWindowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Edit range state: host-only modal to update an existing poll's date range.
+  const [editRangeOpen, setEditRangeOpen] = useState(false);
+  const [editStart, setEditStart] = useState<Date>(new Date());
+  const [editDays, setEditDays] = useState<number>(DEFAULT_DAY_COUNT);
+  const [editPickerOpen, setEditPickerOpen] = useState(false);
+  const [editPickerDate, setEditPickerDate] = useState<Date>(new Date());
+  const [updating, setUpdating] = useState(false);
 
   const authHeaders = useCallback((): Record<string, string> => {
     return {
@@ -276,6 +284,45 @@ export default function AvailabilityScreen() {
     const id = setInterval(() => setTick((n) => n + 1), 30_000);
     return () => clearInterval(id);
   }, []);
+
+  const openEditRange = useCallback(() => {
+    if (!data) return;
+    // Pre-populate with the poll's current range so the host sees what's set.
+    const firstDay = data.poll.days[0];
+    const d = parseISODate(firstDay);
+    setEditStart(d ?? new Date());
+    setEditDays(data.poll.days.length);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setEditRangeOpen(true);
+  }, [data]);
+
+  const updateRange = useCallback(async () => {
+    if (!data) return;
+    setUpdating(true);
+    try {
+      const days = computeRange(editStart, editDays);
+      const res = await fetch(`${API_BASE}/api/availability/polls/${data.poll.id}`, {
+        method: "PATCH",
+        headers: authHeaders(),
+        body: JSON.stringify({ days }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        Alert.alert("Couldn't update range", body.error ?? "Please try again.");
+        return;
+      }
+      const payload = (await res.json()) as PollPayload;
+      setData(payload);
+      setMySet(new Set(payload.myCells));
+      setDirty(false);
+      setEditRangeOpen(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch {
+      Alert.alert("Couldn't update range", "Network error. Please try again.");
+    } finally {
+      setUpdating(false);
+    }
+  }, [data, authHeaders, editStart, editDays]);
 
   useEffect(() => {
     if (!squadId && !eventId) {
@@ -435,6 +482,15 @@ export default function AvailabilityScreen() {
     return `${prettyDay(first)} – ${prettyDay(last)}`;
   }, [rangeStart, rangeDays]);
 
+  const editRangePreview = useMemo(() => {
+    const days = computeRange(editStart, editDays);
+    const first = days[0];
+    const last = days[days.length - 1];
+    return `${prettyDay(first)} – ${prettyDay(last)}`;
+  }, [editStart, editDays]);
+
+  const isCreator = data?.poll.createdBy === currentUser?.id;
+
   const total = data?.respondentCount ?? 0;
 
   const cellStyle = (cell: string) => {
@@ -463,6 +519,11 @@ export default function AvailabilityScreen() {
           <Ionicons name="chevron-back" size={24} color={colors.foreground} />
         </TouchableOpacity>
         <Text style={[styles.title, { color: colors.foreground }]}>Find the Best Time</Text>
+        {isCreator && (
+          <TouchableOpacity onPress={openEditRange} style={styles.editRangeBtn}>
+            <Ionicons name="calendar-outline" size={20} color={colors.primary} />
+          </TouchableOpacity>
+        )}
       </View>
 
       {loading ? (
@@ -721,6 +782,140 @@ export default function AvailabilityScreen() {
           </View>
         </>
       ) : null}
+
+      {/* Edit range modal — host only */}
+      <Modal
+        visible={editRangeOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setEditRangeOpen(false)}
+      >
+        <View style={styles.pickerOverlay}>
+          <View style={[styles.editSheet, { backgroundColor: colors.background, paddingBottom: botPad + 12 }]}>
+            <View style={[styles.pickerToolbar, { borderBottomColor: colors.border }]}>
+              <TouchableOpacity onPress={() => setEditRangeOpen(false)} style={styles.pickerBtn}>
+                <Text style={[styles.pickerBtnText, { color: colors.mutedForeground }]}>Cancel</Text>
+              </TouchableOpacity>
+              <Text style={[styles.pickerTitle, { color: colors.foreground }]}>Edit Date Range</Text>
+              <TouchableOpacity onPress={() => void updateRange()} disabled={updating} style={styles.pickerBtn}>
+                <Text style={[styles.pickerBtnText, { color: colors.primary, fontWeight: "700", opacity: updating ? 0.5 : 1 }]}>
+                  {updating ? "Saving…" : "Save"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 20 }}>
+              <Text style={[styles.setupLabel, { color: colors.mutedForeground }]}>Start date</Text>
+              {Platform.OS === "web" ? (
+                <View style={[styles.dateBtn, { backgroundColor: colors.card, borderColor: colors.primary }]}>
+                  <Ionicons name="calendar-outline" size={18} color={colors.primary} />
+                  <TextInput
+                    value={toISODate(editStart)}
+                    onChangeText={(t) => {
+                      const d = parseISODate(t.trim());
+                      if (d) setEditStart(d);
+                    }}
+                    placeholder="YYYY-MM-DD"
+                    placeholderTextColor={colors.textDim}
+                    style={[styles.dateBtnText, { color: colors.foreground }]}
+                  />
+                </View>
+              ) : (
+                <TouchableOpacity
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    setEditPickerDate(editStart);
+                    setEditPickerOpen(true);
+                  }}
+                  style={[styles.dateBtn, { backgroundColor: colors.card, borderColor: colors.primary }]}
+                >
+                  <Ionicons name="calendar-outline" size={18} color={colors.primary} />
+                  <Text style={[styles.dateBtnText, { color: colors.foreground }]}>{prettyDay(toISODate(editStart))}</Text>
+                  <Ionicons name="chevron-down" size={16} color={colors.mutedForeground} />
+                </TouchableOpacity>
+              )}
+
+              <Text style={[styles.setupLabel, { color: colors.mutedForeground }]}>How many days?</Text>
+              <View style={styles.chipRow}>
+                {DAY_COUNT_OPTIONS.map((n) => {
+                  const active = editDays === n;
+                  return (
+                    <TouchableOpacity
+                      key={n}
+                      onPress={() => {
+                        Haptics.selectionAsync();
+                        setEditDays(n);
+                      }}
+                      style={[
+                        styles.chip,
+                        {
+                          backgroundColor: active ? colors.primary : colors.card,
+                          borderColor: active ? colors.primary : colors.border,
+                        },
+                      ]}
+                    >
+                      <Text style={[styles.chipText, { color: active ? "#fff" : colors.foreground }]}>{n} days</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <View style={[styles.previewCard, { backgroundColor: colors.primary + "18", borderColor: colors.primary + "44" }]}>
+                <Ionicons name="time-outline" size={16} color={colors.primary} />
+                <Text style={[styles.previewText, { color: colors.foreground }]}>{editRangePreview}</Text>
+              </View>
+
+              <Text style={[styles.editRangeNote, { color: colors.mutedForeground }]}>
+                Existing responses outside the new range will be trimmed automatically.
+              </Text>
+            </ScrollView>
+
+            {Platform.OS === "android" && editPickerOpen && (
+              <DateTimePicker
+                value={editPickerDate}
+                mode="date"
+                display="default"
+                onChange={(_, d) => {
+                  setEditPickerOpen(false);
+                  if (d) setEditStart(d);
+                }}
+              />
+            )}
+          </View>
+        </View>
+
+        {Platform.OS === "ios" && editPickerOpen && (
+          <Modal visible animationType="slide" transparent onRequestClose={() => setEditPickerOpen(false)}>
+            <View style={styles.pickerOverlay}>
+              <View style={[styles.pickerSheet, { backgroundColor: colors.card, paddingBottom: insets.bottom + 8 }]}>
+                <View style={[styles.pickerToolbar, { borderBottomColor: colors.border }]}>
+                  <TouchableOpacity onPress={() => setEditPickerOpen(false)} style={styles.pickerBtn}>
+                    <Text style={[styles.pickerBtnText, { color: colors.mutedForeground }]}>Cancel</Text>
+                  </TouchableOpacity>
+                  <Text style={[styles.pickerTitle, { color: colors.foreground }]}>Start Date</Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setEditStart(editPickerDate);
+                      setEditPickerOpen(false);
+                    }}
+                    style={styles.pickerBtn}
+                  >
+                    <Text style={[styles.pickerBtnText, { color: colors.primary, fontWeight: "700" }]}>Done</Text>
+                  </TouchableOpacity>
+                </View>
+                <DateTimePicker
+                  value={editPickerDate}
+                  mode="date"
+                  display="spinner"
+                  onChange={(_, d) => { if (d) setEditPickerDate(d); }}
+                  themeVariant="dark"
+                  style={{ width: "100%", height: 200 }}
+                />
+              </View>
+            </View>
+          </Modal>
+        )}
+      </Modal>
     </View>
   );
 }
@@ -779,4 +974,7 @@ const styles = StyleSheet.create({
   pickerBtn: { padding: 8 },
   pickerBtnText: { fontSize: 15 },
   pickerTitle: { fontSize: 16, fontWeight: "700" },
+  editRangeBtn: { padding: 8, marginLeft: "auto" },
+  editSheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "85%" },
+  editRangeNote: { fontSize: 13, lineHeight: 18, marginTop: 18 },
 });

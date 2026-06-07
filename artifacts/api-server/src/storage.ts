@@ -450,6 +450,51 @@ export class Storage {
     return poll;
   }
 
+  async updateAvailabilityPoll(
+    pollId: string,
+    updates: { days?: string[]; slots?: string[] },
+  ): Promise<AvailabilityPoll> {
+    const setValues: Record<string, unknown> = {};
+    if (updates.days && updates.days.length) setValues.days = updates.days;
+    if (updates.slots && updates.slots.length) setValues.slots = updates.slots;
+
+    const [updated] = await db
+      .update(availabilityPollsTable)
+      .set(setValues as Partial<typeof availabilityPollsTable.$inferInsert>)
+      .where(eq(availabilityPollsTable.id, pollId))
+      .returning();
+
+    // Trim all existing responses to only cells that fall within the new grid.
+    const newDays = updated.days as string[];
+    const newSlots = updated.slots as string[];
+    const validCells = new Set<string>();
+    for (const day of newDays) {
+      for (const slot of newSlots) validCells.add(`${day}-${slot}`);
+    }
+
+    const responses = await db
+      .select()
+      .from(availabilityResponsesTable)
+      .where(eq(availabilityResponsesTable.pollId, pollId));
+
+    for (const resp of responses) {
+      const trimmed = (resp.cells as string[]).filter((c) => validCells.has(c));
+      if (trimmed.length !== (resp.cells as string[]).length) {
+        await db
+          .update(availabilityResponsesTable)
+          .set({ cells: trimmed, updatedAt: new Date() })
+          .where(
+            and(
+              eq(availabilityResponsesTable.pollId, pollId),
+              eq(availabilityResponsesTable.userId, resp.userId),
+            ),
+          );
+      }
+    }
+
+    return updated;
+  }
+
   async getAvailabilityResponses(pollId: string): Promise<AvailabilityResponse[]> {
     return db
       .select()

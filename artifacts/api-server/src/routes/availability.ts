@@ -36,6 +36,15 @@ const UpsertResponseBody = z.object({
   cells: z.array(z.string().max(40)).max(672),
 });
 
+const UpdatePollBody = z
+  .object({
+    days: z.array(z.string().max(20)).min(1).max(14).optional(),
+    slots: z.array(z.string().max(20)).min(1).max(48).optional(),
+  })
+  .refine((d) => d.days || d.slots, {
+    message: "At least one of days or slots must be provided",
+  });
+
 type AggregatedCell = { cell: string; count: number };
 
 function buildPollPayload(
@@ -213,6 +222,38 @@ router.get("/availability/polls/:id", requireAuth, async (req: Request, res: Res
   } catch (err) {
     logger.error({ err }, "Error fetching availability poll");
     res.status(500).json({ error: "Failed to fetch poll" });
+  }
+});
+
+/**
+ * PATCH /api/availability/polls/:id
+ * Update a poll's date range (days and/or slots). Only the poll creator may
+ * call this. Existing responses are preserved but any cells that fall outside
+ * the new grid are trimmed server-side.
+ */
+router.patch("/availability/polls/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req.user as { id: string }).id;
+    const poll = await storage.getAvailabilityPoll(parseId(req.params.id));
+    if (!poll) {
+      res.status(404).json({ error: "Poll not found" });
+      return;
+    }
+    if (poll.createdBy !== userId) {
+      res.status(403).json({ error: "Only the poll creator can update the date range" });
+      return;
+    }
+    const parsed = UpdatePollBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+    const updatedPoll = await storage.updateAvailabilityPoll(poll.id, parsed.data);
+    const responses = await storage.getAvailabilityResponses(updatedPoll.id);
+    res.json(buildPollPayload(updatedPoll, responses, userId));
+  } catch (err) {
+    logger.error({ err }, "Error updating availability poll");
+    res.status(500).json({ error: "Failed to update poll" });
   }
 });
 

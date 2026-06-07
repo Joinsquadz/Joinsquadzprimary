@@ -6,6 +6,7 @@ const storageMock = vi.hoisted(() => ({
   getAvailabilityPoll: vi.fn(),
   findAvailabilityPoll: vi.fn(),
   createAvailabilityPoll: vi.fn(),
+  updateAvailabilityPoll: vi.fn(),
   getAvailabilityResponses: vi.fn(),
   upsertAvailabilityResponse: vi.fn(),
   canAccessAvailabilityPoll: vi.fn(),
@@ -262,5 +263,83 @@ describe("POST /api/availability/polls", () => {
       .send({ squadId: "squad-1" });
     expect(res.status).toBe(201);
     expect(storageMock.createAvailabilityPoll).toHaveBeenCalled();
+  });
+});
+
+describe("PATCH /api/availability/polls/:id", () => {
+  const newDays = ["2026-06-14", "2026-06-15", "2026-06-16", "2026-06-17", "2026-06-18", "2026-06-19", "2026-06-20"];
+  const updatedPoll = { ...basePoll, days: newDays };
+
+  it("returns 401 when unauthenticated", async () => {
+    const app = await makeApp();
+    const res = await request(app)
+      .patch("/api/availability/polls/poll-1")
+      .send({ days: newDays });
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 404 when the poll does not exist", async () => {
+    storageMock.getAvailabilityPoll.mockResolvedValue(null);
+    const app = await makeApp({ id: MEMBER_ID });
+    const res = await request(app)
+      .patch("/api/availability/polls/poll-1")
+      .send({ days: newDays });
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 403 when caller is not the poll creator", async () => {
+    storageMock.getAvailabilityPoll.mockResolvedValue(basePoll);
+    const app = await makeApp({ id: STRANGER_ID });
+    const res = await request(app)
+      .patch("/api/availability/polls/poll-1")
+      .send({ days: newDays });
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 400 when body is empty", async () => {
+    storageMock.getAvailabilityPoll.mockResolvedValue(basePoll);
+    const app = await makeApp({ id: MEMBER_ID });
+    const res = await request(app)
+      .patch("/api/availability/polls/poll-1")
+      .send({});
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when days array is empty", async () => {
+    storageMock.getAvailabilityPoll.mockResolvedValue(basePoll);
+    const app = await makeApp({ id: MEMBER_ID });
+    const res = await request(app)
+      .patch("/api/availability/polls/poll-1")
+      .send({ days: [] });
+    expect(res.status).toBe(400);
+  });
+
+  it("updates the poll and returns the new payload (200)", async () => {
+    storageMock.getAvailabilityPoll.mockResolvedValue(basePoll);
+    storageMock.updateAvailabilityPoll.mockResolvedValue(updatedPoll);
+    storageMock.getAvailabilityResponses.mockResolvedValue([]);
+    const app = await makeApp({ id: MEMBER_ID });
+    const res = await request(app)
+      .patch("/api/availability/polls/poll-1")
+      .send({ days: newDays });
+    expect(res.status).toBe(200);
+    expect(storageMock.updateAvailabilityPoll).toHaveBeenCalledWith("poll-1", { days: newDays });
+    expect(res.body.poll.days).toEqual(newDays);
+  });
+
+  it("preserves existing responses but shows trimmed cells in heatmap", async () => {
+    storageMock.getAvailabilityPoll.mockResolvedValue(basePoll);
+    storageMock.updateAvailabilityPoll.mockResolvedValue(updatedPoll);
+    // Responses already trimmed server-side by updateAvailabilityPoll; GET sees trimmed data.
+    storageMock.getAvailabilityResponses.mockResolvedValue([
+      { userId: MEMBER_ID, cells: ["2026-06-14-6PM"] },
+    ]);
+    const app = await makeApp({ id: MEMBER_ID });
+    const res = await request(app)
+      .patch("/api/availability/polls/poll-1")
+      .send({ days: newDays });
+    expect(res.status).toBe(200);
+    expect(res.body.respondentCount).toBe(1);
+    expect(res.body.heatmap).toEqual([{ cell: "2026-06-14-6PM", count: 1 }]);
   });
 });
