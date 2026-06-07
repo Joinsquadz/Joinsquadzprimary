@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -15,12 +15,28 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useData } from "@/context/AppContext";
 import { useUserCache } from "@/context/UserCacheContext";
+import { API_BASE } from "@/lib/api";
 
 export default function SquadsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { squads, events, currentUser } = useData();
+  const { squads, events, currentUser, authToken } = useData();
   const { resolveUser, prefetchUsers } = useUserCache();
+  const [mutedSquadIds, setMutedSquadIds] = useState<Set<string>>(new Set());
+
+  const fetchMutedSquadIds = useCallback(async () => {
+    if (!authToken) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/squads/muted`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (!res.ok) return;
+      const data = await res.json() as { squadIds: string[] };
+      setMutedSquadIds(new Set(data.squadIds));
+    } catch {
+      // Network unavailable — keep current state
+    }
+  }, [authToken]);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 84 : 100);
@@ -31,6 +47,11 @@ export default function SquadsScreen() {
     if (ids.length > 0) prefetchUsers(ids);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [squads]);
+
+  // Fetch which squads the user has muted whenever squads list loads
+  useEffect(() => {
+    void fetchMutedSquadIds();
+  }, [fetchMutedSquadIds]);
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -74,7 +95,15 @@ export default function SquadsScreen() {
                   <Text style={{ fontSize: 30 }}>{squad.emoji}</Text>
                 </View>
                 <View style={styles.squadBody}>
-                  <Text style={[styles.squadName, { color: colors.foreground }]}>{squad.name}</Text>
+                  <View style={styles.squadNameRow}>
+                    <Text style={[styles.squadName, { color: colors.foreground }]}>{squad.name}</Text>
+                    {mutedSquadIds.has(squad.id) && (
+                      <View style={[styles.mutedBadge, { backgroundColor: colors.surfaceUp }]}>
+                        <Ionicons name="notifications-off-outline" size={11} color={colors.mutedForeground} />
+                        <Text style={[styles.mutedBadgeText, { color: colors.mutedForeground }]}>Muted</Text>
+                      </View>
+                    )}
+                  </View>
                   <Text style={[styles.squadMeta, { color: colors.mutedForeground }]}>
                     {squad.memberIds.length} members · {squadEvents.length} event{squadEvents.length !== 1 ? "s" : ""}
                   </Text>
@@ -139,7 +168,10 @@ const styles = StyleSheet.create({
   },
   squadIcon: { width: 60, height: 60, borderRadius: 18, alignItems: "center", justifyContent: "center", flexShrink: 0 },
   squadBody: { flex: 1, gap: 3 },
+  squadNameRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
   squadName: { fontSize: 16, fontWeight: "800" },
+  mutedBadge: { flexDirection: "row", alignItems: "center", gap: 3, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
+  mutedBadgeText: { fontSize: 10, fontWeight: "600" },
   squadMeta: { fontSize: 12 },
   memberAvatars: { flexDirection: "row", marginTop: 4 },
   memberAvatar: {

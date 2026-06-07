@@ -1054,6 +1054,15 @@ export class Storage {
     }
   }
 
+  /** Returns all squad IDs that the given user has muted. */
+  async getMutedSquadIdsForUser(userId: string): Promise<string[]> {
+    const rows = await db
+      .select({ squadId: squadMutesTable.squadId })
+      .from(squadMutesTable)
+      .where(eq(squadMutesTable.userId, userId));
+    return rows.map((r) => r.squadId);
+  }
+
   /**
    * Returns the subset of `userIds` that have NOT muted this squad.
    * Used to filter push-notification recipients in the join/add handlers.
