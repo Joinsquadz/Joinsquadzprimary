@@ -125,6 +125,7 @@ export default function ProfileScreen() {
   const [codeCopied, setCodeCopied] = useState(false);
   const [devPushToken, setDevPushToken] = useState<string | null>(null);
   const [tokenCopied, setTokenCopied] = useState(false);
+  const [sendingTestPush, setSendingTestPush] = useState(false);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 84 : 100);
@@ -321,6 +322,36 @@ export default function ProfileScreen() {
       } catch {
         // User dismissed share sheet — no action needed
       }
+    }
+  }
+
+  async function handleSendTestNotification() {
+    if (!devPushToken || sendingTestPush) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setSendingTestPush(true);
+    try {
+      const res = await fetch("https://exp.host/--/api/v2/push/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({
+          to: devPushToken,
+          title: "Squadz test notification",
+          body: "Push pipeline check — notification delivered successfully!",
+          data: { smokeTest: true, sentAt: new Date().toISOString() },
+          sound: "default",
+        }),
+      });
+      const json = await res.json() as { data?: { status?: string; message?: string } };
+      const ticket = json.data;
+      if (ticket?.status === "ok") {
+        Alert.alert("Delivered ✓", "Test notification sent successfully. Check your notification tray.");
+      } else {
+        Alert.alert("Send Failed", ticket?.message ?? "Expo returned an unexpected response.");
+      }
+    } catch {
+      Alert.alert("Network Error", "Could not reach the Expo Push API. Check your connection and try again.");
+    } finally {
+      setSendingTestPush(false);
     }
   }
 
@@ -670,7 +701,7 @@ export default function ProfileScreen() {
             <TouchableOpacity
               onPress={() => { void handleCopyPushToken(); }}
               activeOpacity={0.7}
-              style={[styles.settingRow, styles.settingFirst, styles.settingLast, { backgroundColor: colors.card, borderColor: colors.border }]}
+              style={[styles.settingRow, styles.settingFirst, { backgroundColor: colors.card, borderColor: colors.border }]}
             >
               <Ionicons name="phone-portrait-outline" size={20} color={colors.mutedForeground} />
               <View style={{ flex: 1, gap: 2 }}>
@@ -689,6 +720,21 @@ export default function ProfileScreen() {
                   {tokenCopied ? "Copied!" : "Copy"}
                 </Text>
               </View>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => { void handleSendTestNotification(); }}
+              activeOpacity={sendingTestPush ? 1 : 0.7}
+              style={[styles.settingRow, styles.settingLast, { backgroundColor: colors.card, borderColor: colors.border, borderTopWidth: 0 }]}
+            >
+              {sendingTestPush ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
+                <Ionicons name="notifications-outline" size={20} color={colors.primary} />
+              )}
+              <Text style={[styles.settingLabel, { color: sendingTestPush ? colors.mutedForeground : colors.primary, flex: 1 }]}>
+                {sendingTestPush ? "Sending…" : "Send test notification"}
+              </Text>
+              {!sendingTestPush && <Ionicons name="chevron-forward" size={16} color={colors.textDim} />}
             </TouchableOpacity>
           </View>
         ) : null}
