@@ -3,6 +3,8 @@ import { getStripeSync } from './stripeClient';
 import app from './app';
 import { logger } from './lib/logger';
 import { getSmtpStatus } from './emailService';
+import { checkPushReceipts } from './lib/pushNotifications';
+import { storage } from './storage';
 
 const rawPort = process.env['PORT'];
 
@@ -70,3 +72,19 @@ app.listen(port, (err) => {
   }
   logger.info({ port }, 'Server listening');
 });
+
+// Expo recommends checking push receipts at least 15 minutes after sending so
+// APNs/FCM has had time to report delivery status. Run the check on that cadence.
+const RECEIPT_CHECK_INTERVAL_MS = 15 * 60 * 1000;
+setInterval(() => {
+  checkPushReceipts({ onStaleToken: (token) => storage.clearPushToken(token) })
+    .then(({ staleTokens }) => {
+      if (staleTokens.length > 0) {
+        logger.info(
+          { count: staleTokens.length },
+          'Cleared stale push tokens found via receipt check',
+        );
+      }
+    })
+    .catch((err) => logger.error({ err }, 'Push receipt check failed'));
+}, RECEIPT_CHECK_INTERVAL_MS).unref();
