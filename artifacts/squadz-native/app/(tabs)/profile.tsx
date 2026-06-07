@@ -126,6 +126,7 @@ export default function ProfileScreen() {
   const [devPushToken, setDevPushToken] = useState<string | null>(null);
   const [tokenCopied, setTokenCopied] = useState(false);
   const [sendingTestPush, setSendingTestPush] = useState(false);
+  const [devPushPermission, setDevPushPermission] = useState<"granted" | "denied" | "undetermined" | null>(null);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 84 : 100);
@@ -186,6 +187,8 @@ export default function ProfileScreen() {
         const Notifications = await import("expo-notifications");
         const perm = await Notifications.getPermissionsAsync();
         const granted = perm.granted || perm.status === "granted";
+        const status = granted ? "granted" : perm.status === "denied" ? "denied" : "undetermined";
+        if (!cancelled) setDevPushPermission(status);
         if (!granted || cancelled) return;
         const tokenData = await Notifications.getExpoPushTokenAsync();
         if (!cancelled) setDevPushToken(tokenData.data);
@@ -195,6 +198,27 @@ export default function ProfileScreen() {
     })();
     return () => { cancelled = true; };
   }, []);
+
+  async function handleGrantPushPermission() {
+    try {
+      const Notifications = await import("expo-notifications");
+      const result = await Notifications.requestPermissionsAsync();
+      const granted = result.granted || result.status === "granted";
+      if (granted) {
+        setDevPushPermission("granted");
+        try {
+          const tokenData = await Notifications.getExpoPushTokenAsync();
+          setDevPushToken(tokenData.data);
+        } catch {
+          // Token fetch failed after grant (simulator without credentials, etc.)
+        }
+      } else {
+        setDevPushPermission("denied");
+      }
+    } catch {
+      // Notifications API unavailable
+    }
+  }
 
   // Load persisted calendar sync preference
   useEffect(() => {
@@ -695,47 +719,71 @@ export default function ProfileScreen() {
           </View>
         ))}
 
-        {__DEV__ && devPushToken ? (
+        {__DEV__ && Platform.OS !== "web" && devPushPermission !== null ? (
           <View style={styles.settingsGroup}>
             <Text style={[styles.devSectionTitle, { color: colors.mutedForeground }]}>Developer / Staging</Text>
-            <TouchableOpacity
-              onPress={() => { void handleCopyPushToken(); }}
-              activeOpacity={0.7}
-              style={[styles.settingRow, styles.settingFirst, { backgroundColor: colors.card, borderColor: colors.border }]}
-            >
-              <Ionicons name="phone-portrait-outline" size={20} color={colors.mutedForeground} />
-              <View style={{ flex: 1, gap: 2 }}>
-                <Text style={[styles.devTokenLabel, { color: colors.mutedForeground }]}>Expo Push Token</Text>
-                <Text style={[styles.devTokenValue, { color: colors.foreground }]} numberOfLines={1} ellipsizeMode="middle">
-                  {devPushToken}
-                </Text>
-              </View>
-              <View style={[styles.friendCodeAction, { backgroundColor: tokenCopied ? colors.green + "20" : colors.primary + "12", borderColor: tokenCopied ? colors.green + "50" : colors.primary + "30" }]}>
-                <Ionicons
-                  name={tokenCopied ? "checkmark" : "copy-outline"}
-                  size={15}
-                  color={tokenCopied ? colors.green : colors.primary}
-                />
-                <Text style={[styles.friendCodeActionText, { color: tokenCopied ? colors.green : colors.primary }]}>
-                  {tokenCopied ? "Copied!" : "Copy"}
-                </Text>
-              </View>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => { void handleSendTestNotification(); }}
-              activeOpacity={sendingTestPush ? 1 : 0.7}
-              style={[styles.settingRow, styles.settingLast, { backgroundColor: colors.card, borderColor: colors.border, borderTopWidth: 0 }]}
-            >
-              {sendingTestPush ? (
-                <ActivityIndicator size="small" color={colors.primary} />
-              ) : (
+            {devPushToken ? (
+              <>
+                <TouchableOpacity
+                  onPress={() => { void handleCopyPushToken(); }}
+                  activeOpacity={0.7}
+                  style={[styles.settingRow, styles.settingFirst, { backgroundColor: colors.card, borderColor: colors.border }]}
+                >
+                  <Ionicons name="phone-portrait-outline" size={20} color={colors.mutedForeground} />
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <Text style={[styles.devTokenLabel, { color: colors.mutedForeground }]}>Expo Push Token</Text>
+                    <Text style={[styles.devTokenValue, { color: colors.foreground }]} numberOfLines={1} ellipsizeMode="middle">
+                      {devPushToken}
+                    </Text>
+                  </View>
+                  <View style={[styles.friendCodeAction, { backgroundColor: tokenCopied ? colors.green + "20" : colors.primary + "12", borderColor: tokenCopied ? colors.green + "50" : colors.primary + "30" }]}>
+                    <Ionicons
+                      name={tokenCopied ? "checkmark" : "copy-outline"}
+                      size={15}
+                      color={tokenCopied ? colors.green : colors.primary}
+                    />
+                    <Text style={[styles.friendCodeActionText, { color: tokenCopied ? colors.green : colors.primary }]}>
+                      {tokenCopied ? "Copied!" : "Copy"}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => { void handleSendTestNotification(); }}
+                  activeOpacity={sendingTestPush ? 1 : 0.7}
+                  style={[styles.settingRow, styles.settingLast, { backgroundColor: colors.card, borderColor: colors.border, borderTopWidth: 0 }]}
+                >
+                  {sendingTestPush ? (
+                    <ActivityIndicator size="small" color={colors.primary} />
+                  ) : (
+                    <Ionicons name="notifications-outline" size={20} color={colors.primary} />
+                  )}
+                  <Text style={[styles.settingLabel, { color: sendingTestPush ? colors.mutedForeground : colors.primary, flex: 1 }]}>
+                    {sendingTestPush ? "Sending…" : "Send test notification"}
+                  </Text>
+                  {!sendingTestPush && <Ionicons name="chevron-forward" size={16} color={colors.textDim} />}
+                </TouchableOpacity>
+              </>
+            ) : devPushPermission === "undetermined" ? (
+              <TouchableOpacity
+                onPress={() => { void handleGrantPushPermission(); }}
+                activeOpacity={0.7}
+                style={[styles.settingRow, styles.settingFirst, styles.settingLast, { backgroundColor: colors.card, borderColor: colors.border }]}
+              >
                 <Ionicons name="notifications-outline" size={20} color={colors.primary} />
-              )}
-              <Text style={[styles.settingLabel, { color: sendingTestPush ? colors.mutedForeground : colors.primary, flex: 1 }]}>
-                {sendingTestPush ? "Sending…" : "Send test notification"}
-              </Text>
-              {!sendingTestPush && <Ionicons name="chevron-forward" size={16} color={colors.textDim} />}
-            </TouchableOpacity>
+                <Text style={[styles.settingLabel, { color: colors.primary, flex: 1 }]}>Grant permission to see token</Text>
+                <Ionicons name="chevron-forward" size={16} color={colors.primary} />
+              </TouchableOpacity>
+            ) : devPushPermission === "granted" ? (
+              <View style={[styles.settingRow, styles.settingFirst, styles.settingLast, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <Ionicons name="phone-portrait-outline" size={20} color={colors.mutedForeground} />
+                <Text style={[styles.settingLabel, { color: colors.mutedForeground, flex: 1 }]}>Token unavailable (simulator or missing credentials)</Text>
+              </View>
+            ) : (
+              <View style={[styles.settingRow, styles.settingFirst, styles.settingLast, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <Ionicons name="notifications-off-outline" size={20} color={colors.mutedForeground} />
+                <Text style={[styles.settingLabel, { color: colors.mutedForeground, flex: 1 }]}>Push token unavailable — notifications denied</Text>
+              </View>
+            )}
           </View>
         ) : null}
       </ScrollView>
