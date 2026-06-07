@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { API_BASE } from "@/lib/api";
+import { clearProfileCache } from "@/hooks/useUserProfiles";
 import {
   ME,
   type Event,
@@ -478,6 +479,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }).catch(() => {});
     }
     AsyncStorage.multiRemove(ALL_APP_STORAGE_KEYS).catch(() => {});
+    clearProfileCache();
     setAuthToken(null);
     setApiUser(null);
     setEmailVerified(false);

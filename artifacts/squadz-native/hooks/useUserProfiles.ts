@@ -49,20 +49,49 @@ function rowToProfile(u: ApiUserRow): UserProfile {
   };
 }
 
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+type CacheEntry = {
+  profiles: Map<string, UserProfile>;
+  expiresAt: number;
+};
+
+const profileCache = new Map<string, CacheEntry>();
+
+/** Clears all cached profile data. Call on logout to prevent data leaking between accounts. */
+export function clearProfileCache(): void {
+  profileCache.clear();
+}
+
 /**
  * Fetches real user profiles for a set of IDs from the API.
  * Returns a Map<userId, UserProfile> that grows as data arrives.
+ * Results are cached in memory for 5 minutes to avoid redundant fetches
+ * when navigating back to a squad or event screen.
  * Falls back gracefully — callers should handle IDs not present in the map.
  */
 export function useUserProfiles(
   ids: string[],
   authToken: string | null,
 ): Map<string, UserProfile> {
-  const [profiles, setProfiles] = useState<Map<string, UserProfile>>(new Map());
   const key = Array.from(new Set(ids)).sort().join(",");
+
+  const cached = key ? profileCache.get(key) : undefined;
+  const isFresh = cached !== undefined && cached.expiresAt > Date.now();
+
+  const [profiles, setProfiles] = useState<Map<string, UserProfile>>(
+    isFresh ? cached.profiles : new Map(),
+  );
 
   useEffect(() => {
     if (!key || !authToken) return;
+
+    const entry = profileCache.get(key);
+    if (entry && entry.expiresAt > Date.now()) {
+      setProfiles(entry.profiles);
+      return;
+    }
+
     let cancelled = false;
     fetch(`${API_BASE}/api/users/batch?ids=${encodeURIComponent(key)}`, {
       headers: buildAuthHeaders(authToken),
@@ -72,6 +101,7 @@ export function useUserProfiles(
         if (cancelled) return;
         const map = new Map<string, UserProfile>();
         for (const u of data) map.set(u.id, rowToProfile(u));
+        profileCache.set(key, { profiles: map, expiresAt: Date.now() + CACHE_TTL_MS });
         setProfiles(map);
       })
       .catch(() => {});
