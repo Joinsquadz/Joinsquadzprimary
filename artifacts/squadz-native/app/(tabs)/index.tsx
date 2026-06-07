@@ -36,6 +36,17 @@ export default function HomeScreen() {
   const { events, squads, eventsLoading, squadsLoading, joinEvent, joinSquad } = useData();
   const [discoverEvents, setDiscoverEvents] = useState<DiscoverEvent[]>([]);
   const [discoverSquads, setDiscoverSquads] = useState<DiscoverSquad[]>([]);
+  const [streaks, setStreaks] = useState<{ monthlyPlan: number; stayInTouch: number } | null>(null);
+
+  useEffect(() => {
+    if (!authToken) return;
+    fetch(`${API_BASE}/api/streaks`, { headers: buildAuthHeaders(authToken) })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { monthlyPlan: number; stayInTouch: number } | null) => {
+        if (data) setStreaks(data);
+      })
+      .catch(() => {});
+  }, [authToken]);
 
   useEffect(() => {
     if (!authToken) return;
@@ -129,19 +140,53 @@ export default function HomeScreen() {
           </View>
         ) : null}
 
-        {/* Streak banner */}
-        <View style={styles.section}>
-          <View style={[styles.streakBanner, { backgroundColor: colors.card, borderColor: "#FFB54740" }]}>
-            <Text style={styles.streakFire}>🔥</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.streakTitle, { color: "#FFB547" }]}>12-week squad streak!</Text>
-              <Text style={[styles.streakSub, { color: colors.mutedForeground }]}>Your crew has hung out every week</Text>
+        {/* Streaks */}
+        {streaks !== null && (streaks.monthlyPlan > 0 || streaks.stayInTouch > 0) ? (
+          <View style={[styles.section, { flexDirection: "row", gap: 12 }]}>
+            {/* Monthly plan streak */}
+            <View style={[styles.streakCard, { backgroundColor: colors.card, borderColor: "#FFB54740", flex: 1 }]}>
+              <View style={styles.streakCardTop}>
+                <Text style={styles.streakEmoji}>🔥</Text>
+                <Text style={[styles.streakCount, { color: "#FFB547" }]}>
+                  {streaks.monthlyPlan > 0 ? streaks.monthlyPlan : "—"}
+                </Text>
+              </View>
+              <Text style={[styles.streakLabel, { color: colors.foreground }]}>
+                {streaks.monthlyPlan === 1 ? "month" : "months"}
+              </Text>
+              <Text style={[styles.streakSub, { color: colors.mutedForeground }]}>Monthly plan streak</Text>
             </View>
-            <View style={[styles.streakBadge, { backgroundColor: "#FFB54722" }]}>
-              <Text style={{ fontSize: 16 }}>🏆</Text>
+            {/* Stay in touch streak */}
+            <View style={[styles.streakCard, { backgroundColor: colors.card, borderColor: "#4A9EFF40", flex: 1 }]}>
+              <View style={styles.streakCardTop}>
+                <Text style={styles.streakEmoji}>💬</Text>
+                <Text style={[styles.streakCount, { color: "#4A9EFF" }]}>
+                  {streaks.stayInTouch > 0 ? streaks.stayInTouch : "—"}
+                </Text>
+              </View>
+              <Text style={[styles.streakLabel, { color: colors.foreground }]}>
+                {streaks.stayInTouch === 1 ? "week" : "weeks"}
+              </Text>
+              <Text style={[styles.streakSub, { color: colors.mutedForeground }]}>Stay-in-touch streak</Text>
             </View>
           </View>
-        </View>
+        ) : streaks !== null ? (
+          <View style={styles.section}>
+            <TouchableOpacity
+              style={[styles.streakNudge, { backgroundColor: colors.card, borderColor: "#FFB54740" }]}
+              onPress={() => {
+                router.push("/(tabs)/create");
+              }}
+            >
+              <Text style={styles.streakEmoji}>🔥</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.streakLabel, { color: colors.foreground }]}>Start your streak</Text>
+                <Text style={[styles.streakSub, { color: colors.mutedForeground }]}>Plan something with your squad this month</Text>
+              </View>
+              <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 14 }}>+</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
 
         {/* My Squads */}
         <View style={styles.section}>
@@ -373,14 +418,18 @@ const styles = StyleSheet.create({
   },
   heroPipText: { fontSize: 11, fontWeight: "800", color: "#fff" },
   heroGoingText: { marginLeft: 8, fontSize: 12, color: "rgba(255,255,255,0.8)" },
-  streakBanner: {
-    flexDirection: "row", alignItems: "center", gap: 12,
-    borderRadius: 14, borderWidth: 1, padding: 14,
+  streakCard: {
+    borderRadius: 16, borderWidth: 1.5, padding: 16, gap: 4,
   },
-  streakFire: { fontSize: 28 },
-  streakTitle: { fontSize: 14, fontWeight: "700" },
-  streakSub: { fontSize: 12, marginTop: 2 },
-  streakBadge: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+  streakCardTop: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 2 },
+  streakEmoji: { fontSize: 22 },
+  streakCount: { fontSize: 28, fontWeight: "900" },
+  streakLabel: { fontSize: 13, fontWeight: "700" },
+  streakSub: { fontSize: 11, marginTop: 1 },
+  streakNudge: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    borderRadius: 16, borderWidth: 1.5, padding: 16,
+  },
   squadBubble: {
     borderRadius: 16, borderWidth: 1, padding: 14, width: 130,
     alignItems: "center", gap: 8,

@@ -12,6 +12,7 @@ import availabilityRouter from "./availability";
 import waitlistRouter from "./waitlist";
 import conversationsRouter from "./conversations";
 import discoverRouter from "./discover";
+import streaksRouter from "./streaks";
 
 const router: IRouter = Router();
 
@@ -28,5 +29,6 @@ router.use(availabilityRouter);
 router.use(waitlistRouter);
 router.use(conversationsRouter);
 router.use(discoverRouter);
+router.use(streaksRouter);
 
 export default router;
