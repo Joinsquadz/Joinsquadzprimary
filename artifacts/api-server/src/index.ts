@@ -5,6 +5,8 @@ import { logger } from './lib/logger';
 import { getSmtpStatus } from './emailService';
 import { checkPushReceipts } from './lib/pushNotifications';
 import { storage } from './storage';
+import { db, squadsTable } from '@workspace/db';
+import { isNull } from 'drizzle-orm';
 
 const rawPort = process.env['PORT'];
 
@@ -71,6 +73,21 @@ app.listen(port, (err) => {
     process.exit(1);
   }
   logger.info({ port }, 'Server listening');
+
+  // Warn if any squads are missing invite codes. Run pnpm --filter
+  // @workspace/scripts run backfill-squad-invite-codes to fix them.
+  db.select({ id: squadsTable.id })
+    .from(squadsTable)
+    .where(isNull(squadsTable.inviteCode))
+    .then((rows) => {
+      if (rows.length > 0) {
+        logger.warn(
+          { count: rows.length },
+          'WARNING: squads are missing invite codes. Run: pnpm --filter @workspace/scripts run backfill-squad-invite-codes',
+        );
+      }
+    })
+    .catch((err) => logger.error({ err }, 'Error checking for squads missing invite codes'));
 });
 
 // Expo recommends checking push receipts at least 15 minutes after sending so

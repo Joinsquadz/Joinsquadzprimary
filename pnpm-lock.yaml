@@ -816,9 +816,15 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 25.6.2
+      '@types/pg':
+        specifier: ^8.20.0
+        version: 8.20.0
       expo-server-sdk:
         specifier: ^6.1.0
         version: 6.1.0
+      pg:
+        specifier: ^8.20.0
+        version: 8.20.0
       stripe:
         specifier: ^22.2.0
         version: 22.2.0(@types/node@25.6.2)
