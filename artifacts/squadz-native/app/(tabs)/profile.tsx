@@ -426,7 +426,17 @@ export default function ProfileScreen() {
           </Animated.View>
         )}
         <View style={[styles.profileCard, { paddingTop: showSuccessBanner ? 16 : topPad + 20, borderBottomColor: colors.border }]}>
-          <UserAvatar initials={currentUser.initials} color={currentUser.color} imageUrl={currentUser.profileImageUrl} size={80} fontSize={28} />
+          <TouchableOpacity
+            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push("/settings/edit-profile" as never); }}
+            activeOpacity={0.8}
+            accessibilityLabel="Edit profile photo"
+            accessibilityRole="button"
+          >
+            <UserAvatar initials={currentUser.initials} color={currentUser.color} imageUrl={currentUser.profileImageUrl} size={80} fontSize={28} />
+            <View style={[styles.avatarEditBadge, { backgroundColor: colors.primary, borderColor: colors.background }]}>
+              <Ionicons name="camera" size={13} color="#fff" />
+            </View>
+          </TouchableOpacity>
           <View style={styles.nameRow}>
             <Text style={[styles.name, { color: colors.foreground }]}>{currentUser.name}</Text>
             {checkingPro ? (
@@ -576,6 +586,7 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   profileCard: { alignItems: "center", paddingHorizontal: 24, paddingBottom: 24, borderBottomWidth: 1 },
+  avatarEditBadge: { position: "absolute", bottom: 0, right: 0, width: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center", borderWidth: 2 },
   nameRow: { flexDirection: "row", alignItems: "center", marginTop: 12, marginBottom: 16 },
   name: { fontSize: 22, fontWeight: "800" },
   proBadge: { marginLeft: 8, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8, borderWidth: 1 },

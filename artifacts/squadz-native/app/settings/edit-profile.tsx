@@ -19,6 +19,7 @@ import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AppContext";
+import { useUserCache } from "@/context/UserCacheContext";
 import { UserAvatar } from "@/components/UserAvatar";
 import { GradientButton } from "@/components/GradientButton";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
@@ -33,6 +34,7 @@ export default function EditProfileScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { currentUser, authToken, refreshUser } = useAuth();
+  const { seedUser } = useUserCache();
 
   const initial = splitName(currentUser.name);
   const [firstName, setFirstName] = useState(initial.first);
@@ -120,6 +122,26 @@ export default function EditProfileScreen() {
         return;
       }
       await refreshUser();
+
+      // Propagate updated profile into UserCacheContext so squad/event screens
+      // show the new photo immediately without waiting for a cache re-fetch.
+      const updatedFirstName = firstName.trim();
+      const updatedLastName = lastName.trim();
+      const updatedName = [updatedFirstName, updatedLastName].filter(Boolean).join(" ") || "Unknown";
+      const updatedInitials =
+        updatedFirstName && updatedLastName
+          ? `${updatedFirstName[0]}${updatedLastName[0]}`.toUpperCase()
+          : updatedFirstName
+          ? updatedFirstName.slice(0, 2).toUpperCase()
+          : "U?";
+      seedUser({
+        id: currentUser.id,
+        name: updatedName,
+        initials: updatedInitials,
+        color: currentUser.color,
+        profileImageUrl: profileImageUrl ?? currentUser.profileImageUrl ?? null,
+      });
+
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.back();
     } catch {
