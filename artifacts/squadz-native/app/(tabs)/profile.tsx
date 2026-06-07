@@ -522,7 +522,7 @@ export default function ProfileScreen() {
               "What's included in Pro",
               "🗓️  Unlimited Events — Create as many events as you like\n\n📷  Photo Vault — Store & share squad photos\n\n📅  Calendar Sync — Add squad events to Apple / Google Calendar",
               [
-                { text: "View Events", onPress: () => router.push("/(tabs)/events" as never) },
+                { text: "View Events", onPress: () => router.navigate("/(tabs)/events" as never) },
                 { text: "View Photo Vault", onPress: () => router.push("/vault" as never) },
                 { text: "Calendar Sync", onPress: () => { setHighlightCalSync(true); setTimeout(() => setHighlightCalSync(false), 3000); } },
                 { text: "Done", style: "cancel" },
@@ -613,7 +613,7 @@ export default function ProfileScreen() {
                         setHighlightCalSync(true);
                         setTimeout(() => setHighlightCalSync(false), 3000);
                       } else {
-                        router.push(f.route as never);
+                        router.navigate(f.route as never);
                       }
                     }}
                     style={[styles.featureChip, { backgroundColor: colors.green + "18", borderColor: colors.green + "40" }]}

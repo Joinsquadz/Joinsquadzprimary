@@ -35,6 +35,10 @@ function NativeTabLayout() {
         <Icon sf={{ default: "person", selected: "person.fill" }} />
         <Label>You</Label>
       </NativeTabs.Trigger>
+      {/* Hidden destinations: navigable via router.navigate but not shown in the tab bar. */}
+      <NativeTabs.Trigger name="create" hidden />
+      <NativeTabs.Trigger name="events" hidden />
+      <NativeTabs.Trigger name="photos" hidden />
     </NativeTabs>
   );
 }

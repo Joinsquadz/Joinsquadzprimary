@@ -183,7 +183,7 @@ export default function HomeScreen() {
             <TouchableOpacity
               style={[styles.streakNudge, { backgroundColor: colors.card, borderColor: "#FFB54740" }]}
               onPress={() => {
-                router.push({ pathname: "/(tabs)/create" } as never);
+                router.navigate({ pathname: "/(tabs)/create" } as never);
               }}
             >
               <Text style={styles.streakEmoji}>🔥</Text>
@@ -254,7 +254,7 @@ export default function HomeScreen() {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Upcoming</Text>
-            <TouchableOpacity onPress={() => router.push("/(tabs)/events")}>
+            <TouchableOpacity onPress={() => router.navigate("/(tabs)/events")}>
               <Text style={[styles.seeAll, { color: colors.primary }]}>See all →</Text>
             </TouchableOpacity>
           </View>
@@ -288,7 +288,7 @@ export default function HomeScreen() {
                 key={s.title}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  router.push({
+                  router.navigate({
                     pathname: "/(tabs)/create",
                     params: { prefillTitle: s.title, prefillEmoji: s.emoji },
                   });
@@ -403,7 +403,7 @@ export default function HomeScreen() {
                 onPress={() => {
                   setFabOpen(false);
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                  router.push({ pathname: "/(tabs)/create" } as never);
+                  router.navigate({ pathname: "/(tabs)/create" } as never);
                 }}
                 style={[styles.fabMini, { backgroundColor: colors.card, borderColor: colors.border }]}
               >
