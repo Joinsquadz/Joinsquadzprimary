@@ -35,7 +35,12 @@ async function initStripe() {
     await stripeSync.findOrCreateManagedWebhook(`${webhookBaseUrl}/api/stripe/webhook`);
     logger.info('Webhook configured');
 
-    stripeSync.syncBackfill()
+    // `syncBackfill` requires an explicit `object` — calling it with no args
+    // makes `object` default to a function reference (not the string "all"),
+    // so the internal switch matches nothing and silently syncs zero rows.
+    // Pass `{ object: 'all' }` to backfill every supported entity (products,
+    // prices, subscriptions, …) so checkout can find the Pro plan.
+    stripeSync.syncBackfill({ object: 'all' })
       .then(() => logger.info('Stripe data synced'))
       .catch((err) => logger.error({ err }, 'Error syncing Stripe data'));
   } catch (err) {

@@ -11,3 +11,5 @@
 - [Squadz native-module web safety](squadz-native-module-web-safety.md) — Expo-web preview crashes on top-level native imports; guard + dynamic-import native modules, web uses pure-web path.
 - [Stripe connector key names](stripe-connector-key-names.md) — Replit Stripe connector uses `settings.secret` not `settings.secret_key`; template is wrong.
 - [Checkout return routing](checkout-return-routing.md) — success_url is fixed to /home?checkout=success; web stashes target tab in sessionStorage, mobile refetches on AppState "active".
+- [squadz-native vitest setup](squadz-native-vitest.md) — mobile lib unit tests: vitest.config aliases "@" to package root; mock react-native + @/lib/api via vi.hoisted so no native/expo loads under node.
+- [Stripe sync backfill](stripe-sync-backfill.md) — stripe-replit-sync syncBackfill() MUST be called with {object:"all"}; no-arg call silently syncs zero rows, leaving stripe.products empty.
