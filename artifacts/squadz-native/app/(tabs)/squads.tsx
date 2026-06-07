@@ -83,17 +83,19 @@ export default function SquadsScreen() {
     }, [fetchNotices]),
   );
 
+  // Re-fetch muted squad IDs on focus so the badge reflects changes made in squad settings
+  useFocusEffect(
+    useCallback(() => {
+      void fetchMutedSquadIds();
+    }, [fetchMutedSquadIds]),
+  );
+
   // Pre-load all squad member profiles
   useEffect(() => {
     const ids = squads.flatMap((s) => s.memberIds);
     if (ids.length > 0) prefetchUsers(ids);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [squads]);
-
-  // Fetch which squads the user has muted whenever squads list loads
-  useEffect(() => {
-    void fetchMutedSquadIds();
-  }, [fetchMutedSquadIds]);
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
