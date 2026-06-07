@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   View,
   Text,
+  Animated,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
@@ -170,6 +171,25 @@ export default function AvailabilityScreen() {
   const [editPickerDate, setEditPickerDate] = useState<Date>(new Date());
   const [updating, setUpdating] = useState(false);
 
+  // "Updated just now" indicator — fades in on data change, out after ~3s.
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fadeOutAnim = useRef<Animated.CompositeAnimation | null>(null);
+
+  const showUpdateIndicator = useCallback(() => {
+    if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
+    if (fadeOutAnim.current) fadeOutAnim.current.stop();
+    fadeAnim.setValue(1);
+    fadeTimerRef.current = setTimeout(() => {
+      fadeOutAnim.current = Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 700,
+        useNativeDriver: true,
+      });
+      fadeOutAnim.current.start();
+    }, 2300);
+  }, [fadeAnim]);
+
   const authHeaders = useCallback((): Record<string, string> => {
     return {
       "Content-Type": "application/json",
@@ -252,7 +272,14 @@ export default function AvailabilityScreen() {
       });
       if (!res.ok) return;
       const payload = (await res.json()) as PollPayload;
-      setData(payload);
+      setData((prev) => {
+        const changed =
+          !prev ||
+          prev.respondentCount !== payload.respondentCount ||
+          JSON.stringify(prev.heatmap) !== JSON.stringify(payload.heatmap);
+        if (changed) showUpdateIndicator();
+        return payload;
+      });
       if (!dirtyRef.current) {
         setMySet(new Set(payload.myCells));
       }
@@ -260,7 +287,7 @@ export default function AvailabilityScreen() {
     } catch {
       // Ignore network errors during background refresh — never surface them
     }
-  }, [authHeaders, squadId, eventId]);
+  }, [authHeaders, squadId, eventId, showUpdateIndicator]);
 
   // Set up a 20-second polling interval while the screen is mounted, and also
   // trigger an immediate refresh when the app returns to the foreground.
@@ -753,6 +780,9 @@ export default function AvailabilityScreen() {
             <Text style={[styles.respText, { color: colors.mutedForeground }]}>
               {total === 0 ? "Be the first to add your times." : `${total} ${total === 1 ? "person has" : "people have"} responded`}
             </Text>
+            <Animated.Text style={[styles.updatedText, { color: colors.textDim, opacity: fadeAnim }]}>
+              Updated just now
+            </Animated.Text>
           </ScrollView>
 
           <View style={[styles.bottomBar, { borderTopColor: colors.border, paddingBottom: botPad + 12, backgroundColor: colors.background }]}>
@@ -953,6 +983,7 @@ const styles = StyleSheet.create({
   legendSwatch: { width: 18, height: 18, borderRadius: 5, borderWidth: 1, borderColor: "transparent" },
   legendText: { fontSize: 12, marginRight: 8 },
   respText: { fontSize: 13, marginTop: 16, fontWeight: "600" },
+  updatedText: { fontSize: 11, fontWeight: "600", marginTop: 4 },
   bottomBar: { paddingHorizontal: 20, paddingTop: 12, borderTopWidth: 1, gap: 10 },
   droppedBanner: { flexDirection: "row", alignItems: "flex-start", gap: 8, borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10 },
   droppedBannerText: { flex: 1, fontSize: 13, lineHeight: 18 },
