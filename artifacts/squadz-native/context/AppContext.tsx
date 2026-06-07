@@ -217,6 +217,7 @@ function dbSquadToSquad(s: Record<string, unknown>): Squad {
     color: s.color as string,
     memberIds: (s.memberIds as string[]) ?? [],
     isPublic: (s.isPublic as boolean) ?? false,
+    creatorId: s.creatorId as string | undefined,
   };
 }
 
