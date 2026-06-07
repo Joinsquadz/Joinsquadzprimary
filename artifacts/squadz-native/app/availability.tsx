@@ -167,7 +167,12 @@ export default function AvailabilityScreen() {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [droppedNotice, setDroppedNotice] = useState<string | null>(null);
+  const droppedOpacity = useRef(new Animated.Value(0)).current;
+  const droppedAnimRef = useRef<Animated.CompositeAnimation | null>(null);
+
   const [rangeUpdatedBanner, setRangeUpdatedBanner] = useState(false);
+  const [rangeUpdatedVisible, setRangeUpdatedVisible] = useState(false);
+  const rangeUpdatedOpacity = useRef(new Animated.Value(0)).current;
 
   // Setup state: shown when no poll exists yet so the creator can pick the
   // availability range (start date + number of days) before it's created.
@@ -301,6 +306,40 @@ export default function AvailabilityScreen() {
   // boolean ensures closing the inner picker while the sheet remains open
   // does not prematurely release the guard.
   useModalGuard(editRangeOpen || editPickerOpen || showPendingModal, holdInteraction, releaseInteraction);
+
+  // Fade the droppedNotice banner in when it appears.
+  useEffect(() => {
+    if (droppedNotice !== null) {
+      if (droppedAnimRef.current) droppedAnimRef.current.stop();
+      droppedOpacity.setValue(0);
+      droppedAnimRef.current = Animated.timing(droppedOpacity, {
+        toValue: 1,
+        duration: 100,
+        useNativeDriver: true,
+      });
+      droppedAnimRef.current.start();
+    }
+  }, [droppedNotice, droppedOpacity]);
+
+  // Fade the rangeUpdatedBanner in/out.
+  useEffect(() => {
+    if (rangeUpdatedBanner) {
+      setRangeUpdatedVisible(true);
+      Animated.timing(rangeUpdatedOpacity, {
+        toValue: 1,
+        duration: 100,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      Animated.timing(rangeUpdatedOpacity, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (finished) setRangeUpdatedVisible(false);
+      });
+    }
+  }, [rangeUpdatedBanner, rangeUpdatedOpacity]);
 
   // "Updated just now" indicator — fades in on data change, out after ~3s.
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -643,7 +682,17 @@ export default function AvailabilityScreen() {
           );
         }
         setDirty(false);
-        setTimeout(() => setDroppedNotice(null), 6000);
+        setTimeout(() => {
+          if (droppedAnimRef.current) droppedAnimRef.current.stop();
+          droppedAnimRef.current = Animated.timing(droppedOpacity, {
+            toValue: 0,
+            duration: 200,
+            useNativeDriver: true,
+          });
+          droppedAnimRef.current.start(({ finished }) => {
+            if (finished) setDroppedNotice(null);
+          });
+        }, 5800);
       } else {
         setData(payload);
         setMySet(new Set(payload.myCells));
@@ -966,8 +1015,8 @@ export default function AvailabilityScreen() {
               Tap the times you're free. We'll highlight when the most people can make it.
             </Text>
 
-            {rangeUpdatedBanner && (
-              <View style={[styles.rangeUpdatedBanner, { backgroundColor: colors.card, borderColor: colors.primary + "66" }]}>
+            {rangeUpdatedVisible && (
+              <Animated.View style={[styles.rangeUpdatedBanner, { backgroundColor: colors.card, borderColor: colors.primary + "66", opacity: rangeUpdatedOpacity }]}>
                 <Ionicons name="calendar-outline" size={16} color={colors.primary} style={{ marginTop: 1 }} />
                 <Text style={[styles.rangeUpdatedText, { color: colors.foreground }]}>
                   The host updated the date range — please re-enter your availability
@@ -981,7 +1030,7 @@ export default function AvailabilityScreen() {
                 >
                   <Ionicons name="close" size={16} color={colors.mutedForeground} />
                 </TouchableOpacity>
-              </View>
+              </Animated.View>
             )}
 
             {data.best && (
@@ -1274,11 +1323,11 @@ export default function AvailabilityScreen() {
           </ScrollView>
 
           <View style={[styles.bottomBar, { borderTopColor: colors.border, paddingBottom: botPad + 12, backgroundColor: colors.background }]}>
-            {droppedNotice && (
-              <View style={[styles.droppedBanner, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            {droppedNotice !== null && (
+              <Animated.View style={[styles.droppedBanner, { backgroundColor: colors.card, borderColor: colors.border, opacity: droppedOpacity }]}>
                 <Ionicons name="information-circle-outline" size={16} color={colors.mutedForeground} />
                 <Text style={[styles.droppedBannerText, { color: colors.mutedForeground }]}>{droppedNotice}</Text>
-              </View>
+              </Animated.View>
             )}
             {data.best && !dirty && (
               <TouchableOpacity onPress={() => void useThisTime()} style={[styles.secondaryBtn, { borderColor: colors.primary }]}>
