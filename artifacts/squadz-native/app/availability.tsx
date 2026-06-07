@@ -15,7 +15,7 @@ import {
   AppState,
   type AppStateStatus,
 } from "react-native";
-import { router, useLocalSearchParams, useFocusEffect } from "expo-router";
+import { router, useLocalSearchParams, useFocusEffect, useNavigation } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -151,6 +151,7 @@ function prettyCell(cell: string | null): string {
 export default function AvailabilityScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const navigation = useNavigation();
   const { authToken, currentUser } = useAuth();
   const params = useLocalSearchParams<{ squadId?: string; eventId?: string; from?: string }>();
   const squadId = params.squadId || undefined;
@@ -186,6 +187,31 @@ export default function AvailabilityScreen() {
   // interval callback doesn't capture a stale closure.
   const dirtyRef = useRef(dirty);
   useEffect(() => { dirtyRef.current = dirty; }, [dirty]);
+
+  // Intercept all back-navigation (header button, Android hardware back, iOS
+  // swipe-back) when there are unsaved availability changes.
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("beforeRemove" as never, (e: {
+      preventDefault: () => void;
+      data: { action: object };
+    }) => {
+      if (!dirtyRef.current) return;
+      e.preventDefault();
+      Alert.alert(
+        "Unsaved changes",
+        "You have unsaved availability — leave anyway?",
+        [
+          { text: "Stay", style: "cancel" },
+          {
+            text: "Leave",
+            style: "destructive",
+            onPress: () => (navigation as { dispatch: (action: object) => void }).dispatch(e.data.action),
+          },
+        ],
+      );
+    });
+    return unsubscribe;
+  }, [navigation]);
 
   // Keep a ref that tells background polling whether a real poll is loaded.
   const hasPollRef = useRef(false);
