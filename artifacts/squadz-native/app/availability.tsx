@@ -15,7 +15,7 @@ import {
   AppState,
   type AppStateStatus,
 } from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -371,6 +371,15 @@ export default function AvailabilityScreen() {
       sub.remove();
     };
   }, [refreshInBackground]);
+
+  // Re-fetch silently whenever the screen gains focus so that slots submitted
+  // by other squad members in a different session are visible immediately on
+  // return, without waiting for the next 20-second polling tick.
+  useFocusEffect(
+    useCallback(() => {
+      void refreshInBackground();
+    }, [refreshInBackground]),
+  );
 
   // Tick every 30 s so the "Updated X ago" label stays current.
   useEffect(() => {
