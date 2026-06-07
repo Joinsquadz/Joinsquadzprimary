@@ -16,7 +16,6 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useAuth, useData } from "@/context/AppContext";
 import { EventCard } from "@/components/EventCard";
-import { UserAvatar } from "@/components/UserAvatar";
 import { SkeletonBox } from "@/components/SkeletonBox";
 import { goingCount, getUserById } from "@/data/mock";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
@@ -86,7 +85,6 @@ export default function HomeScreen() {
               <Text style={styles.badgeText}>4</Text>
             </View>
           </TouchableOpacity>
-          <UserAvatar initials={currentUser.initials} color={currentUser.color} size={44} fontSize={14} />
         </View>
       </View>
 
