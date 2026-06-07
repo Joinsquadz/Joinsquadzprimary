@@ -135,6 +135,27 @@ router.delete("/squads/:id", requireAuth, async (req: Request, res: Response): P
   }
   await db.delete(squadsTable).where(eq(squadsTable.id, id));
   res.sendStatus(204);
+
+  // Fire-and-forget: notify all other members that the squad has been deleted.
+  const otherMembers = memberIds.filter((mid) => mid !== userId);
+  if (otherMembers.length > 0) {
+    (async () => {
+      try {
+        const tokens = await storage.getPushTokensForUsers(otherMembers);
+        await sendPushNotifications(
+          tokens,
+          {
+            title: "Squad deleted",
+            body: `"${existing.name}" has been deleted`,
+            data: { screen: "squads" },
+          },
+          { onStaleToken: (token) => storage.clearPushToken(token) },
+        );
+      } catch (err) {
+        logger.error({ err }, "Error sending squad-deleted push notifications");
+      }
+    })();
+  }
 });
 
 // Squad photo vault: curated photos members have rolled up to the squad.

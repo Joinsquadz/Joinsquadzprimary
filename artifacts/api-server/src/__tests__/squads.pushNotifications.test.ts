@@ -2,13 +2,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import request from "supertest";
 
 const mockInsertRows = vi.hoisted(() => ({ value: [] as unknown[] }));
+const mockSelectRows = vi.hoisted(() => ({ value: [] as unknown[] }));
 
 vi.mock("@workspace/db", () => ({
   db: {
     select: () => ({
       from: () => ({
-        where: () => Promise.resolve([]),
-        orderBy: () => Promise.resolve([]),
+        where: () => Promise.resolve(mockSelectRows.value),
+        orderBy: () => Promise.resolve(mockSelectRows.value),
       }),
     }),
     update: () => ({
@@ -76,6 +77,7 @@ const BASE_SQUAD = {
 beforeEach(() => {
   vi.clearAllMocks();
   mockInsertRows.value = [BASE_SQUAD];
+  mockSelectRows.value = [];
   mockGetPushTokensForUsers.mockResolvedValue([TOKEN_A, TOKEN_B]);
   mockClearPushToken.mockResolvedValue(undefined);
   mockSendPushNotifications.mockResolvedValue({ staleTokens: [] });
@@ -189,5 +191,87 @@ describe("POST /api/squads — push notifications", () => {
     expect(calledWith).not.toContain(CREATOR_ID);
     expect(calledWith).toContain(MEMBER_A);
     expect(calledWithOpts).toEqual({ requireNotifySquadJoin: true });
+  });
+});
+
+describe("DELETE /api/squads/:id — push notifications", () => {
+  const DELETER_ID = CREATOR_ID;
+
+  const SQUAD_WITH_MEMBERS = {
+    ...BASE_SQUAD,
+    id: "squad-del",
+    name: "Soon Gone",
+    memberIds: [DELETER_ID, MEMBER_A, MEMBER_B],
+  };
+
+  beforeEach(() => {
+    mockSelectRows.value = [SQUAD_WITH_MEMBERS];
+  });
+
+  it("returns 204 and notifies other members", async () => {
+    const app = makeApp({ id: DELETER_ID });
+    const res = await request(app).delete("/api/squads/squad-del");
+    expect(res.status).toBe(204);
+
+    await vi.waitFor(() => {
+      expect(mockSendPushNotifications).toHaveBeenCalledTimes(1);
+    });
+
+    expect(mockGetPushTokensForUsers).toHaveBeenCalledWith([MEMBER_A, MEMBER_B]);
+    expect(mockSendPushNotifications).toHaveBeenCalledWith(
+      [TOKEN_A, TOKEN_B],
+      {
+        title: "Squad deleted",
+        body: `"${SQUAD_WITH_MEMBERS.name}" has been deleted`,
+        data: { screen: "squads" },
+      },
+      expect.objectContaining({ onStaleToken: expect.any(Function) }),
+    );
+  });
+
+  it("does not notify the deleting user", async () => {
+    const app = makeApp({ id: DELETER_ID });
+    await request(app).delete("/api/squads/squad-del");
+
+    await vi.waitFor(() => {
+      expect(mockGetPushTokensForUsers).toHaveBeenCalledTimes(1);
+    });
+
+    const calledWith = mockGetPushTokensForUsers.mock.calls[0][0] as string[];
+    expect(calledWith).not.toContain(DELETER_ID);
+    expect(calledWith).toContain(MEMBER_A);
+    expect(calledWith).toContain(MEMBER_B);
+  });
+
+  it("does not send notifications when the deleter is the only member", async () => {
+    mockSelectRows.value = [{ ...SQUAD_WITH_MEMBERS, memberIds: [DELETER_ID] }];
+
+    const app = makeApp({ id: DELETER_ID });
+    await request(app).delete("/api/squads/squad-del");
+
+    await new Promise((r) => setImmediate(r));
+
+    expect(mockGetPushTokensForUsers).not.toHaveBeenCalled();
+    expect(mockSendPushNotifications).not.toHaveBeenCalled();
+  });
+
+  it("calls clearPushToken for stale tokens via onStaleToken", async () => {
+    const staleToken = "ExponentPushToken[stale-del]";
+    mockGetPushTokensForUsers.mockResolvedValue([staleToken]);
+    mockSendPushNotifications.mockImplementation(
+      async (_tokens: string[], _payload: unknown, options?: { onStaleToken?: (t: string) => Promise<void> }) => {
+        await options?.onStaleToken?.(staleToken);
+        return { staleTokens: [staleToken] };
+      },
+    );
+
+    const app = makeApp({ id: DELETER_ID });
+    await request(app).delete("/api/squads/squad-del");
+
+    await vi.waitFor(() => {
+      expect(mockClearPushToken).toHaveBeenCalledTimes(1);
+    });
+
+    expect(mockClearPushToken).toHaveBeenCalledWith(staleToken);
   });
 });
