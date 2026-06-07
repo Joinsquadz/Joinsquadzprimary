@@ -3,7 +3,7 @@ import { getStripeSync } from './stripeClient';
 import app from './app';
 import { logger } from './lib/logger';
 import { getSmtpStatus } from './emailService';
-import { checkPushReceipts } from './lib/pushNotifications';
+import { checkPushReceipts, initPushTickets } from './lib/pushNotifications';
 import { storage } from './storage';
 import { db, squadsTable } from '@workspace/db';
 import { isNull } from 'drizzle-orm';
@@ -53,6 +53,10 @@ async function initStripe() {
 }
 
 await initStripe();
+
+initPushTickets().catch((err) =>
+  logger.error({ err }, "initPushTickets failed at startup"),
+);
 
 const smtpStatus = getSmtpStatus();
 if (smtpStatus.configured) {

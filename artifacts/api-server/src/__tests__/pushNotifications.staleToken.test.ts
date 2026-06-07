@@ -19,6 +19,18 @@ vi.mock("expo-server-sdk", () => {
 
 vi.mock("../lib/logger");
 
+const mockStorePushTicket = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const mockDeletePushTickets = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const mockLoadAllPushTickets = vi.hoisted(() => vi.fn().mockResolvedValue(new Map()));
+
+vi.mock("../storage", () => ({
+  storage: {
+    storePushTicket: mockStorePushTicket,
+    deletePushTickets: mockDeletePushTickets,
+    loadAllPushTickets: mockLoadAllPushTickets,
+  },
+}));
+
 import { sendPushNotifications } from "../lib/pushNotifications";
 
 const TOKEN_A = "ExponentPushToken[token-a]";

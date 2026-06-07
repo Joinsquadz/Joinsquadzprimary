@@ -11,6 +11,7 @@ import {
   conversationsTable,
   conversationParticipantsTable,
   conversationMessagesTable,
+  pushTicketsTable,
   type Photo,
   type AvailabilityPoll,
   type AvailabilityResponse,
@@ -1132,6 +1133,25 @@ export class Storage {
       .from(usersTable)
       .where(and(...conditions));
     return rows.map((r) => r.pushToken).filter((t): t is string => Boolean(t));
+  }
+
+  async storePushTicket(ticketId: string, pushToken: string): Promise<void> {
+    await db
+      .insert(pushTicketsTable)
+      .values({ ticketId, pushToken })
+      .onConflictDoNothing();
+  }
+
+  async deletePushTickets(ticketIds: string[]): Promise<void> {
+    if (ticketIds.length === 0) return;
+    await db
+      .delete(pushTicketsTable)
+      .where(inArray(pushTicketsTable.ticketId, ticketIds));
+  }
+
+  async loadAllPushTickets(): Promise<Map<string, string>> {
+    const rows = await db.select().from(pushTicketsTable);
+    return new Map(rows.map((r) => [r.ticketId, r.pushToken]));
   }
 }
 

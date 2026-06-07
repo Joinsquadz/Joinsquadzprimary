@@ -1,5 +1,6 @@
 import { Expo, type ExpoPushMessage } from "expo-server-sdk";
 import { logger } from "./logger";
+import { storage } from "../storage";
 
 const expo = new Expo();
 
@@ -20,17 +21,42 @@ export type SendPushOptions = {
 /**
  * In-memory map of pending ticket IDs → push token.
  * Populated by sendPushNotifications (ok tickets) and consumed by
- * checkPushReceipts. Exposed for test resets only — do not mutate in
- * production code outside this module.
+ * checkPushReceipts. Also persisted to the `push_tickets` DB table so that
+ * a server restart during the 15-minute window does not lose the ticket IDs.
+ * Exposed for test resets only — do not mutate in production code outside
+ * this module.
  */
 export const _pendingTickets: Map<string, string> = new Map();
+
+/**
+ * Load persisted push ticket IDs from the database into the in-memory map.
+ * Call once at server startup so that any tickets saved before a restart are
+ * picked up by the next `checkPushReceipts` run.
+ */
+export async function initPushTickets(): Promise<void> {
+  try {
+    const rows = await storage.loadAllPushTickets();
+    for (const [ticketId, pushToken] of rows) {
+      _pendingTickets.set(ticketId, pushToken);
+    }
+    if (rows.size > 0) {
+      logger.info(
+        { count: rows.size },
+        "Loaded pending push tickets from DB after startup",
+      );
+    }
+  } catch (err) {
+    logger.error({ err }, "Failed to load pending push tickets from DB");
+  }
+}
 
 /**
  * Send push notifications to a list of Expo push tokens.
  * Returns stale tokens (DeviceNotRegistered) so the caller can clean them up.
  * If `onStaleToken` is provided it is called immediately for each stale token.
  * Successful ticket IDs are stored in `_pendingTickets` for later receipt
- * checking via `checkPushReceipts`.
+ * checking via `checkPushReceipts`, and also persisted to the DB so they
+ * survive server restarts.
  * Fire-and-forget style: never throws — all errors are logged.
  */
 export async function sendPushNotifications(
@@ -74,6 +100,9 @@ export async function sendPushNotifications(
             }
           } else if (ticket.status === "ok") {
             _pendingTickets.set(ticket.id, token);
+            storage.storePushTicket(ticket.id, token).catch((err) => {
+              logger.error({ err, ticketId: ticket.id }, "Failed to persist push ticket to DB");
+            });
           }
         }
         messageIndex += chunk.length;
@@ -98,7 +127,8 @@ export async function sendPushNotifications(
  * has had time to deliver and report back.
  *
  * Processed ticket IDs are always removed from the pending set (whether they
- * succeeded, errored, or were not found in the receipt response).
+ * succeeded, errored, or were not found in the receipt response) and deleted
+ * from the DB.
  */
 export async function checkPushReceipts(
   options?: SendPushOptions,
@@ -108,6 +138,7 @@ export async function checkPushReceipts(
   if (ticketIds.length === 0) return { staleTokens };
 
   const chunks = expo.chunkPushNotificationReceiptIds(ticketIds);
+  const processedTicketIds: string[] = [];
 
   for (const chunk of chunks) {
     try {
@@ -115,6 +146,7 @@ export async function checkPushReceipts(
       for (const receiptId of chunk) {
         const token = _pendingTickets.get(receiptId);
         _pendingTickets.delete(receiptId);
+        processedTicketIds.push(receiptId);
 
         const receipt = receipts[receiptId];
         if (!receipt || !token) continue;
@@ -144,6 +176,12 @@ export async function checkPushReceipts(
     } catch (err) {
       logger.error({ err }, "Failed to fetch push receipts chunk");
     }
+  }
+
+  if (processedTicketIds.length > 0) {
+    storage.deletePushTickets(processedTicketIds).catch((err) => {
+      logger.error({ err }, "Failed to delete processed push tickets from DB");
+    });
   }
 
   return { staleTokens };
