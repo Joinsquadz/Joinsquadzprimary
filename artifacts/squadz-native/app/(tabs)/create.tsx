@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { LinearGradient } from "expo-linear-gradient";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -53,6 +53,7 @@ export default function CreateEventScreen() {
   const insets = useSafeAreaInsets();
   const { addEvent, squads } = useData();
   const { authToken } = useAuth();
+  const prefill = useLocalSearchParams<{ prefillDate?: string; prefillSquad?: string }>();
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + TAB_BAR_H;
 
@@ -90,6 +91,12 @@ export default function CreateEventScreen() {
 
   const [pickerDate, setPickerDate] = useState(new Date());
   const [pickerStep, setPickerStep] = useState<"date" | "time" | null>(null);
+
+  // Apply a time / squad chosen via the "Find the Best Time" picker.
+  useEffect(() => {
+    if (prefill.prefillDate) setDate(prefill.prefillDate);
+    if (prefill.prefillSquad) setSelectedSquad(prefill.prefillSquad);
+  }, [prefill.prefillDate, prefill.prefillSquad]);
 
   const resetForm = () => {
     setTitle(""); setLocation(""); setDate(""); setDescription("");
@@ -278,6 +285,21 @@ export default function CreateEventScreen() {
               <Ionicons name="chevron-forward" size={16} color={colors.textDim} />
             </TouchableOpacity>
           )}
+          <TouchableOpacity
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              if (!selectedSquad) {
+                Alert.alert("Pick a squad first", "Choose a squad below so we can poll everyone's availability.");
+                return;
+              }
+              router.push({ pathname: "/availability", params: { squadId: selectedSquad, from: "create" } } as never);
+            }}
+            style={[styles.bestTimeBtn, { borderColor: colors.primary + "55", backgroundColor: colors.primary + "10" }]}
+          >
+            <Ionicons name="sparkles-outline" size={16} color={colors.primary} />
+            <Text style={[styles.bestTimeText, { color: colors.primary }]}>Find the best time with your squad</Text>
+            <Ionicons name="chevron-forward" size={14} color={colors.primary} />
+          </TouchableOpacity>
         </View>
 
         <View style={styles.section}>
@@ -486,6 +508,8 @@ const styles = StyleSheet.create({
   dateText: { flex: 1, fontSize: 15, fontWeight: "600" },
   editDateBtn: { borderRadius: 8, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 4 },
   editDateText: { fontSize: 12 },
+  bestTimeBtn: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 12, borderWidth: 1.5, paddingHorizontal: 14, paddingVertical: 11, marginTop: 10 },
+  bestTimeText: { flex: 1, fontSize: 14, fontWeight: "700" },
   squadList: { gap: 8 },
   newSquadRow: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 13, borderWidth: 1.5, borderStyle: "dashed", padding: 14 },
   newSquadText: { fontSize: 14, fontWeight: "700" },

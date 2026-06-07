@@ -169,6 +169,24 @@ export default function SquadDetailScreen() {
           <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
         </TouchableOpacity>
 
+        {/* Find the best time */}
+        <TouchableOpacity
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            router.push({ pathname: "/availability", params: { squadId: squad.id } } as never);
+          }}
+          style={[styles.photosRow, { backgroundColor: colors.card, borderColor: colors.border, marginTop: 12 }]}
+        >
+          <View style={[styles.photosIcon, { backgroundColor: colors.primary + "20" }]}>
+            <Ionicons name="sparkles-outline" size={20} color={colors.primary} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.photosTitle, { color: colors.foreground }]}>Find the Best Time</Text>
+            <Text style={[styles.photosSub, { color: colors.mutedForeground }]}>Poll the squad · pick a time everyone's free</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
+        </TouchableOpacity>
+
         {/* Events */}
         <Text style={[styles.sectionTitle, { color: colors.foreground, marginTop: 24 }]}>Events</Text>
         {squadEvents.length === 0 ? (

@@ -156,7 +156,11 @@ export default function CreateEvent() {
                 <div style={{ marginBottom: 20 }}><Input placeholder="Start time" icon="🕐" /></div>
                 <div style={{ background: T.surfaceUp, border: `1px solid ${T.border}`, borderRadius: 14, padding: 14, marginBottom: 16 }}>
                   <div style={{ fontFamily: font, fontWeight: 700, fontSize: 13, color: T.text, marginBottom: 8 }}>⚡ AI Best Time Finder</div>
-                  <div style={{ fontSize: 12, color: T.textSub, marginBottom: 12 }}>Sync calendars to find when everyone is free</div>
+                  <div style={{ fontSize: 12, color: T.textSub, marginBottom: 12 }}>No calendar needed — let your squad tap when they're free</div>
+                  <div style={{ marginBottom: 10 }}>
+                    <Btn small variant="ghost" onPress={() => setLocation("/availability")}>✨ Poll squad availability</Btn>
+                  </div>
+                  <div style={{ fontSize: 11, color: T.textDim, marginBottom: 10 }}>Or sync calendars (Pro)</div>
                   {calendarSynced ? (
                     <div style={{ display: "flex", alignItems: "center", gap: 8, background: T.greenDim, border: `1px solid ${T.green}40`, borderRadius: 10, padding: "9px 14px" }}>
                       <span style={{ fontSize: 14 }}>✅</span>

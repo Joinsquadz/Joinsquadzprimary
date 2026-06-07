@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -70,6 +70,53 @@ async function generateCodeChallenge(verifier: string): Promise<string> {
     .replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
 }
 
+function buildAuthUrl(opts: {
+  replId: string;
+  redirectUri: string;
+  codeChallenge: string;
+  state: string;
+  nonce: string;
+}): URL {
+  const authUrl = new URL("https://replit.com/oidc/auth");
+  authUrl.searchParams.set("client_id", opts.replId);
+  authUrl.searchParams.set("redirect_uri", opts.redirectUri);
+  authUrl.searchParams.set("response_type", "code");
+  authUrl.searchParams.set("scope", "openid email profile offline_access");
+  authUrl.searchParams.set("code_challenge", opts.codeChallenge);
+  authUrl.searchParams.set("code_challenge_method", "S256");
+  authUrl.searchParams.set("state", opts.state);
+  authUrl.searchParams.set("nonce", opts.nonce);
+  authUrl.searchParams.set("prompt", "login consent");
+  return authUrl;
+}
+
+async function exchangeToken(body: {
+  code: string;
+  code_verifier: string;
+  redirect_uri: string;
+  state: string;
+  nonce: string;
+}): Promise<{ token?: string; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/api/mobile-auth/token-exchange`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return (await res.json()) as { token?: string; error?: string };
+  } catch {
+    return { error: "Network error during sign in. Please try again." };
+  }
+}
+
+function resolveReplId(): string {
+  return (
+    (Constants.expoConfig?.extra?.replId as string | undefined) ??
+    process.env.EXPO_PUBLIC_REPL_ID ??
+    ""
+  );
+}
+
 export default function LoginScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -97,6 +144,53 @@ export default function LoginScreen() {
   const bg = { backgroundColor: colors.background };
   const cardBg = { backgroundColor: colors.card, borderColor: colors.border };
 
+  // On web (Expo web), the OIDC flow is a full-page redirect rather than a
+  // popup (popups are blocked inside the Replit preview iframe). After the
+  // provider redirects back to this app with ?code, complete the exchange.
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    const code = url.searchParams.get("code");
+    const returnedState = url.searchParams.get("state");
+    if (!code) return;
+
+    const verifier = window.sessionStorage.getItem("oidc_verifier");
+    const expectedState = window.sessionStorage.getItem("oidc_state");
+    const nonce = window.sessionStorage.getItem("oidc_nonce") ?? "";
+    const redirectUri =
+      window.sessionStorage.getItem("oidc_redirect") ?? `${window.location.origin}/`;
+    const inviteEventId = window.sessionStorage.getItem("oidc_invite_event");
+
+    // Strip auth params immediately so a refresh can't replay them.
+    ["code", "state", "iss", "session_state"].forEach((k) => url.searchParams.delete(k));
+    window.history.replaceState({}, "", url.toString());
+    ["oidc_verifier", "oidc_state", "oidc_nonce", "oidc_redirect", "oidc_invite_event"].forEach(
+      (k) => window.sessionStorage.removeItem(k),
+    );
+
+    if (!verifier || !expectedState || returnedState !== expectedState) return;
+
+    setOidcLoading(true);
+    void (async () => {
+      const { token, error } = await exchangeToken({
+        code,
+        code_verifier: verifier,
+        redirect_uri: redirectUri,
+        state: expectedState,
+        nonce,
+      });
+      if (error || !token) {
+        Alert.alert("Sign In Failed", error ?? "Could not complete sign in. Please try again.");
+        setOidcLoading(false);
+        return;
+      }
+      login(token);
+      if (inviteEventId) router.replace(`/event/${inviteEventId}` as never);
+      else router.replace("/(tabs)" as never);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleReplitLogin = async () => {
     setOidcLoading(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -105,21 +199,24 @@ export default function LoginScreen() {
       const codeChallenge = await generateCodeChallenge(codeVerifier);
       const state = generateCodeVerifier();
       const nonce = generateCodeVerifier();
+      const replId = resolveReplId();
+
+      if (Platform.OS === "web" && typeof window !== "undefined") {
+        const redirectUri = `${window.location.origin}/`;
+        window.sessionStorage.setItem("oidc_verifier", codeVerifier);
+        window.sessionStorage.setItem("oidc_state", state);
+        window.sessionStorage.setItem("oidc_nonce", nonce);
+        window.sessionStorage.setItem("oidc_redirect", redirectUri);
+        if (hasInvite && params.inviteEventId) {
+          window.sessionStorage.setItem("oidc_invite_event", params.inviteEventId);
+        }
+        const authUrl = buildAuthUrl({ replId, redirectUri, codeChallenge, state, nonce });
+        window.location.assign(authUrl.toString());
+        return;
+      }
 
       const redirectUri = Linking.createURL("/");
-      const replId = Constants.expoConfig?.extra?.replId as string | undefined ?? process.env.EXPO_PUBLIC_REPL_ID ?? "";
-
-      const authUrl = new URL("https://replit.com/oidc/auth");
-      authUrl.searchParams.set("client_id", replId);
-      authUrl.searchParams.set("redirect_uri", redirectUri);
-      authUrl.searchParams.set("response_type", "code");
-      authUrl.searchParams.set("scope", "openid email profile offline_access");
-      authUrl.searchParams.set("code_challenge", codeChallenge);
-      authUrl.searchParams.set("code_challenge_method", "S256");
-      authUrl.searchParams.set("state", state);
-      authUrl.searchParams.set("nonce", nonce);
-      authUrl.searchParams.set("prompt", "login consent");
-
+      const authUrl = buildAuthUrl({ replId, redirectUri, codeChallenge, state, nonce });
       const result = await WebBrowser.openAuthSessionAsync(authUrl.toString(), redirectUri);
       if (result.type !== "success") { setOidcLoading(false); return; }
 
@@ -133,13 +230,13 @@ export default function LoginScreen() {
         return;
       }
 
-      const exchangeRes = await fetch(`${API_BASE}/api/mobile-auth/token-exchange`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, code_verifier: codeVerifier, redirect_uri: redirectUri, state, nonce }),
+      const { token, error } = await exchangeToken({
+        code,
+        code_verifier: codeVerifier,
+        redirect_uri: redirectUri,
+        state,
+        nonce,
       });
-
-      const { token, error } = await exchangeRes.json() as { token?: string; error?: string };
       if (error || !token) {
         Alert.alert("Sign In Failed", error ?? "Could not complete sign in. Please try again.");
         setOidcLoading(false);
@@ -152,9 +249,8 @@ export default function LoginScreen() {
       } else {
         router.replace("/(tabs)" as never);
       }
-    } catch (err) {
+    } catch {
       Alert.alert("Sign In Failed", "Something went wrong. Please try again.");
-    } finally {
       setOidcLoading(false);
     }
   };
@@ -414,7 +510,19 @@ export default function LoginScreen() {
               style={[styles.input, { color: colors.foreground }]}
             />
           </View>
-          <TouchableOpacity style={{ alignSelf: "flex-end", marginBottom: 20 }}>
+          <TouchableOpacity
+            style={{ alignSelf: "flex-end", marginBottom: 20 }}
+            onPress={() => {
+              const target = email.trim();
+              Alert.alert(
+                "Reset Password",
+                target
+                  ? `We'll send a reset link to ${target} if an account exists.`
+                  : "Enter your email above and we'll send you a reset link.",
+                [{ text: "OK" }],
+              );
+            }}
+          >
             <Text style={[{ fontSize: 13, color: colors.primary }]}>Forgot password?</Text>
           </TouchableOpacity>
           <GradientButton onPress={() => setScreen("phone")} label="Continue →" />

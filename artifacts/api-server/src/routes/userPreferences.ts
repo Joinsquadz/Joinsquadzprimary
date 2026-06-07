@@ -10,6 +10,27 @@ const router: IRouter = Router();
 
 const PatchPreferencesBody = z.object({
   calendarSyncEnabled: z.boolean().optional(),
+  notifyEventInvites: z.boolean().optional(),
+  notifyReminders: z.boolean().optional(),
+  notifyMessages: z.boolean().optional(),
+  notifyFriendActivity: z.boolean().optional(),
+  privateProfile: z.boolean().optional(),
+  showRsvpActivity: z.boolean().optional(),
+});
+
+const PREF_FIELDS = [
+  "notifyEventInvites",
+  "notifyReminders",
+  "notifyMessages",
+  "notifyFriendActivity",
+  "privateProfile",
+  "showRsvpActivity",
+] as const;
+
+const PatchProfileBody = z.object({
+  firstName: z.string().trim().min(1).max(60).optional(),
+  lastName: z.string().trim().max(60).nullable().optional(),
+  profileImageUrl: z.string().trim().max(2048).nullable().optional(),
 });
 
 router.get("/user/preferences", requireAuth, async (req: Request, res: Response): Promise<void> => {
@@ -18,6 +39,12 @@ router.get("/user/preferences", requireAuth, async (req: Request, res: Response)
     const [user] = await db.select({
       calendarSyncEnabled: usersTable.calendarSyncEnabled,
       calendarToken: usersTable.calendarToken,
+      notifyEventInvites: usersTable.notifyEventInvites,
+      notifyReminders: usersTable.notifyReminders,
+      notifyMessages: usersTable.notifyMessages,
+      notifyFriendActivity: usersTable.notifyFriendActivity,
+      privateProfile: usersTable.privateProfile,
+      showRsvpActivity: usersTable.showRsvpActivity,
     }).from(usersTable).where(eq(usersTable.id, userId));
 
     if (!user) {
@@ -25,13 +52,47 @@ router.get("/user/preferences", requireAuth, async (req: Request, res: Response)
       return;
     }
 
-    res.json({
-      calendarSyncEnabled: user.calendarSyncEnabled,
-      calendarToken: user.calendarToken,
-    });
+    res.json(user);
   } catch (err) {
     logger.error({ err }, "Error fetching user preferences");
     res.status(500).json({ error: "Failed to fetch preferences" });
+  }
+});
+
+router.patch("/user/profile", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const parsed = PatchProfileBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  try {
+    const userId = (req.user as { id: string }).id;
+    const patch: Partial<typeof usersTable.$inferInsert> = {};
+    if (parsed.data.firstName !== undefined) patch.firstName = parsed.data.firstName;
+    if (parsed.data.lastName !== undefined) patch.lastName = parsed.data.lastName;
+    if (parsed.data.profileImageUrl !== undefined) patch.profileImageUrl = parsed.data.profileImageUrl;
+
+    if (Object.keys(patch).length === 0) {
+      res.status(400).json({ error: "No fields to update" });
+      return;
+    }
+
+    const [updated] = await db.update(usersTable)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(eq(usersTable.id, userId))
+      .returning({
+        id: usersTable.id,
+        email: usersTable.email,
+        firstName: usersTable.firstName,
+        lastName: usersTable.lastName,
+        profileImageUrl: usersTable.profileImageUrl,
+      });
+
+    res.json({ user: updated });
+  } catch (err) {
+    logger.error({ err }, "Error updating profile");
+    res.status(500).json({ error: "Failed to update profile" });
   }
 });
 
@@ -59,18 +120,26 @@ router.patch("/user/preferences", requireAuth, async (req: Request, res: Respons
       }
     }
 
+    for (const field of PREF_FIELDS) {
+      const value = parsed.data[field];
+      if (value !== undefined) patch[field] = value;
+    }
+
     const [updated] = await db.update(usersTable)
       .set({ ...patch, updatedAt: new Date() })
       .where(eq(usersTable.id, userId))
       .returning({
         calendarSyncEnabled: usersTable.calendarSyncEnabled,
         calendarToken: usersTable.calendarToken,
+        notifyEventInvites: usersTable.notifyEventInvites,
+        notifyReminders: usersTable.notifyReminders,
+        notifyMessages: usersTable.notifyMessages,
+        notifyFriendActivity: usersTable.notifyFriendActivity,
+        privateProfile: usersTable.privateProfile,
+        showRsvpActivity: usersTable.showRsvpActivity,
       });
 
-    res.json({
-      calendarSyncEnabled: updated.calendarSyncEnabled,
-      calendarToken: updated.calendarToken,
-    });
+    res.json(updated);
   } catch (err) {
     logger.error({ err }, "Error updating user preferences");
     res.status(500).json({ error: "Failed to update preferences" });

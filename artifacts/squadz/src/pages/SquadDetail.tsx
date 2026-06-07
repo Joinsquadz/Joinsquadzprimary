@@ -211,6 +211,9 @@ export default function SquadDetail() {
                   ))}
                 </div>
                 <Btn variant="ghost" onPress={() => setLocation("/create-event")}>+ Plan an Event</Btn>
+                <div style={{ marginTop: 10 }}>
+                  <Btn variant="secondary" onPress={() => setLocation("/availability")}>✨ Find the Best Time</Btn>
+                </div>
                 <div style={{ marginTop: 20 }}><SectionLabel>Past Events</SectionLabel></div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {past.map(e => (

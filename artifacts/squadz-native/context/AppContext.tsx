@@ -87,6 +87,7 @@ type AppContextType = {
   authToken: string | null;
   login: (token?: string) => void;
   logout: () => void;
+  refreshUser: () => Promise<void>;
   setInviteCtx: (ctx: InviteCtx | null) => void;
 
   eventsLoading: boolean;
@@ -135,6 +136,7 @@ const AppContext = createContext<AppContextType>({
   authToken: null,
   login: noop,
   logout: noop,
+  refreshUser: async () => {},
   setInviteCtx: noop,
   eventsLoading: true,
   squadsLoading: true,
@@ -295,6 +297,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     }).catch(() => {});
   }, [fetchApiUser]);
+
+  const refreshUser = useCallback(async () => {
+    if (authToken) await fetchApiUser(authToken);
+  }, [authToken, fetchApiUser]);
 
   const login = useCallback((token?: string) => {
     if (token) {
@@ -682,6 +688,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         authToken,
         login,
         logout,
+        refreshUser,
         setInviteCtx,
         eventsLoading,
         squadsLoading,

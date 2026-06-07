@@ -9,11 +9,13 @@ import {
   ScrollView,
   ActivityIndicator,
   Alert,
+  Image,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
+import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import { useAuth, useData } from "@/context/AppContext";
@@ -77,6 +79,7 @@ export default function OnboardingScreen() {
   const [step, setStep] = useState(0);
   const [name, setName] = useState("");
   const [avatar, setAvatar] = useState<string | null>(null);
+  const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [interests, setInterests] = useState<Set<string>>(new Set());
   const [squadEmoji, setSquadEmoji] = useState("🔥");
   const [squadName, setSquadName] = useState("");
@@ -226,16 +229,38 @@ export default function OnboardingScreen() {
               placeholderTextColor={colors.mutedForeground}
               style={[styles.input, { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
             />
-            <View style={[styles.photoRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <Text style={styles.photoIcon}>📷</Text>
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={async () => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                if (status !== "granted") {
+                  Alert.alert("Permission needed", "Allow photo access to add a profile picture.");
+                  return;
+                }
+                const result = await ImagePicker.launchImageLibraryAsync({
+                  mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                  allowsEditing: true,
+                  aspect: [1, 1],
+                  quality: 0.7,
+                });
+                if (!result.canceled && result.assets[0]) setPhotoUri(result.assets[0].uri);
+              }}
+              style={[styles.photoRow, { backgroundColor: colors.card, borderColor: photoUri ? glow : colors.border }]}
+            >
+              {photoUri ? (
+                <Image source={{ uri: photoUri }} style={styles.photoThumb} />
+              ) : (
+                <Text style={styles.photoIcon}>📷</Text>
+              )}
               <View style={{ flex: 1 }}>
-                <Text style={[styles.photoTitle, { color: colors.foreground }]}>Upload a photo</Text>
-                <Text style={[styles.photoSub, { color: colors.mutedForeground }]}>Optional · JPG, PNG</Text>
+                <Text style={[styles.photoTitle, { color: colors.foreground }]}>{photoUri ? "Photo added" : "Upload a photo"}</Text>
+                <Text style={[styles.photoSub, { color: colors.mutedForeground }]}>{photoUri ? "Tap to change" : "Optional · JPG, PNG"}</Text>
               </View>
               <View style={[styles.chooseBtn, { backgroundColor: colors.card }]}>
-                <Text style={[styles.chooseBtnText, { color: colors.mutedForeground }]}>Choose</Text>
+                <Text style={[styles.chooseBtnText, { color: colors.mutedForeground }]}>{photoUri ? "Change" : "Choose"}</Text>
               </View>
-            </View>
+            </TouchableOpacity>
           </View>
         )}
 
@@ -588,6 +613,7 @@ const styles = StyleSheet.create({
     padding: 12, flexDirection: "row", alignItems: "center", gap: 10,
   },
   photoIcon: { fontSize: 20 },
+  photoThumb: { width: 36, height: 36, borderRadius: 18 },
   photoTitle: { fontSize: 13, fontWeight: "700" },
   photoSub: { fontSize: 11, marginTop: 1 },
   chooseBtn: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 8 },

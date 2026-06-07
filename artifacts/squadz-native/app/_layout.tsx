@@ -54,6 +54,10 @@ function RootLayoutNav() {
         <Stack.Screen name="squad/create" />
         <Stack.Screen name="friends" />
         <Stack.Screen name="vault" />
+        <Stack.Screen name="availability" />
+        <Stack.Screen name="settings/edit-profile" />
+        <Stack.Screen name="settings/notifications" />
+        <Stack.Screen name="settings/privacy" />
       </Stack>
     </>
   );

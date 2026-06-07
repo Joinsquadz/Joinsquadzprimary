@@ -1,4 +1,14 @@
-import { usersTable, eventsTable, photosTable, squadsTable, type Photo } from '@workspace/db/schema';
+import {
+  usersTable,
+  eventsTable,
+  photosTable,
+  squadsTable,
+  availabilityPollsTable,
+  availabilityResponsesTable,
+  type Photo,
+  type AvailabilityPoll,
+  type AvailabilityResponse,
+} from '@workspace/db/schema';
 import { eq, sql, count, and, gte, lt, desc, inArray } from 'drizzle-orm';
 import { db } from '@workspace/db';
 
@@ -316,6 +326,109 @@ export class Storage {
       .where(eq(squadsTable.id, squadId));
     if (!squad) return false;
     return ((squad.memberIds ?? []) as string[]).includes(userId);
+  }
+
+  // ---- Availability ("Find the Best Time") ----
+
+  async getAvailabilityPoll(pollId: string): Promise<AvailabilityPoll | null> {
+    const [poll] = await db
+      .select()
+      .from(availabilityPollsTable)
+      .where(eq(availabilityPollsTable.id, pollId));
+    return poll ?? null;
+  }
+
+  async findAvailabilityPoll(opts: {
+    squadId?: string;
+    eventId?: string;
+  }): Promise<AvailabilityPoll | null> {
+    if (opts.eventId) {
+      const [poll] = await db
+        .select()
+        .from(availabilityPollsTable)
+        .where(eq(availabilityPollsTable.eventId, opts.eventId))
+        .orderBy(desc(availabilityPollsTable.createdAt))
+        .limit(1);
+      return poll ?? null;
+    }
+    if (opts.squadId) {
+      const [poll] = await db
+        .select()
+        .from(availabilityPollsTable)
+        .where(
+          and(
+            eq(availabilityPollsTable.squadId, opts.squadId),
+            sql`${availabilityPollsTable.eventId} IS NULL`,
+          ),
+        )
+        .orderBy(desc(availabilityPollsTable.createdAt))
+        .limit(1);
+      return poll ?? null;
+    }
+    return null;
+  }
+
+  async createAvailabilityPoll(input: {
+    createdBy: string;
+    squadId?: string | null;
+    eventId?: string | null;
+    title?: string;
+    days?: string[];
+    slots?: string[];
+  }): Promise<AvailabilityPoll> {
+    const values: Record<string, unknown> = {
+      createdBy: input.createdBy,
+      squadId: input.squadId ?? null,
+      eventId: input.eventId ?? null,
+    };
+    if (input.title) values.title = input.title;
+    if (input.days && input.days.length) values.days = input.days;
+    if (input.slots && input.slots.length) values.slots = input.slots;
+    const [poll] = await db
+      .insert(availabilityPollsTable)
+      .values(values as typeof availabilityPollsTable.$inferInsert)
+      .returning();
+    return poll;
+  }
+
+  async getAvailabilityResponses(pollId: string): Promise<AvailabilityResponse[]> {
+    return db
+      .select()
+      .from(availabilityResponsesTable)
+      .where(eq(availabilityResponsesTable.pollId, pollId));
+  }
+
+  async upsertAvailabilityResponse(
+    pollId: string,
+    userId: string,
+    cells: string[],
+    source: 'manual' | 'calendar' = 'manual',
+  ): Promise<AvailabilityResponse> {
+    const [row] = await db
+      .insert(availabilityResponsesTable)
+      .values({ pollId, userId, cells, source })
+      .onConflictDoUpdate({
+        target: [availabilityResponsesTable.pollId, availabilityResponsesTable.userId],
+        set: { cells, source, updatedAt: new Date() },
+      })
+      .returning();
+    return row;
+  }
+
+  // Member-gating for a poll. Squad polls require squad membership. Event polls
+  // require the host, an RSVP'd guest, or a member of the event's squad.
+  async canAccessAvailabilityPoll(poll: AvailabilityPoll, userId: string): Promise<boolean> {
+    if (poll.createdBy === userId) return true;
+    if (poll.squadId && (await this.isSquadMember(poll.squadId, userId))) return true;
+    if (poll.eventId) {
+      const event = await this.getEvent(poll.eventId);
+      if (event) {
+        if (event.hostId === userId) return true;
+        if (event.squadId && (await this.isSquadMember(event.squadId, userId))) return true;
+        if (event.rsvps && Object.prototype.hasOwnProperty.call(event.rsvps, userId)) return true;
+      }
+    }
+    return false;
   }
 }
 

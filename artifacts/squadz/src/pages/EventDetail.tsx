@@ -109,6 +109,7 @@ function EventOverviewTab({
   isPro: boolean;
   event: EventData | null;
 }) {
+  const [, setOverviewLocation] = useLocation();
   const [codeCopied, setCodeCopied] = useState(false);
 
   const copyInviteCode = () => {
@@ -140,6 +141,17 @@ function EventOverviewTab({
 
   return (
     <div>
+      <div
+        onClick={() => { if (event) setOverviewLocation(`/availability?eventId=${event.id}`); }}
+        style={{ display: "flex", alignItems: "center", gap: 12, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, padding: 14, marginBottom: 20, cursor: "pointer" }}
+      >
+        <div style={{ width: 36, height: 36, borderRadius: 11, background: T.accent + "22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>✨</div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontFamily: font, fontWeight: 700, fontSize: 14, color: T.text }}>Find the Best Time</div>
+          <div style={{ fontFamily: font, fontSize: 12, color: T.textSub }}>Poll everyone & lock in when most can make it</div>
+        </div>
+        <div style={{ color: T.textDim, fontSize: 18 }}>›</div>
+      </div>
       <SectionLabel>Members</SectionLabel>
       <div style={{ display: "flex", gap: 10, marginBottom: 20, overflowX: "auto" }}>
         {MEMBERS.map(m => (

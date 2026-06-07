@@ -23,6 +23,12 @@ export const usersTable = pgTable("users", {
   stripeSubscriptionId: text("stripe_subscription_id"),
   calendarSyncEnabled: boolean("calendar_sync_enabled").notNull().default(false),
   calendarToken: text("calendar_token"),
+  notifyEventInvites: boolean("notify_event_invites").notNull().default(true),
+  notifyReminders: boolean("notify_reminders").notNull().default(true),
+  notifyMessages: boolean("notify_messages").notNull().default(true),
+  notifyFriendActivity: boolean("notify_friend_activity").notNull().default(true),
+  privateProfile: boolean("private_profile").notNull().default(false),
+  showRsvpActivity: boolean("show_rsvp_activity").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().$onUpdate(() => new Date()),
 });

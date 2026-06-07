@@ -16,11 +16,12 @@ import EventThread from "@/pages/EventThread";
 import EditProfile from "@/pages/EditProfile";
 import CreateSquad from "@/pages/CreateSquad";
 import InvitePage from "@/pages/InvitePage";
+import Availability from "@/pages/Availability";
 import { useEffect } from "react";
 
 const queryClient = new QueryClient();
 
-const PROTECTED_PATHS = ["/home", "/event", "/create-event", "/squad", "/dm-chat", "/event-thread", "/edit-profile", "/create-squad"];
+const PROTECTED_PATHS = ["/home", "/event", "/create-event", "/squad", "/dm-chat", "/event-thread", "/edit-profile", "/create-squad", "/availability"];
 
 function AuthGuard() {
   const [location] = useLocation();
@@ -56,6 +57,7 @@ function Router() {
         <Route path="/event-thread" component={EventThread} />
         <Route path="/edit-profile" component={EditProfile} />
         <Route path="/create-squad" component={CreateSquad} />
+        <Route path="/availability" component={Availability} />
         <Route path="/invite" component={InvitePage} />
         <Route component={NotFound} />
       </Switch>

@@ -8,6 +8,7 @@ import emailPreviewRouter from "./emailPreview";
 import userPreferencesRouter from "./userPreferences";
 import storageRouter from "./storage";
 import vaultRouter from "./vault";
+import availabilityRouter from "./availability";
 
 const router: IRouter = Router();
 
@@ -20,5 +21,6 @@ router.use(emailPreviewRouter);
 router.use(userPreferencesRouter);
 router.use(storageRouter);
 router.use(vaultRouter);
+router.use(availabilityRouter);
 
 export default router;

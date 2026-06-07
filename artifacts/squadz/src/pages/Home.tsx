@@ -551,6 +551,7 @@ function PhotoVaultTab({ onUpgrade }: { onUpgrade?: () => void }) {
   const [selected, setSelected] = React.useState<number | null>(null);
   const [photos, setPhotos] = React.useState<VaultPhoto[]>([]);
   const [isUploading, setIsUploading] = React.useState(false);
+  const [toast, setToast] = React.useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
@@ -606,6 +607,11 @@ function PhotoVaultTab({ onUpgrade }: { onUpgrade?: () => void }) {
         });
       }
       await fetchPhotos();
+      setToast(`Added ${files.length} ${files.length === 1 ? "photo" : "photos"}`);
+      setTimeout(() => setToast(null), 2500);
+    } catch {
+      setToast("Upload failed. Please try again.");
+      setTimeout(() => setToast(null), 2500);
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
