@@ -8,14 +8,20 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
+  Modal,
+  TextInput,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AppContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
+
+const DAY_COUNT_OPTIONS = [3, 5, 7, 14];
+const DEFAULT_DAY_COUNT = 7;
 
 const DAY_FULL: Record<string, string> = {
   Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday", Thu: "Thursday",
@@ -50,6 +56,22 @@ function parseISODate(day: string): Date | null {
   const m = ISO_DATE.exec(day);
   if (!m) return null;
   return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+}
+
+function toISODate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+// Build `count` consecutive ISO date strings starting at `start`.
+function computeRange(start: Date, count: number): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < count; i++) {
+    out.push(toISODate(new Date(start.getFullYear(), start.getMonth(), start.getDate() + i)));
+  }
+  return out;
 }
 
 // "7PM" -> "7 PM"; pass anything else through unchanged.
@@ -106,6 +128,15 @@ export default function AvailabilityScreen() {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  // Setup state: shown when no poll exists yet so the creator can pick the
+  // availability range (start date + number of days) before it's created.
+  const [needsSetup, setNeedsSetup] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [rangeStart, setRangeStart] = useState<Date>(new Date());
+  const [rangeDays, setRangeDays] = useState<number>(DEFAULT_DAY_COUNT);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerDate, setPickerDate] = useState<Date>(new Date());
+
   const authHeaders = useCallback((): Record<string, string> => {
     return {
       "Content-Type": "application/json",
@@ -116,12 +147,18 @@ export default function AvailabilityScreen() {
   const loadPoll = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setNeedsSetup(false);
     try {
-      const res = await fetch(`${API_BASE}/api/availability/polls`, {
-        method: "POST",
+      const qs = new URLSearchParams(squadId ? { squadId } : { eventId: eventId ?? "" });
+      const res = await fetch(`${API_BASE}/api/availability/polls/find?${qs.toString()}`, {
         headers: authHeaders(),
-        body: JSON.stringify(squadId ? { squadId } : { eventId }),
       });
+      if (res.status === 404) {
+        // No poll yet — let the creator choose the date range.
+        setData(null);
+        setNeedsSetup(true);
+        return;
+      }
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
         setError(body.error ?? "Could not load availability.");
@@ -137,6 +174,34 @@ export default function AvailabilityScreen() {
       setLoading(false);
     }
   }, [authHeaders, squadId, eventId]);
+
+  const createPoll = useCallback(async () => {
+    setCreating(true);
+    setError(null);
+    try {
+      const days = computeRange(rangeStart, rangeDays);
+      const res = await fetch(`${API_BASE}/api/availability/polls`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ ...(squadId ? { squadId } : { eventId }), days }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        Alert.alert("Couldn't create poll", body.error ?? "Please try again.");
+        return;
+      }
+      const payload = (await res.json()) as PollPayload;
+      setData(payload);
+      setMySet(new Set(payload.myCells));
+      setNeedsSetup(false);
+      setDirty(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch {
+      Alert.alert("Couldn't create poll", "Network error. Please try again.");
+    } finally {
+      setCreating(false);
+    }
+  }, [authHeaders, squadId, eventId, rangeStart, rangeDays]);
 
   useEffect(() => {
     if (!squadId && !eventId) {
@@ -221,6 +286,29 @@ export default function AvailabilityScreen() {
     } as never);
   };
 
+  const openRangePicker = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setPickerDate(rangeStart);
+    setPickerOpen(true);
+  };
+
+  const handleAndroidPick = (_: DateTimePickerEvent, d?: Date) => {
+    setPickerOpen(false);
+    if (d) setRangeStart(d);
+  };
+
+  const confirmIOSPick = () => {
+    setRangeStart(pickerDate);
+    setPickerOpen(false);
+  };
+
+  const rangePreview = useMemo(() => {
+    const days = computeRange(rangeStart, rangeDays);
+    const first = days[0];
+    const last = days[days.length - 1];
+    return `${prettyDay(first)} – ${prettyDay(last)}`;
+  }, [rangeStart, rangeDays]);
+
   const total = data?.respondentCount ?? 0;
 
   const cellStyle = (cell: string) => {
@@ -263,6 +351,123 @@ export default function AvailabilityScreen() {
             <Text style={[styles.retryText, { color: colors.primary }]}>Try again</Text>
           </TouchableOpacity>
         </View>
+      ) : needsSetup ? (
+        <>
+          <ScrollView
+            style={styles.body}
+            contentContainerStyle={{ paddingBottom: botPad + 120, paddingHorizontal: 20 }}
+            showsVerticalScrollIndicator={false}
+          >
+            <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
+              Pick the dates everyone should mark their availability for. You can plan for this week or further out.
+            </Text>
+
+            <Text style={[styles.setupLabel, { color: colors.mutedForeground }]}>Start date</Text>
+            {Platform.OS === "web" ? (
+              <View style={[styles.dateBtn, { backgroundColor: colors.card, borderColor: colors.primary }]}>
+                <Ionicons name="calendar-outline" size={18} color={colors.primary} />
+                <TextInput
+                  value={toISODate(rangeStart)}
+                  onChangeText={(t) => {
+                    const d = parseISODate(t.trim());
+                    if (d) setRangeStart(d);
+                  }}
+                  placeholder="YYYY-MM-DD"
+                  placeholderTextColor={colors.textDim}
+                  style={[styles.dateBtnText, { color: colors.foreground }]}
+                />
+              </View>
+            ) : (
+              <TouchableOpacity
+                onPress={openRangePicker}
+                style={[styles.dateBtn, { backgroundColor: colors.card, borderColor: colors.primary }]}
+              >
+                <Ionicons name="calendar-outline" size={18} color={colors.primary} />
+                <Text style={[styles.dateBtnText, { color: colors.foreground }]}>{prettyDay(toISODate(rangeStart))}</Text>
+                <Ionicons name="chevron-down" size={16} color={colors.mutedForeground} />
+              </TouchableOpacity>
+            )}
+
+            <Text style={[styles.setupLabel, { color: colors.mutedForeground }]}>How many days?</Text>
+            <View style={styles.chipRow}>
+              {DAY_COUNT_OPTIONS.map((n) => {
+                const active = rangeDays === n;
+                return (
+                  <TouchableOpacity
+                    key={n}
+                    onPress={() => {
+                      Haptics.selectionAsync();
+                      setRangeDays(n);
+                    }}
+                    style={[
+                      styles.chip,
+                      {
+                        backgroundColor: active ? colors.primary : colors.card,
+                        borderColor: active ? colors.primary : colors.border,
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.chipText, { color: active ? "#fff" : colors.foreground }]}>{n} days</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <View style={[styles.previewCard, { backgroundColor: colors.primary + "18", borderColor: colors.primary + "44" }]}>
+              <Ionicons name="time-outline" size={16} color={colors.primary} />
+              <Text style={[styles.previewText, { color: colors.foreground }]}>{rangePreview}</Text>
+            </View>
+          </ScrollView>
+
+          <View style={[styles.bottomBar, { borderTopColor: colors.border, paddingBottom: botPad + 12, backgroundColor: colors.background }]}>
+            <TouchableOpacity
+              onPress={() => void createPoll()}
+              disabled={creating}
+              style={[styles.saveBtn, { backgroundColor: colors.primary, opacity: creating ? 0.7 : 1 }]}
+            >
+              <Text style={[styles.saveBtnText, { color: "#fff" }]}>
+                {creating ? "Creating…" : "Create poll"}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {Platform.OS === "ios" && pickerOpen && (
+            <Modal visible animationType="slide" transparent onRequestClose={() => setPickerOpen(false)}>
+              <View style={styles.pickerOverlay}>
+                <View style={[styles.pickerSheet, { backgroundColor: colors.card, paddingBottom: insets.bottom + 8 }]}>
+                  <View style={[styles.pickerToolbar, { borderBottomColor: colors.border }]}>
+                    <TouchableOpacity onPress={() => setPickerOpen(false)} style={styles.pickerBtn}>
+                      <Text style={[styles.pickerBtnText, { color: colors.mutedForeground }]}>Cancel</Text>
+                    </TouchableOpacity>
+                    <Text style={[styles.pickerTitle, { color: colors.foreground }]}>Start Date</Text>
+                    <TouchableOpacity onPress={confirmIOSPick} style={styles.pickerBtn}>
+                      <Text style={[styles.pickerBtnText, { color: colors.primary, fontWeight: "700" }]}>Done</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <DateTimePicker
+                    value={pickerDate}
+                    mode="date"
+                    display="spinner"
+                    onChange={(_, d) => { if (d) setPickerDate(d); }}
+                    minimumDate={new Date()}
+                    themeVariant="dark"
+                    style={{ width: "100%", height: 200 }}
+                  />
+                </View>
+              </View>
+            </Modal>
+          )}
+
+          {Platform.OS === "android" && pickerOpen && (
+            <DateTimePicker
+              value={pickerDate}
+              mode="date"
+              display="default"
+              onChange={handleAndroidPick}
+              minimumDate={new Date()}
+            />
+          )}
+        </>
       ) : data ? (
         <>
           <ScrollView
@@ -409,4 +614,18 @@ const styles = StyleSheet.create({
   secondaryBtnText: { fontSize: 15, fontWeight: "800" },
   saveBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", borderRadius: 14, paddingVertical: 15 },
   saveBtnText: { fontSize: 16, fontWeight: "800" },
+  setupLabel: { fontSize: 13, fontWeight: "700", marginTop: 22, marginBottom: 10 },
+  dateBtn: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 14, borderWidth: 1.5, paddingHorizontal: 16, paddingVertical: 14 },
+  dateBtnText: { flex: 1, fontSize: 15, fontWeight: "700" },
+  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  chip: { borderRadius: 12, borderWidth: 1.5, paddingHorizontal: 16, paddingVertical: 10 },
+  chipText: { fontSize: 14, fontWeight: "700" },
+  previewCard: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 14, borderWidth: 1, padding: 14, marginTop: 22 },
+  previewText: { fontSize: 15, fontWeight: "700" },
+  pickerOverlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.5)" },
+  pickerSheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20 },
+  pickerToolbar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 8, paddingVertical: 10, borderBottomWidth: 1 },
+  pickerBtn: { padding: 8 },
+  pickerBtnText: { fontSize: 15 },
+  pickerTitle: { fontSize: 16, fontWeight: "700" },
 });
