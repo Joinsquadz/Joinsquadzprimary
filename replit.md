@@ -9,7 +9,9 @@ _Replace the heading above with the project's name, and this line with one sente
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- Required env: `SUPABASE_DB_URL` (preferred) or `DATABASE_URL` — Postgres connection string. The db layer (`lib/db/src/connection.ts`) prefers `SUPABASE_DB_URL` and falls back to `DATABASE_URL`.
+  - The database lives on **Supabase**. Use the **Session pooler** connection string (`aws-*.pooler.supabase.com:5432`), NOT the Direct connection (`db.<ref>.supabase.co`) — the direct host is IPv6-only and unreachable from Replit (IPv4-only).
+  - The connection string is parsed into discrete `pg` fields (host/user/password/…), so a raw, un-encoded Supabase password (which may contain `/`, `@`, `:`) works without percent-encoding.
 
 ### External service environment variables
 
