@@ -70,6 +70,9 @@ SMTP_HOST = "smtp.sendgrid.net"
 SMTP_PORT = "587"
 SMTP_USER = "apikey"
 SMTP_FROM = "Squadz <javier@joinsquadz.com>"
+SUPABASE_URL = "https://grypxcaomfwmdtmlnsxx.supabase.co"
+EXPO_PUBLIC_SUPABASE_URL = "https://grypxcaomfwmdtmlnsxx.supabase.co"
+SUPABASE_STORAGE_BUCKET = "Squadz storage bucket"
 
 [userenv.development]
 ENABLE_EMAIL_PREVIEW_TEST = "true"
