@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import { logger } from './lib/logger';
+import { sendEmail } from './services/email';
 import { db } from '@workspace/db';
 import { sql } from 'drizzle-orm';
 
@@ -465,26 +466,13 @@ export class EmailService {
         return;
       }
 
-      const transport = createTransport();
-      const from = process.env.SMTP_FROM ?? 'Squadz <noreply@squadz.app>';
-
-      if (!transport) {
-        logger.info(
-          { to: data.toEmail, subject: `Welcome to ${data.planName}` },
-          'Pro welcome email (SMTP not configured — logged only)'
-        );
-        logger.info({ emailText: buildText(data) }, 'Pro welcome email body');
-        return;
-      }
-
-      await transport.sendMail({
-        from,
+      await sendEmail({
+        from: process.env.SENDGRID_FROM ?? process.env.SMTP_FROM ?? 'Squadz <noreply@squadz.app>',
         to: data.toEmail,
         subject: `Welcome to ${data.planName}! Your subscription is active`,
         text: buildText(data),
         html: buildHtml(data),
       });
-
       logger.info({ to: data.toEmail, planName: data.planName }, 'Pro welcome email sent');
     } catch (err) {
       logger.error({ err, subscriptionId, customerId }, 'Failed to send Pro welcome email');
@@ -499,24 +487,13 @@ export class EmailService {
         return;
       }
 
-      const transport = createTransport();
-      const from = process.env.SMTP_FROM ?? 'Squadz <noreply@squadz.app>';
-      const subject = `Your ${data.planName} subscription renewed — receipt enclosed`;
-
-      if (!transport) {
-        logger.info({ to: data.toEmail, subject }, 'Renewal receipt email (SMTP not configured — logged only)');
-        logger.info({ emailText: buildRenewalReceiptText(data) }, 'Renewal receipt email body');
-        return;
-      }
-
-      await transport.sendMail({
-        from,
+      await sendEmail({
+        from: process.env.SENDGRID_FROM ?? process.env.SMTP_FROM ?? 'Squadz <noreply@squadz.app>',
         to: data.toEmail,
-        subject,
+        subject: `Your ${data.planName} subscription renewed — receipt enclosed`,
         text: buildRenewalReceiptText(data),
         html: buildRenewalReceiptHtml(data),
       });
-
       logger.info({ to: data.toEmail, planName: data.planName }, 'Renewal receipt email sent');
     } catch (err) {
       logger.error({ err, invoiceId, customerId }, 'Failed to send renewal receipt email');
@@ -531,24 +508,13 @@ export class EmailService {
         return;
       }
 
-      const transport = createTransport();
-      const from = process.env.SMTP_FROM ?? 'Squadz <noreply@squadz.app>';
-      const subject = `Action required: payment failed for your ${data.planName} subscription`;
-
-      if (!transport) {
-        logger.info({ to: data.toEmail, subject }, 'Payment failed email (SMTP not configured — logged only)');
-        logger.info({ emailText: buildPaymentFailedText(data) }, 'Payment failed email body');
-        return;
-      }
-
-      await transport.sendMail({
-        from,
+      await sendEmail({
+        from: process.env.SENDGRID_FROM ?? process.env.SMTP_FROM ?? 'Squadz <noreply@squadz.app>',
         to: data.toEmail,
-        subject,
+        subject: `Action required: payment failed for your ${data.planName} subscription`,
         text: buildPaymentFailedText(data),
         html: buildPaymentFailedHtml(data),
       });
-
       logger.info({ to: data.toEmail, planName: data.planName }, 'Payment failed email sent');
     } catch (err) {
       logger.error({ err, invoiceId, customerId }, 'Failed to send payment failed email');

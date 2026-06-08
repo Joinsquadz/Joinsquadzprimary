@@ -22,8 +22,12 @@ import { UserCacheProvider } from "@/context/UserCacheContext";
 import { MutedSquadsProvider } from "@/context/MutedSquadsContext";
 import { installWebAlert } from "@/lib/webAlert";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
+import { initMonitoring } from "@/lib/monitoring";
+import { initAnalytics } from "@/lib/analytics";
 
 installWebAlert();
+initMonitoring();
+initAnalytics();
 
 SplashScreen.preventAutoHideAsync();
 

@@ -11,6 +11,36 @@ _Replace the heading above with the project's name, and this line with one sente
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - Required env: `DATABASE_URL` — Postgres connection string
 
+### External service environment variables
+
+All services degrade gracefully when their env vars are absent (Supabase Auth falls back to session-based auth, email falls back to SMTP, storage falls back to Replit Object Storage, analytics/monitoring are no-ops).
+
+**API server** (`artifacts/api-server`):
+
+| Variable | Purpose |
+| -------- | ------- |
+| `SUPABASE_URL` | Supabase project URL (`https://<ref>.supabase.co`) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Service-role key (admin, never expose to clients) |
+| `SUPABASE_STORAGE_BUCKET` | Bucket name for photo/attachment uploads (default: `squadz-media`) |
+| `SENDGRID_API_KEY` | SendGrid API key — primary email delivery |
+| `SENDGRID_FROM` | Sender address for transactional email |
+| `TWILIO_ACCOUNT_SID` | Twilio account SID for SMS OTP |
+| `TWILIO_AUTH_TOKEN` | Twilio auth token |
+| `TWILIO_FROM_NUMBER` | Twilio "from" phone number (E.164 format) |
+| `POSTHOG_API_KEY` | PostHog project API key (server-side analytics) |
+| `POSTHOG_HOST` | PostHog instance URL (optional, defaults to `https://app.posthog.com`) |
+| `SENTRY_DSN` | Sentry DSN for server error tracking |
+
+**Mobile app** (`artifacts/squadz-native`):
+
+| Variable | Purpose |
+| -------- | ------- |
+| `EXPO_PUBLIC_SUPABASE_URL` | Supabase project URL (same as server) |
+| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon (public) key |
+| `EXPO_PUBLIC_POSTHOG_API_KEY` | PostHog project API key (client-side analytics) |
+| `EXPO_PUBLIC_POSTHOG_HOST` | PostHog instance URL (optional) |
+| `EXPO_PUBLIC_SENTRY_DSN` | Sentry DSN for mobile error tracking |
+
 ### Deep links (shared squad links → open the app)
 
 `https://getsquadz.com/squad/join-public?id=<id>` opens the native app via iOS universal links / Android app links. The association files are served by the api-server at `/.well-known/apple-app-site-association` and `/.well-known/assetlinks.json` (the proxy routes `/.well-known` to it). Set these env vars at deploy time so the links actually verify against the signed builds (defaults are placeholders that serve valid JSON but won't verify):

@@ -7,6 +7,9 @@ import router from "./routes";
 import wellKnownRouter from "./routes/wellKnown";
 import { WebhookHandlers } from "./webhookHandlers";
 import { logger } from "./lib/logger";
+import { initMonitoring, setupSentryErrorHandler } from "./services/monitoring";
+
+initMonitoring();
 
 const app: Express = express();
 
@@ -74,5 +77,6 @@ app.use(authMiddleware);
 app.use(wellKnownRouter);
 
 app.use("/api", router);
+setupSentryErrorHandler(app);
 
 export default app;

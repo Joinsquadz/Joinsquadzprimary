@@ -24,6 +24,7 @@ import {
   type SessionData,
 } from "../lib/auth";
 import { sendVerificationEmail, sendPasswordResetEmail } from "../emailService";
+import { supabaseAdmin } from "../services/supabase";
 
 const OIDC_COOKIE_TTL = 10 * 60 * 1000;
 
@@ -492,6 +493,54 @@ function toAuthUser(u: typeof usersTable.$inferSelect) {
   };
 }
 
+/**
+ * Ensure a Supabase Auth user exists in our Postgres users table.
+ * Uses the Supabase UUID as the primary key so that JWTs resolve directly.
+ * On conflict (same id) updates email + name metadata; on email conflict
+ * that would violate the unique constraint, the upsert is skipped.
+ */
+async function syncSupabaseUser(
+  supabaseUser: { id: string; email?: string; user_metadata?: Record<string, unknown> },
+  extras: { firstName?: string | null; lastName?: string | null; phone?: string | null } = {},
+): Promise<typeof usersTable.$inferSelect> {
+  const email = normalizeEmail(supabaseUser.email ?? "");
+  const firstName = (
+    extras.firstName ??
+    (supabaseUser.user_metadata?.firstName as string | undefined) ??
+    (supabaseUser.user_metadata?.first_name as string | undefined) ??
+    null
+  );
+  const lastName = (
+    extras.lastName ??
+    (supabaseUser.user_metadata?.lastName as string | undefined) ??
+    (supabaseUser.user_metadata?.last_name as string | undefined) ??
+    null
+  );
+
+  const [user] = await db
+    .insert(usersTable)
+    .values({
+      id: supabaseUser.id,
+      email,
+      firstName: firstName ?? null,
+      lastName: lastName ?? null,
+      phone: extras.phone ?? null,
+      emailVerified: false,
+      friendCode: generateFriendCode(),
+    })
+    .onConflictDoUpdate({
+      target: usersTable.id,
+      set: {
+        email,
+        firstName: firstName ?? null,
+        lastName: lastName ?? null,
+        updatedAt: new Date(),
+      },
+    })
+    .returning();
+  return user;
+}
+
 // ── Tiny in-memory rate limiter (per IP + bucket) ──────────────────────────
 const RL_WINDOW_MS = 15 * 60 * 1000;
 const rlMap = new Map<string, { count: number; resetAt: number }>();
@@ -532,6 +581,37 @@ router.post("/auth/register", async (req: Request, res: Response) => {
   }
   const email = normalizeEmail(parsed.data.email);
   const { password, phone, firstName, lastName } = parsed.data;
+
+  // --- Supabase Auth path (when SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY are set) ---
+  if (supabaseAdmin) {
+    const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: false,
+      user_metadata: { firstName: firstName || null, lastName: lastName || null, phone: phone || null },
+    });
+    if (createErr) {
+      const isConflict =
+        createErr.message?.toLowerCase().includes("already") ||
+        (createErr as unknown as { status?: number }).status === 422;
+      res.status(isConflict ? 409 : 400).json({
+        error: isConflict ? "An account with this email already exists." : createErr.message,
+      });
+      return;
+    }
+    const { data: signIn } = await supabaseAdmin.auth.signInWithPassword({ email, password });
+    const dbUser = await syncSupabaseUser(created.user, { firstName, lastName, phone });
+    void sendVerification(req, dbUser);
+    res.json({
+      token: signIn.session?.access_token ?? "",
+      refreshToken: signIn.session?.refresh_token ?? "",
+      user: toAuthUser(dbUser),
+      emailVerified: false,
+      phone: dbUser.phone,
+    });
+    return;
+  }
+  // ---------------------------------------------------------------------------------
 
   const [existing] = await db
     .select({ id: usersTable.id })
@@ -581,6 +661,28 @@ router.post("/auth/login", async (req: Request, res: Response) => {
   }
   const email = normalizeEmail(parsed.data.email);
 
+  // --- Supabase Auth path (when SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY are set) ---
+  if (supabaseAdmin) {
+    const { data, error } = await supabaseAdmin.auth.signInWithPassword({
+      email,
+      password: parsed.data.password,
+    });
+    if (error || !data.session) {
+      res.status(401).json({ error: "Incorrect email or password." });
+      return;
+    }
+    const dbUser = await syncSupabaseUser(data.user);
+    res.json({
+      token: data.session.access_token,
+      refreshToken: data.session.refresh_token,
+      user: toAuthUser(dbUser),
+      emailVerified: data.user.email_confirmed_at != null,
+      phone: dbUser.phone,
+    });
+    return;
+  }
+  // ---------------------------------------------------------------------------------
+
   const [user] = await db
     .select()
     .from(usersTable)
@@ -604,6 +706,32 @@ router.post("/auth/logout", async (req: Request, res: Response) => {
   const sid = getSessionId(req);
   if (sid) await deleteSession(sid);
   res.json({ ok: true });
+});
+
+/**
+ * POST /api/auth/refresh
+ * Exchange a Supabase refresh token for a new access token + refresh token pair.
+ * No-ops (501) when Supabase is not configured.
+ */
+router.post("/auth/refresh", async (req: Request, res: Response) => {
+  if (!supabaseAdmin) {
+    res.status(501).json({ error: "Token refresh requires Supabase to be configured." });
+    return;
+  }
+  const { refreshToken } = (req.body ?? {}) as { refreshToken?: string };
+  if (!refreshToken) {
+    res.status(400).json({ error: "refreshToken is required." });
+    return;
+  }
+  const { data, error } = await supabaseAdmin.auth.refreshSession({ refresh_token: refreshToken });
+  if (error || !data.session) {
+    res.status(401).json({ error: "Invalid or expired refresh token." });
+    return;
+  }
+  res.json({
+    token: data.session.access_token,
+    refreshToken: data.session.refresh_token,
+  });
 });
 
 router.get("/auth/me", async (req: Request, res: Response) => {

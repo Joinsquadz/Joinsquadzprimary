@@ -11,6 +11,7 @@ import {
   updateSession,
   type SessionData,
 } from "../lib/auth";
+import { supabaseAdmin } from "../services/supabase";
 
 declare global {
   namespace Express {
@@ -65,6 +66,25 @@ export async function authMiddleware(
   } as Request["isAuthenticated"];
 
   const bearerToken = getBearerToken(req);
+
+  // Supabase JWT path — 3-part base64url token (vs. legacy hex session IDs)
+  if (bearerToken != null && bearerToken.split(".").length === 3 && supabaseAdmin) {
+    const { data: { user } } = await supabaseAdmin.auth.getUser(bearerToken);
+    if (user) {
+      req.user = {
+        id: user.id,
+        email: user.email ?? null,
+        firstName:
+          (user.user_metadata?.firstName ?? user.user_metadata?.first_name ?? null) as string | null,
+        lastName:
+          (user.user_metadata?.lastName ?? user.user_metadata?.last_name ?? null) as string | null,
+        profileImageUrl: (user.user_metadata?.avatar_url ?? null) as string | null,
+      };
+    }
+    next();
+    return;
+  }
+
   const sid = getSessionId(req);
 
   if (!sid) {

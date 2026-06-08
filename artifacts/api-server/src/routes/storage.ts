@@ -5,6 +5,7 @@ import {
   RequestUploadUrlResponse,
 } from "@workspace/api-zod";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
+import { createStorageUploadUrl } from "../services/objectStorage";
 import { requireAuth } from "../middleware/currentUser";
 import { storage } from "../storage";
 
@@ -28,6 +29,20 @@ router.post("/storage/uploads/request-url", requireAuth, async (req: Request, re
   try {
     const { name, size, contentType } = parsed.data;
 
+    // Prefer Supabase Storage — direct client-to-cloud upload (no server proxying)
+    const supabaseUpload = await createStorageUploadUrl(contentType);
+    if (supabaseUpload) {
+      res.json(
+        RequestUploadUrlResponse.parse({
+          uploadURL: supabaseUpload.uploadURL,
+          objectPath: supabaseUpload.publicUrl, // store the public URL in the DB
+          metadata: { name, size, contentType },
+        }),
+      );
+      return;
+    }
+
+    // Fall back to Replit Object Storage
     const uploadURL = await objectStorageService.getObjectEntityUploadURL();
     const objectPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
 
