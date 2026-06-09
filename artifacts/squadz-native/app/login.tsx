@@ -268,13 +268,6 @@ export default function LoginScreen() {
           </Text>
         </View>
 
-        <View style={[styles.socialProof, { backgroundColor: colors.surfaceUp, borderColor: colors.border }]}>
-          <View style={[styles.liveDot, { backgroundColor: "#2ECC8A" }]} />
-          <Text style={[styles.socialProofText, { color: colors.mutedForeground }]}>
-            <Text style={{ color: "#fff", fontWeight: "700" }}>Now in early access</Text> — bring your crew
-          </Text>
-        </View>
-
         <View style={styles.pillsWrap}>
           {PILLS.map((p) => (
             <View key={p.label} style={[styles.pill, { backgroundColor: p.color + "18", borderColor: p.color + "38" }]}>
@@ -335,21 +328,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   tagline: { fontSize: 15, textAlign: "center" },
-
-  // Social proof
-  socialProof: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    borderRadius: 28,
-    borderWidth: 1,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    alignSelf: "center",
-    marginBottom: 18,
-  },
-  liveDot: { width: 8, height: 8, borderRadius: 4 },
-  socialProofText: { fontSize: 13 },
 
   // Feature pills
   pillsWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center", paddingHorizontal: 20, marginBottom: 32 },

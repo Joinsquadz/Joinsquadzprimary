@@ -9,7 +9,8 @@ Deliberate activation-focused UX decisions for `artifacts/squadz-native` (mobile
   **Why:** activation requires getting person #2 into a squad fast; a plan/paywall step before any value kills conversion.
 - **Invite-crew is the climax**, surfaced again as a persistent Home quick action + onboarding step. Uses squad invite link (`https://joinsquadz.com/squad/join?code=<code>` or `/squad/<id>`), falls back to friendCode link.
 - **"Find the Best Time" (availability) must stay discoverable:** prominent gradient CTA near top of Squad Detail (above Members) + Home quick action + empty-state CTA. Don't bury it below photos/members again.
-- **No fabricated social proof.** login.tsx uses honest early-access copy (green liveDot), never invented counts like "50k+ squads". Waitlist/counts must be real.
+- **No fabricated social proof.** login.tsx must never show invented counts ("50k+ squads") OR pre-launch/early-access badges — product owner wants it to look production-ready from the start. Waitlist/counts must be real.
+- **No fabricated activity counts.** Home bell badge was a hardcoded "4"; removed entirely (Activity screen is mock REMINDERS with no real feed). Only re-add a bell badge wired to a real unread/activity count.
 - **Stripe trust signal** ("Secure checkout via Stripe · Cancel anytime" + lock) sits under the Pro upgrade CTA.
 
 **How to apply:** when editing onboarding/login/home/squad-detail/create, preserve these; don't reintroduce paywalls, fake numbers, or hidden availability entry points.

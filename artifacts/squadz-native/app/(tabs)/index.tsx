@@ -142,9 +142,6 @@ export default function HomeScreen() {
             style={[styles.bellBtn, { backgroundColor: colors.card }]}
           >
             <Ionicons name="notifications-outline" size={22} color={colors.foreground} />
-            <View style={[styles.badge, { backgroundColor: colors.primary, borderColor: colors.background }]}>
-              <Text style={styles.badgeText}>4</Text>
-            </View>
           </TouchableOpacity>
         </View>
       </View>
@@ -570,12 +567,6 @@ const styles = StyleSheet.create({
     width: 40, height: 40, borderRadius: 20,
     alignItems: "center", justifyContent: "center", position: "relative",
   },
-  badge: {
-    position: "absolute", top: -2, right: -2,
-    width: 18, height: 18, borderRadius: 9,
-    alignItems: "center", justifyContent: "center", borderWidth: 2,
-  },
-  badgeText: { fontSize: 10, fontWeight: "800", color: "#fff" },
   body: { flex: 1 },
   section: { paddingHorizontal: 20, paddingTop: 20 },
   sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 14 },
