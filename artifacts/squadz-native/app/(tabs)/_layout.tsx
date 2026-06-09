@@ -9,15 +9,18 @@ import { Platform, StyleSheet, View, useColorScheme } from "react-native";
 
 import { useColors } from "@/hooks/useColors";
 import { useMessages } from "@/context/MessagesContext";
+import { useData } from "@/context/AppContext";
 import { TAB_BAR_HEIGHT } from "@/constants/layout";
 
 function NativeTabLayout() {
   const { unreadCount } = useMessages();
+  const { outstandingBalancesCount } = useData();
   return (
     <NativeTabs>
       <NativeTabs.Trigger name="index">
         <Icon sf={{ default: "house", selected: "house.fill" }} />
         <Label>Home</Label>
+        {outstandingBalancesCount > 0 ? <Badge>{outstandingBalancesCount > 99 ? "99+" : String(outstandingBalancesCount)}</Badge> : null}
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="squads">
         <Icon sf={{ default: "person.2", selected: "person.2.fill" }} />
@@ -48,6 +51,7 @@ function ClassicTabLayout() {
   const colors = useColors();
   const colorScheme = useColorScheme();
   const { unreadCount } = useMessages();
+  const { outstandingBalancesCount } = useData();
   const isDark = colorScheme === "dark";
   const isIOS = Platform.OS === "ios";
   const isWeb = Platform.OS === "web";
@@ -84,6 +88,7 @@ function ClassicTabLayout() {
         name="index"
         options={{
           title: "Home",
+          tabBarBadge: outstandingBalancesCount > 0 ? (outstandingBalancesCount > 99 ? "99+" : outstandingBalancesCount) : undefined,
           tabBarIcon: ({ color }) =>
             isIOS ? (
               <SymbolView name="house" tintColor={color} size={24} />

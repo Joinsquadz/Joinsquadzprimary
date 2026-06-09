@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { AppState } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { API_BASE } from "@/lib/api";
@@ -160,6 +160,7 @@ type AppContextType = {
   friendCode: string;
   addFriend: (userId: string) => void;
   removeFriend: (userId: string) => void;
+  outstandingBalancesCount: number;
 };
 
 const noop = () => {};
@@ -218,6 +219,7 @@ const AppContext = createContext<AppContextType>({
   friendCode: "",
   addFriend: noop,
   removeFriend: noop,
+  outstandingBalancesCount: 0,
 });
 
 function dbEventToEvent(e: Record<string, unknown>): Event {
@@ -1382,6 +1384,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     : ME;
 
+  const outstandingBalancesCount = useMemo(() => {
+    const meId = currentUser.id;
+    let count = 0;
+    for (const ev of events) {
+      if (!ev.costs || ev.costs.length === 0) continue;
+      let hasOutstanding = false;
+      for (const cost of ev.costs) {
+        for (const share of cost.shares) {
+          if (cost.paidById !== meId && share.userId === meId && share.amount > 0 && !share.paidAt) {
+            hasOutstanding = true;
+            break;
+          } else if (cost.paidById === meId && share.userId !== meId && share.amount > 0 && !share.confirmedAt) {
+            hasOutstanding = true;
+            break;
+          }
+        }
+        if (hasOutstanding) break;
+      }
+      if (hasOutstanding) count += 1;
+    }
+    return count;
+  }, [events, currentUser.id]);
+
   return (
     <AppContext.Provider
       value={{
@@ -1435,6 +1460,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         friendCode: apiUser?.friendCode ?? "",
         addFriend,
         removeFriend,
+        outstandingBalancesCount,
       }}
     >
       {children}
