@@ -263,6 +263,9 @@ export default function LoginScreen() {
             <SquadzIcon size={92} style={styles.appIcon} />
           </View>
           <Text style={styles.wordmark}>squadz</Text>
+          <View style={styles.earlyBadge}>
+            <Text style={styles.earlyBadgeText}>✦ Early Access</Text>
+          </View>
           <Text style={[styles.tagline, { color: colors.mutedForeground }]}>
             Stop texting. Start actually hanging.
           </Text>
@@ -328,6 +331,12 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   tagline: { fontSize: 15, textAlign: "center" },
+  earlyBadge: {
+    borderRadius: 20, borderWidth: 1,
+    borderColor: "#FF5C3A55", backgroundColor: "#FF5C3A18",
+    paddingHorizontal: 12, paddingVertical: 4, marginBottom: 8,
+  },
+  earlyBadgeText: { fontSize: 11, fontWeight: "700", color: "#FF5C3A", letterSpacing: 0.5 },
 
   // Feature pills
   pillsWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center", paddingHorizontal: 20, marginBottom: 32 },

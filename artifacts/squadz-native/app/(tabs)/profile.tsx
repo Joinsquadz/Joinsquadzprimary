@@ -432,6 +432,31 @@ export default function ProfileScreen() {
     }
   }
 
+  async function handleShareSquadInvite() {
+    const firstSquad = mySquads[0];
+    if (!firstSquad) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const code = firstSquad.inviteCode;
+    const link = code
+      ? `https://joinsquadz.com/squad/join?code=${code}`
+      : `https://joinsquadz.com/squad/${firstSquad.id}`;
+    const msg = `Join "${firstSquad.emoji} ${firstSquad.name}" on SquadZ — we use it to find when we're all free and plan hangouts 📅\n\n${link}`;
+    if (Platform.OS === "web") {
+      try {
+        await navigator.clipboard.writeText(link);
+        Alert.alert("Link copied!", "Share it with your crew.");
+      } catch {
+        Alert.alert("Squad Invite Link", link);
+      }
+    } else {
+      try {
+        await Share.share({ message: msg, url: link });
+      } catch {
+        // dismissed
+      }
+    }
+  }
+
   async function handleSendTestNotification() {
     if (!devPushToken || sendingTestPush) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -652,7 +677,7 @@ export default function ProfileScreen() {
             {[
               { value: eventCount !== null ? String(eventCount) : "—", label: "Events" },
               { value: mySquads.length.toString(), label: "Squads" },
-              { value: "Mar '24", label: "Joined" },
+              { value: mySquads.length > 0 || (eventCount !== null && eventCount > 0) ? "Active" : "New", label: "Status" },
             ].map((s, i) => (
               <View key={i} style={styles.stat}>
                 <Text style={[styles.statValue, { color: colors.foreground }]}>{s.value}</Text>
@@ -706,6 +731,25 @@ export default function ProfileScreen() {
             </View>
           )}
         </View>
+
+        {mySquads.length > 0 && (
+          <TouchableOpacity
+            onPress={() => { void handleShareSquadInvite(); }}
+            activeOpacity={0.8}
+            style={[styles.inviteCrewCard, { backgroundColor: colors.primary + "12", borderColor: colors.primary + "30" }]}
+          >
+            <View style={[styles.inviteCrewIcon, { backgroundColor: colors.primary + "22" }]}>
+              <Ionicons name="person-add-outline" size={22} color={colors.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.inviteCrewTitle, { color: colors.foreground }]}>Invite your crew</Text>
+              <Text style={[styles.inviteCrewSub, { color: colors.mutedForeground }]}>
+                Share a link to {mySquads[0]?.emoji} {mySquads[0]?.name}
+              </Text>
+            </View>
+            <Ionicons name="share-outline" size={20} color={colors.primary} />
+          </TouchableOpacity>
+        )}
 
         {notifPermission === "denied" && Platform.OS !== "web" && (
           <TouchableOpacity
@@ -955,6 +999,10 @@ const styles = StyleSheet.create({
   devSectionTitle: { fontSize: 11, fontWeight: "700", letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 8 },
   devTokenLabel: { fontSize: 10, fontWeight: "600", letterSpacing: 0.4, textTransform: "uppercase" },
   devTokenValue: { fontSize: 12, fontFamily: "monospace", letterSpacing: 0.3 },
+  inviteCrewCard: { flexDirection: "row", alignItems: "center", gap: 12, marginHorizontal: 20, marginTop: 16, borderRadius: 14, borderWidth: 1, padding: 14 },
+  inviteCrewIcon: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center" },
+  inviteCrewTitle: { fontSize: 15, fontWeight: "700", marginBottom: 2 },
+  inviteCrewSub: { fontSize: 13 },
   notifNudge: { flexDirection: "row", alignItems: "center", gap: 12, marginHorizontal: 20, marginTop: 16, borderRadius: 14, borderWidth: 1, padding: 14 },
   notifNudgeIcon: { width: 42, height: 42, borderRadius: 12, alignItems: "center", justifyContent: "center", flexShrink: 0 },
   notifNudgeTitle: { fontSize: 15, fontWeight: "700" },

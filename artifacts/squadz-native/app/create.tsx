@@ -393,13 +393,13 @@ export default function CreateEventScreen() {
         >
           {title.trim() ? (
             <LinearGradient
-              colors={atLimit ? ["#FF5C3A", "#FF8050"] : ["#FF5C3A", "#FF8050"]}
+              colors={["#FF5C3A", "#FF8050"]}
               start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
               style={[styles.createBtn, creating && { opacity: 0.7 }]}
             >
-              <Ionicons name={creating ? "hourglass-outline" : atLimit ? "lock-closed" : "add-circle-outline"} size={20} color="#fff" />
+              <Ionicons name={creating ? "hourglass-outline" : "add-circle-outline"} size={20} color="#fff" />
               <Text style={[styles.createBtnText, { color: "#fff" }]}>
-                {creating ? "Creating…" : atLimit ? "Upgrade to Create Event" : "Create Event"}
+                {creating ? "Creating…" : "Create Event"}
               </Text>
             </LinearGradient>
           ) : (

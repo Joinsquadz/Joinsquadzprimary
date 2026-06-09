@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import { router } from "expo-router";
 import {
   View,
   Text,
@@ -277,10 +278,25 @@ export default function EventsScreen() {
             <View style={styles.empty}>
               <ActivityIndicator size="large" color={colors.primary} />
             </View>
-          ) : (
+          ) : events.length === 0 && !search && filter === "All" ? (
             <View style={styles.empty}>
               <Ionicons name="calendar-outline" size={48} color={colors.textDim} />
-              <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No events found</Text>
+              <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No events yet</Text>
+              <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>
+                Plan something with your squad — or find a time everyone's free first.
+              </Text>
+              <TouchableOpacity
+                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push("/create" as never); }}
+                style={[styles.emptyBtn, { backgroundColor: colors.primary }]}
+              >
+                <Ionicons name="add-circle-outline" size={18} color="#fff" />
+                <Text style={styles.emptyBtnText}>Plan an Event</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.empty}>
+              <Ionicons name="search-outline" size={40} color={colors.textDim} />
+              <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No events match</Text>
               <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>
                 Try a different search or filter
               </Text>
@@ -325,7 +341,9 @@ const styles = StyleSheet.create({
   filterText: { fontSize: 13, fontWeight: "600" },
   empty: { alignItems: "center", paddingTop: 60, gap: 8 },
   emptyTitle: { fontSize: 17, fontWeight: "700" },
-  emptySub: { fontSize: 14, textAlign: "center" },
+  emptySub: { fontSize: 14, textAlign: "center", paddingHorizontal: 24 },
+  emptyBtn: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 20, borderRadius: 24, paddingHorizontal: 24, paddingVertical: 12 },
+  emptyBtnText: { fontSize: 15, fontWeight: "700", color: "#fff" },
 
   modalOverlay: { flex: 1, justifyContent: "flex-end" },
   sheet: {

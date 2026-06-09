@@ -25,9 +25,9 @@ const GLOW_COLORS = ["#FF5C3A", "#2ECC8A", "#A855F7"];
 const STEP_ICONS = ["👋", "🔥", "📲"];
 const STEP_TITLES = ["What should we call you?", "Create your first squad", "Invite your crew"];
 const STEP_DESCS = [
-  "This is how your crew will see you",
-  "A squad is your group — your crew joins next so SquadZ can find when everyone's free",
-  "SquadZ only works its magic once your people are in",
+  "This is how your crew will know you. No spam, no credit card — ever.",
+  "A squad is your group. Your crew joins next so SquadZ can find when everyone's actually free.",
+  "SquadZ only works its magic once your people are in. Get 2+ friends in to unlock your first overlap.",
 ];
 const TOTAL_STEPS = 3;
 
