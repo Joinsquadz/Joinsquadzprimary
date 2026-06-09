@@ -19,6 +19,7 @@ import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AppContext";
+import { useToast } from "@/context/ToastContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import {
   useMessages,
@@ -61,6 +62,7 @@ export default function ConversationScreen() {
   const insets = useSafeAreaInsets();
   const { currentUser, authToken } = useAuth();
   const { conversations, fetchThread, sendMessage, markRead } = useMessages();
+  const { showToast } = useToast();
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [participants, setParticipants] = useState<ChatParticipant[]>([]);
@@ -188,6 +190,9 @@ export default function ConversationScreen() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
       const saved = await sendMessage(conversationId, trimmed, attachments);
+      if (!saved) {
+        showToast("Message failed to send");
+      }
       setMessages((prev) =>
         prev.map((m) =>
           m.id === tempId
@@ -198,7 +203,7 @@ export default function ConversationScreen() {
         ),
       );
     },
-    [conversationId, currentUser.id, sendMessage],
+    [conversationId, currentUser.id, sendMessage, showToast],
   );
 
   const handleSendText = useCallback(() => {
