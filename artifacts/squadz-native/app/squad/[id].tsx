@@ -23,6 +23,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
+import { runSquadPoll } from "@/lib/squadLiveRefresh";
 import { useData, useAuth, type FoundUser } from "@/context/AppContext";
 import { useMutedSquads } from "@/context/MutedSquadsContext";
 import { useMessages } from "@/context/MessagesContext";
@@ -238,44 +239,17 @@ export default function SquadDetailScreen() {
       if (!id) return;
       let active = true;
 
-      const signature = (s: {
-        name?: string | null;
-        emoji?: string | null;
-        description?: string | null;
-        color?: string | null;
-        isPublic?: boolean | null;
-        membersCanInvite?: boolean | null;
-        memberIds?: string[] | null;
-      }): string =>
-        JSON.stringify([
-          s.name ?? "",
-          s.emoji ?? "",
-          s.description ?? "",
-          s.color ?? "",
-          Boolean(s.isPublic),
-          Boolean(s.membersCanInvite),
-          [...(s.memberIds ?? [])].sort(),
-        ]);
-
-      const poll = async () => {
-        try {
-          const res = await fetch(`${API_BASE}/api/squads/${id}`, { headers: authHeaders() });
-          if (!active || !res.ok) return;
-          const data = (await res.json()) as Parameters<typeof signature>[0];
-          const nextSig = signature(data);
-          if (lastSquadSigRef.current === null) {
-            lastSquadSigRef.current = nextSig;
-            return;
-          }
-          if (nextSig !== lastSquadSigRef.current) {
-            lastSquadSigRef.current = nextSig;
-            await refreshSquads();
-            if (active) playConflictBanner();
-          }
-        } catch {
-          // Network unavailable — keep current view, try again next tick
-        }
-      };
+      const poll = () =>
+        runSquadPoll({
+          id,
+          apiBase: API_BASE,
+          getHeaders: authHeaders,
+          getLastSig: () => lastSquadSigRef.current,
+          setLastSig: (sig) => { lastSquadSigRef.current = sig; },
+          isActive: () => active,
+          refreshSquads,
+          onChanged: playConflictBanner,
+        });
 
       void poll();
       const interval = setInterval(() => void poll(), 12000);
