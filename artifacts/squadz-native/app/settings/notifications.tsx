@@ -43,7 +43,7 @@ type Squad = {
 const ROWS: { key: keyof Prefs; icon: keyof typeof Ionicons.glyphMap; label: string; sub: string }[] = [
   { key: "notifyEventInvites", icon: "mail-outline", label: "Event Invites", sub: "When you're invited to an event" },
   { key: "notifyReminders", icon: "alarm-outline", label: "Event Reminders", sub: "Before events you're going to" },
-  { key: "notifyMessages", icon: "chatbubble-outline", label: "Squad Messages", sub: "New messages in squad chats" },
+  { key: "notifyMessages", icon: "chatbubble-outline", label: "Messages", sub: "New messages in your chats" },
   { key: "notifyFriendActivity", icon: "people-outline", label: "Friend Activity", sub: "When friends join or RSVP" },
   { key: "notifySquadJoin", icon: "person-add-outline", label: "New Squad Members", sub: "When someone joins one of your squads" },
   { key: "notifySquadLeave", icon: "person-remove-outline", label: "Squad Departures", sub: "When someone leaves or is removed from a squad" },

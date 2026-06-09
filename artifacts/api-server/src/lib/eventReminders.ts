@@ -41,7 +41,11 @@ export async function runEventReminderScan(): Promise<void> {
     if (tokens.length === 0) continue;
 
     try {
-      await sendPushNotifications(
+      // sendPushNotifications never throws (it logs and resolves), so rely on
+      // the returned result: only mark sent when Expo actually accepted at
+      // least one message and no submission error occurred. Otherwise leave
+      // unmarked so the next scan retries (fire-once on success, not attempt).
+      const result = await sendPushNotifications(
         tokens,
         {
           title: `${event.emoji} ${event.title}`,
@@ -50,7 +54,14 @@ export async function runEventReminderScan(): Promise<void> {
         },
         { onStaleToken: (token) => storage.clearPushToken(token) },
       );
-      await storage.markEventReminderSent(event.id);
+      if (result.okCount > 0 && !result.hadSendError) {
+        await storage.markEventReminderSent(event.id);
+      } else {
+        logger.warn(
+          { eventId: event.id, okCount: result.okCount, hadSendError: result.hadSendError },
+          'Event reminder not confirmed sent; will retry next scan',
+        );
+      }
     } catch (err) {
       logger.error({ err, eventId: event.id }, 'Event reminder send failed; will retry');
     }

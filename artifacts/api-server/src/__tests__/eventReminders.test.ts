@@ -51,7 +51,7 @@ beforeEach(() => {
   storageMock.getPushTokensForUsers.mockResolvedValue(["ExponentPushToken[x]"]);
   storageMock.markEventReminderSent.mockResolvedValue(undefined);
   storageMock.clearPushToken.mockResolvedValue(undefined);
-  sendPushNotificationsMock.mockResolvedValue({ staleTokens: [] });
+  sendPushNotificationsMock.mockResolvedValue({ staleTokens: [], okCount: 1, hadSendError: false });
 });
 
 describe("runEventReminderScan", () => {
@@ -109,13 +109,33 @@ describe("runEventReminderScan", () => {
     expect(storageMock.markEventReminderSent).not.toHaveBeenCalled();
   });
 
-  it("does NOT mark sent when the send fails (so it retries next scan)", async () => {
+  it("does NOT mark sent on a non-throwing submission failure (so it retries next scan)", async () => {
+    // sendPushNotifications never throws; it reports failure via the result.
+    storageMock.getEventsPendingReminder.mockResolvedValue([evt()]);
+    sendPushNotificationsMock.mockResolvedValue({ staleTokens: [], okCount: 0, hadSendError: true });
+
+    await runEventReminderScan();
+
+    expect(sendPushNotificationsMock).toHaveBeenCalledTimes(1);
+    expect(storageMock.markEventReminderSent).not.toHaveBeenCalled();
+  });
+
+  it("does NOT mark sent when nothing was accepted (e.g. all tokens stale)", async () => {
+    storageMock.getEventsPendingReminder.mockResolvedValue([evt()]);
+    sendPushNotificationsMock.mockResolvedValue({ staleTokens: ["ExponentPushToken[x]"], okCount: 0, hadSendError: false });
+
+    await runEventReminderScan();
+
+    expect(sendPushNotificationsMock).toHaveBeenCalledTimes(1);
+    expect(storageMock.markEventReminderSent).not.toHaveBeenCalled();
+  });
+
+  it("still does NOT mark sent if the send throws unexpectedly", async () => {
     storageMock.getEventsPendingReminder.mockResolvedValue([evt()]);
     sendPushNotificationsMock.mockRejectedValue(new Error("expo down"));
 
     await runEventReminderScan();
 
-    expect(sendPushNotificationsMock).toHaveBeenCalledTimes(1);
     expect(storageMock.markEventReminderSent).not.toHaveBeenCalled();
   });
 

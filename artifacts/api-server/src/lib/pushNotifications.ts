@@ -12,6 +12,14 @@ export type PushPayload = {
 
 export type SendPushResult = {
   staleTokens: string[];
+  /** Number of messages Expo accepted (tickets with status "ok"). */
+  okCount: number;
+  /**
+   * True if any chunk failed to submit, or any ticket errored for a
+   * non-stale reason. Callers needing fire-once semantics (e.g. the event
+   * reminder scan) should treat this as "do not mark sent; retry later".
+   */
+  hadSendError: boolean;
 };
 
 export type SendPushOptions = {
@@ -65,8 +73,10 @@ export async function sendPushNotifications(
   options?: SendPushOptions,
 ): Promise<SendPushResult> {
   const staleTokens: string[] = [];
+  let okCount = 0;
+  let hadSendError = false;
   const validTokens = tokens.filter((t) => Expo.isExpoPushToken(t));
-  if (validTokens.length === 0) return { staleTokens };
+  if (validTokens.length === 0) return { staleTokens, okCount, hadSendError };
 
   const messages: ExpoPushMessage[] = validTokens.map((to) => ({
     to,
@@ -96,9 +106,11 @@ export async function sendPushNotifications(
                 }
               }
             } else {
+              hadSendError = true;
               logger.warn({ details: ticket.details }, "Push ticket error");
             }
           } else if (ticket.status === "ok") {
+            okCount++;
             _pendingTickets.set(ticket.id, token);
             storage.storePushTicket(ticket.id, token).catch((err) => {
               logger.error({ err, ticketId: ticket.id }, "Failed to persist push ticket to DB");
@@ -107,15 +119,17 @@ export async function sendPushNotifications(
         }
         messageIndex += chunk.length;
       } catch (err) {
+        hadSendError = true;
         logger.error({ err }, "Failed to send push notification chunk");
         messageIndex += chunk.length;
       }
     }
   } catch (err) {
+    hadSendError = true;
     logger.error({ err }, "Failed to chunk push notifications");
   }
 
-  return { staleTokens };
+  return { staleTokens, okCount, hadSendError };
 }
 
 /**
