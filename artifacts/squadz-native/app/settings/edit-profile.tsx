@@ -73,7 +73,7 @@ export default function EditProfileScreen() {
       const urlRes = await fetch(`${API_BASE}/api/storage/uploads/request-url`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify({ name: `avatar-${Date.now()}.jpg`, size: blob.size, contentType: blob.type || "image/jpeg" }),
+        body: JSON.stringify({ name: `avatar-${Date.now()}.jpg`, size: blob.size, contentType: blob.type || "image/jpeg", isPublicAccess: true }),
       });
       if (!urlRes.ok) return null;
       const { uploadURL, objectPath } = await urlRes.json() as { uploadURL: string; objectPath: string };

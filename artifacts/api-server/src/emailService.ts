@@ -3,6 +3,7 @@ import { logger } from './lib/logger';
 import { sendEmail } from './services/email';
 import { db } from '@workspace/db';
 import { sql } from 'drizzle-orm';
+import { getBaseUrl } from './lib/urls';
 
 export interface ProWelcomeEmailData {
   toEmail: string;
@@ -576,7 +577,7 @@ export class EmailService {
       return null;
     }
 
-    const baseUrl = `https://${process.env.REPLIT_DOMAINS?.split(',')[0] ?? 'localhost'}`;
+    const baseUrl = getBaseUrl();
 
     return {
       toEmail: customerEmail,
@@ -649,7 +650,7 @@ export class EmailService {
       return null;
     }
 
-    const baseUrl = `https://${process.env.REPLIT_DOMAINS?.split(',')[0] ?? 'localhost'}`;
+    const baseUrl = getBaseUrl();
 
     return {
       toEmail: customerEmail,
@@ -724,7 +725,7 @@ export class EmailService {
       return null;
     }
 
-    const baseUrl = `https://${process.env.REPLIT_DOMAINS?.split(',')[0] ?? 'localhost'}`;
+    const baseUrl = getBaseUrl();
 
     return {
       toEmail: customerEmail,

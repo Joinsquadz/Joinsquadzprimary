@@ -5,13 +5,16 @@ import { API_BASE } from "@/lib/api";
 import { clearProfileCache } from "@/hooks/useUserProfiles";
 import { ME } from "@/data/mock";
 import type { Event, Squad, RsvpStatus, Cost, CostShare } from "@/types";
+import { track, identify, reset as analyticsReset } from "@/lib/analytics";
 
 const AUTH_TOKEN_KEY = "@squadz/authToken";
+const REFRESH_TOKEN_KEY = "@squadz/refreshToken";
 
 // All app-level AsyncStorage keys. Add new keys here so they are
 // automatically cleared on logout, preventing data leaking between accounts.
 const ALL_APP_STORAGE_KEYS: string[] = [
   AUTH_TOKEN_KEY,
+  REFRESH_TOKEN_KEY,
 ];
 
 type ApiUser = {
@@ -255,20 +258,65 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [squadsLoading, setSquadsLoading] = useState(true);
   const [friends, setFriends] = useState<string[]>(INITIAL_FRIENDS);
   const currentUserIdRef = useRef<string>(ME.id);
-  // Always holds the latest auth token so async friend mutations can detect a
+  // Always holds the latest auth token so async mutations can detect a
   // session change (logout/login) mid-flight and refuse to commit stale state.
   const authTokenRef = useRef<string | null>(null);
+  const refreshTokenRef = useRef<string | null>(null);
+  const isRefreshingRef = useRef(false);
 
+  // apiFetch uses refs (not state) so it is stable across renders and all
+  // callbacks that depend on it are created once. On 401 it attempts a single
+  // token refresh and retries the original request.
   const apiFetch = useCallback(
-    async (path: string, options?: RequestInit) => {
+    async (path: string, options?: RequestInit): Promise<Response> => {
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
         ...(options?.headers as Record<string, string>),
       };
-      if (authToken) headers.Authorization = `Bearer ${authToken}`;
-      return fetch(`${API_BASE}${path}`, { ...options, headers });
+      if (authTokenRef.current) headers.Authorization = `Bearer ${authTokenRef.current}`;
+      const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+
+      if (res.status === 401 && refreshTokenRef.current && !isRefreshingRef.current) {
+        isRefreshingRef.current = true;
+        try {
+          const refreshRes = await fetch(`${API_BASE}/api/auth/refresh`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ refreshToken: refreshTokenRef.current }),
+          });
+          if (refreshRes.ok) {
+            const refreshData = (await refreshRes.json()) as { token?: string; refreshToken?: string };
+            if (refreshData.token) {
+              authTokenRef.current = refreshData.token;
+              setAuthToken(refreshData.token);
+              AsyncStorage.setItem(AUTH_TOKEN_KEY, refreshData.token).catch(() => {});
+              if (refreshData.refreshToken) {
+                refreshTokenRef.current = refreshData.refreshToken;
+                AsyncStorage.setItem(REFRESH_TOKEN_KEY, refreshData.refreshToken).catch(() => {});
+              }
+              const retryHeaders = { ...headers, Authorization: `Bearer ${refreshData.token}` };
+              return fetch(`${API_BASE}${path}`, { ...options, headers: retryHeaders });
+            }
+          }
+          // Refresh rejected — force logout
+          authTokenRef.current = null;
+          refreshTokenRef.current = null;
+          setAuthToken(null);
+          setIsLoggedIn(false);
+          setApiUser(null);
+          AsyncStorage.multiRemove([AUTH_TOKEN_KEY, REFRESH_TOKEN_KEY]).catch(() => {});
+        } catch {
+          // Network error during refresh — leave state intact, caller handles
+        } finally {
+          isRefreshingRef.current = false;
+        }
+      }
+      return res;
     },
-    [authToken],
+    // No dependency on authToken state — uses authTokenRef so the function is
+    // stable and all useCallbacks depending on it are created only once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
   );
 
   useEffect(() => {
@@ -436,9 +484,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     AsyncStorage.getItem(AUTH_TOKEN_KEY).then(token => {
       if (token) {
+        authTokenRef.current = token;
         setAuthToken(token);
         setIsLoggedIn(true);
         void fetchApiUser(token);
+        // Load the refresh token if present
+        AsyncStorage.getItem(REFRESH_TOKEN_KEY).then(rt => {
+          if (rt) refreshTokenRef.current = rt;
+        }).catch(() => {});
       }
     }).catch(() => {});
   }, [fetchApiUser]);
@@ -466,8 +519,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       token: string,
       payload: { user: ApiUser; emailVerified?: boolean; phone?: string | null },
       markLoggedIn: boolean,
+      refreshToken?: string | null,
     ) => {
       AsyncStorage.setItem(AUTH_TOKEN_KEY, token).catch(() => {});
+      authTokenRef.current = token;
+      if (refreshToken) {
+        AsyncStorage.setItem(REFRESH_TOKEN_KEY, refreshToken).catch(() => {});
+        refreshTokenRef.current = refreshToken;
+      }
       setAuthToken(token);
       setApiUser(payload.user);
       setEmailVerified(Boolean(payload.emailVerified));
@@ -494,6 +553,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         });
         const data = (await res.json().catch(() => ({}))) as {
           token?: string;
+          refreshToken?: string;
           user?: ApiUser;
           emailVerified?: boolean;
           phone?: string | null;
@@ -506,7 +566,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           data.token,
           { user: data.user, emailVerified: data.emailVerified, phone: data.phone },
           false,
+          data.refreshToken,
         );
+        identify(data.user.id, { email: data.user.email ?? undefined });
+        track("signup", { method: "email" });
         return { ok: true };
       } catch {
         return { ok: false, error: "Network error. Please check your connection and try again." };
@@ -525,6 +588,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         });
         const data = (await res.json().catch(() => ({}))) as {
           token?: string;
+          refreshToken?: string;
           user?: ApiUser;
           emailVerified?: boolean;
           phone?: string | null;
@@ -537,7 +601,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           data.token,
           { user: data.user, emailVerified: data.emailVerified, phone: data.phone },
           true,
+          data.refreshToken,
         );
+        identify(data.user.id, { email: data.user.email ?? undefined });
+        track("login", { method: "email" });
         return { ok: true };
       } catch {
         return { ok: false, error: "Network error. Please check your connection and try again." };
@@ -579,6 +646,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(() => {
     const token = authToken;
+    track("logout");
+    analyticsReset();
     if (token) {
       // Fire-and-forget server-side session teardown.
       fetch(`${API_BASE}/api/auth/logout`, {
@@ -588,6 +657,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
     AsyncStorage.multiRemove(ALL_APP_STORAGE_KEYS).catch(() => {});
     clearProfileCache();
+    authTokenRef.current = null;
+    refreshTokenRef.current = null;
     setAuthToken(null);
     setApiUser(null);
     setEmailVerified(false);

@@ -11,6 +11,8 @@ import wellKnownRouter from "./routes/wellKnown";
 import { WebhookHandlers } from "./webhookHandlers";
 import { logger } from "./lib/logger";
 import { initMonitoring, setupSentryErrorHandler } from "./services/monitoring";
+import { db } from "@workspace/db";
+import { sql } from "drizzle-orm";
 
 initMonitoring();
 
@@ -128,5 +130,16 @@ app.use(wellKnownRouter);
 app.use("/api", apiRateLimiter);
 app.use("/api", router);
 setupSentryErrorHandler(app);
+
+// ── Session table cleanup ─────────────────────────────────────────────────────
+// Purge expired connect-pg-simple session rows every 6 hours to prevent
+// unbounded table growth. Fire-and-forget; failures are logged and retried
+// on the next interval.
+const SESSION_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000;
+setInterval(() => {
+  db.execute(sql`DELETE FROM sessions WHERE expire < NOW()`)
+    .then((r) => logger.info({ rowCount: (r as { rowCount?: number }).rowCount ?? 0 }, "[session-cleanup] purged expired sessions"))
+    .catch((err: unknown) => logger.warn({ err }, "[session-cleanup] cleanup failed"));
+}, SESSION_CLEANUP_INTERVAL_MS);
 
 export default app;

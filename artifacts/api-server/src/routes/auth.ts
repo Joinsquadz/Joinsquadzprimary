@@ -25,6 +25,7 @@ import {
 } from "../lib/auth";
 import { sendVerificationEmail, sendPasswordResetEmail } from "../emailService";
 import { supabaseAdmin } from "../services/supabase";
+import { trackEvent, identifyUser } from "../services/analytics";
 
 const OIDC_COOKIE_TTL = 10 * 60 * 1000;
 
@@ -602,6 +603,8 @@ router.post("/auth/register", async (req: Request, res: Response) => {
     const { data: signIn } = await supabaseAdmin.auth.signInWithPassword({ email, password });
     const dbUser = await syncSupabaseUser(created.user, { firstName, lastName, phone });
     void sendVerification(req, dbUser);
+    identifyUser(dbUser.id, { email, firstName: dbUser.firstName ?? undefined, lastName: dbUser.lastName ?? undefined });
+    trackEvent(dbUser.id, "signup", { method: "email" });
     res.json({
       token: signIn.session?.access_token ?? "",
       refreshToken: signIn.session?.refresh_token ?? "",
@@ -672,6 +675,8 @@ router.post("/auth/login", async (req: Request, res: Response) => {
       return;
     }
     const dbUser = await syncSupabaseUser(data.user);
+    identifyUser(dbUser.id, { email, firstName: dbUser.firstName ?? undefined, lastName: dbUser.lastName ?? undefined });
+    trackEvent(dbUser.id, "login", { method: "email" });
     res.json({
       token: data.session.access_token,
       refreshToken: data.session.refresh_token,

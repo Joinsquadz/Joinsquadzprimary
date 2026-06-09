@@ -64,8 +64,6 @@ const dbMock = vi.hoisted(() => {
         returning: () => Promise.resolve([]),
       }),
     }),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    transaction: async (fn: (tx: any) => Promise<void>) => fn(self),
   };
   return self;
 });

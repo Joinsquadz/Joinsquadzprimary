@@ -5,7 +5,7 @@ import {
   RequestUploadUrlResponse,
 } from "@workspace/api-zod";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
-import { createStorageUploadUrl } from "../services/objectStorage";
+import { createStorageUploadUrl, createStorageDownloadUrl } from "../services/objectStorage";
 import { requireAuth } from "../middleware/currentUser";
 import { storage } from "../storage";
 
@@ -29,13 +29,17 @@ router.post("/storage/uploads/request-url", requireAuth, async (req: Request, re
   try {
     const { name, size, contentType } = parsed.data;
 
-    // Prefer Supabase Storage — direct client-to-cloud upload (no server proxying)
-    const supabaseUpload = await createStorageUploadUrl(contentType);
+    // Prefer Supabase Storage — direct client-to-cloud upload (no server proxying).
+    // isPublicAccess=true (e.g. profile images) returns the Supabase public URL directly.
+    // isPublicAccess=false (default, e.g. vault photos, attachments) returns an
+    // auth-gated /objects/supabase/* path served via signed URL redirect.
+    const isPublicAccess = (req.body as Record<string, unknown>).isPublicAccess === true;
+    const supabaseUpload = await createStorageUploadUrl(contentType, isPublicAccess);
     if (supabaseUpload) {
       res.json(
         RequestUploadUrlResponse.parse({
           uploadURL: supabaseUpload.uploadURL,
-          objectPath: supabaseUpload.publicUrl, // store the public URL in the DB
+          objectPath: supabaseUpload.objectPath,
           metadata: { name, size, contentType },
         }),
       );
@@ -105,11 +109,35 @@ router.get("/storage/objects/*path", requireAuth, async (req: Request, res: Resp
     const raw = req.params.path;
     const wildcardPath = Array.isArray(raw) ? raw.join("/") : raw;
     const objectPath = `/objects/${wildcardPath}`;
-
-    // Authorize before revealing whether the object exists: only the uploader,
-    // squad members (event-squad or curated roll-up), the event host, or a
-    // participant of a conversation the object was attached to may view.
     const userId = req.user!.id;
+
+    // ── Supabase-stored objects (path prefix: supabase/) ───────────────────────
+    // These are served via a short-lived signed URL redirect instead of being
+    // proxied through the server. The bucket should be configured as Private.
+    if (wildcardPath.startsWith("supabase/")) {
+      const storagePath = wildcardPath.slice("supabase/".length);
+
+      // Authorize: only the uploader, squad members, event host, or a
+      // conversation participant may access private Supabase objects.
+      const canAccess =
+        (await storage.canUserViewPhotoByUrl(objectPath, userId)) ||
+        (await storage.canUserViewMessageAttachment(objectPath, userId));
+      if (!canAccess) {
+        res.status(403).json({ error: "Forbidden" });
+        return;
+      }
+
+      const signedUrl = await createStorageDownloadUrl(storagePath, 3600);
+      if (!signedUrl) {
+        res.status(502).json({ error: "Could not generate a download URL for this object" });
+        return;
+      }
+      res.redirect(302, signedUrl);
+      return;
+    }
+
+    // ── Legacy Replit Object Storage ───────────────────────────────────────────
+    // Authorize before revealing whether the object exists.
     const canAccess =
       (await storage.canUserViewPhotoByUrl(objectPath, userId)) ||
       (await storage.canUserViewMessageAttachment(objectPath, userId));

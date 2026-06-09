@@ -4,6 +4,8 @@ import { stripeService } from '../stripeService';
 import { requireAuth } from '../middleware/currentUser';
 import { logger } from '../lib/logger';
 import { buildProWelcomeHtml } from '../emailService';
+import { getBaseUrl } from '../lib/urls';
+import { trackEvent } from '../services/analytics';
 
 const router: IRouter = Router();
 
@@ -88,7 +90,15 @@ router.post('/checkout', requireAuth, async (req, res): Promise<void> => {
       customerId = customer.id;
     }
 
-    const baseUrl = `https://${process.env.REPLIT_DOMAINS?.split(',')[0]}`;
+    if (!user.emailVerified) {
+      res.status(403).json({
+        error: 'Please verify your email address before subscribing. Check your inbox for a verification link.',
+        requiresEmailVerification: true,
+      });
+      return;
+    }
+
+    const baseUrl = getBaseUrl();
     const session = await stripeService.createCheckoutSession(
       customerId!,
       priceId,
@@ -96,6 +106,7 @@ router.post('/checkout', requireAuth, async (req, res): Promise<void> => {
       `${baseUrl}/home?checkout=cancel`,
     );
 
+    trackEvent(userId, 'checkout_started', { priceId });
     res.json({ url: session.url });
   } catch (err) {
     logger.error({ err }, 'Error creating checkout session');
@@ -179,7 +190,7 @@ router.post('/portal', requireAuth, async (req, res): Promise<void> => {
       return;
     }
 
-    const baseUrl = `https://${process.env.REPLIT_DOMAINS?.split(',')[0]}`;
+    const baseUrl = getBaseUrl();
     const session = await stripeService.createCustomerPortalSession(
       user.stripeCustomerId,
       `${baseUrl}/`,
@@ -217,7 +228,7 @@ router.get('/stripe/email-preview/pro-welcome', (req, res): void => {
     return;
   }
 
-  const baseUrl = `https://${process.env.REPLIT_DOMAINS?.split(',')[0] ?? 'localhost'}`;
+  const baseUrl = getBaseUrl();
 
   const html = buildProWelcomeHtml({
     toEmail: 'preview@example.com',
