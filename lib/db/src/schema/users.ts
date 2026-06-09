@@ -38,6 +38,8 @@ export const usersTable = pgTable("users", {
   venmoHandle: text("venmo_handle"),
   cashappHandle: text("cashapp_handle"),
   zelleHandle: text("zelle_handle"),
+  bio: text("bio"),
+  hometown: text("hometown"),
   pushToken: text("push_token"),
   friendCode: text("friend_code").unique(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),

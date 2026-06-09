@@ -43,6 +43,8 @@ export default function EditProfileScreen() {
   const [venmo, setVenmo] = useState("");
   const [cashapp, setCashapp] = useState("");
   const [zelle, setZelle] = useState("");
+  const [bio, setBio] = useState("");
+  const [hometown, setHometown] = useState("");
   const [saving, setSaving] = useState(false);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
@@ -62,11 +64,15 @@ export default function EditProfileScreen() {
           venmoHandle?: string | null;
           cashappHandle?: string | null;
           zelleHandle?: string | null;
+          bio?: string | null;
+          hometown?: string | null;
         };
         if (!active) return;
         setVenmo(data.venmoHandle ?? "");
         setCashapp(data.cashappHandle ?? "");
         setZelle(data.zelleHandle ?? "");
+        setBio(data.bio ?? "");
+        setHometown(data.hometown ?? "");
       } catch {
         // Non-blocking: handles just stay empty if the fetch fails.
       }
@@ -139,6 +145,8 @@ export default function EditProfileScreen() {
         venmoHandle: venmo.trim() || null,
         cashappHandle: cashapp.trim() || null,
         zelleHandle: zelle.trim() || null,
+        bio: bio.trim() || null,
+        hometown: hometown.trim() || null,
       };
       if (profileImageUrl) body.profileImageUrl = profileImageUrl;
 
@@ -229,6 +237,31 @@ export default function EditProfileScreen() {
           style={[styles.input, { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
         />
 
+        <Text style={[styles.sectionTitle, { color: colors.foreground }]}>About you</Text>
+        <Text style={[styles.sectionSub, { color: colors.mutedForeground }]}>
+          These show on your profile for friends to see. All optional.
+        </Text>
+
+        <Text style={[styles.label, { color: colors.mutedForeground, marginTop: 16 }]}>Bio</Text>
+        <TextInput
+          value={bio}
+          onChangeText={(t) => t.length <= 500 && setBio(t)}
+          placeholder="A little about you… (optional)"
+          placeholderTextColor={colors.mutedForeground}
+          multiline
+          maxLength={500}
+          style={[styles.input, styles.textArea, { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
+        />
+
+        <Text style={[styles.label, { color: colors.mutedForeground, marginTop: 16 }]}>Hometown</Text>
+        <TextInput
+          value={hometown}
+          onChangeText={setHometown}
+          placeholder="Where are you from? (optional)"
+          placeholderTextColor={colors.mutedForeground}
+          style={[styles.input, { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
+        />
+
         <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Payment handles</Text>
         <Text style={[styles.sectionSub, { color: colors.mutedForeground }]}>
           Squad members use these to pay you back when settling up. Leave blank to hide.
@@ -293,5 +326,6 @@ const styles = StyleSheet.create({
   sectionSub: { fontSize: 13, marginTop: 4, lineHeight: 18 },
   label: { fontSize: 13, fontWeight: "600", marginBottom: 8 },
   input: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13, fontSize: 15 },
+  textArea: { minHeight: 90, textAlignVertical: "top" },
   savingBtn: { borderRadius: 14, paddingVertical: 15, alignItems: "center", justifyContent: "center" },
 });

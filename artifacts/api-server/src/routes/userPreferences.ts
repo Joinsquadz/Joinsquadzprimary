@@ -57,6 +57,8 @@ const PatchProfileBody = z.object({
   venmoHandle: z.string().trim().max(120).nullable().optional(),
   cashappHandle: z.string().trim().max(120).nullable().optional(),
   zelleHandle: z.string().trim().max(120).nullable().optional(),
+  bio: z.string().trim().max(500).nullable().optional(),
+  hometown: z.string().trim().max(100).nullable().optional(),
 });
 
 router.get("/user/preferences", requireAuth, async (req: Request, res: Response): Promise<void> => {
@@ -77,6 +79,8 @@ router.get("/user/preferences", requireAuth, async (req: Request, res: Response)
       venmoHandle: usersTable.venmoHandle,
       cashappHandle: usersTable.cashappHandle,
       zelleHandle: usersTable.zelleHandle,
+      bio: usersTable.bio,
+      hometown: usersTable.hometown,
     }).from(usersTable).where(eq(usersTable.id, userId));
 
     if (!user) {
@@ -104,6 +108,8 @@ router.patch("/user/profile", requireAuth, async (req: Request, res: Response): 
     if (parsed.data.firstName !== undefined) patch.firstName = parsed.data.firstName;
     if (parsed.data.lastName !== undefined) patch.lastName = parsed.data.lastName;
     if (parsed.data.profileImageUrl !== undefined) patch.profileImageUrl = parsed.data.profileImageUrl;
+    if (parsed.data.bio !== undefined) patch.bio = parsed.data.bio;
+    if (parsed.data.hometown !== undefined) patch.hometown = parsed.data.hometown;
     for (const field of HANDLE_FIELDS) {
       const value = parsed.data[field];
       if (value !== undefined) patch[field] = value === null ? null : normalizeHandle(value);
@@ -126,6 +132,8 @@ router.patch("/user/profile", requireAuth, async (req: Request, res: Response): 
         venmoHandle: usersTable.venmoHandle,
         cashappHandle: usersTable.cashappHandle,
         zelleHandle: usersTable.zelleHandle,
+        bio: usersTable.bio,
+        hometown: usersTable.hometown,
       });
 
     res.json({ user: updated });

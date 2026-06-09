@@ -66,6 +66,8 @@ export default function SquadDetailScreen() {
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searchResults, setSearchResults] = useState<FoundUser[]>([]);
   const [addingUserId, setAddingUserId] = useState<string | null>(null);
+  const [selectedToAdd, setSelectedToAdd] = useState<Set<string>>(new Set());
+  const [confirmingAdd, setConfirmingAdd] = useState(false);
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
 
   const [memberProfileOpen, setMemberProfileOpen] = useState(false);
@@ -86,6 +88,34 @@ export default function SquadDetailScreen() {
     setSearchResults([]);
     setAddingUserId(null);
     setSearchLoading(false);
+    setSelectedToAdd(new Set());
+    setConfirmingAdd(false);
+  };
+
+  const toggleSelectToAdd = (user: FoundUser) => {
+    if (!squad || squad.memberIds.includes(user.id)) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setSelectedToAdd((prev) => {
+      const next = new Set(prev);
+      if (next.has(user.id)) next.delete(user.id);
+      else next.add(user.id);
+      return next;
+    });
+  };
+
+  const handleConfirmAddSelected = async () => {
+    const toAdd = searchResults.filter((u) => selectedToAdd.has(u.id));
+    if (toAdd.length === 0) return;
+    setConfirmingAdd(true);
+    setSearchError(null);
+    let firstError: string | null = null;
+    for (const user of toAdd) {
+      const result = await handleAddUser(user);
+      if (result?.error && !firstError) firstError = result.error;
+    }
+    setConfirmingAdd(false);
+    setSelectedToAdd(new Set());
+    if (firstError) setSearchError(firstError);
   };
 
   const handleSearch = async () => {
@@ -111,21 +141,16 @@ export default function SquadDetailScreen() {
     }
   };
 
-  const handleAddUser = async (user: FoundUser) => {
+  const handleAddUser = async (user: FoundUser): Promise<{ error?: string } | undefined> => {
     if (!id || !user.friendCode) return;
     setAddingUserId(user.id);
-    // Snapshot the squad before the async call so we can compute the expected
-    // post-add signature deterministically, without relying on React state that
-    // may not have flushed yet when the await resolves.
     const squadBeforeAdd = getSquad(id);
     const result = await addMemberByFriendCode(id, user.friendCode);
     setAddingUserId(null);
     if (result.error) {
-      setSearchError(result.error);
+      return { error: result.error };
     } else {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      // Pre-seed the poll baseline so the next tick doesn't mistake our own
-      // optimistic member addition for a remote change and fire a spurious banner.
       if (squadBeforeAdd) {
         const newMemberIds = squadBeforeAdd.memberIds.includes(user.id)
           ? squadBeforeAdd.memberIds
@@ -140,9 +165,8 @@ export default function SquadDetailScreen() {
           memberIds: newMemberIds,
         });
       }
-      // Stay in the modal — the squad state update flips the row to "In squad"
-      // so the creator can keep adding people without reopening
     }
+    return undefined;
   };
 
   const authHeaders = useCallback((): Record<string, string> => ({
@@ -616,7 +640,7 @@ export default function SquadDetailScreen() {
             return (
               <View key={m.id} style={{ position: "relative" }}>
                 <TouchableOpacity
-                  onPress={!isSelf ? () => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); void openMemberProfile(m); } : undefined}
+                  onPress={!isSelf ? () => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push(`/user/${m.id}` as never); } : undefined}
                   onLongPress={isSelf && !isCreator ? handleLeaveSquad : undefined}
                   delayLongPress={400}
                   style={[styles.memberCard, { backgroundColor: colors.card, borderColor: colors.border }]}
@@ -791,13 +815,21 @@ export default function SquadDetailScreen() {
               <ScrollView style={{ maxHeight: 240 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                 {searchResults.map((user) => {
                   const alreadyMember = squad.memberIds.includes(user.id);
+                  const isSelected = selectedToAdd.has(user.id);
                   const isAdding = addingUserId === user.id;
                   return (
                     <TouchableOpacity
                       key={user.id}
-                      onPress={() => { if (!alreadyMember) void handleAddUser(user); }}
-                      disabled={alreadyMember || isAdding}
-                      style={[styles.foundUserCard, { backgroundColor: colors.card, borderColor: alreadyMember ? colors.border : colors.primary + "40", opacity: alreadyMember ? 0.6 : 1 }]}
+                      onPress={() => { if (!alreadyMember) toggleSelectToAdd(user); }}
+                      disabled={alreadyMember || confirmingAdd}
+                      style={[
+                        styles.foundUserCard,
+                        {
+                          backgroundColor: isSelected ? colors.primary + "12" : colors.card,
+                          borderColor: isSelected ? colors.primary : alreadyMember ? colors.border : colors.border,
+                          opacity: alreadyMember ? 0.5 : 1,
+                        },
+                      ]}
                     >
                       <UserAvatar
                         initials={getFriendCodeInitials(user)}
@@ -817,9 +849,19 @@ export default function SquadDetailScreen() {
                       ) : isAdding ? (
                         <ActivityIndicator size="small" color={colors.primary} />
                       ) : (
-                        <View style={[styles.addResultBtn, { backgroundColor: colors.primary }]}>
-                          <Ionicons name="person-add-outline" size={14} color="#fff" />
-                          <Text style={styles.addResultBtnText}>Add</Text>
+                        <View style={[
+                          styles.addResultBtn,
+                          {
+                            backgroundColor: isSelected ? colors.primary : "transparent",
+                            borderWidth: 1.5,
+                            borderColor: isSelected ? colors.primary : colors.border,
+                          },
+                        ]}>
+                          <Ionicons
+                            name={isSelected ? "checkmark" : "add"}
+                            size={16}
+                            color={isSelected ? "#fff" : colors.foreground}
+                          />
                         </View>
                       )}
                     </TouchableOpacity>
@@ -828,11 +870,29 @@ export default function SquadDetailScreen() {
               </ScrollView>
             )}
 
+            {selectedToAdd.size > 0 && (
+              <TouchableOpacity
+                onPress={() => { void handleConfirmAddSelected(); }}
+                disabled={confirmingAdd}
+                style={[styles.modalBtn, { backgroundColor: colors.primary, marginTop: 16 }]}
+              >
+                {confirmingAdd ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={[styles.modalBtnText, { color: "#fff" }]}>
+                    Add {selectedToAdd.size} {selectedToAdd.size === 1 ? "member" : "members"}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            )}
+
             <TouchableOpacity
               onPress={() => { setAddMemberOpen(false); resetAddMemberModal(); }}
-              style={[styles.modalBtn, { backgroundColor: colors.primary, marginTop: 16 }]}
+              style={[styles.modalBtn, { backgroundColor: selectedToAdd.size > 0 ? "transparent" : colors.primary, borderWidth: selectedToAdd.size > 0 ? 1 : 0, borderColor: colors.border, marginTop: selectedToAdd.size > 0 ? 8 : 16 }]}
             >
-              <Text style={[styles.modalBtnText, { color: "#fff" }]}>Done</Text>
+              <Text style={[styles.modalBtnText, { color: selectedToAdd.size > 0 ? colors.foreground : "#fff" }]}>
+                {selectedToAdd.size > 0 ? "Cancel" : "Done"}
+              </Text>
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>

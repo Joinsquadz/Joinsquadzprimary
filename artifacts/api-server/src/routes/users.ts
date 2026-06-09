@@ -239,6 +239,8 @@ router.get("/users/:id/profile", requireAuth, async (req: Request, res: Response
         lastName: usersTable.lastName,
         profileImageUrl: usersTable.profileImageUrl,
         friendCode: usersTable.friendCode,
+        bio: usersTable.bio,
+        hometown: usersTable.hometown,
       })
       .from(usersTable)
       .where(eq(usersTable.id, targetId));
@@ -262,6 +264,8 @@ router.get("/users/:id/profile", requireAuth, async (req: Request, res: Response
       name,
       friendCode: target.friendCode ?? null,
       profileImageUrl: target.profileImageUrl ?? null,
+      bio: target.bio ?? null,
+      hometown: target.hometown ?? null,
       sharedSquads,
     });
   } catch (err) {
