@@ -44,7 +44,7 @@ const STATUS_LABEL: Record<RsvpStatus, string> = {
 export default function EventDetailScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, tab: tabParam } = useLocalSearchParams<{ id: string; tab?: string }>();
   const {
     getEvent,
     setRsvp,
@@ -67,7 +67,14 @@ export default function EventDetailScreen() {
   } = useData();
 
   const event = getEvent(id ?? "");
-  const [tab, setTab] = useState<EventTab>("overview");
+  const initialTab: EventTab =
+    tabParam === "costs" ? "costs"
+    : tabParam === "guests" ? "guests"
+    : tabParam === "tasks" ? "tasks"
+    : tabParam === "chat" ? "chat"
+    : tabParam === "photos" ? "photos"
+    : "overview";
+  const [tab, setTab] = useState<EventTab>(initialTab);
   const [contactOpen, setContactOpen] = useState(false);
   const [contactMember, setContactMember] = useState<ResolvedUser | null>(null);
   const { resolveUser, prefetchUsers } = useUserCache();

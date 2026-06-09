@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   View,
   Text,
@@ -96,6 +96,43 @@ export default function HomeScreen() {
   const { resolveUser, prefetchUsers } = useUserCache();
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const upNext = events[0] ?? null;
+
+  type EventBalance = {
+    eventId: string;
+    eventEmoji: string;
+    eventTitle: string;
+    iOwe: number;
+    owedToMe: number;
+  };
+
+  const outstandingBalances = useMemo<EventBalance[]>(() => {
+    const meId = currentUser.id;
+    const result: EventBalance[] = [];
+    for (const ev of events) {
+      if (!ev.costs || ev.costs.length === 0) continue;
+      let iOwe = 0;
+      let owedToMe = 0;
+      for (const cost of ev.costs) {
+        for (const share of cost.shares) {
+          if (cost.paidById !== meId && share.userId === meId && share.amount > 0) {
+            if (!share.paidAt) {
+              iOwe += share.amount;
+            }
+          } else if (cost.paidById === meId && share.userId !== meId && share.amount > 0) {
+            if (!share.confirmedAt) {
+              owedToMe += share.amount;
+            }
+          }
+        }
+      }
+      iOwe = Math.round(iOwe * 100) / 100;
+      owedToMe = Math.round(owedToMe * 100) / 100;
+      if (iOwe >= 0.01 || owedToMe >= 0.01) {
+        result.push({ eventId: ev.id, eventEmoji: ev.emoji, eventTitle: ev.title, iOwe, owedToMe });
+      }
+    }
+    return result;
+  }, [events, currentUser.id]);
 
   const handleFindTime = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -396,6 +433,55 @@ export default function HomeScreen() {
             )}
           />
         </View>
+
+        {/* Balances */}
+        {outstandingBalances.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={[styles.sectionTitle, { color: colors.foreground }]}>💸 Balances</Text>
+              <Text style={[styles.seeAll, { color: colors.mutedForeground }]}>Outstanding</Text>
+            </View>
+            <View style={{ gap: 10 }}>
+              {outstandingBalances.map((b) => {
+                const net = Math.round((b.owedToMe - b.iOwe) * 100) / 100;
+                const isPositive = net >= 0.01;
+                const isNegative = net <= -0.01;
+                const accentColor = isPositive ? "#2ECC8A" : isNegative ? "#FF5C3A" : colors.mutedForeground;
+                return (
+                  <TouchableOpacity
+                    key={b.eventId}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      router.push({ pathname: `/event/${b.eventId}`, params: { tab: "costs" } } as never);
+                    }}
+                    activeOpacity={0.8}
+                    style={[styles.balanceRow, { backgroundColor: colors.card, borderColor: colors.border }]}
+                  >
+                    <View style={[styles.balanceEmoji, { backgroundColor: accentColor + "18" }]}>
+                      <Text style={{ fontSize: 20 }}>{b.eventEmoji}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.balanceTitle, { color: colors.foreground }]} numberOfLines={1}>{b.eventTitle}</Text>
+                      <View style={{ flexDirection: "row", gap: 8, marginTop: 3, flexWrap: "wrap" }}>
+                        {b.iOwe >= 0.01 && (
+                          <Text style={[styles.balanceChip, { color: "#FF5C3A" }]}>You owe ${b.iOwe.toFixed(2)}</Text>
+                        )}
+                        {b.owedToMe >= 0.01 && (
+                          <Text style={[styles.balanceChip, { color: "#2ECC8A" }]}>Owed to you ${b.owedToMe.toFixed(2)}</Text>
+                        )}
+                      </View>
+                    </View>
+                    <View style={[styles.balanceNetBadge, { backgroundColor: accentColor + "18" }]}>
+                      <Text style={[styles.balanceNetText, { color: accentColor }]}>
+                        {net >= 0 ? "+" : ""}${net.toFixed(2)}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        )}
 
         {/* For You — live, data-driven suggestions */}
         {suggestions.length > 0 && (
@@ -752,4 +838,19 @@ const styles = StyleSheet.create({
   },
   pickerSquadName: { fontSize: 15, fontWeight: "700" },
   pickerSquadCount: { fontSize: 12, marginTop: 2 },
+  balanceRow: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    borderRadius: 14, borderWidth: 1, padding: 14,
+  },
+  balanceEmoji: {
+    width: 44, height: 44, borderRadius: 13,
+    alignItems: "center", justifyContent: "center",
+  },
+  balanceTitle: { fontSize: 14, fontWeight: "700" },
+  balanceChip: { fontSize: 12, fontWeight: "600" },
+  balanceNetBadge: {
+    paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20,
+    alignItems: "center", justifyContent: "center",
+  },
+  balanceNetText: { fontSize: 13, fontWeight: "800" },
 });
