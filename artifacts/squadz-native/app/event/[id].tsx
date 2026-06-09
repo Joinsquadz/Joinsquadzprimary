@@ -170,9 +170,12 @@ export default function EventDetailScreen() {
   const [calBusy, setCalBusy] = useState(false);
   const [remBusy, setRemBusy] = useState(false);
 
+  const [taskSaving, setTaskSaving] = useState(false);
+
   const [pollModal, setPollModal] = useState(false);
   const [pollQ, setPollQ] = useState("");
   const [pollOpts, setPollOpts] = useState<string[]>(["", ""]);
+  const [pollSaving, setPollSaving] = useState(false);
 
   const [editModal, setEditModal] = useState(false);
   const [edit, setEdit] = useState({ title: "", date: "", location: "", description: "", emoji: "🔥" });
@@ -181,6 +184,7 @@ export default function EventDetailScreen() {
   const [budgetInput, setBudgetInput] = useState("");
 
   const [chatText, setChatText] = useState("");
+  const [chatSending, setChatSending] = useState(false);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
@@ -390,15 +394,20 @@ export default function EventDetailScreen() {
 
   // ---- Task modal ----
   const saveTask = async () => {
-    if (!newTask.trim()) return;
-    const result = await addTask(event.id, newTask.trim());
-    if (result.error) {
-      Alert.alert("Couldn't save task", result.error);
-      return;
+    if (taskSaving || !newTask.trim()) return;
+    setTaskSaving(true);
+    try {
+      const result = await addTask(event.id, newTask.trim());
+      if (result.error) {
+        Alert.alert("Couldn't save task", result.error);
+        return;
+      }
+      setNewTask("");
+      setTaskModal(false);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } finally {
+      setTaskSaving(false);
     }
-    setNewTask("");
-    setTaskModal(false);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
   };
 
   const saveFoodItem = async () => {
@@ -428,10 +437,11 @@ export default function EventDetailScreen() {
         Alert.alert("Couldn't save poll", result.error);
         return;
       }
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setPollQ("");
       setPollOpts(["", ""]);
       setPollModal(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } finally {
       setPollSaving(false);
     }
@@ -1160,19 +1170,29 @@ export default function EventDetailScreen() {
           />
           <TouchableOpacity
             onPress={async () => {
-              if (!chatText.trim()) return;
+              if (chatSending || !chatText.trim()) return;
               const text = chatText.trim();
               setChatText("");
+              setChatSending(true);
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              const result = await sendMessage(event.id, text);
-              if (result.error) {
-                setChatText(text);
-                Alert.alert("Couldn't send message", result.error);
+              try {
+                const result = await sendMessage(event.id, text);
+                if (result.error) {
+                  setChatText(text);
+                  Alert.alert("Couldn't send message", result.error);
+                }
+              } finally {
+                setChatSending(false);
               }
             }}
-            style={[styles.sendBtn, { backgroundColor: chatText.trim() ? colors.primary : colors.border }]}
+            disabled={chatSending || !chatText.trim()}
+            style={[styles.sendBtn, { backgroundColor: chatText.trim() && !chatSending ? colors.primary : colors.border }]}
           >
-            <Ionicons name="send" size={18} color={chatText.trim() ? "#fff" : colors.textDim} />
+            {chatSending ? (
+              <ActivityIndicator size="small" color={colors.textDim} />
+            ) : (
+              <Ionicons name="send" size={18} color={chatText.trim() ? "#fff" : colors.textDim} />
+            )}
           </TouchableOpacity>
         </View>
       )}
@@ -1219,8 +1239,16 @@ export default function EventDetailScreen() {
               <TouchableOpacity onPress={() => { setNewTask(""); setTaskModal(false); }} style={[styles.modalBtn, { backgroundColor: colors.card }]}>
                 <Text style={[styles.modalBtnText, { color: colors.mutedForeground }]}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={saveTask} style={[styles.modalBtn, { backgroundColor: colors.primary }]}>
-                <Text style={[styles.modalBtnText, { color: "#fff" }]}>Add task</Text>
+              <TouchableOpacity
+                onPress={saveTask}
+                disabled={taskSaving}
+                style={[styles.modalBtn, { backgroundColor: colors.primary, opacity: taskSaving ? 0.6 : 1 }]}
+              >
+                {taskSaving ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={[styles.modalBtnText, { color: "#fff" }]}>Add task</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -1411,7 +1439,7 @@ export default function EventDetailScreen() {
               <TouchableOpacity
                 onPress={savePoll}
                 disabled={pollSaving}
-                style={[styles.modalBtn, { backgroundColor: colors.primary, opacity: pollSaving ? 0.45 : 1 }]}
+                style={[styles.modalBtn, { backgroundColor: colors.primary, opacity: pollSaving ? 0.6 : 1 }]}
               >
                 {pollSaving ? (
                   <ActivityIndicator size="small" color="#fff" />
