@@ -130,8 +130,8 @@ type AppContextType = {
   ) => void;
   joinEvent: (inviteCode: string) => Promise<{ error?: string }>;
   cancelEvent: (eventId: string) => void;
-  toggleTask: (eventId: string, taskId: string) => void;
-  claimTask: (eventId: string, taskId: string) => void;
+  toggleTask: (eventId: string, taskId: string) => Promise<void>;
+  claimTask: (eventId: string, taskId: string) => Promise<void>;
   addTask: (eventId: string, title: string, category?: string) => Promise<{ error?: string }>;
   addCost: (eventId: string, input: { description: string; amount: number; shares: CostShare[] }) => Promise<{ error?: string }>;
   markSharePaid: (eventId: string, costId: string, paid: boolean) => void;
@@ -193,8 +193,8 @@ const AppContext = createContext<AppContextType>({
   updateEvent: noop,
   joinEvent: async () => ({}),
   cancelEvent: noop,
-  toggleTask: noop,
-  claimTask: noop,
+  toggleTask: async () => {},
+  claimTask: async () => {},
   addTask: async () => ({}),
   addCost: async () => ({}),
   markSharePaid: noop,
@@ -861,7 +861,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [apiFetch, refreshEvents]);
 
   const toggleTask = useCallback(
-    (eventId: string, taskId: string) => {
+    async (eventId: string, taskId: string): Promise<void> => {
       const event = events.find((e) => e.id === eventId);
       const task = event?.tasks.find((t) => t.id === taskId);
       if (!task) return;
@@ -876,31 +876,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       );
       const body: Record<string, unknown> = { done: !task.done };
       if (currentVersion !== undefined) body.version = currentVersion;
-      void apiFetch(`/api/events/${eventId}/tasks/${taskId}`, {
-        method: "PATCH",
-        body: JSON.stringify(body),
-      })
-        .then(async (res) => {
-          if (res.status === 409) {
+      try {
+        const res = await apiFetch(`/api/events/${eventId}/tasks/${taskId}`, {
+          method: "PATCH",
+          body: JSON.stringify(body),
+        });
+        if (res.status === 409) {
             const data = await res.json() as { error?: string; conflict?: boolean };
             if (data.conflict) {
               Alert.alert("Update conflict", data.error ?? "Someone else just updated this — refresh to see the latest");
               void refreshEvents();
               return;
             }
-            return Promise.reject();
+            throw new Error("conflict");
           }
-          if (!res.ok) return Promise.reject();
-          return res.json() as Promise<Record<string, unknown>>;
-        })
-        .then((data) => { if (data) applyEventUpdate(data); })
-        .catch(() => { void refreshEvents(); showToast("Couldn't update task — please try again"); });
+          if (!res.ok) throw new Error();
+          applyEventUpdate(await (res.json() as Promise<Record<string, unknown>>));
+        } catch (err) {
+          if ((err as Error).message !== "conflict") {
+            void refreshEvents();
+            showToast("Couldn't update task — please try again");
+          }
+        }
     },
     [events, apiFetch, applyEventUpdate, refreshEvents, showToast],
   );
 
   const claimTask = useCallback(
-    (eventId: string, taskId: string) => {
+    async (eventId: string, taskId: string): Promise<void> => {
       const userId = apiUser?.id ?? currentUserIdRef.current;
       const currentVersion = events.find((e) => e.id === eventId)?.version;
       // Optimistic update
@@ -911,27 +914,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             : e,
         ),
       );
-      const body: Record<string, unknown> = { assigneeId: userId };
-      if (currentVersion !== undefined) body.version = currentVersion;
-      void apiFetch(`/api/events/${eventId}/tasks/${taskId}`, {
-        method: "PATCH",
-        body: JSON.stringify(body),
-      })
-        .then(async (res) => {
-          if (res.status === 409) {
-            const data = await res.json() as { error?: string; conflict?: boolean };
-            if (data.conflict) {
-              Alert.alert("Update conflict", data.error ?? "Someone else just updated this — refresh to see the latest");
-              void refreshEvents();
-              return;
-            }
-            return Promise.reject();
+      const claimBody: Record<string, unknown> = { assigneeId: userId };
+      if (currentVersion !== undefined) claimBody.version = currentVersion;
+      try {
+        const res = await apiFetch(`/api/events/${eventId}/tasks/${taskId}`, {
+          method: "PATCH",
+          body: JSON.stringify(claimBody),
+        });
+        if (res.status === 409) {
+          const data = await res.json() as { error?: string; conflict?: boolean };
+          if (data.conflict) {
+            Alert.alert("Update conflict", data.error ?? "Someone else just updated this — refresh to see the latest");
+            void refreshEvents();
+            return;
           }
-          if (!res.ok) return Promise.reject();
-          return res.json() as Promise<Record<string, unknown>>;
-        })
-        .then((data) => { if (data) applyEventUpdate(data); })
-        .catch(() => { void refreshEvents(); showToast("Couldn't claim task — please try again"); });
+          throw new Error("conflict");
+        }
+        if (!res.ok) throw new Error();
+        applyEventUpdate(await (res.json() as Promise<Record<string, unknown>>));
+      } catch (err) {
+        if ((err as Error).message !== "conflict") {
+          void refreshEvents();
+          showToast("Couldn't claim task — please try again");
+        }
+      }
     },
     [events, apiFetch, applyEventUpdate, apiUser, refreshEvents, showToast],
   );

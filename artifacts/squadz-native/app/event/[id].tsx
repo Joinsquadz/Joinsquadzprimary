@@ -171,6 +171,29 @@ export default function EventDetailScreen() {
   const [calBusy, setCalBusy] = useState(false);
   const [remBusy, setRemBusy] = useState(false);
 
+  const [togglingTaskIds, setTogglingTaskIds] = useState<Set<string>>(new Set());
+  const [claimingTaskIds, setClaimingTaskIds] = useState<Set<string>>(new Set());
+
+  const handleToggleTask = useCallback(async (eventId: string, taskId: string) => {
+    if (togglingTaskIds.has(taskId)) return;
+    setTogglingTaskIds((prev) => new Set(prev).add(taskId));
+    try {
+      await toggleTask(eventId, taskId);
+    } finally {
+      setTogglingTaskIds((prev) => { const next = new Set(prev); next.delete(taskId); return next; });
+    }
+  }, [togglingTaskIds, toggleTask]);
+
+  const handleClaimTask = useCallback(async (eventId: string, taskId: string) => {
+    if (claimingTaskIds.has(taskId)) return;
+    setClaimingTaskIds((prev) => new Set(prev).add(taskId));
+    try {
+      await claimTask(eventId, taskId);
+    } finally {
+      setClaimingTaskIds((prev) => { const next = new Set(prev); next.delete(taskId); return next; });
+    }
+  }, [claimingTaskIds, claimTask]);
+
   const [pollModal, setPollModal] = useState(false);
   const [pollQ, setPollQ] = useState("");
   const [pollOpts, setPollOpts] = useState<string[]>(["", ""]);
@@ -816,14 +839,23 @@ export default function EventDetailScreen() {
             </Text>
             {event.tasks.map((task) => {
               const assignee = task.assigneeId ? resolveForDisplay(task.assigneeId) : null;
+              const toggling = togglingTaskIds.has(task.id);
+              const claiming = claimingTaskIds.has(task.id);
               return (
-                <View key={task.id} style={[styles.taskRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                  <TouchableOpacity onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); toggleTask(event.id, task.id); }}>
-                    <Ionicons
-                      name={task.done ? "checkmark-circle" : "ellipse-outline"}
-                      size={24}
-                      color={task.done ? colors.green : colors.border}
-                    />
+                <View key={task.id} style={[styles.taskRow, { backgroundColor: colors.card, borderColor: colors.border, opacity: toggling ? 0.6 : 1 }]}>
+                  <TouchableOpacity
+                    disabled={toggling}
+                    onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); void handleToggleTask(event.id, task.id); }}
+                  >
+                    {toggling ? (
+                      <ActivityIndicator size={24} color={colors.primary} />
+                    ) : (
+                      <Ionicons
+                        name={task.done ? "checkmark-circle" : "ellipse-outline"}
+                        size={24}
+                        color={task.done ? colors.green : colors.border}
+                      />
+                    )}
                   </TouchableOpacity>
                   <Text style={[styles.taskText, { color: task.done ? colors.mutedForeground : colors.foreground, textDecorationLine: task.done ? "line-through" : "none" }]}>
                     {task.title}
@@ -832,10 +864,15 @@ export default function EventDetailScreen() {
                     <UserAvatar initials={assignee.initials} color={assignee.color} imageUrl={assignee.profileImageUrl} size={28} fontSize={10} />
                   ) : (
                     <TouchableOpacity
-                      onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); claimTask(event.id, task.id); }}
-                      style={[styles.claimBtn, { backgroundColor: colors.primary + "20", borderColor: colors.primary + "40" }]}
+                      disabled={claiming}
+                      onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); void handleClaimTask(event.id, task.id); }}
+                      style={[styles.claimBtn, { backgroundColor: colors.primary + "20", borderColor: colors.primary + "40", opacity: claiming ? 0.6 : 1 }]}
                     >
-                      <Text style={[styles.claimText, { color: colors.primary }]}>Claim</Text>
+                      {claiming ? (
+                        <ActivityIndicator size={12} color={colors.primary} />
+                      ) : (
+                        <Text style={[styles.claimText, { color: colors.primary }]}>Claim</Text>
+                      )}
                     </TouchableOpacity>
                   )}
                 </View>
@@ -872,14 +909,23 @@ export default function EventDetailScreen() {
                   ) : (
                     foodItems.map((task) => {
                       const assignee = task.assigneeId ? resolveForDisplay(task.assigneeId) : null;
+                      const toggling = togglingTaskIds.has(task.id);
+                      const claiming = claimingTaskIds.has(task.id);
                       return (
-                        <View key={task.id} style={[styles.taskRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                          <TouchableOpacity onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); toggleTask(event.id, task.id); }}>
-                            <Ionicons
-                              name={task.done ? "checkmark-circle" : "ellipse-outline"}
-                              size={24}
-                              color={task.done ? colors.green : colors.border}
-                            />
+                        <View key={task.id} style={[styles.taskRow, { backgroundColor: colors.card, borderColor: colors.border, opacity: toggling ? 0.6 : 1 }]}>
+                          <TouchableOpacity
+                            disabled={toggling}
+                            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); void handleToggleTask(event.id, task.id); }}
+                          >
+                            {toggling ? (
+                              <ActivityIndicator size={24} color={colors.primary} />
+                            ) : (
+                              <Ionicons
+                                name={task.done ? "checkmark-circle" : "ellipse-outline"}
+                                size={24}
+                                color={task.done ? colors.green : colors.border}
+                              />
+                            )}
                           </TouchableOpacity>
                           <Text style={[styles.taskText, { color: task.done ? colors.mutedForeground : colors.foreground, textDecorationLine: task.done ? "line-through" : "none" }]}>
                             {task.title}
@@ -888,10 +934,15 @@ export default function EventDetailScreen() {
                             <UserAvatar initials={assignee.initials} color={assignee.color} imageUrl={assignee.profileImageUrl} size={28} fontSize={10} />
                           ) : (
                             <TouchableOpacity
-                              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); claimTask(event.id, task.id); }}
-                              style={[styles.claimBtn, { backgroundColor: colors.primary + "20", borderColor: colors.primary + "40" }]}
+                              disabled={claiming}
+                              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); void handleClaimTask(event.id, task.id); }}
+                              style={[styles.claimBtn, { backgroundColor: colors.primary + "20", borderColor: colors.primary + "40", opacity: claiming ? 0.6 : 1 }]}
                             >
-                              <Text style={[styles.claimText, { color: colors.primary }]}>I'll bring it</Text>
+                              {claiming ? (
+                                <ActivityIndicator size={12} color={colors.primary} />
+                              ) : (
+                                <Text style={[styles.claimText, { color: colors.primary }]}>I'll bring it</Text>
+                              )}
                             </TouchableOpacity>
                           )}
                         </View>
