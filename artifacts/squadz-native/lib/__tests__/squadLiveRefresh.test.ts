@@ -350,6 +350,39 @@ describe("runSquadPoll", () => {
     expect(onChanged).not.toHaveBeenCalled();
   });
 
+  it("does NOT fire the banner when the user's own membersCanInvite toggle is pre-seeded as the baseline", async () => {
+    const editedSnapshot = { ...baseSnapshot, membersCanInvite: false };
+    lastSig = squadSignature(editedSnapshot);
+
+    fetchMock.mockResolvedValueOnce(okResponse(editedSnapshot));
+    await runSquadPoll(makeOpts());
+
+    expect(refreshSquads).not.toHaveBeenCalled();
+    expect(onChanged).not.toHaveBeenCalled();
+  });
+
+  it("does NOT fire the banner when the user's own isPublic toggle is pre-seeded as the baseline", async () => {
+    const editedSnapshot = { ...baseSnapshot, isPublic: true };
+    lastSig = squadSignature(editedSnapshot);
+
+    fetchMock.mockResolvedValueOnce(okResponse(editedSnapshot));
+    await runSquadPoll(makeOpts());
+
+    expect(refreshSquads).not.toHaveBeenCalled();
+    expect(onChanged).not.toHaveBeenCalled();
+  });
+
+  it("does NOT fire the banner when saveSettings-style multi-field edit (name + emoji + description) is pre-seeded", async () => {
+    const editedSnapshot = { ...baseSnapshot, name: "Weekend Crew", emoji: "🎉", description: "fri nights" };
+    lastSig = squadSignature(editedSnapshot);
+
+    fetchMock.mockResolvedValueOnce(okResponse(editedSnapshot));
+    await runSquadPoll(makeOpts());
+
+    expect(refreshSquads).not.toHaveBeenCalled();
+    expect(onChanged).not.toHaveBeenCalled();
+  });
+
   it("still fires the banner for a DIFFERENT remote edit even after the user's own edit was pre-seeded", async () => {
     // User renamed the squad; the optimistic sig is pre-seeded.
     const myEdit = { ...baseSnapshot, name: "My New Name" };

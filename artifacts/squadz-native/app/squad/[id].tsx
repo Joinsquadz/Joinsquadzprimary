@@ -23,7 +23,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
-import { runSquadPoll } from "@/lib/squadLiveRefresh";
+import { runSquadPoll, squadSignature } from "@/lib/squadLiveRefresh";
 import { useData, useAuth, type FoundUser } from "@/context/AppContext";
 import { useMutedSquads } from "@/context/MutedSquadsContext";
 import { useMessages } from "@/context/MessagesContext";
@@ -420,8 +420,20 @@ export default function SquadDetailScreen() {
       Alert.alert("Missing info", "Squad needs a name.");
       return;
     }
+    const name = editName.trim();
     const desc = editDescription.trim();
-    updateSquad(squad.id, { name: editName.trim(), description: desc || null, emoji: editEmoji });
+    updateSquad(squad.id, { name, description: desc || null, emoji: editEmoji });
+    // Pre-seed the poll baseline so the next tick doesn't mistake our own
+    // optimistic write for a remote change and show a spurious "Refreshed" banner.
+    lastSquadSigRef.current = squadSignature({
+      name,
+      emoji: editEmoji,
+      description: desc || null,
+      color: squad.color,
+      isPublic: squad.isPublic,
+      membersCanInvite: squad.membersCanInvite,
+      memberIds: squad.memberIds,
+    });
     setSettingsOpen(false);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
@@ -840,7 +852,10 @@ export default function SquadDetailScreen() {
                 </View>
                 <Switch
                   value={squad.membersCanInvite ?? false}
-                  onValueChange={(v) => { updateSquad(squad.id, { membersCanInvite: v }); }}
+                  onValueChange={(v) => {
+                    updateSquad(squad.id, { membersCanInvite: v });
+                    lastSquadSigRef.current = squadSignature({ ...squad, membersCanInvite: v });
+                  }}
                   trackColor={{ false: colors.border, true: colors.primary + "80" }}
                   thumbColor={squad.membersCanInvite ? colors.primary : colors.mutedForeground}
                 />
@@ -858,7 +873,10 @@ export default function SquadDetailScreen() {
                 </View>
                 <Switch
                   value={squad.isPublic ?? false}
-                  onValueChange={(v) => { updateSquad(squad.id, { isPublic: v }); }}
+                  onValueChange={(v) => {
+                    updateSquad(squad.id, { isPublic: v });
+                    lastSquadSigRef.current = squadSignature({ ...squad, isPublic: v });
+                  }}
                   trackColor={{ false: colors.border, true: colors.primary + "80" }}
                   thumbColor={squad.isPublic ? colors.primary : colors.mutedForeground}
                 />
