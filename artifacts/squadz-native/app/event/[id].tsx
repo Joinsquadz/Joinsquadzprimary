@@ -864,12 +864,32 @@ export default function EventDetailScreen() {
                 {event.costs.map((cost) => {
                   const payer = resolveForDisplay(cost.paidById);
                   const myShare = cost.shares.find((s) => s.userId === currentUser.id)?.amount ?? 0;
+                  const shareIds = cost.shares.map((s) => s.userId);
+                  const goingIds = Object.entries(event.rsvps)
+                    .filter(([, status]) => status === "going")
+                    .map(([uid]) => uid);
+                  const isAllGuests =
+                    goingIds.length > 0 &&
+                    goingIds.length === shareIds.length &&
+                    goingIds.every((uid) => shareIds.includes(uid));
+                  const participantLabel = isAllGuests
+                    ? "All guests"
+                    : shareIds
+                        .map((uid) => {
+                          if (uid === currentUser.id) return "you";
+                          const u = resolveForDisplay(uid);
+                          return u.name.split(" ")[0];
+                        })
+                        .join(", ");
                   return (
                     <View key={cost.id} style={[styles.costRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
                       <View style={{ flex: 1 }}>
                         <Text style={[styles.costDesc, { color: colors.foreground }]}>{cost.description}</Text>
                         <Text style={[styles.costPayer, { color: colors.mutedForeground }]}>
-                          Paid by {payer.id === currentUser.id ? "you" : payer.name} · split {cost.shares.length} ways
+                          Paid by {payer.id === currentUser.id ? "you" : payer.name}
+                        </Text>
+                        <Text style={[styles.costPayer, { color: colors.mutedForeground }]} numberOfLines={2}>
+                          Split with: {participantLabel}
                         </Text>
                       </View>
                       <View style={styles.costRight}>
