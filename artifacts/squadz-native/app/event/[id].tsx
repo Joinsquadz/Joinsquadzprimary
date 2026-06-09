@@ -159,6 +159,7 @@ export default function EventDetailScreen() {
   const [costTotal, setCostTotal] = useState("");
   const [costShares, setCostShares] = useState<Record<string, string>>({});
   const [splitMode, setSplitMode] = useState<"even" | "manual">("even");
+  const [costSaving, setCostSaving] = useState(false);
   const [selectedParticipantIds, setSelectedParticipantIds] = useState<Set<string>>(new Set());
   const [paymentHandles, setPaymentHandles] = useState<
     Record<string, { venmo: string | null; cashapp: string | null; zelle: string | null }>
@@ -345,6 +346,7 @@ export default function EventDetailScreen() {
   };
 
   const saveCost = async () => {
+    if (costSaving) return;
     if (!costDesc.trim()) {
       Alert.alert("Missing info", "Add a description for the expense.");
       return;
@@ -368,13 +370,18 @@ export default function EventDetailScreen() {
     const shares = splitParticipants
       .map((m) => ({ userId: m.id, amount: parseFloat(activeShares[m.id] || "0") || 0 }))
       .filter((s) => s.amount > 0);
-    const result = await addCost(event.id, { description: costDesc.trim(), amount: totalNum, shares });
-    if (result.error) {
-      Alert.alert("Couldn't save expense", result.error);
-      return;
+    setCostSaving(true);
+    try {
+      const result = await addCost(event.id, { description: costDesc.trim(), amount: totalNum, shares });
+      if (result.error) {
+        Alert.alert("Couldn't save expense", result.error);
+        return;
+      }
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setCostModal(false);
+    } finally {
+      setCostSaving(false);
     }
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    setCostModal(false);
   };
 
   // ---- Task modal ----
@@ -1233,10 +1240,14 @@ export default function EventDetailScreen() {
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={saveCost}
-                disabled={totalNum <= 0 || !covered}
-                style={[styles.modalBtn, { backgroundColor: covered ? colors.primary : colors.border, opacity: totalNum <= 0 || !covered ? 0.45 : 1 }]}
+                disabled={totalNum <= 0 || !covered || costSaving}
+                style={[styles.modalBtn, { backgroundColor: covered ? colors.primary : colors.border, opacity: (totalNum <= 0 || !covered || costSaving) ? 0.45 : 1 }]}
               >
-                <Text style={[styles.modalBtnText, { color: covered ? "#fff" : colors.textDim }]}>Save expense</Text>
+                {costSaving ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={[styles.modalBtnText, { color: covered ? "#fff" : colors.textDim }]}>Save expense</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
