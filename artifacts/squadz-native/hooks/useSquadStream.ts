@@ -4,32 +4,31 @@ import { useFocusEffect } from "expo-router";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
 type Options = {
-  eventId: string | null;
+  squadId: string | null;
   authToken: string | null;
   onUpdate: () => void;
 };
 
 /**
- * Opens a Server-Sent Events connection to /api/events/:id/stream while the
- * screen is focused. When the server broadcasts an "update" event (RSVP
- * changed, event edited, message sent, cost/task/poll mutated), onUpdate() is
- * called immediately so the screen can re-fetch the latest state.
+ * Opens a Server-Sent Events connection to /api/squads/:id/stream while the
+ * screen is focused. When the server broadcasts an "update" event (squad was
+ * mutated by another member), onUpdate() is called immediately.
  *
  * The connection is automatically closed when the screen loses focus and
  * re-opened when it regains focus. It is also torn down and re-established
  * whenever the app transitions from background → active (AppState "active"),
  * because mobile OSes silently kill background TCP connections.
  */
-export function useEventStream({ eventId, authToken, onUpdate }: Options): void {
+export function useSquadStream({ squadId, authToken, onUpdate }: Options): void {
   const onUpdateRef = useRef(onUpdate);
   onUpdateRef.current = onUpdate;
 
   const abortRef = useRef<AbortController | null>(null);
-  // True while the event-detail screen is in the Expo Router focus stack.
+  // True while the squad-detail screen is in the Expo Router focus stack.
   const focusedRef = useRef(false);
 
   const connect = useCallback(() => {
-    if (!eventId) return;
+    if (!squadId) return;
 
     // Tear down any existing connection before opening a new one.
     abortRef.current?.abort();
@@ -39,7 +38,7 @@ export function useEventStream({ eventId, authToken, onUpdate }: Options): void 
 
     const run = async () => {
       try {
-        const response = await fetch(`${API_BASE}/api/events/${eventId}/stream`, {
+        const response = await fetch(`${API_BASE}/api/squads/${squadId}/stream`, {
           headers: {
             Accept: "text/event-stream",
             "Cache-Control": "no-cache",
@@ -75,14 +74,14 @@ export function useEventStream({ eventId, authToken, onUpdate }: Options): void 
       } catch (err) {
         // AbortError is expected when we intentionally close the connection.
         if (err instanceof Error && err.name !== "AbortError") {
-          // Network failure while focused. The fallback poll in the
+          // Network failure while focused. The 60 s fallback poll in the
           // screen will catch any missed updates until the next reconnect.
         }
       }
     };
 
     void run();
-  }, [eventId, authToken]);
+  }, [squadId, authToken]);
 
   // Open the stream on focus; close it on blur.
   useFocusEffect(
@@ -101,7 +100,7 @@ export function useEventStream({ eventId, authToken, onUpdate }: Options): void 
   // Reconnect when the app returns from the background while this screen is
   // focused. Mobile OSes silently drop TCP connections after a few seconds in
   // the background, so the existing SSE stream is already dead by the time the
-  // user opens the app again. Without this the fallback poll is the only recovery.
+  // user opens the app again. Without this the 60 s poll is the only recovery.
   useEffect(() => {
     const sub = AppState.addEventListener("change", (nextState) => {
       if (nextState === "active" && focusedRef.current) {
