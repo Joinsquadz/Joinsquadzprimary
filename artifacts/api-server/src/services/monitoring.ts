@@ -13,6 +13,13 @@ export function initMonitoring(): void {
   if (!dsn || _initialised) return;
   _initialised = true;
 
+  if (Sentry.getClient()) {
+    // Already initialised by instrument.ts via the --import ESM preload —
+    // auto-instrumentation is active. Skip re-init to avoid overwriting config.
+    logger.info("[services/monitoring] Sentry pre-initialised via instrument preload");
+    return;
+  }
+
   Sentry.init({
     dsn,
     environment: process.env.NODE_ENV ?? "development",
