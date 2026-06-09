@@ -974,6 +974,18 @@ export default function SquadDetailScreen() {
                             setNewInviteCode(freshCode);
                             if (newInviteDismissTimer.current) clearTimeout(newInviteDismissTimer.current);
                             newInviteDismissTimer.current = setTimeout(() => setNewInviteCode(null), 6000);
+                            // Pre-seed the poll baseline so the next tick doesn't
+                            // mistake our own invite-code regeneration for a remote
+                            // change and show a spurious "Refreshed" banner.
+                            lastSquadSigRef.current = squadSignature({
+                              name: squad.name,
+                              emoji: squad.emoji,
+                              description: squad.description,
+                              color: squad.color,
+                              isPublic: squad.isPublic,
+                              membersCanInvite: squad.membersCanInvite,
+                              memberIds: squad.memberIds,
+                            });
                           }
                         },
                       },

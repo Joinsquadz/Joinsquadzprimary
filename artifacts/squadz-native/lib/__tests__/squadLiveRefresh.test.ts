@@ -418,6 +418,25 @@ describe("runSquadPoll", () => {
     expect(onChanged).not.toHaveBeenCalled();
   });
 
+  it("does NOT fire the banner when regenerating invite code and pre-seeding the existing squad signature", async () => {
+    // Seed baseline with the initial server response.
+    fetchMock.mockResolvedValueOnce(okResponse(baseSnapshot));
+    await runSquadPoll(makeOpts());
+
+    // Simulate: user regenerated invite code; since inviteCode is not part of
+    // squadSignature, the pre-seeded sig equals the current squad's sig.
+    // (In [id].tsx: lastSquadSigRef.current = squadSignature({ ...squad }) after success.)
+    lastSig = squadSignature(baseSnapshot);
+
+    // Next poll returns the same squad fields (invite code changed on server but
+    // is not in the signature) — should be silent.
+    fetchMock.mockResolvedValueOnce(okResponse(baseSnapshot));
+    await runSquadPoll(makeOpts());
+
+    expect(refreshSquads).not.toHaveBeenCalled();
+    expect(onChanged).not.toHaveBeenCalled();
+  });
+
   it("still fires the banner for a DIFFERENT remote edit even after the user's own edit was pre-seeded", async () => {
     // User renamed the squad; the optimistic sig is pre-seeded.
     const myEdit = { ...baseSnapshot, name: "My New Name" };
