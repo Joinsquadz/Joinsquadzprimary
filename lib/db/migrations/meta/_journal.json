@@ -29,6 +29,13 @@
       "when": 1781027011253,
       "tag": "0003_spotty_exodus",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1781033520001,
+      "tag": "0004_goofy_sauron",
+      "breakpoints": true
     }
   ]
 }

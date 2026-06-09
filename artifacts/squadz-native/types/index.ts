@@ -85,4 +85,5 @@ export type Squad = {
   inviteCode?: string | null;
   membersCanInvite?: boolean;
   muted?: boolean;
+  version?: number;
 };

@@ -1,4 +1,4 @@
-import { pgTable, text, jsonb, boolean, timestamp, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, text, jsonb, boolean, timestamp, primaryKey, integer } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -14,6 +14,7 @@ export const squadsTable = pgTable("squads", {
   creatorId: text("creator_id"),
   membersCanInvite: boolean("members_can_invite").notNull().default(false),
   inviteCode: text("invite_code").unique(),
+  version: integer("version").notNull().default(1),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 

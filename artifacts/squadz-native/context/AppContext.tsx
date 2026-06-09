@@ -279,6 +279,7 @@ function dbSquadToSquad(s: Record<string, unknown>): Squad {
     inviteCode: s.inviteCode as string | null | undefined,
     membersCanInvite: (s.membersCanInvite as boolean) ?? false,
     muted: (s.muted as boolean) ?? false,
+    version: (s.version as number) ?? 1,
   };
 }
 
@@ -1398,8 +1399,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const updateSquad = useCallback(
     (sid: string, patch: Partial<Pick<Squad, "name" | "description" | "emoji" | "color" | "isPublic" | "membersCanInvite">>) => {
       // Optimistic update
+      const currentVersion = squads.find((s) => s.id === sid)?.version;
+      const body = currentVersion !== undefined ? { ...patch, version: currentVersion } : patch;
       setSquads((prev) => prev.map((s) => (s.id === sid ? { ...s, ...patch } : s)));
-      void apiFetch(`/api/squads/${sid}`, { method: "PATCH", body: JSON.stringify(patch) })
+      void apiFetch(`/api/squads/${sid}`, { method: "PATCH", body: JSON.stringify(body) })
         .then(async (res) => {
           if (res.status === 409) {
             const data = await res.json() as { error?: string; conflict?: boolean };
@@ -1419,7 +1422,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         })
         .catch(() => { void refreshSquads(); showToast("Couldn't save changes — please try again"); });
     },
-    [apiFetch, refreshSquads, showToast],
+    [apiFetch, refreshSquads, showToast, squads],
   );
 
   const regenerateInviteCode = useCallback(async (squadId: string): Promise<{ error?: string; inviteCode?: string }> => {

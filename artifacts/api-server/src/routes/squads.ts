@@ -46,6 +46,7 @@ const UpdateSquadBody = z.object({
   isPublic: z.boolean().optional(),
   membersCanInvite: z.boolean().optional(),
   memberIds: z.array(z.string()).optional(),
+  version: z.number().int().optional(),
 });
 
 router.post("/squads/:id/join", requireAuth, async (req: Request, res: Response): Promise<void> => {
@@ -306,7 +307,19 @@ router.patch("/squads/:id", requireAuth, async (req: Request, res: Response): Pr
     ? parsed.data.memberIds.filter((id) => !memberIds.includes(id))
     : [];
 
-  const [squad] = await db.update(squadsTable).set(parsed.data).where(eq(squadsTable.id, id)).returning();
+  const { version: clientVersion, ...fieldsToUpdate } = parsed.data;
+  const updateWhere = clientVersion !== undefined
+    ? and(eq(squadsTable.id, id), eq(squadsTable.version, clientVersion))
+    : eq(squadsTable.id, id);
+  const [squad] = await db
+    .update(squadsTable)
+    .set({ ...fieldsToUpdate, version: sql`${squadsTable.version} + 1` })
+    .where(updateWhere)
+    .returning();
+  if (!squad) {
+    res.status(409).json({ error: "Someone else just updated this — refresh to see the latest", conflict: true });
+    return;
+  }
   res.json(squad);
 
   // Fire-and-forget: notify members when new members are added.
