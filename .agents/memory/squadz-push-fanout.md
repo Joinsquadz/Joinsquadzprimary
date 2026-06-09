@@ -34,6 +34,12 @@ lead window — a code review caught exactly this.
 - Event date is free-form text, parsed best-effort; unparseable/TBD → skip, leave
   unmarked.
 
+## RSVP has two entry points
+A member can RSVP via the RSVP endpoint OR by joining with an invite code — both
+write `rsvps[user]="going"`. Any host-notification (or other RSVP side-effect)
+must be wired on BOTH paths, or invite-code joins silently skip it. A review
+caught the join path missing the host push.
+
 ## Deep-link target nuance
 Photo-share notifications deep-link to the squad **vault**, not squad home — the
 vault is its own screen keyed by squadId. Picking the squad-home screen for a
@@ -41,5 +47,5 @@ vault event is a deep-link bug.
 
 ## Migration tooling gotcha
 `drizzle-kit generate` chokes on an **absolute** `out` path (builds a malformed
-`.//abs/path`). Keep `out` **relative** in `lib/db/drizzle.config.ts`; the db
-scripts always run with cwd = the db package.
+doubled path). Keep the drizzle config `out` **relative**; the db scripts always
+run with cwd = the db package.

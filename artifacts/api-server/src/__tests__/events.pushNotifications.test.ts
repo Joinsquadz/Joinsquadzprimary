@@ -171,3 +171,50 @@ describe("POST /api/events/:id/rsvp — host notification", () => {
     expect(sendPushNotificationsMock).not.toHaveBeenCalled();
   });
 });
+
+describe("POST /api/events/join — host notification", () => {
+  it("notifies the host with the Friend Activity pref when a member joins by invite code", async () => {
+    dbState.selectRows = [{ id: "evt-1", title: "BBQ", emoji: "🔥", hostId: HOST, cancelled: false, inviteCode: "ABC123", rsvps: {} }];
+    dbState.updateRows = [{ id: "evt-1", title: "BBQ", emoji: "🔥", hostId: HOST, rsvps: { [ALICE]: "going" } }];
+    storageMock.getPushTokensForUsers.mockResolvedValue(["ExponentPushToken[host]"]);
+    storageMock.getUser.mockResolvedValue({ id: ALICE, firstName: "Alice", lastName: null, email: null });
+
+    const app = await makeApp({ id: ALICE });
+    await request(app).post("/api/events/join").send({ inviteCode: "ABC123" });
+
+    await vi.waitFor(() => expect(sendPushNotificationsMock).toHaveBeenCalled());
+    const [recipientIds, opts] = storageMock.getPushTokensForUsers.mock.calls[0] as [string[], { requireNotifyFriendActivity?: boolean }];
+    expect(recipientIds).toEqual([HOST]);
+    expect(opts.requireNotifyFriendActivity).toBe(true);
+    const [, payload] = sendPushNotificationsMock.mock.calls[0] as [unknown, { body: string; data: Record<string, string> }];
+    expect(payload.body).toContain("Alice");
+    expect(payload.body).toContain("going");
+    expect(payload.data.screen).toBe("event");
+    expect(payload.data.eventId).toBe("evt-1");
+  });
+
+  it("does NOT notify when the host joins their own event", async () => {
+    dbState.selectRows = [{ id: "evt-1", title: "BBQ", emoji: "🔥", hostId: HOST, cancelled: false, inviteCode: "ABC123", rsvps: {} }];
+    dbState.updateRows = [{ id: "evt-1", title: "BBQ", emoji: "🔥", hostId: HOST, rsvps: { [HOST]: "going" } }];
+
+    const app = await makeApp({ id: HOST });
+    await request(app).post("/api/events/join").send({ inviteCode: "ABC123" });
+
+    await new Promise((r) => setTimeout(r, 50));
+    expect(sendPushNotificationsMock).not.toHaveBeenCalled();
+  });
+
+  it("does NOT send when the host has the Friend Activity pref off (no token)", async () => {
+    dbState.selectRows = [{ id: "evt-1", title: "BBQ", emoji: "🔥", hostId: HOST, cancelled: false, inviteCode: "ABC123", rsvps: {} }];
+    dbState.updateRows = [{ id: "evt-1", title: "BBQ", emoji: "🔥", hostId: HOST, rsvps: { [ALICE]: "going" } }];
+    storageMock.getPushTokensForUsers.mockResolvedValue([]);
+
+    const app = await makeApp({ id: ALICE });
+    await request(app).post("/api/events/join").send({ inviteCode: "ABC123" });
+
+    await new Promise((r) => setTimeout(r, 50));
+    const [, opts] = storageMock.getPushTokensForUsers.mock.calls[0] as [string[], { requireNotifyFriendActivity?: boolean }];
+    expect(opts.requireNotifyFriendActivity).toBe(true);
+    expect(sendPushNotificationsMock).not.toHaveBeenCalled();
+  });
+});

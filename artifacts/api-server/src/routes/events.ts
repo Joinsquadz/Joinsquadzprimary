@@ -322,6 +322,30 @@ router.post("/events/join", requireAuth, async (req: Request, res: Response): Pr
     .returning();
 
   res.json(event);
+
+  // Fire-and-forget: joining by invite code is an RSVP, so tell the host
+  // someone is going (skip the self-host case).
+  if (event.hostId !== userId) {
+    void (async () => {
+      try {
+        const tokens = await storage.getPushTokensForUsers([event.hostId], { requireNotifyFriendActivity: true });
+        if (tokens.length === 0) return;
+        const responder = await storage.getUser(userId);
+        const label = RSVP_LABEL["going"] ?? "is going";
+        await sendPushNotifications(
+          tokens,
+          {
+            title: `${event.emoji} ${event.title}`,
+            body: `${displayName(responder)} ${label}`,
+            data: { screen: "event", eventId: event.id },
+          },
+          { onStaleToken: (token) => storage.clearPushToken(token) },
+        );
+      } catch (err) {
+        logger.error({ err }, "Error sending join RSVP push notification");
+      }
+    })();
+  }
 });
 
 router.get("/events/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {
