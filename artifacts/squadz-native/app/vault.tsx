@@ -255,6 +255,7 @@ export default function VaultScreen() {
   }, [isContextual]);
 
   const [upgradeLoading, setUpgradeLoading] = useState(false);
+  const [upgradeModalVisible, setUpgradeModalVisible] = useState(false);
   const [confirmingUpgrade, setConfirmingUpgrade] = useState(false);
   const [confirmFailed, setConfirmFailed] = useState(false);
   const awaitingUpgrade = useRef(false);
@@ -702,9 +703,8 @@ export default function VaultScreen() {
 
               {!isPro && lockedCount > 0 && (
                 <TouchableOpacity
-                  onPress={() => { if (!upgradeLoading) void handleUpgrade(); }}
-                  disabled={upgradeLoading}
-                  style={[styles.lockBanner, { backgroundColor: colors.card, borderColor: colors.border, opacity: upgradeLoading ? 0.7 : 1 }]}
+                  onPress={() => setUpgradeModalVisible(true)}
+                  style={[styles.lockBanner, { backgroundColor: colors.card, borderColor: colors.border }]}
                   activeOpacity={0.85}
                 >
                   <Text style={styles.lockBannerIcon}>🔒</Text>
@@ -713,12 +713,10 @@ export default function VaultScreen() {
                       {lockedCount} older {lockedCount === 1 ? "photo is" : "photos are"} locked
                     </Text>
                     <Text style={[styles.lockBannerBody, { color: colors.mutedForeground }]}>
-                      {upgradeLoading ? "Opening checkout…" : "Tap to upgrade and unlock photos over 30 days old."}
+                      Your photos are safe — upgrade to keep viewing them after 30 days.
                     </Text>
                   </View>
-                  {upgradeLoading
-                    ? <ActivityIndicator color={colors.primary} size="small" />
-                    : <Ionicons name="chevron-forward" size={20} color={colors.primary} />}
+                  <Ionicons name="chevron-forward" size={20} color={colors.primary} />
                 </TouchableOpacity>
               )}
 
@@ -752,9 +750,8 @@ export default function VaultScreen() {
                     p.locked ? (
                       <TouchableOpacity
                         key={p.id}
-                        onPress={() => { if (!upgradeLoading) void handleUpgrade(); }}
-                        disabled={upgradeLoading}
-                        style={[styles.gridCell, { opacity: upgradeLoading ? 0.7 : 1 }]}
+                        onPress={() => setUpgradeModalVisible(true)}
+                        style={styles.gridCell}
                         activeOpacity={0.8}
                       >
                         <LockedThumb id={p.id} style={styles.gridImage} />
@@ -893,6 +890,54 @@ export default function VaultScreen() {
           )}
         </ScrollView>
       )}
+
+      <Modal
+        visible={upgradeModalVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setUpgradeModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setUpgradeModalVisible(false)} activeOpacity={1} />
+          <View style={[styles.upgradeModalSheet, { backgroundColor: colors.card, borderColor: colors.border, paddingBottom: botPad + 16 }]}>
+            <View style={[styles.sheetHandle, { backgroundColor: colors.border }]} />
+            <Text style={styles.upgradeModalEmoji}>🔒</Text>
+            <Text style={[styles.upgradeModalTitle, { color: colors.foreground }]}>Unlock older memories</Text>
+            <Text style={[styles.upgradeModalBody, { color: colors.mutedForeground }]}>
+              Your photos are safe — we never delete them. Upgrade to Pro to keep viewing photos older than 30 days.
+            </Text>
+            <View style={styles.upgradeModalBullets}>
+              {[
+                "View all photos, no time limit",
+                "Roll up photos to squad vaults",
+                "Unlimited vault storage",
+              ].map(b => (
+                <View key={b} style={styles.upgradeModalBulletRow}>
+                  <Ionicons name="checkmark-circle" size={18} color={colors.green ?? "#22c55e"} />
+                  <Text style={[styles.upgradeModalBulletText, { color: colors.foreground }]}>{b}</Text>
+                </View>
+              ))}
+            </View>
+            <TouchableOpacity
+              onPress={() => { setUpgradeModalVisible(false); void handleUpgrade(); }}
+              disabled={upgradeLoading}
+              style={[styles.upgradeBtn, { backgroundColor: colors.primary, opacity: upgradeLoading ? 0.7 : 1 }]}
+              activeOpacity={0.85}
+            >
+              {upgradeLoading
+                ? <ActivityIndicator color="#fff" size="small" />
+                : <Text style={styles.upgradeBtnText}>⚡ Upgrade to Pro — $20/year</Text>}
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setUpgradeModalVisible(false)}
+              style={styles.upgradeModalDismiss}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.upgradeModalDismissText, { color: colors.mutedForeground }]}>Not now</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         visible={pickerOpen}
@@ -1052,6 +1097,23 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   upgradeBtnText: { color: "#fff", fontFamily: "Inter_700Bold", fontSize: 15, fontWeight: "800" },
+  upgradeModalSheet: {
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    borderWidth: 1,
+    paddingHorizontal: 28,
+    paddingTop: 12,
+    alignItems: "center",
+  },
+  sheetHandle: { width: 40, height: 4, borderRadius: 2, alignSelf: "center", marginBottom: 24 },
+  upgradeModalEmoji: { fontSize: 48, marginBottom: 12 },
+  upgradeModalTitle: { fontSize: 22, fontWeight: "800", fontFamily: "Inter_700Bold", textAlign: "center", marginBottom: 10 },
+  upgradeModalBody: { fontSize: 14, fontFamily: "Inter_400Regular", lineHeight: 21, textAlign: "center", marginBottom: 24 },
+  upgradeModalBullets: { gap: 14, marginBottom: 8, width: "100%" },
+  upgradeModalBulletRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  upgradeModalBulletText: { fontSize: 14, fontFamily: "Inter_600SemiBold", fontWeight: "600", flex: 1 },
+  upgradeModalDismiss: { alignItems: "center", marginTop: 14, paddingVertical: 8 },
+  upgradeModalDismissText: { fontSize: 14, fontFamily: "Inter_400Regular" },
   filterBadge: {
     flexDirection: "row",
     alignItems: "center",

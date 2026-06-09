@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo, useEffect } from "react";
 import { router } from "expo-router";
 import {
   View,
@@ -171,6 +171,10 @@ function JoinCodeModal({
   );
 }
 
+type ListItem =
+  | { type: "event"; data: Event }
+  | { type: "past-header"; count: number };
+
 export default function EventsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -178,13 +182,14 @@ export default function EventsScreen() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
   const [showJoinModal, setShowJoinModal] = useState(false);
+  const [showPast, setShowPast] = useState(false);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
 
-  const now = new Date();
-  const weekFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const now = useMemo(() => new Date(), []);
+  const weekFromNow = useMemo(() => new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000), [now]);
 
-  const matchesFilter = (e: Event): boolean => {
+  const matchesFilter = useMemo(() => (e: Event): boolean => {
     switch (filter) {
       case "This Week": {
         const d = parseEventDate(e.date);
@@ -199,14 +204,44 @@ export default function EventsScreen() {
       default:
         return true;
     }
-  };
+  }, [filter, currentUser.id, now, weekFromNow]);
 
-  const filtered: Event[] = events.filter(
-    (e) =>
-      matchesFilter(e) &&
-      (e.title.toLowerCase().includes(search.toLowerCase()) ||
-        e.location.toLowerCase().includes(search.toLowerCase())),
-  );
+  const matchesSearch = useMemo(() => (e: Event): boolean =>
+    e.title.toLowerCase().includes(search.toLowerCase()) ||
+    e.location.toLowerCase().includes(search.toLowerCase()),
+  [search]);
+
+  const isPast = useMemo(() => (e: Event): boolean => {
+    const d = parseEventDate(e.date);
+    return !!d && d < now;
+  }, [now]);
+
+  const { upcoming, past } = useMemo(() => {
+    const base = events.filter(e => matchesFilter(e) && matchesSearch(e));
+    return {
+      upcoming: base.filter(e => !isPast(e)),
+      past: base.filter(e => isPast(e)),
+    };
+  }, [events, matchesFilter, matchesSearch, isPast]);
+
+  const effectiveShowPast = search.length > 0 ? true : showPast;
+
+  useEffect(() => {
+    if (search.length > 0 && upcoming.length === 0 && past.length > 0) {
+      setShowPast(true);
+    }
+  }, [search, upcoming.length, past.length]);
+
+  const listData = useMemo((): ListItem[] => {
+    const items: ListItem[] = upcoming.map(e => ({ type: "event" as const, data: e }));
+    if (past.length > 0) {
+      items.push({ type: "past-header" as const, count: past.length });
+      if (effectiveShowPast) {
+        items.push(...past.map(e => ({ type: "event" as const, data: e })));
+      }
+    }
+    return items;
+  }, [upcoming, past, effectiveShowPast]);
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -265,8 +300,8 @@ export default function EventsScreen() {
       </View>
 
       <FlatList
-        data={filtered}
-        keyExtractor={(e) => e.id}
+        data={listData}
+        keyExtractor={(item) => item.type === "past-header" ? "past-header" : item.data.id}
         contentContainerStyle={{
           paddingHorizontal: 20,
           paddingTop: 8,
@@ -303,17 +338,44 @@ export default function EventsScreen() {
             </View>
           )
         }
-        renderItem={({ item }) => (
-          <EventCard
-            id={item.id}
-            emoji={item.emoji}
-            title={item.title}
-            date={item.date}
-            location={item.location}
-            hostId={item.hostId}
-            attendeeCount={goingCount(item)}
-          />
-        )}
+        renderItem={({ item }) => {
+          if (item.type === "past-header") {
+            return (
+              <TouchableOpacity
+                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setShowPast(p => !p); }}
+                style={[styles.pastHeader, { borderColor: colors.border }]}
+                activeOpacity={0.7}
+              >
+                <View style={styles.pastHeaderLeft}>
+                  <Ionicons name="time-outline" size={16} color={colors.mutedForeground} />
+                  <Text style={[styles.pastHeaderText, { color: colors.mutedForeground }]}>
+                    Past Events
+                  </Text>
+                  <View style={[styles.pastCount, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                    <Text style={[styles.pastCountText, { color: colors.mutedForeground }]}>{item.count}</Text>
+                  </View>
+                </View>
+                <Ionicons
+                  name={effectiveShowPast ? "chevron-up" : "chevron-down"}
+                  size={16}
+                  color={colors.mutedForeground}
+                />
+              </TouchableOpacity>
+            );
+          }
+          const e = item.data;
+          return (
+            <EventCard
+              id={e.id}
+              emoji={e.emoji}
+              title={e.title}
+              date={e.date}
+              location={e.location}
+              hostId={e.hostId}
+              attendeeCount={goingCount(e)}
+            />
+          );
+        }}
       />
 
       <JoinCodeModal visible={showJoinModal} onClose={() => setShowJoinModal(false)} />
@@ -344,6 +406,15 @@ const styles = StyleSheet.create({
   emptySub: { fontSize: 14, textAlign: "center", paddingHorizontal: 24 },
   emptyBtn: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 20, borderRadius: 24, paddingHorizontal: 24, paddingVertical: 12 },
   emptyBtnText: { fontSize: 15, fontWeight: "700", color: "#fff" },
+  pastHeader: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingVertical: 12, marginTop: 4, marginBottom: 4,
+    borderTopWidth: 1,
+  },
+  pastHeaderLeft: { flexDirection: "row", alignItems: "center", gap: 6 },
+  pastHeaderText: { fontSize: 14, fontWeight: "700" },
+  pastCount: { borderRadius: 10, borderWidth: 1, paddingHorizontal: 7, paddingVertical: 1 },
+  pastCountText: { fontSize: 12, fontWeight: "600" },
 
   modalOverlay: { flex: 1, justifyContent: "flex-end" },
   sheet: {
