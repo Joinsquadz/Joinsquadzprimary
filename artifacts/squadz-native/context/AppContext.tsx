@@ -147,6 +147,8 @@ type AppContextType = {
   refreshEvents: () => Promise<void>;
   conflictEventId: string | null;
   clearConflictEvent: () => void;
+  conflictSquadId: string | null;
+  clearConflictSquad: () => void;
 
   squads: Squad[];
   getSquad: (id: string) => Squad | undefined;
@@ -210,6 +212,8 @@ const AppContext = createContext<AppContextType>({
   refreshEvents: async () => {},
   conflictEventId: null,
   clearConflictEvent: noop,
+  conflictSquadId: null,
+  clearConflictSquad: noop,
   squads: [],
   getSquad: () => undefined,
   addSquad: asyncNoop,
@@ -283,6 +287,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [ownPaymentHandles, setOwnPaymentHandles] = useState<PaymentHandles>({ venmo: null, cashapp: null, zelle: null });
   const [conflictEventId, setConflictEventId] = useState<string | null>(null);
   const clearConflictEvent = useCallback(() => setConflictEventId(null), []);
+  const [conflictSquadId, setConflictSquadId] = useState<string | null>(null);
+  const clearConflictSquad = useCallback(() => setConflictSquadId(null), []);
   const currentUserIdRef = useRef<string>(ME.id);
   // Always holds the latest auth token so async mutations can detect a
   // session change (logout/login) mid-flight and refuse to commit stale state.
@@ -1371,13 +1377,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Optimistic update
       setSquads((prev) => prev.map((s) => (s.id === sid ? { ...s, ...patch } : s)));
       void apiFetch(`/api/squads/${sid}`, { method: "PATCH", body: JSON.stringify(patch) })
-        .then((res) => res.ok ? res.json() as Promise<Record<string, unknown>> : Promise.reject())
-        .then((updated) => {
-          setSquads((prev) => prev.map((s) => (s.id === sid ? dbSquadToSquad(updated) : s)));
+        .then(async (res) => {
+          if (res.status === 409) {
+            const data = await res.json() as { error?: string; conflict?: boolean };
+            if (data.conflict) {
+              showToast("Someone else just updated this — showing latest");
+              setConflictSquadId(sid);
+              void refreshSquads();
+              return;
+            }
+            return Promise.reject();
+          }
+          if (!res.ok) return Promise.reject();
+          return res.json() as Promise<Record<string, unknown>>;
         })
-        .catch(() => {});
+        .then((updated) => {
+          if (updated) setSquads((prev) => prev.map((s) => (s.id === sid ? dbSquadToSquad(updated) : s)));
+        })
+        .catch(() => { void refreshSquads(); showToast("Couldn't save changes — please try again"); });
     },
-    [apiFetch],
+    [apiFetch, refreshSquads, showToast],
   );
 
   const regenerateInviteCode = useCallback(async (squadId: string): Promise<{ error?: string; inviteCode?: string }> => {
@@ -1490,7 +1509,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           addedUser?: FoundUser;
           error?: string;
         };
-        if (res.status === 409) return { error: "That user is already in the squad." };
+        if (res.status === 409) {
+          showToast(data.error ?? "That user is already in the squad.");
+          setConflictSquadId(squadId);
+          void refreshSquads();
+          return {};
+        }
         if (res.status === 404) return { error: data.error ?? "No user found with that friend code." };
         if (!res.ok) return { error: data.error ?? "Something went wrong. Please try again." };
         if (data.squad) {
@@ -1502,7 +1526,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return { error: "Network error. Please try again." };
       }
     },
-    [apiFetch],
+    [apiFetch, refreshSquads, showToast],
   );
 
   const currentUser = apiUser
@@ -1580,6 +1604,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         refreshEvents,
         conflictEventId,
         clearConflictEvent,
+        conflictSquadId,
+        clearConflictSquad,
         squads,
         getSquad,
         addSquad,

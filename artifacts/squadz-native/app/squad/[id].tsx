@@ -50,7 +50,7 @@ function getFriendCodeInitials(u: FoundUser): string {
 export default function SquadDetailScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { events, squads, getSquad, updateSquad, regenerateInviteCode, leaveSquad, currentUser, addMemberByFriendCode, removeMember } = useData();
+  const { events, squads, getSquad, updateSquad, regenerateInviteCode, leaveSquad, currentUser, addMemberByFriendCode, removeMember, conflictSquadId, clearConflictSquad } = useData();
   const { resolveUser, prefetchUsers, seedUser } = useUserCache();
   const { getSquadConversation } = useMessages();
   const { authToken } = useAuth();
@@ -72,6 +72,7 @@ export default function SquadDetailScreen() {
 
   const [showLongPressHint, setShowLongPressHint] = useState(false);
   const hintOpacity = useRef(new Animated.Value(0)).current;
+  const conflictBannerAnim = useRef(new Animated.Value(0)).current;
 
   const openMemberProfile = (member: ResolvedUser) => {
     setProfileMember(member);
@@ -211,6 +212,16 @@ export default function SquadDetailScreen() {
     }).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, currentUser.id]);
+
+  useEffect(() => {
+    if (!id || conflictSquadId !== id) return;
+    clearConflictSquad();
+    Animated.sequence([
+      Animated.timing(conflictBannerAnim, { toValue: 1, duration: 200, useNativeDriver: false }),
+      Animated.delay(2500),
+      Animated.timing(conflictBannerAnim, { toValue: 0, duration: 350, useNativeDriver: false }),
+    ]).start();
+  }, [conflictSquadId, id, clearConflictSquad, conflictBannerAnim]);
 
   async function handleOpenChat(squadId: string) {
     if (openingChat) return;
@@ -391,6 +402,20 @@ export default function SquadDetailScreen() {
         <Text style={styles.heroName}>{squad.name}</Text>
         <Text style={styles.heroMeta}>{members.length} members</Text>
       </View>
+
+      {/* Conflict refresh banner */}
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.conflictBanner,
+          {
+            height: conflictBannerAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 40] }),
+            opacity: conflictBannerAnim,
+          },
+        ]}
+      >
+        <Text style={styles.conflictBannerText}>↻ Refreshed — showing latest version</Text>
+      </Animated.View>
 
       <ScrollView
         contentContainerStyle={{ padding: 20, paddingBottom: botPad + 24 }}
@@ -962,4 +987,6 @@ const styles = StyleSheet.create({
   shareNowBtn: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7 },
   shareNowBtnText: { color: "#fff", fontSize: 12, fontWeight: "800" },
   profileFriendCode: { fontSize: 13, fontWeight: "600", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, marginTop: 4, overflow: "hidden" },
+  conflictBanner: { overflow: "hidden", alignItems: "center", justifyContent: "center", backgroundColor: "#F59E0B18" },
+  conflictBannerText: { fontSize: 12, fontWeight: "700", color: "#B45309", letterSpacing: 0.2 },
 });
