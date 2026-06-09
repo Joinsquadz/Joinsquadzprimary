@@ -160,6 +160,7 @@ export default function EventDetailScreen() {
   const [costShares, setCostShares] = useState<Record<string, string>>({});
   const [splitMode, setSplitMode] = useState<"even" | "manual">("even");
   const [costSaving, setCostSaving] = useState(false);
+  const [pollSaving, setPollSaving] = useState(false);
   const [selectedParticipantIds, setSelectedParticipantIds] = useState<Set<string>>(new Set());
   const [paymentHandles, setPaymentHandles] = useState<
     Record<string, { venmo: string | null; cashapp: string | null; zelle: string | null }>
@@ -399,20 +400,26 @@ export default function EventDetailScreen() {
 
   // ---- Poll modal ----
   const savePoll = async () => {
+    if (pollSaving) return;
     const opts = pollOpts.map((o) => o.trim()).filter(Boolean);
     if (!pollQ.trim() || opts.length < 2) {
       Alert.alert("Incomplete poll", "Add a question and at least 2 options.");
       return;
     }
-    const result = await addPoll(event.id, pollQ.trim(), opts);
-    if (result.error) {
-      Alert.alert("Couldn't save poll", result.error);
-      return;
+    setPollSaving(true);
+    try {
+      const result = await addPoll(event.id, pollQ.trim(), opts);
+      if (result.error) {
+        Alert.alert("Couldn't save poll", result.error);
+        return;
+      }
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setPollQ("");
+      setPollOpts(["", ""]);
+      setPollModal(false);
+    } finally {
+      setPollSaving(false);
     }
-    setPollQ("");
-    setPollOpts(["", ""]);
-    setPollModal(false);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
   };
 
   // ---- Edit modal ----
@@ -1301,8 +1308,16 @@ export default function EventDetailScreen() {
               <TouchableOpacity onPress={() => { setPollQ(""); setPollOpts(["", ""]); setPollModal(false); }} style={[styles.modalBtn, { backgroundColor: colors.card }]}>
                 <Text style={[styles.modalBtnText, { color: colors.mutedForeground }]}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={savePoll} style={[styles.modalBtn, { backgroundColor: colors.primary }]}>
-                <Text style={[styles.modalBtnText, { color: "#fff" }]}>Create poll</Text>
+              <TouchableOpacity
+                onPress={savePoll}
+                disabled={pollSaving}
+                style={[styles.modalBtn, { backgroundColor: colors.primary, opacity: pollSaving ? 0.45 : 1 }]}
+              >
+                {pollSaving ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={[styles.modalBtnText, { color: "#fff" }]}>Create poll</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
