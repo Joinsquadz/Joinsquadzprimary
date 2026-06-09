@@ -12,6 +12,7 @@ import {
   Animated,
   Share,
   AppState,
+  TextInput,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -123,6 +124,14 @@ export default function ProfileScreen() {
   const [calSync, setCalSync] = useState(false);
   const [calSyncLoading, setCalSyncLoading] = useState(false);
   const [highlightCalSync, setHighlightCalSync] = useState(false);
+  const [paymentHandles, setPaymentHandles] = useState<{ venmoHandle: string | null; cashappHandle: string | null; zelleHandle: string | null }>({
+    venmoHandle: null,
+    cashappHandle: null,
+    zelleHandle: null,
+  });
+  const [editingHandle, setEditingHandle] = useState<"venmo" | "cashapp" | "zelle" | null>(null);
+  const [draftHandle, setDraftHandle] = useState("");
+  const [savingHandle, setSavingHandle] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
   const [devPushToken, setDevPushToken] = useState<string | null>(null);
   const [tokenCopied, setTokenCopied] = useState(false);
@@ -294,7 +303,7 @@ export default function ProfileScreen() {
     }
   }
 
-  // Load persisted calendar sync preference
+  // Load persisted calendar sync preference and payment handles
   useEffect(() => {
     async function loadPreferences() {
       try {
@@ -302,10 +311,20 @@ export default function ProfileScreen() {
           headers: authHeaders(),
         });
         if (res.ok) {
-          const data = await res.json() as { calendarSyncEnabled?: boolean };
+          const data = await res.json() as {
+            calendarSyncEnabled?: boolean;
+            venmoHandle?: string | null;
+            cashappHandle?: string | null;
+            zelleHandle?: string | null;
+          };
           if (typeof data.calendarSyncEnabled === "boolean") {
             setCalSync(data.calendarSyncEnabled);
           }
+          setPaymentHandles({
+            venmoHandle: data.venmoHandle ?? null,
+            cashappHandle: data.cashappHandle ?? null,
+            zelleHandle: data.zelleHandle ?? null,
+          });
         }
       } catch {
         // silently ignore
@@ -398,6 +417,41 @@ export default function ProfileScreen() {
     } finally {
       setCalSyncLoading(false);
     }
+  }
+
+  const HANDLE_FIELD_MAP = {
+    venmo: "venmoHandle",
+    cashapp: "cashappHandle",
+    zelle: "zelleHandle",
+  } as const;
+
+  async function saveHandle(key: "venmo" | "cashapp" | "zelle", value: string | null) {
+    setSavingHandle(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/user/profile`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ [HANDLE_FIELD_MAP[key]]: value }),
+      });
+      if (!res.ok) {
+        Alert.alert("Error", "Couldn't save. Please try again.");
+        return;
+      }
+      setPaymentHandles((prev) => ({ ...prev, [HANDLE_FIELD_MAP[key]]: value }));
+      setEditingHandle(null);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch {
+      Alert.alert("Error", "Something went wrong. Please try again.");
+    } finally {
+      setSavingHandle(false);
+    }
+  }
+
+  function startEditHandle(key: "venmo" | "cashapp" | "zelle") {
+    const current = paymentHandles[HANDLE_FIELD_MAP[key]];
+    setDraftHandle(current ?? "");
+    setEditingHandle(key);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }
 
   function buildInviteUrl(code: string): string {
@@ -824,6 +878,106 @@ export default function ProfileScreen() {
           )}
         </View>
 
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Payment methods</Text>
+          <Text style={[styles.eventDate, { color: colors.mutedForeground, marginBottom: 12 }]}>
+            Squad members see these when splitting costs.
+          </Text>
+          {([
+            { key: "venmo" as const, label: "Venmo", icon: "💸", placeholder: "@your-venmo", prefix: "@" },
+            { key: "cashapp" as const, label: "Cash App", icon: "💰", placeholder: "$yourcashtag", prefix: "$" },
+            { key: "zelle" as const, label: "Zelle", icon: "⚡", placeholder: "email or phone", prefix: "" },
+          ]).map(({ key, label, icon, placeholder, prefix }, idx, arr) => {
+            const fieldKey = HANDLE_FIELD_MAP[key];
+            const current = paymentHandles[fieldKey];
+            const isEditing = editingHandle === key;
+            const isFirst = idx === 0;
+            const isLast = idx === arr.length - 1;
+            return (
+              <View
+                key={key}
+                style={[
+                  styles.handleRow,
+                  { backgroundColor: colors.card, borderColor: colors.border },
+                  isFirst && styles.handleFirst,
+                  isLast && styles.handleLast,
+                  idx > 0 && { borderTopWidth: 0 },
+                ]}
+              >
+                {isEditing ? (
+                  <View style={{ flex: 1, gap: 10 }}>
+                    <View style={styles.handleEditRow}>
+                      <Text style={[styles.handleIcon]}>{icon}</Text>
+                      <Text style={[styles.handleLabel, { color: colors.foreground }]}>{label}</Text>
+                    </View>
+                    <TextInput
+                      value={draftHandle}
+                      onChangeText={setDraftHandle}
+                      placeholder={placeholder}
+                      placeholderTextColor={colors.mutedForeground}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      autoFocus
+                      style={[styles.handleInput, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+                    />
+                    <View style={styles.handleEditActions}>
+                      {savingHandle ? (
+                        <ActivityIndicator size="small" color={colors.primary} />
+                      ) : (
+                        <>
+                          <TouchableOpacity
+                            onPress={() => { void saveHandle(key, draftHandle.trim() || null); }}
+                            style={[styles.handleSaveBtn, { backgroundColor: colors.primary }]}
+                          >
+                            <Text style={styles.handleSaveBtnText}>Save</Text>
+                          </TouchableOpacity>
+                          {current && (
+                            <TouchableOpacity
+                              onPress={() => { void saveHandle(key, null); }}
+                              style={[styles.handleRemoveBtn, { borderColor: colors.destructive + "60" }]}
+                            >
+                              <Text style={[styles.handleRemoveBtnText, { color: colors.destructive }]}>Remove</Text>
+                            </TouchableOpacity>
+                          )}
+                          <TouchableOpacity
+                            onPress={() => setEditingHandle(null)}
+                            style={[styles.handleCancelBtn, { borderColor: colors.border }]}
+                          >
+                            <Text style={[styles.handleCancelBtnText, { color: colors.mutedForeground }]}>Cancel</Text>
+                          </TouchableOpacity>
+                        </>
+                      )}
+                    </View>
+                  </View>
+                ) : (
+                  <>
+                    <Text style={styles.handleIcon}>{icon}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.handleLabel, { color: colors.foreground }]}>{label}</Text>
+                      {current ? (
+                        <Text style={[styles.handleValue, { color: colors.mutedForeground }]} numberOfLines={1}>
+                          {prefix}{current}
+                        </Text>
+                      ) : (
+                        <Text style={[styles.handleEmpty, { color: colors.mutedForeground }]}>Not set</Text>
+                      )}
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => startEditHandle(key)}
+                      style={[styles.handleEditBtn, { backgroundColor: current ? colors.card : colors.primary + "14", borderColor: current ? colors.border : colors.primary + "40" }]}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Text style={[styles.handleEditBtnText, { color: current ? colors.mutedForeground : colors.primary }]}>
+                        {current ? "Edit" : "Add"}
+                      </Text>
+                    </TouchableOpacity>
+                  </>
+                )}
+              </View>
+            );
+          })}
+        </View>
+
         {SETTINGS.map((group, gi) => (
           <View key={gi} style={styles.settingsGroup}>
             {group.map((item, ii) => (
@@ -999,6 +1153,24 @@ const styles = StyleSheet.create({
   devSectionTitle: { fontSize: 11, fontWeight: "700", letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 8 },
   devTokenLabel: { fontSize: 10, fontWeight: "600", letterSpacing: 0.4, textTransform: "uppercase" },
   devTokenValue: { fontSize: 12, fontFamily: "monospace", letterSpacing: 0.3 },
+  handleRow: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderWidth: 1 },
+  handleFirst: { borderTopLeftRadius: 14, borderTopRightRadius: 14 },
+  handleLast: { borderBottomLeftRadius: 14, borderBottomRightRadius: 14 },
+  handleIcon: { fontSize: 22, width: 28, textAlign: "center" },
+  handleLabel: { fontSize: 14, fontWeight: "700" },
+  handleValue: { fontSize: 13, marginTop: 1 },
+  handleEmpty: { fontSize: 13, marginTop: 1, fontStyle: "italic" },
+  handleEditBtn: { borderRadius: 20, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 6 },
+  handleEditBtnText: { fontSize: 13, fontWeight: "700" },
+  handleEditRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  handleInput: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15 },
+  handleEditActions: { flexDirection: "row", gap: 8, alignItems: "center" },
+  handleSaveBtn: { borderRadius: 20, paddingHorizontal: 18, paddingVertical: 7 },
+  handleSaveBtnText: { color: "#fff", fontSize: 13, fontWeight: "700" },
+  handleRemoveBtn: { borderRadius: 20, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 7 },
+  handleRemoveBtnText: { fontSize: 13, fontWeight: "700" },
+  handleCancelBtn: { borderRadius: 20, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 7 },
+  handleCancelBtnText: { fontSize: 13, fontWeight: "600" },
   inviteCrewCard: { flexDirection: "row", alignItems: "center", gap: 12, marginHorizontal: 20, marginTop: 16, borderRadius: 14, borderWidth: 1, padding: 14 },
   inviteCrewIcon: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center" },
   inviteCrewTitle: { fontSize: 15, fontWeight: "700", marginBottom: 2 },
