@@ -23,6 +23,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
+import { useSquadStream } from "@/hooks/useSquadStream";
 import { runSquadPoll, squadSignature } from "@/lib/squadLiveRefresh";
 import { useData, useAuth, type FoundUser } from "@/context/AppContext";
 import { useMutedSquads } from "@/context/MutedSquadsContext";
@@ -56,6 +57,16 @@ export default function SquadDetailScreen() {
   const { getSquadConversation } = useMessages();
   const { authToken } = useAuth();
   const { id } = useLocalSearchParams<{ id: string }>();
+
+  // Per-screen SSE for live status feedback (reconnecting indicator).
+  // The global AppContext stream already handles data refreshes; this connection
+  // adds the status value so the UI can tell the user when the feed is down.
+  const { status: streamStatus } = useSquadStream({
+    squadId: id ?? null,
+    authToken,
+    onUpdate: refreshSquads,
+  });
+
   const [openingChat, setOpeningChat] = useState(false);
   const [availabilityTitle, setAvailabilityTitle] = useState<string | null>(null);
   const [newResponseCount, setNewResponseCount] = useState(0);
@@ -541,6 +552,21 @@ export default function SquadDetailScreen() {
         <Text style={styles.heroName}>{squad.name}</Text>
         <Text style={styles.heroMeta}>{members.length} members</Text>
       </View>
+
+      {/* Stream reconnecting indicator */}
+      {streamStatus !== "connected" && (
+        <View style={styles.reconnectBanner} pointerEvents="none">
+          {streamStatus === "reconnecting" && (
+            <ActivityIndicator size="small" color="#6B7280" style={{ marginRight: 6 }} />
+          )}
+          {streamStatus === "error" && (
+            <Ionicons name="cloud-offline-outline" size={14} color="#6B7280" style={{ marginRight: 6 }} />
+          )}
+          <Text style={styles.reconnectBannerText}>
+            {streamStatus === "error" ? "Live updates unavailable" : "Reconnecting…"}
+          </Text>
+        </View>
+      )}
 
       {/* Conflict refresh banner */}
       <Animated.View
@@ -1180,6 +1206,8 @@ const styles = StyleSheet.create({
   shareNowBtn: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7 },
   shareNowBtnText: { color: "#fff", fontSize: 12, fontWeight: "800" },
   profileFriendCode: { fontSize: 13, fontWeight: "600", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, marginTop: 4, overflow: "hidden" },
+  reconnectBanner: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 6, backgroundColor: "#6B728012" },
+  reconnectBannerText: { fontSize: 12, fontWeight: "600", color: "#6B7280", letterSpacing: 0.2 },
   conflictBanner: { overflow: "hidden", alignItems: "center", justifyContent: "center", backgroundColor: "#F59E0B18" },
   conflictBannerText: { fontSize: 12, fontWeight: "700", color: "#B45309", letterSpacing: 0.2 },
 });
