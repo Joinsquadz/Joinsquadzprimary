@@ -732,21 +732,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setRsvp = useCallback(
     (eventId: string, status: RsvpStatus) => {
       const userId = apiUser?.id ?? currentUserIdRef.current;
+      const currentVersion = events.find((e) => e.id === eventId)?.version;
       // Optimistic update
       setEvents((prev) =>
         prev.map((e) =>
           e.id === eventId ? { ...e, rsvps: { ...e.rsvps, [userId]: status } } : e,
         ),
       );
+      const body: Record<string, unknown> = { userId, status };
+      if (currentVersion !== undefined) body.version = currentVersion;
       void apiFetch(`/api/events/${eventId}/rsvp`, {
         method: "POST",
-        body: JSON.stringify({ userId, status }),
+        body: JSON.stringify(body),
       })
-        .then((res) => res.ok ? res.json() as Promise<Record<string, unknown>> : Promise.reject())
-        .then(applyEventUpdate)
+        .then(async (res) => {
+          if (res.status === 409) {
+            const data = await res.json() as { error?: string; conflict?: boolean };
+            if (data.conflict) {
+              Alert.alert("Update conflict", data.error ?? "Someone else just updated this — refresh to see the latest");
+              void refreshEvents();
+              return;
+            }
+            return Promise.reject();
+          }
+          if (!res.ok) return Promise.reject();
+          return res.json() as Promise<Record<string, unknown>>;
+        })
+        .then((data) => { if (data) applyEventUpdate(data); })
         .catch(() => { void refreshEvents(); showToast("Couldn't save your RSVP — please try again"); });
     },
-    [apiFetch, applyEventUpdate, apiUser, refreshEvents],
+    [apiFetch, applyEventUpdate, apiUser, events, refreshEvents, showToast],
   );
 
   const addEvent = useCallback(async (input: NewEventInput): Promise<string> => {
@@ -1007,6 +1022,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (input.amount <= 0 || hasInvalid || Math.abs(input.amount - assigned) >= 0.01)
         return { error: "Invalid cost input." };
       const userId = apiUser?.id ?? currentUserIdRef.current;
+      const currentVersion = events.find((e) => e.id === eventId)?.version;
       const tempId = `c${Date.now()}`;
       const cost: Cost = {
         id: tempId,
@@ -1020,10 +1036,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         prev.map((e) => (e.id === eventId ? { ...e, costs: [...e.costs, cost] } : e)),
       );
       try {
+        const body: Record<string, unknown> = { ...input, paidById: userId };
+        if (currentVersion !== undefined) body.version = currentVersion;
         const res = await apiFetch(`/api/events/${eventId}/costs`, {
           method: "POST",
-          body: JSON.stringify({ ...input, paidById: userId }),
+          body: JSON.stringify(body),
         });
+        if (res.status === 409) {
+          setEvents((prev) =>
+            prev.map((e) =>
+              e.id === eventId ? { ...e, costs: e.costs.filter((c) => c.id !== tempId) } : e,
+            ),
+          );
+          Alert.alert("Update conflict", "Someone else just updated this event — refresh to see the latest");
+          void refreshEvents();
+          return { error: "Update conflict" };
+        }
         if (!res.ok) {
           // Roll back the optimistic cost
           setEvents((prev) =>
@@ -1033,8 +1061,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           );
           let message = "Could not save expense. Please try again.";
           try {
-            const body = await res.json() as { error?: string };
-            if (body.error) message = body.error;
+            const errBody = await res.json() as { error?: string };
+            if (errBody.error) message = errBody.error;
           } catch { /* ignore parse errors */ }
           return { error: message };
         }
@@ -1051,7 +1079,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return { error: "Could not save expense. Check your connection and try again." };
       }
     },
-    [apiFetch, applyEventUpdate, apiUser],
+    [apiFetch, applyEventUpdate, apiUser, events, refreshEvents],
   );
 
   const markSharePaid = useCallback(
@@ -1199,6 +1227,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const votePoll = useCallback(
     (eventId: string, pollId: string, optionId: string) => {
       const userId = apiUser?.id ?? currentUserIdRef.current;
+      const currentVersion = events.find((e) => e.id === eventId)?.version;
       // Optimistic update
       setEvents((prev) =>
         prev.map((e) =>
@@ -1223,20 +1252,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               },
         ),
       );
+      const body: Record<string, unknown> = { userId, optionId };
+      if (currentVersion !== undefined) body.version = currentVersion;
       void apiFetch(`/api/events/${eventId}/polls/${pollId}/vote`, {
         method: "POST",
-        body: JSON.stringify({ userId, optionId }),
+        body: JSON.stringify(body),
       })
-        .then((res) => res.ok ? res.json() as Promise<Record<string, unknown>> : Promise.reject())
-        .then(applyEventUpdate)
+        .then(async (res) => {
+          if (res.status === 409) {
+            const data = await res.json() as { error?: string; conflict?: boolean };
+            if (data.conflict) {
+              Alert.alert("Update conflict", data.error ?? "Someone else just updated this — refresh to see the latest");
+              void refreshEvents();
+              return;
+            }
+            return Promise.reject();
+          }
+          if (!res.ok) return Promise.reject();
+          return res.json() as Promise<Record<string, unknown>>;
+        })
+        .then((data) => { if (data) applyEventUpdate(data); })
         .catch(() => { void refreshEvents(); showToast("Couldn't save your vote — please try again"); });
     },
-    [apiFetch, applyEventUpdate, apiUser, refreshEvents],
+    [apiFetch, applyEventUpdate, apiUser, events, refreshEvents, showToast],
   );
 
   const sendMessage = useCallback(
     async (eventId: string, text: string): Promise<{ error?: string }> => {
       const senderId = apiUser?.id ?? currentUserIdRef.current;
+      const currentVersion = events.find((e) => e.id === eventId)?.version;
       const tempId = `m${Date.now()}`;
       // Optimistic update
       setEvents((prev) =>
@@ -1247,10 +1291,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ),
       );
       try {
+        const body: Record<string, unknown> = { senderId, text };
+        if (currentVersion !== undefined) body.version = currentVersion;
         const res = await apiFetch(`/api/events/${eventId}/messages`, {
           method: "POST",
-          body: JSON.stringify({ senderId, text }),
+          body: JSON.stringify(body),
         });
+        if (res.status === 409) {
+          setEvents((prev) =>
+            prev.map((e) =>
+              e.id === eventId ? { ...e, messages: e.messages.filter((m) => m.id !== tempId) } : e,
+            ),
+          );
+          Alert.alert("Update conflict", "Someone else just updated this event — refresh to see the latest");
+          void refreshEvents();
+          return { error: "Update conflict" };
+        }
         if (!res.ok) {
           setEvents((prev) =>
             prev.map((e) =>
@@ -1259,8 +1315,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           );
           let message = "Could not send message. Please try again.";
           try {
-            const body = await res.json() as { error?: string };
-            if (body.error) message = body.error;
+            const errBody = await res.json() as { error?: string };
+            if (errBody.error) message = errBody.error;
           } catch { /* ignore */ }
           return { error: message };
         }
@@ -1276,7 +1332,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return { error: "Could not send message. Check your connection and try again." };
       }
     },
-    [apiFetch, applyEventUpdate, apiUser],
+    [apiFetch, applyEventUpdate, apiUser, events, refreshEvents],
   );
 
   const getSquad = useCallback(

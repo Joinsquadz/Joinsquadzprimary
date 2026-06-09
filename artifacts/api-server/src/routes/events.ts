@@ -63,6 +63,7 @@ const UpdateEventBody = z.object({
 const SetRsvpBody = z.object({
   userId: z.string().optional(),
   status: z.enum(["going", "maybe", "notgoing"]),
+  version: z.number().int().optional(),
 });
 
 const AddTaskBody = z.object({
@@ -82,6 +83,7 @@ const AddCostBody = z.object({
   amount: z.number().positive(),
   paidById: z.string(),
   shares: z.array(z.object({ userId: z.string(), amount: z.number() })),
+  version: z.number().int().optional(),
 });
 
 const AddPollBody = z.object({
@@ -99,6 +101,7 @@ const VotePollBody = z.object({
 const SendMessageBody = z.object({
   senderId: z.string().optional(),
   text: z.string().min(1),
+  version: z.number().int().optional(),
 });
 
 const JoinEventBody = z.object({
@@ -487,8 +490,19 @@ router.post("/events/:id/rsvp", requireAuth, async (req: Request, res: Response)
   }
   const existing = await getEventAsMember(id, userId, res);
   if (!existing) return;
-  const rsvps = { ...(existing.rsvps as Record<string, string>), [userId]: parsed.data.status };
-  const [event] = await db.update(eventsTable).set({ rsvps }).where(eq(eventsTable.id, id)).returning();
+  const { version: clientVersion, status } = parsed.data;
+  const rsvps = { ...(existing.rsvps as Record<string, string>), [userId]: status };
+  const updateWhere = clientVersion !== undefined
+    ? and(eq(eventsTable.id, id), eq(eventsTable.version, clientVersion))
+    : eq(eventsTable.id, id);
+  const [event] = await db.update(eventsTable)
+    .set({ rsvps, version: sql`${eventsTable.version} + 1` })
+    .where(updateWhere)
+    .returning();
+  if (!event) {
+    res.status(409).json({ error: "Someone else just updated this — refresh to see the latest", conflict: true });
+    return;
+  }
   res.json(event);
 
   // Fire-and-forget: tell the host who responded and how (skip self-RSVP).
@@ -610,9 +624,20 @@ router.post("/events/:id/costs", requireAuth, async (req: Request, res: Response
     }
     seenShareUsers.add(s.userId);
   }
-  const newCost = { id: `c${Date.now()}`, ...parsed.data };
+  const { version: clientVersion, ...costFields } = parsed.data;
+  const newCost = { id: `c${Date.now()}`, ...costFields };
   const costs = [...(existing.costs as unknown[]), newCost];
-  const [event] = await db.update(eventsTable).set({ costs }).where(eq(eventsTable.id, id)).returning();
+  const updateWhere = clientVersion !== undefined
+    ? and(eq(eventsTable.id, id), eq(eventsTable.version, clientVersion))
+    : eq(eventsTable.id, id);
+  const [event] = await db.update(eventsTable)
+    .set({ costs, version: sql`${eventsTable.version} + 1` })
+    .where(updateWhere)
+    .returning();
+  if (!event) {
+    res.status(409).json({ error: "Someone else just updated this — refresh to see the latest", conflict: true });
+    return;
+  }
   res.json(event);
 
   // Fire-and-forget: tell each person who now owes a share that they owe the payer.
@@ -868,11 +893,22 @@ router.post("/events/:id/messages", requireAuth, async (req: Request, res: Respo
   }
   const existing = await getEventAsMember(id, userId, res);
   if (!existing) return;
+  const { version: clientVersion, text } = parsed.data;
   const messages = [
     ...(existing.messages as unknown[]),
-    { id: `m${Date.now()}`, senderId: userId, text: parsed.data.text, time: "Just now" },
+    { id: `m${Date.now()}`, senderId: userId, text, time: "Just now" },
   ];
-  const [event] = await db.update(eventsTable).set({ messages }).where(eq(eventsTable.id, id)).returning();
+  const updateWhere = clientVersion !== undefined
+    ? and(eq(eventsTable.id, id), eq(eventsTable.version, clientVersion))
+    : eq(eventsTable.id, id);
+  const [event] = await db.update(eventsTable)
+    .set({ messages, version: sql`${eventsTable.version} + 1` })
+    .where(updateWhere)
+    .returning();
+  if (!event) {
+    res.status(409).json({ error: "Someone else just updated this — refresh to see the latest", conflict: true });
+    return;
+  }
   res.json(event);
 });
 
