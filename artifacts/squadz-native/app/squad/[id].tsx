@@ -23,7 +23,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
-import { runSquadPoll, squadSignature } from "@/lib/squadLiveRefresh";
+import { runSquadPoll } from "@/lib/squadLiveRefresh";
+import { useSquadStream } from "@/hooks/useSquadStream";
 import { useData, useAuth, type FoundUser } from "@/context/AppContext";
 import { useMutedSquads } from "@/context/MutedSquadsContext";
 import { useMessages } from "@/context/MessagesContext";
@@ -229,10 +230,23 @@ export default function SquadDetailScreen() {
     playConflictBanner();
   }, [conflictSquadId, id, clearConflictSquad, playConflictBanner]);
 
-  // Live refresh: while the detail screen is focused, poll the squad for
-  // remote edits (name/emoji/settings/members). When a change made by someone
-  // else is detected, pull the latest into the shared state and play the same
-  // "Refreshed" banner — so the open view never silently goes stale.
+  // ── Real-time squad updates via SSE ──────────────────────────────────────
+  // The SSE hook connects to /api/squads/:id/stream while the screen is
+  // focused. Any mutation on the server (PATCH, join, leave, add/remove
+  // member) emits an "update" event that arrives here instantly, triggering
+  // refreshSquads() and the "Refreshed" banner — no polling lag.
+  useSquadStream({
+    squadId: id ?? null,
+    authToken,
+    onUpdate: useCallback(async () => {
+      await refreshSquads();
+      playConflictBanner();
+    }, [refreshSquads, playConflictBanner]),
+  });
+
+  // ── 60 s safety-net poll ─────────────────────────────────────────────────
+  // Catches any update that arrives while the SSE connection is temporarily
+  // down (e.g. brief network drop, proxy timeout between heartbeats).
   const lastSquadSigRef = useRef<string | null>(null);
   useFocusEffect(
     useCallback(() => {
@@ -252,7 +266,7 @@ export default function SquadDetailScreen() {
         });
 
       void poll();
-      const interval = setInterval(() => void poll(), 12000);
+      const interval = setInterval(() => void poll(), 60000);
       return () => {
         active = false;
         clearInterval(interval);

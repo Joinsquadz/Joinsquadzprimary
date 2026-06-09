@@ -7,6 +7,7 @@ import { requireAuth } from "../middleware/currentUser";
 import { storage } from "../storage";
 import { logger } from "../lib/logger";
 import { sendPushNotifications } from "../lib/pushNotifications";
+import { emitSquadUpdate, onSquadUpdate } from "../lib/squadEvents";
 
 function generateInviteCode(): string {
   return randomBytes(5).toString("hex").toUpperCase();
@@ -83,6 +84,7 @@ router.post("/squads/:id/join", requireAuth, async (req: Request, res: Response)
     return;
   }
   res.status(201).json({ squad: updated, alreadyMember: false });
+  emitSquadUpdate(id);
 
   // Fire-and-forget: notify existing members that someone joined, and send a
   // welcome push to the joiner themselves.
@@ -166,6 +168,7 @@ router.post("/squads/join-via-code", requireAuth, async (req: Request, res: Resp
     return;
   }
   res.status(201).json({ squad: updated, alreadyMember: false });
+  emitSquadUpdate(squad.id);
 
   // Fire-and-forget: notify existing members that someone joined via invite link.
   if (memberIds.length > 0) {
@@ -277,6 +280,52 @@ router.get("/squads/:id", requireAuth, async (req: Request, res: Response): Prom
   res.json({ ...squad, members });
 });
 
+// GET /api/squads/:id/stream — SSE endpoint for real-time squad updates.
+// Members connect while the squad detail screen is focused. Any mutation
+// (PATCH, join, leave, add/remove member) calls emitSquadUpdate(id) which
+// pushes an "update" event to all connected watchers immediately.
+router.get("/squads/:id/stream", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const id = parseId(req.params.id);
+  const userId = (req.user as { id: string }).id;
+
+  // Verify membership before opening the stream.
+  const { squad, isMember } = await getSquadIfMember(id, userId);
+  if (!squad) {
+    res.status(404).json({ error: "Squad not found" });
+    return;
+  }
+  if (!isMember) {
+    res.status(403).json({ error: "Access denied" });
+    return;
+  }
+
+  // SSE response headers.
+  // no-transform stops the compression middleware from buffering the stream.
+  // X-Accel-Buffering: no disables nginx / Replit proxy buffering.
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  // Confirm connection to the client.
+  res.write("event: connected\ndata: {}\n\n");
+
+  const unsubscribe = onSquadUpdate(id, () => {
+    res.write(`event: update\ndata: {"squadId":"${id}"}\n\n`);
+  });
+
+  // Keep-alive heartbeat every 25 s to prevent proxy/mobile connection timeouts.
+  const heartbeat = setInterval(() => {
+    res.write(": heartbeat\n\n");
+  }, 25000);
+
+  req.on("close", () => {
+    clearInterval(heartbeat);
+    unsubscribe();
+  });
+});
+
 router.patch("/squads/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const id = parseId(req.params.id);
   const userId = (req.user as { id: string }).id;
@@ -321,6 +370,7 @@ router.patch("/squads/:id", requireAuth, async (req: Request, res: Response): Pr
     return;
   }
   res.json(squad);
+  emitSquadUpdate(id);
 
   // Fire-and-forget: notify members when new members are added.
   if (addedMemberIds.length > 0) {
@@ -620,6 +670,7 @@ router.post("/squads/:id/members", requireAuth, async (req: Request, res: Respon
     return;
   }
   res.status(201).json({ squad: updated, addedUser: target });
+  emitSquadUpdate(id);
 
   // Fire-and-forget: notify the newly added user that they were added to this squad,
   // unless they have muted notifications for this squad.
@@ -692,6 +743,7 @@ router.delete("/squads/:id/members/:userId", requireAuth, async (req: Request, r
     .where(and(eq(squadMutesTable.userId, targetUserId), eq(squadMutesTable.squadId, id)));
 
   res.json(updatedSquad);
+  emitSquadUpdate(id);
 
   if (isSelf) {
     // Fire-and-forget: user left — notify remaining members.

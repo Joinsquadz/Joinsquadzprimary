@@ -123,8 +123,8 @@ describe("runSquadPoll", () => {
       getLastSig: () => lastSig,
       setLastSig: (s: string) => { lastSig = s; },
       isActive: () => isActive,
-      refreshSquads,
-      onChanged,
+      refreshSquads: refreshSquads as unknown as () => Promise<void>,
+      onChanged: onChanged as unknown as () => void,
     };
   }
 
