@@ -4,6 +4,7 @@ import { storage } from "../storage";
 import { requireAuth } from "../middleware/currentUser";
 import { logger } from "../lib/logger";
 import { sendPushNotifications } from "../lib/pushNotifications";
+import { emitConversationUpdate, onConversationUpdate } from "../lib/conversationUpdates";
 
 function displayName(user: { firstName?: string | null; lastName?: string | null; email?: string | null } | null | undefined): string {
   if (!user) return "Someone";
@@ -172,6 +173,7 @@ router.post(
         parsed.data.attachments,
       );
       res.status(201).json(message);
+      emitConversationUpdate(id);
 
       // Fire-and-forget: notify the other participants of the new message.
       void (async () => {
@@ -216,6 +218,52 @@ router.post(
       logger.error({ err }, "Error sending message");
       res.status(500).json({ error: "Failed to send message" });
     }
+  },
+);
+
+// GET /conversations/:id/stream — SSE endpoint for real-time conversation updates.
+// Participants connect while the conversation screen is focused. Any new message
+// sent via POST /conversations/:id/messages calls emitConversationUpdate(id)
+// which pushes an "update" event to all connected watchers immediately.
+router.get(
+  "/conversations/:id/stream",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const id = parseId(req.params.id);
+    const userId = (req.user as { id: string }).id;
+
+    // Verify membership before opening the stream.
+    const convo = await storage.getConversationForMember(id, userId);
+    if (!convo) {
+      res.status(403).json({ error: "Access denied" });
+      return;
+    }
+
+    // SSE response headers.
+    // no-transform stops the compression middleware from buffering the stream.
+    // X-Accel-Buffering: no disables nginx / Replit proxy buffering.
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders();
+
+    // Confirm connection to the client.
+    res.write("event: connected\ndata: {}\n\n");
+
+    const unsubscribe = onConversationUpdate(id, () => {
+      res.write(`event: update\ndata: {"conversationId":"${id}"}\n\n`);
+    });
+
+    // Keep-alive heartbeat every 25 s to prevent proxy/mobile connection timeouts.
+    const heartbeat = setInterval(() => {
+      res.write(": heartbeat\n\n");
+    }, 25000);
+
+    req.on("close", () => {
+      clearInterval(heartbeat);
+      unsubscribe();
+    });
   },
 );
 

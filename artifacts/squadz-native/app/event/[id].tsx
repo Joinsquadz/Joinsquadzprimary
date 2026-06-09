@@ -24,6 +24,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
+import { useEventStream } from "@/hooks/useEventStream";
 import { useData, useAuth } from "@/context/AppContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -136,13 +137,20 @@ export default function EventDetailScreen() {
     }, [id, authHeaders, currentUser.id])
   );
 
-  // Live-refresh the chat while the Chat tab is open so squad messages appear.
+  // SSE stream: instantly refreshes event data (RSVPs, messages, tasks, costs,
+  // polls) when any teammate mutates the event — no polling lag.
+  useEventStream({
+    eventId: id ?? null,
+    authToken,
+    onUpdate: useCallback(() => { void refreshEvents(); }, [refreshEvents]),
+  });
+
+  // 30 s safety-net poll: catches any updates missed when the stream is
+  // temporarily unavailable (network blip, proxy timeout, etc.).
   useEffect(() => {
-    if (tab !== "chat") return;
-    void refreshEvents();
-    const interval = setInterval(() => { void refreshEvents(); }, 5000);
+    const interval = setInterval(() => { void refreshEvents(); }, 30000);
     return () => clearInterval(interval);
-  }, [tab, refreshEvents]);
+  }, [refreshEvents]);
 
   // Load payment handles when the Costs tab is opened, to power settle-up deep links.
   useEffect(() => {

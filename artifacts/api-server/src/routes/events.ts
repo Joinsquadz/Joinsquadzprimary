@@ -6,6 +6,7 @@ import { storage } from "../storage";
 import { requireAuth } from "../middleware/currentUser";
 import { logger } from "../lib/logger";
 import { sendPushNotifications } from "../lib/pushNotifications";
+import { emitEventUpdate, onEventUpdate } from "../lib/eventUpdates";
 
 const router: IRouter = Router();
 
@@ -347,6 +348,7 @@ router.post("/events/join", requireAuth, async (req: Request, res: Response): Pr
     .returning();
 
   res.json(event);
+  emitEventUpdate(existing.id);
 
   // Fire-and-forget: joining by invite code is an RSVP, so tell the host
   // someone is going (skip the self-host case).
@@ -425,6 +427,7 @@ router.patch("/events/:id", requireAuth, async (req: Request, res: Response): Pr
     return;
   }
   res.json(event);
+  emitEventUpdate(id);
 
   // Fire-and-forget: when a concrete time is locked in (date set to a real
   // value that changed), tell attendees the best time is set.
@@ -477,6 +480,7 @@ router.delete("/events/:id", requireAuth, async (req: Request, res: Response): P
     return;
   }
   await db.delete(eventsTable).where(eq(eventsTable.id, id));
+  emitEventUpdate(id);
   res.sendStatus(204);
 });
 
@@ -504,6 +508,7 @@ router.post("/events/:id/rsvp", requireAuth, async (req: Request, res: Response)
     return;
   }
   res.json(event);
+  emitEventUpdate(id);
 
   // Fire-and-forget: tell the host who responded and how (skip self-RSVP).
   if (event.hostId !== userId) {
@@ -556,6 +561,7 @@ router.post("/events/:id/tasks", requireAuth, async (req: Request, res: Response
     return;
   }
   res.json(event);
+  emitEventUpdate(id);
 });
 
 router.patch("/events/:id/tasks/:taskId", requireAuth, async (req: Request, res: Response): Promise<void> => {
@@ -585,6 +591,7 @@ router.patch("/events/:id/tasks/:taskId", requireAuth, async (req: Request, res:
     return;
   }
   res.json(event);
+  emitEventUpdate(id);
 });
 
 router.post("/events/:id/costs", requireAuth, async (req: Request, res: Response): Promise<void> => {
@@ -639,6 +646,7 @@ router.post("/events/:id/costs", requireAuth, async (req: Request, res: Response
     return;
   }
   res.json(event);
+  emitEventUpdate(id);
 
   // Fire-and-forget: tell each person who now owes a share that they owe the payer.
   void (async () => {
@@ -714,6 +722,7 @@ router.post("/events/:id/costs/:costId/mark-paid", requireAuth, async (req: Requ
   );
   const [event] = await db.update(eventsTable).set({ costs: nextCosts }).where(eq(eventsTable.id, id)).returning();
   res.json(event);
+  emitEventUpdate(id);
 
   // Fire-and-forget: notify the creditor when a debtor newly marks a share paid.
   if (parsed.data.paid && wasUnpaid) {
@@ -783,6 +792,7 @@ router.post("/events/:id/costs/:costId/shares/:shareUserId/confirm", requireAuth
   );
   const [event] = await db.update(eventsTable).set({ costs: nextCosts }).where(eq(eventsTable.id, id)).returning();
   res.json(event);
+  emitEventUpdate(id);
 });
 
 // Member-authorized lookup of payment handles for everyone referenced in an
@@ -839,6 +849,7 @@ router.post("/events/:id/polls", requireAuth, async (req: Request, res: Response
     return;
   }
   res.json(event);
+  emitEventUpdate(id);
 });
 
 router.post("/events/:id/polls/:pollId/vote", requireAuth, async (req: Request, res: Response): Promise<void> => {
@@ -881,6 +892,7 @@ router.post("/events/:id/polls/:pollId/vote", requireAuth, async (req: Request, 
     return;
   }
   res.json(event);
+  emitEventUpdate(id);
 });
 
 router.post("/events/:id/messages", requireAuth, async (req: Request, res: Response): Promise<void> => {
@@ -910,6 +922,54 @@ router.post("/events/:id/messages", requireAuth, async (req: Request, res: Respo
     return;
   }
   res.json(event);
+  emitEventUpdate(id);
+});
+
+// GET /events/:id/stream — SSE endpoint for real-time event updates.
+// Members connect while the event detail screen is focused. Any mutation
+// (RSVP, patch, join, tasks, costs, polls, messages) calls emitEventUpdate(id)
+// which pushes an "update" event to all connected watchers immediately.
+router.get("/events/:id/stream", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const id = parseId(req.params.id);
+  const userId = (req.user as { id: string }).id;
+
+  // Verify access before opening the stream.
+  const [event] = await db.select().from(eventsTable).where(eq(eventsTable.id, id));
+  if (!event) {
+    res.status(404).json({ error: "Event not found" });
+    return;
+  }
+  const rsvps = (event.rsvps ?? {}) as Record<string, string>;
+  if (event.hostId !== userId && !(userId in rsvps)) {
+    res.status(403).json({ error: "Access denied" });
+    return;
+  }
+
+  // SSE response headers.
+  // no-transform stops the compression middleware from buffering the stream.
+  // X-Accel-Buffering: no disables nginx / Replit proxy buffering.
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  // Confirm connection to the client.
+  res.write("event: connected\ndata: {}\n\n");
+
+  const unsubscribe = onEventUpdate(id, () => {
+    res.write(`event: update\ndata: {"eventId":"${id}"}\n\n`);
+  });
+
+  // Keep-alive heartbeat every 25 s to prevent proxy/mobile connection timeouts.
+  const heartbeat = setInterval(() => {
+    res.write(": heartbeat\n\n");
+  }, 25000);
+
+  req.on("close", () => {
+    clearInterval(heartbeat);
+    unsubscribe();
+  });
 });
 
 router.get('/events/:id/photos', requireAuth, async (req, res): Promise<void> => {

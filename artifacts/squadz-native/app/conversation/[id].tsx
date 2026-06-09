@@ -19,6 +19,7 @@ import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AppContext";
+import { useConversationStream } from "@/hooks/useConversationStream";
 import { useToast } from "@/context/ToastContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import {
@@ -118,11 +119,22 @@ export default function ConversationScreen() {
     void markRead(conversationId);
   }, [loadThread, markRead, conversationId]);
 
-  // Light polling while the screen is open.
+  // SSE stream: instantly delivers new messages from other participants.
+  // When a teammate sends a message, we re-fetch and mark the thread read.
+  useConversationStream({
+    conversationId,
+    authToken,
+    onUpdate: useCallback(() => {
+      void loadThread(false).then(() => markRead(conversationId));
+    }, [loadThread, markRead, conversationId]),
+  });
+
+  // 30 s safety-net poll: catches messages missed when the stream is
+  // temporarily unavailable (network blip, proxy timeout, etc.).
   useEffect(() => {
     const interval = setInterval(() => {
       void loadThread(false).then(() => markRead(conversationId));
-    }, 6000);
+    }, 30000);
     return () => clearInterval(interval);
   }, [loadThread, markRead, conversationId]);
 
