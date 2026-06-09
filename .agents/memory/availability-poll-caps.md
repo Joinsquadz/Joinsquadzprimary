@@ -19,8 +19,10 @@ per-response grid size = days × slots; if it lags the days cap, a fully-filled
 large poll silently rejects the response upsert.
 
 **How to apply:** When changing the day options or the range, update the server
-`days` cap in BOTH schemas and recompute `cells = maxDays * 48`. Current values:
+`days` cap in BOTH schemas and recompute `cells = maxDays * slots`. Current values:
 days `.max(31)`, slots `.max(48)`, cells `.max(1488)`, UI max option 30.
+`ALL_SLOT_OPTIONS` now covers all 24 hours (12AM–11PM = 24 slots); 31 × 24 = 744 ≤ 1488 — no server cap change needed.
+`DEFAULT_SLOTS` stays at `["6PM","7PM","8PM","9PM","10PM"]` so existing users see no change.
 
 # Grid is windowed, not all-on-screen
 

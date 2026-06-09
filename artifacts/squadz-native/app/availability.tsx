@@ -34,7 +34,12 @@ const DAY_COUNT_OPTIONS = [3, 5, 7, 14, 21, 30];
 // onto one screen.
 const DAY_WINDOW = 5;
 const DEFAULT_DAY_COUNT = 7;
-const ALL_SLOT_OPTIONS: string[] = ["6AM","7AM","8AM","9AM","10AM","11AM","12PM","1PM","2PM","3PM","4PM","5PM","6PM","7PM","8PM","9PM","10PM"];
+const ALL_SLOT_OPTIONS: string[] = [
+  "12AM","1AM","2AM","3AM","4AM","5AM",
+  "6AM","7AM","8AM","9AM","10AM","11AM",
+  "12PM","1PM","2PM","3PM","4PM","5PM",
+  "6PM","7PM","8PM","9PM","10PM","11PM",
+];
 const DEFAULT_SLOTS: string[] = ["6PM","7PM","8PM","9PM","10PM"];
 
 const DAY_FULL: Record<string, string> = {
@@ -437,6 +442,10 @@ export default function AvailabilityScreen() {
   }, [authToken]);
 
   const loadPoll = useCallback(async () => {
+    // Auth token not yet loaded from AsyncStorage — the effect will re-run
+    // automatically once authToken becomes available (loadPoll is recreated).
+    if (!authToken) return;
+
     setLoading(true);
     setError(null);
     setNeedsSetup(false);
@@ -451,10 +460,16 @@ export default function AvailabilityScreen() {
       if (stored) lastViewedAt = new Date(Number(stored));
     } catch { /* ignore */ }
 
+    // Abort the request after 15 s to prevent an infinite loading state on
+    // slow or unresponsive network conditions.
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15_000);
+
     try {
       const qs = new URLSearchParams(squadId ? { squadId } : { eventId: eventId ?? "" });
       const res = await fetch(`${API_BASE}/api/availability/polls/find?${qs.toString()}`, {
         headers: authHeaders(),
+        signal: controller.signal,
       });
       if (res.status === 404) {
         // No poll yet — let the creator choose the date range.
@@ -501,12 +516,17 @@ export default function AvailabilityScreen() {
 
       // Record this view so the next open uses now as the baseline.
       try { await AsyncStorage.setItem(avKey, String(Date.now())); } catch { /* ignore */ }
-    } catch {
-      setError("Network error. Please try again.");
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        setError("Request timed out. Check your connection and try again.");
+      } else {
+        setError("Network error. Please try again.");
+      }
     } finally {
+      clearTimeout(timeoutId);
       setLoading(false);
     }
-  }, [authHeaders, squadId, eventId, currentUser]);
+  }, [authToken, authHeaders, squadId, eventId, currentUser]);
 
   const createPoll = useCallback(async () => {
     setCreating(true);

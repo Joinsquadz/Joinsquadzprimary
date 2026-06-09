@@ -8,6 +8,7 @@ import {
   FlatList,
   Platform,
   Share,
+  Modal,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
@@ -57,6 +58,7 @@ export default function HomeScreen() {
   const [streaks, setStreaks] = useState<{ monthlyPlan: number; stayInTouch: number } | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [fabOpen, setFabOpen] = useState(false);
+  const [showSquadPicker, setShowSquadPicker] = useState(false);
 
   useEffect(() => {
     if (!authToken) return;
@@ -101,7 +103,11 @@ export default function HomeScreen() {
       router.push("/squad/create" as never);
       return;
     }
-    router.push({ pathname: "/availability", params: { squadId: squads[0].id } } as never);
+    if (squads.length === 1) {
+      router.push({ pathname: "/availability", params: { squadId: squads[0].id } } as never);
+      return;
+    }
+    setShowSquadPicker(true);
   };
 
   const handleInvite = async () => {
@@ -550,6 +556,48 @@ export default function HomeScreen() {
           <Text style={[styles.fabText, fabOpen && { transform: [{ rotate: "45deg" }] }]}>+</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Squad picker — shown when "Find a time" is tapped with multiple squads */}
+      <Modal
+        visible={showSquadPicker}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowSquadPicker(false)}
+      >
+        <TouchableOpacity
+          style={styles.pickerBackdrop}
+          activeOpacity={1}
+          onPress={() => setShowSquadPicker(false)}
+        />
+        <View style={[styles.pickerSheet, { backgroundColor: colors.card, paddingBottom: insets.bottom + 12 }]}>
+          <View style={[styles.pickerHandle, { backgroundColor: colors.border }]} />
+          <Text style={[styles.pickerTitle, { color: colors.foreground }]}>Which squad?</Text>
+          <Text style={[styles.pickerSub, { color: colors.mutedForeground }]}>Choose the squad to find time for</Text>
+          {squads.map((sq) => (
+            <TouchableOpacity
+              key={sq.id}
+              style={[styles.pickerRow, { borderBottomColor: colors.border }]}
+              onPress={() => {
+                setShowSquadPicker(false);
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                router.push({ pathname: "/availability", params: { squadId: sq.id } } as never);
+              }}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.pickerSquadEmoji, { backgroundColor: sq.color + "20" }]}>
+                <Text style={{ fontSize: 22 }}>{sq.emoji}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.pickerSquadName, { color: colors.foreground }]}>{sq.name}</Text>
+                <Text style={[styles.pickerSquadCount, { color: colors.mutedForeground }]}>
+                  {sq.memberIds.length} member{sq.memberIds.length !== 1 ? "s" : ""}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.mutedForeground} />
+            </TouchableOpacity>
+          ))}
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -682,4 +730,26 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.4, shadowRadius: 16, elevation: 8,
   },
   fabText: { fontSize: 26, color: "#fff", lineHeight: 30 },
+  pickerBackdrop: {
+    flex: 1, backgroundColor: "rgba(0,0,0,0.45)",
+  },
+  pickerSheet: {
+    borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    paddingTop: 12, paddingHorizontal: 20,
+  },
+  pickerHandle: {
+    width: 36, height: 4, borderRadius: 2, alignSelf: "center", marginBottom: 16,
+  },
+  pickerTitle: { fontSize: 18, fontWeight: "800", marginBottom: 4 },
+  pickerSub: { fontSize: 13, marginBottom: 16 },
+  pickerRow: {
+    flexDirection: "row", alignItems: "center", gap: 14,
+    paddingVertical: 14, borderBottomWidth: 1,
+  },
+  pickerSquadEmoji: {
+    width: 48, height: 48, borderRadius: 14,
+    alignItems: "center", justifyContent: "center",
+  },
+  pickerSquadName: { fontSize: 15, fontWeight: "700" },
+  pickerSquadCount: { fontSize: 12, marginTop: 2 },
 });
