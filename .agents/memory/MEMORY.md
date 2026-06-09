@@ -7,7 +7,8 @@
 - [api-server verification](api-server-verification.md) — verify with `run test` not typecheck (vitest.config rootDir error is pre-existing); restart workflow to pick up new routes.
 - [api-server test cold-import](api-server-test-cold-import.md) — hoist router/middleware import to a static import below vi.mock; never load the real dep graph inside a timed hook.
 - [Squad photo roll-up](squad-photo-rollup.md) — curated per-squad vault via photos.squadId+sharedToSquad; member-only routes, share only your OWN photos; web SquadDetail is mock, mobile is functional.
-- [Friends has no backend](friends-no-backend.md) — mobile friends list is client-only in-memory state; no /api/users/friends endpoint; resets on restart; "make it live" = full feature build, don't seed fake ids.
+- [Friends IS server-backed](friends-no-backend.md) — /api/users/friends GET/POST/DELETE exist; AppContext friends[]+addFriend/removeFriend/fetchFriends; derive isFriend via friends.includes(id), no helper.
+- [RN modal overflow trap](rn-modal-overflow-trap.md) — iOS transparent slide modals have no swipe-dismiss; data-length content needs maxHeight+ScrollView+persistent absolute close (X), else Close pushed off-screen traps user. Reuse components/ContactSheet.tsx.
 - [Object storage read ACL (closed)](object-storage-acl-gap.md) — /objects/* AND request-url now auth-gated; photos.url DB-unique for provenance; residual: objectPath has no upload-time owner binding.
 - [Squad PATCH membership is intentional](squad-patch-membership.md) — any member editing memberIds via PATCH /squads/:id is tested behavior, NOT a bug; don't "fix" it. Optimistic squad mutations should reconcile via refreshSquads(), not local reinsert.
 - [Auth provider constraints](auth-provider-constraints.md) — app uses Replit Auth; Clerk migration unsupported + Clerk has no SMS/Facebook; Google+Facebook+SMS OTP = custom build.

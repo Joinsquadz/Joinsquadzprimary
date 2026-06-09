@@ -1,14 +1,14 @@
 ---
-name: Friends feature has no backend
-description: The mobile "friends" list is client-only in-memory state; there is no friends table or list endpoint.
+name: Friends feature IS server-backed
+description: The mobile "friends" list is persisted server-side via /api/users/friends (GET/POST/DELETE). Prior "no backend" note was outdated.
 ---
 
-The Squadz mobile "friends" feature is NOT persisted anywhere on the server.
+The Squadz mobile "friends" feature **is** persisted on the server (this corrects an earlier note that said it was client-only).
 
-- There is **no** `/api/users/friends` endpoint. `users.ts` only exposes `by-friend-code/:code`, `/api/users`, `/api/users/search`.
-- The `friends: string[]` in `AppContext` is plain React state. `addFriend`/`removeFriend` mutate local state only; the list resets on app restart.
-- Adding a friend DOES resolve a real user id (via `GET /api/users/by-friend-code/:code`), so the ids are real — they just aren't saved server-side.
+- `GET /api/users/friends`, `POST /api/users/friends`, `DELETE /api/users/friends/:id` exist.
+- `AppContext` holds `friends: string[]` plus `addFriend`/`removeFriend`/`fetchFriends`. `fetchFriends` is the single source of truth and runs on auth; `addFriend`/`removeFriend` call the API and reconcile via `fetchFriends` on failure.
+- Derive "is this person a friend?" from `friends.includes(userId)` — there is no `isFriend` helper.
 
-**Why:** A "make friends live" request looks like simple wiring but is actually a whole feature build (DB table + CRUD endpoints + wiring across ~9 screens). Don't assume the list is durable.
+**Why:** A past session wrongly assumed friends were in-memory; the backend was added later. Don't reintroduce fake seed ids or rebuild the backend.
 
-**How to apply:** To make friends production-grade you must build the backend (e.g. a `friendships` table + list/add/remove endpoints), then have AppContext fetch/persist instead of using in-memory state. Until then, never seed fake friend ids — keep the initial list empty so new users see a true "no friends yet" state.
+**How to apply:** Add-friend UI (e.g. `components/ContactSheet.tsx`) just calls `addFriend(id)`/`removeFriend(id)` and reads `friends`. Hide the toggle for self (`id === currentUser.id`).

@@ -26,6 +26,7 @@ import { useColors } from "@/hooks/useColors";
 import { useData, useAuth } from "@/context/AppContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { UserAvatar } from "@/components/UserAvatar";
+import { ContactSheet } from "@/components/ContactSheet";
 import { goingCount } from "@/lib/eventUtils";
 import type { RsvpStatus } from "@/types";
 import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
@@ -63,6 +64,8 @@ export default function EventDetailScreen() {
 
   const event = getEvent(id ?? "");
   const [tab, setTab] = useState<EventTab>("overview");
+  const [contactOpen, setContactOpen] = useState(false);
+  const [contactMember, setContactMember] = useState<ResolvedUser | null>(null);
   const { resolveUser, prefetchUsers } = useUserCache();
 
   // Pre-load all user profiles referenced in this event
@@ -671,7 +674,16 @@ export default function EventDetailScreen() {
               {goingCount(event)} going · {attendees.length} responded
             </Text>
             {attendees.map(({ user: u, status }) => (
-              <View key={u.id} style={[styles.guestRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <TouchableOpacity
+                key={u.id}
+                activeOpacity={0.7}
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  setContactMember(u);
+                  setContactOpen(true);
+                }}
+                style={[styles.guestRow, { backgroundColor: colors.card, borderColor: colors.border }]}
+              >
                 <UserAvatar initials={u.initials} color={u.color} imageUrl={u.profileImageUrl} size={44} fontSize={15} />
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.guestName, { color: colors.foreground }]}>{u.name}{u.id === currentUser.id ? " (You)" : ""}</Text>
@@ -682,7 +694,10 @@ export default function EventDetailScreen() {
                     <Text style={[styles.hostBadgeText, { color: colors.gold }]}>Host</Text>
                   </View>
                 )}
-              </View>
+                {u.id !== currentUser.id && (
+                  <Ionicons name="chevron-forward" size={18} color={colors.mutedForeground} />
+                )}
+              </TouchableOpacity>
             ))}
           </View>
         )}
@@ -1245,6 +1260,12 @@ export default function EventDetailScreen() {
           </View>
         </View>
       </Modal>
+
+      <ContactSheet
+        visible={contactOpen}
+        member={contactMember}
+        onClose={() => setContactOpen(false)}
+      />
     </View>
   );
 }

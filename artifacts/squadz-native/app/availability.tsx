@@ -1004,6 +1004,23 @@ export default function AvailabilityScreen() {
             contentContainerStyle={{ paddingBottom: botPad + 120, paddingHorizontal: 20 }}
             showsVerticalScrollIndicator={false}
           >
+            <View style={styles.heroWrap}>
+              <LinearGradient
+                colors={["#FF5C3A", "#FF8050"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.setupHeroCard}
+              >
+                <View style={styles.heroIcon}>
+                  <Ionicons name="sparkles" size={22} color="#fff" />
+                </View>
+                <Text style={styles.setupHeroTitle}>Find the time that works for everyone</Text>
+                <Text style={styles.setupHeroSub}>
+                  Set a date range, everyone taps when they're free, and we surface the best time automatically.
+                </Text>
+              </LinearGradient>
+            </View>
+
             <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
               Pick the dates everyone should mark their availability for. You can plan for this week or further out.
             </Text>
@@ -2055,6 +2072,9 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 14, lineHeight: 21, paddingTop: 16, paddingBottom: 4 },
   heroWrap: { marginTop: 16, borderRadius: 20, shadowColor: "#FF5C3A", shadowOpacity: 0.45, shadowRadius: 24, shadowOffset: { width: 0, height: 10 }, elevation: 10 },
   heroCard: { flexDirection: "row", alignItems: "center", gap: 14, borderRadius: 20, paddingVertical: 18, paddingHorizontal: 18 },
+  setupHeroCard: { borderRadius: 20, paddingVertical: 22, paddingHorizontal: 20, gap: 10 },
+  setupHeroTitle: { fontSize: 22, fontWeight: "900", color: "#fff", letterSpacing: -0.4, lineHeight: 27 },
+  setupHeroSub: { fontSize: 14, lineHeight: 20, color: "rgba(255,255,255,0.92)", fontWeight: "500" },
   heroIcon: { width: 44, height: 44, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.18)" },
   heroLabel: { fontSize: 11, fontWeight: "800", letterSpacing: 1, color: "rgba(255,255,255,0.9)" },
   heroValue: { fontSize: 22, fontWeight: "900", color: "#fff", marginTop: 3, letterSpacing: -0.3 },

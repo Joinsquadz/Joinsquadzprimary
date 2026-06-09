@@ -28,6 +28,7 @@ import { useMutedSquads } from "@/context/MutedSquadsContext";
 import { useMessages } from "@/context/MessagesContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { UserAvatar } from "@/components/UserAvatar";
+import { ContactSheet } from "@/components/ContactSheet";
 import { EventCard } from "@/components/EventCard";
 import { goingCount } from "@/lib/eventUtils";
 import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
@@ -66,39 +67,15 @@ export default function SquadDetailScreen() {
   const [addingUserId, setAddingUserId] = useState<string | null>(null);
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
 
-  type MemberProfileData = {
-    name: string;
-    friendCode: string | null;
-    profileImageUrl: string | null;
-    sharedSquads: Array<{ id: string; name: string; emoji: string; color: string }>;
-  };
   const [memberProfileOpen, setMemberProfileOpen] = useState(false);
   const [profileMember, setProfileMember] = useState<ResolvedUser | null>(null);
-  const [profileData, setProfileData] = useState<MemberProfileData | null>(null);
-  const [profileLoading, setProfileLoading] = useState(false);
-  const [quickAddingSquadId, setQuickAddingSquadId] = useState<string | null>(null);
 
   const [showLongPressHint, setShowLongPressHint] = useState(false);
   const hintOpacity = useRef(new Animated.Value(0)).current;
 
-  const openMemberProfile = async (member: ResolvedUser) => {
+  const openMemberProfile = (member: ResolvedUser) => {
     setProfileMember(member);
-    setProfileData(null);
-    setProfileLoading(true);
     setMemberProfileOpen(true);
-    try {
-      const headers = { "Content-Type": "application/json", ...buildAuthHeaders(authToken) };
-      const res = await fetch(`${API_BASE}/api/users/${member.id}/profile`, { headers });
-      if (res.ok) setProfileData(await res.json() as MemberProfileData);
-    } catch { /* leave null — modal shows name/initials from cache */ } finally {
-      setProfileLoading(false);
-    }
-  };
-
-  const handleQuickAdd = async (squadId: string, friendCode: string) => {
-    setQuickAddingSquadId(squadId);
-    await addMemberByFriendCode(squadId, friendCode);
-    setQuickAddingSquadId(null);
   };
 
   const resetAddMemberModal = () => {
@@ -614,97 +591,12 @@ export default function SquadDetailScreen() {
         )}
       </ScrollView>
 
-      {/* ---- Member Profile Modal ---- */}
-      <Modal
+      {/* ---- Member Profile Sheet ---- */}
+      <ContactSheet
         visible={memberProfileOpen}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setMemberProfileOpen(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border, paddingBottom: botPad + 16 }]}>
-            {profileLoading && !profileData ? (
-              <ActivityIndicator size="large" color={colors.primary} style={{ marginVertical: 40 }} />
-            ) : profileMember ? (
-              <>
-                {/* Profile header */}
-                <View style={{ alignItems: "center", marginBottom: 16 }}>
-                  <UserAvatar
-                    initials={profileMember.initials}
-                    color={profileMember.color}
-                    imageUrl={profileData?.profileImageUrl ?? profileMember.profileImageUrl}
-                    size={72}
-                    fontSize={24}
-                  />
-                  <Text style={[styles.modalTitle, { marginBottom: 2, marginTop: 12 }]}>
-                    {profileData?.name ?? profileMember.name}
-                  </Text>
-                  {profileData?.friendCode ? (
-                    <Text style={[styles.profileFriendCode, { color: colors.mutedForeground, backgroundColor: colors.card }]}>
-                      #{profileData.friendCode}
-                    </Text>
-                  ) : null}
-                </View>
-
-                {/* Shared squads */}
-                {profileData && profileData.sharedSquads.length > 0 && (
-                  <>
-                    <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>Shared SquadZ</Text>
-                    {profileData.sharedSquads.map((sq) => (
-                      <View key={sq.id} style={[styles.foundUserCard, { borderColor: colors.border }]}>
-                        <Text style={{ fontSize: 20 }}>{sq.emoji}</Text>
-                        <Text style={[styles.foundUserName, { color: colors.foreground, flex: 1 }]}>{sq.name}</Text>
-                      </View>
-                    ))}
-                  </>
-                )}
-
-                {/* Quick-add to other squads */}
-                {profileData && profileData.friendCode && (() => {
-                  const canAddTo = squads.filter(
-                    (s) =>
-                      s.memberIds.includes(currentUser.id) &&
-                      !s.memberIds.includes(profileMember.id) &&
-                      (s.creatorId === currentUser.id || (s.membersCanInvite ?? false)),
-                  );
-                  if (canAddTo.length === 0) return null;
-                  return (
-                    <>
-                      <Text style={[styles.fieldLabel, { color: colors.mutedForeground, marginTop: 12 }]}>Add to another Squad</Text>
-                      {canAddTo.map((sq) => (
-                        <TouchableOpacity
-                          key={sq.id}
-                          onPress={() => { void handleQuickAdd(sq.id, profileData.friendCode!); }}
-                          disabled={quickAddingSquadId === sq.id}
-                          style={[styles.foundUserCard, { borderColor: colors.primary + "50", opacity: quickAddingSquadId === sq.id ? 0.6 : 1 }]}
-                        >
-                          <Text style={{ fontSize: 20 }}>{sq.emoji}</Text>
-                          <Text style={[styles.foundUserName, { color: colors.foreground, flex: 1 }]}>{sq.name}</Text>
-                          {quickAddingSquadId === sq.id ? (
-                            <ActivityIndicator size="small" color={colors.primary} />
-                          ) : (
-                            <View style={[styles.addResultBtn, { backgroundColor: colors.primary }]}>
-                              <Ionicons name="add" size={14} color="#fff" />
-                              <Text style={styles.addResultBtnText}>Add</Text>
-                            </View>
-                          )}
-                        </TouchableOpacity>
-                      ))}
-                    </>
-                  );
-                })()}
-              </>
-            ) : null}
-
-            <TouchableOpacity
-              onPress={() => setMemberProfileOpen(false)}
-              style={[styles.modalBtn, { backgroundColor: colors.card, marginTop: 16 }]}
-            >
-              <Text style={[styles.modalBtnText, { color: colors.mutedForeground }]}>Close</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+        member={profileMember}
+        onClose={() => setMemberProfileOpen(false)}
+      />
 
       {/* ---- Add Member Modal ---- */}
       <Modal
