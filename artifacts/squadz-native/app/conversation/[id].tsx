@@ -121,7 +121,7 @@ export default function ConversationScreen() {
 
   // SSE stream: instantly delivers new messages from other participants.
   // When a teammate sends a message, we re-fetch and mark the thread read.
-  useConversationStream({
+  const { status: streamStatus } = useConversationStream({
     conversationId,
     authToken,
     onUpdate: useCallback(() => {
@@ -371,6 +371,21 @@ export default function ConversationScreen() {
         </View>
       </View>
 
+      {/* Stream reconnecting indicator */}
+      {streamStatus !== "connected" && (
+        <View style={styles.reconnectBanner} pointerEvents="none">
+          {streamStatus === "reconnecting" && (
+            <ActivityIndicator size="small" color="#6B7280" style={{ marginRight: 6 }} />
+          )}
+          {streamStatus === "error" && (
+            <Ionicons name="cloud-offline-outline" size={14} color="#6B7280" style={{ marginRight: 6 }} />
+          )}
+          <Text style={styles.reconnectBannerText}>
+            {streamStatus === "error" ? "Live updates unavailable" : "Reconnecting…"}
+          </Text>
+        </View>
+      )}
+
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -574,4 +589,9 @@ const styles = StyleSheet.create({
     width: 40, height: 40, borderRadius: 20,
     alignItems: "center", justifyContent: "center",
   },
+  reconnectBanner: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center",
+    paddingVertical: 6, backgroundColor: "#6B728012",
+  },
+  reconnectBannerText: { fontSize: 12, fontWeight: "600", color: "#6B7280", letterSpacing: 0.2 },
 });
