@@ -66,6 +66,7 @@ export default function EventDetailScreen() {
     getSquad,
     currentUser,
     conflictEventId,
+    conflictSnapshot,
     clearConflictEvent,
   } = useData();
 
@@ -211,16 +212,50 @@ export default function EventDetailScreen() {
   const [chatSending, setChatSending] = useState(false);
 
   const conflictBannerAnim = useRef(new Animated.Value(0)).current;
+  const titleHighlightAnim = useRef(new Animated.Value(0)).current;
+  const dateHighlightAnim = useRef(new Animated.Value(0)).current;
+  const locationHighlightAnim = useRef(new Animated.Value(0)).current;
+  const descHighlightAnim = useRef(new Animated.Value(0)).current;
+  const tasksHighlightAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (!id || conflictEventId !== id) return;
     clearConflictEvent();
+
+    // Banner animation
     Animated.sequence([
       Animated.timing(conflictBannerAnim, { toValue: 1, duration: 200, useNativeDriver: false }),
       Animated.delay(2500),
       Animated.timing(conflictBannerAnim, { toValue: 0, duration: 350, useNativeDriver: false }),
     ]).start();
-  }, [conflictEventId, id, clearConflictEvent, conflictBannerAnim]);
+
+    if (!event) return;
+
+    // Diff snapshot against the freshly-loaded event to find changed fields
+    const fieldAnims: Animated.Value[] = [];
+    if (conflictSnapshot && conflictSnapshot.eventId === id) {
+      const s = conflictSnapshot;
+      if (s.title !== event.title) fieldAnims.push(titleHighlightAnim);
+      if (s.date !== event.date) fieldAnims.push(dateHighlightAnim);
+      if (s.location !== event.location) fieldAnims.push(locationHighlightAnim);
+      if (s.description !== event.description) fieldAnims.push(descHighlightAnim);
+      if (JSON.stringify(s.tasks) !== JSON.stringify(event.tasks)) fieldAnims.push(tasksHighlightAnim);
+    }
+    // If snapshot is absent or nothing diffed, highlight all editable fields as a safe fallback
+    const toAnimate = fieldAnims.length > 0
+      ? fieldAnims
+      : [titleHighlightAnim, dateHighlightAnim, locationHighlightAnim, descHighlightAnim, tasksHighlightAnim];
+
+    toAnimate.forEach((anim) => {
+      anim.setValue(0);
+      Animated.sequence([
+        Animated.timing(anim, { toValue: 1, duration: 300, useNativeDriver: false }),
+        Animated.delay(2000),
+        Animated.timing(anim, { toValue: 0, duration: 600, useNativeDriver: false }),
+      ]).start();
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conflictEventId, id]);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
@@ -563,7 +598,17 @@ export default function EventDetailScreen() {
           </TouchableOpacity>
         )}
         <Text style={styles.heroEmoji}>{event.emoji}</Text>
-        <View style={styles.heroTitleRow}>
+        <Animated.View
+          style={[
+            styles.heroTitleRow,
+            {
+              backgroundColor: titleHighlightAnim.interpolate({ inputRange: [0, 1], outputRange: ["rgba(245,158,11,0)", "rgba(245,158,11,0.28)"] }),
+              borderRadius: 10,
+              paddingHorizontal: 6,
+              paddingVertical: 2,
+            },
+          ]}
+        >
           <Text style={styles.heroTitle}>{event.title}</Text>
           {isHost && (
             <View style={styles.heroHostBadge}>
@@ -571,9 +616,28 @@ export default function EventDetailScreen() {
               <Text style={styles.heroHostText}>You're hosting</Text>
             </View>
           )}
-        </View>
-        <Text style={styles.heroDate}>{event.date}</Text>
-        <Text style={styles.heroLocation}>{event.location}</Text>
+        </Animated.View>
+        <Animated.View
+          style={{
+            backgroundColor: dateHighlightAnim.interpolate({ inputRange: [0, 1], outputRange: ["rgba(245,158,11,0)", "rgba(245,158,11,0.28)"] }),
+            borderRadius: 8,
+            paddingHorizontal: 6,
+            alignSelf: "center",
+          }}
+        >
+          <Text style={styles.heroDate}>{event.date}</Text>
+        </Animated.View>
+        <Animated.View
+          style={{
+            backgroundColor: locationHighlightAnim.interpolate({ inputRange: [0, 1], outputRange: ["rgba(245,158,11,0)", "rgba(245,158,11,0.28)"] }),
+            borderRadius: 8,
+            paddingHorizontal: 6,
+            marginBottom: 14,
+            alignSelf: "center",
+          }}
+        >
+          <Text style={[styles.heroLocation, { marginBottom: 0 }]}>{event.location}</Text>
+        </Animated.View>
 
         {/* RSVP buttons */}
         <View style={styles.rsvpRow}>
@@ -648,12 +712,20 @@ export default function EventDetailScreen() {
       >
         {tab === "overview" && (
           <View style={{ gap: 16 }}>
-            <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Animated.View
+              style={[
+                styles.card,
+                {
+                  backgroundColor: colors.card,
+                  borderColor: descHighlightAnim.interpolate({ inputRange: [0, 1], outputRange: [colors.border, "#F59E0B"] }),
+                },
+              ]}
+            >
               <Text style={[styles.cardTitle, { color: colors.mutedForeground }]}>About</Text>
               <Text style={[styles.cardBody, { color: event.description ? colors.foreground : colors.textDim }]}>
                 {event.description || "No description yet."}
               </Text>
-            </View>
+            </Animated.View>
 
             {/* Find the best time */}
             <TouchableOpacity
@@ -862,7 +934,15 @@ export default function EventDetailScreen() {
         )}
 
         {tab === "tasks" && (
-          <View style={{ gap: 8 }}>
+          <Animated.View
+            style={{
+              gap: 8,
+              borderRadius: 14,
+              borderWidth: 2,
+              borderColor: tasksHighlightAnim.interpolate({ inputRange: [0, 1], outputRange: ["rgba(245,158,11,0)", "rgba(245,158,11,0.8)"] }),
+              padding: 2,
+            }}
+          >
             <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>
               {event.tasks.filter((t) => t.done).length}/{event.tasks.length} complete
             </Text>
@@ -914,7 +994,7 @@ export default function EventDetailScreen() {
               <Ionicons name="add" size={20} color={colors.primary} />
               <Text style={[styles.addText, { color: colors.primary }]}>Add task</Text>
             </TouchableOpacity>
-          </View>
+          </Animated.View>
         )}
 
         {tab === "food" && (

@@ -93,6 +93,15 @@ export type NewEventInput = {
   isPublic?: boolean;
 };
 
+export type ConflictSnapshot = {
+  eventId: string;
+  title: string;
+  date: string;
+  location: string;
+  description: string;
+  tasks: Event["tasks"];
+};
+
 type AuthResult = { ok: boolean; error?: string };
 
 type AppContextType = {
@@ -146,6 +155,7 @@ type AppContextType = {
   sendMessage: (eventId: string, text: string) => Promise<{ error?: string }>;
   refreshEvents: () => Promise<void>;
   conflictEventId: string | null;
+  conflictSnapshot: ConflictSnapshot | null;
   clearConflictEvent: () => void;
   conflictSquadId: string | null;
   clearConflictSquad: () => void;
@@ -211,6 +221,7 @@ const AppContext = createContext<AppContextType>({
   sendMessage: async () => ({}),
   refreshEvents: async () => {},
   conflictEventId: null,
+  conflictSnapshot: null,
   clearConflictEvent: noop,
   conflictSquadId: null,
   clearConflictSquad: noop,
@@ -286,9 +297,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [friends, setFriends] = useState<string[]>(INITIAL_FRIENDS);
   const [ownPaymentHandles, setOwnPaymentHandles] = useState<PaymentHandles>({ venmo: null, cashapp: null, zelle: null });
   const [conflictEventId, setConflictEventId] = useState<string | null>(null);
-  const clearConflictEvent = useCallback(() => setConflictEventId(null), []);
+  const [conflictSnapshot, setConflictSnapshot] = useState<ConflictSnapshot | null>(null);
+  const clearConflictEvent = useCallback(() => {
+    setConflictEventId(null);
+    setConflictSnapshot(null);
+  }, []);
   const [conflictSquadId, setConflictSquadId] = useState<string | null>(null);
   const clearConflictSquad = useCallback(() => setConflictSquadId(null), []);
+  // eventsRef is kept in sync with the latest events state (including optimistic updates)
+  // so snapshot captures in async 409 handlers see the state the user was actually viewing.
+  const eventsRef = useRef<Event[]>([]);
+  useEffect(() => { eventsRef.current = events; }, [events]);
   const currentUserIdRef = useRef<string>(ME.id);
   // Always holds the latest auth token so async mutations can detect a
   // session change (logout/login) mid-flight and refuse to commit stale state.
@@ -841,9 +860,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           if (res.status === 409) {
             const data = await res.json() as { error?: string; conflict?: boolean };
             if (data.conflict) {
+              const snap = eventsRef.current.find((e) => e.id === eventId);
+              if (snap) setConflictSnapshot({ eventId, title: snap.title, date: snap.date, location: snap.location, description: snap.description, tasks: snap.tasks.map((t) => ({ ...t })) });
               showToast("Someone else just updated this — showing latest");
-              setConflictEventId(eventId);
-              void refreshEvents();
+              void refreshEvents().then(() => setConflictEventId(eventId));
               return;
             }
             return Promise.reject();
@@ -911,9 +931,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (res.status === 409) {
             const data = await res.json() as { error?: string; conflict?: boolean };
             if (data.conflict) {
+              const snap = eventsRef.current.find((e) => e.id === eventId);
+              if (snap) setConflictSnapshot({ eventId, title: snap.title, date: snap.date, location: snap.location, description: snap.description, tasks: snap.tasks.map((t) => ({ ...t })) });
               showToast("Someone else just updated this — showing latest");
-              setConflictEventId(eventId);
-              void refreshEvents();
+              void refreshEvents().then(() => setConflictEventId(eventId));
               return;
             }
             throw new Error("conflict");
@@ -952,9 +973,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (res.status === 409) {
           const data = await res.json() as { error?: string; conflict?: boolean };
           if (data.conflict) {
+            const snap = eventsRef.current.find((e) => e.id === eventId);
+            if (snap) setConflictSnapshot({ eventId, title: snap.title, date: snap.date, location: snap.location, description: snap.description, tasks: snap.tasks.map((t) => ({ ...t })) });
             showToast("Someone else just updated this — showing latest");
-            setConflictEventId(eventId);
-            void refreshEvents();
+            void refreshEvents().then(() => setConflictEventId(eventId));
             return;
           }
           throw new Error("conflict");
@@ -995,9 +1017,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               e.id === eventId ? { ...e, tasks: e.tasks.filter((t) => t.id !== tempId) } : e,
             ),
           );
+          const snap = eventsRef.current.find((e) => e.id === eventId);
+          if (snap) setConflictSnapshot({ eventId, title: snap.title, date: snap.date, location: snap.location, description: snap.description, tasks: snap.tasks.map((t) => ({ ...t })) });
           showToast("Someone else just updated this — showing latest");
-          setConflictEventId(eventId);
-          void refreshEvents();
+          void refreshEvents().then(() => setConflictEventId(eventId));
           return { error: "Update conflict" };
         }
         if (!res.ok) {
@@ -1603,6 +1626,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         sendMessage,
         refreshEvents,
         conflictEventId,
+        conflictSnapshot,
         clearConflictEvent,
         conflictSquadId,
         clearConflictSquad,
