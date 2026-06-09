@@ -444,6 +444,36 @@ router.post("/squads/:id/vault", requireAuth, async (req: Request, res: Response
     // Only the uploader's own photos are shared; others are silently ignored.
     const shared = await storage.setPhotosSharedToSquad(parsed.data.photoIds, userId, id);
     res.status(201).json({ shared: shared.length, photos: shared });
+
+    // Fire-and-forget: tell the rest of the squad new photos hit the vault.
+    if (shared.length > 0) {
+      void (async () => {
+        try {
+          const memberIds = ((squad.memberIds ?? []) as string[]).filter((m) => m !== userId);
+          if (memberIds.length === 0) return;
+          const unmuted = await storage.filterUnmutedForSquad(memberIds, id);
+          if (unmuted.length === 0) return;
+          const tokens = await storage.getPushTokensForUsers(unmuted, { requireNotifyFriendActivity: true });
+          if (tokens.length === 0) return;
+          const sharer = await storage.getUser(userId);
+          const name = [sharer?.firstName, sharer?.lastName].filter(Boolean).join(" ").trim()
+            || sharer?.email?.split("@")[0]
+            || "Someone";
+          const count = shared.length;
+          await sendPushNotifications(
+            tokens,
+            {
+              title: squad.name ?? "Squad photos",
+              body: `${name} added ${count} photo${count === 1 ? "" : "s"} to the vault`,
+              data: { screen: "squad", squadId: id },
+            },
+            { onStaleToken: (token) => storage.clearPushToken(token) },
+          );
+        } catch (err) {
+          logger.error({ err }, "Error sending vault push notifications");
+        }
+      })();
+    }
   } catch (err) {
     logger.error({ err }, "Error sharing photos to squad vault");
     res.status(500).json({ error: "Failed to share photos" });

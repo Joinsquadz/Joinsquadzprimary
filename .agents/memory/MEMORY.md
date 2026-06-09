@@ -23,5 +23,6 @@
 - [squadz-native routing](squadz-native-routing.md) — navigate to hidden tabs (create/events/photos) with router.navigate, NOT router.push (push no-ops → stays on Home); path FORM is irrelevant.
 - [Supabase Postgres on Replit](supabase-on-replit.md) — direct conn is IPv6-only (use Session pooler/IPv4); raw special-char passwords break URL parsers → parse discrete pg fields; SUPABASE_DB_URL preferred over DATABASE_URL.
 - [Squadz deep links](squadz-deep-links.md) — shared https squad links open the app via universal/app links; .well-known served by api-server (proxy /.well-known), identity values env-injected, web fallback = Landing.
+- [Squadz push fan-out](squadz-push-fanout.md) — every feature push: exclude actor + gate on notify_* pref + filterUnmutedForSquad for squad sends; reminder scheduler marks reminderSentAt only AFTER successful send (never before).
 - [Availability poll caps](availability-poll-caps.md) — mobile DAY_COUNT_OPTIONS must match server days cap (BOTH Create+Update schemas) and cells cap (=maxDays×48); grid is windowed (DAY_WINDOW) with arrow pager, not all-on-screen.
 - [Squadz activation UX](squadz-activation-ux.md) — onboarding has NO paywall (value before payment); invite-crew is the climax; Find-the-Best-Time stays prominent; no fake social proof.

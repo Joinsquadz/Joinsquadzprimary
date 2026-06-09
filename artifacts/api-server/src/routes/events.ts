@@ -5,8 +5,22 @@ import { db, eventsTable, usersTable } from "@workspace/db";
 import { storage } from "../storage";
 import { requireAuth } from "../middleware/currentUser";
 import { logger } from "../lib/logger";
+import { sendPushNotifications } from "../lib/pushNotifications";
 
 const router: IRouter = Router();
+
+function displayName(user: { firstName?: string | null; lastName?: string | null; email?: string | null } | null | undefined): string {
+  if (!user) return "Someone";
+  const full = [user.firstName, user.lastName].filter(Boolean).join(" ").trim();
+  if (full) return full;
+  return user.email?.split("@")[0] ?? "Someone";
+}
+
+const RSVP_LABEL: Record<string, string> = {
+  going: "is going",
+  maybe: "might come",
+  notgoing: "can't make it",
+};
 
 const FREE_EVENT_LIMIT = 3;
 const PHOTO_VAULT_DAYS = 30;
@@ -238,6 +252,34 @@ router.post("/events", requireAuth, async (req: Request, res: Response): Promise
     .values({ ...rest, hostId, inviteCode: inviteCode ?? randomCode() })
     .returning();
   res.status(201).json(event);
+
+  // Fire-and-forget: a squad event invites the rest of the squad.
+  if (event.squadId) {
+    void (async () => {
+      try {
+        const squad = await storage.getSquad(event.squadId);
+        const memberIds = ((squad?.memberIds ?? []) as string[]).filter((m) => m !== hostId);
+        if (memberIds.length === 0) return;
+        // Respect both per-squad mute and the Event Invites preference.
+        const unmuted = await storage.filterUnmutedForSquad(memberIds, event.squadId);
+        const tokens = await storage.getPushTokensForUsers(unmuted, { requireNotifyEventInvites: true });
+        if (tokens.length === 0) return;
+
+        const host = await storage.getUser(hostId);
+        await sendPushNotifications(
+          tokens,
+          {
+            title: `${event.emoji} ${event.title}`,
+            body: `${displayName(host)} invited you to an event`,
+            data: { screen: "event", eventId: event.id },
+          },
+          { onStaleToken: (token) => storage.clearPushToken(token) },
+        );
+      } catch (err) {
+        logger.error({ err }, "Error sending event-invite push notifications");
+      }
+    })();
+  }
 });
 
 // POST /events/join — requires auth, joins an event by invite code
@@ -323,6 +365,43 @@ router.patch("/events/:id", requireAuth, async (req: Request, res: Response): Pr
   }
   const [event] = await db.update(eventsTable).set(patch).where(eq(eventsTable.id, id)).returning();
   res.json(event);
+
+  // Fire-and-forget: when a concrete time is locked in (date set to a real
+  // value that changed), tell attendees the best time is set.
+  const newDate = parsed.data.date?.trim();
+  const dateLockedIn =
+    newDate !== undefined &&
+    newDate !== "" &&
+    newDate.toUpperCase() !== "TBD" &&
+    newDate !== existing.date;
+  if (dateLockedIn) {
+    void (async () => {
+      try {
+        const rsvps = (event.rsvps ?? {}) as Record<string, string>;
+        const recipientIds = Object.keys(rsvps).filter((uid) => uid !== event.hostId);
+        if (recipientIds.length === 0) return;
+        // Squad events respect per-squad mute; standalone events skip the filter.
+        const unmuted = event.squadId
+          ? await storage.filterUnmutedForSquad(recipientIds, event.squadId)
+          : recipientIds;
+        if (unmuted.length === 0) return;
+        const tokens = await storage.getPushTokensForUsers(unmuted, { requireNotifyEventInvites: true });
+        if (tokens.length === 0) return;
+
+        await sendPushNotifications(
+          tokens,
+          {
+            title: `${event.emoji} ${event.title}`,
+            body: `The time is set: ${newDate}`,
+            data: { screen: "event", eventId: event.id },
+          },
+          { onStaleToken: (token) => storage.clearPushToken(token) },
+        );
+      } catch (err) {
+        logger.error({ err }, "Error sending best-time-locked push notifications");
+      }
+    })();
+  }
 });
 
 router.delete("/events/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {
@@ -354,6 +433,29 @@ router.post("/events/:id/rsvp", requireAuth, async (req: Request, res: Response)
   const rsvps = { ...(existing.rsvps as Record<string, string>), [userId]: parsed.data.status };
   const [event] = await db.update(eventsTable).set({ rsvps }).where(eq(eventsTable.id, id)).returning();
   res.json(event);
+
+  // Fire-and-forget: tell the host who responded and how (skip self-RSVP).
+  if (event.hostId !== userId) {
+    void (async () => {
+      try {
+        const tokens = await storage.getPushTokensForUsers([event.hostId], { requireNotifyFriendActivity: true });
+        if (tokens.length === 0) return;
+        const responder = await storage.getUser(userId);
+        const label = RSVP_LABEL[parsed.data.status] ?? "responded";
+        await sendPushNotifications(
+          tokens,
+          {
+            title: `${event.emoji} ${event.title}`,
+            body: `${displayName(responder)} ${label}`,
+            data: { screen: "event", eventId: event.id },
+          },
+          { onStaleToken: (token) => storage.clearPushToken(token) },
+        );
+      } catch (err) {
+        logger.error({ err }, "Error sending RSVP push notification");
+      }
+    })();
+  }
 });
 
 router.post("/events/:id/tasks", requireAuth, async (req: Request, res: Response): Promise<void> => {

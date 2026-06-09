@@ -3,6 +3,14 @@ import { z } from "zod";
 import { storage } from "../storage";
 import { requireAuth } from "../middleware/currentUser";
 import { logger } from "../lib/logger";
+import { sendPushNotifications } from "../lib/pushNotifications";
+
+function displayName(user: { firstName?: string | null; lastName?: string | null; email?: string | null } | null | undefined): string {
+  if (!user) return "Someone";
+  const full = [user.firstName, user.lastName].filter(Boolean).join(" ").trim();
+  if (full) return full;
+  return user.email?.split("@")[0] ?? "Someone";
+}
 
 const router: IRouter = Router();
 
@@ -164,6 +172,46 @@ router.post(
         parsed.data.attachments,
       );
       res.status(201).json(message);
+
+      // Fire-and-forget: notify the other participants of the new message.
+      void (async () => {
+        try {
+          const participants = await storage.getConversationParticipants(id);
+          let recipientIds = participants
+            .map((p) => p.userId)
+            .filter((uid) => uid !== userId);
+          // For squad threads, respect per-squad mute on top of the message pref.
+          if (convo.type === "squad" && convo.squadId) {
+            recipientIds = await storage.filterUnmutedForSquad(recipientIds, convo.squadId);
+          }
+          if (recipientIds.length === 0) return;
+
+          const tokens = await storage.getPushTokensForUsers(recipientIds, {
+            requireNotifyMessages: true,
+          });
+          if (tokens.length === 0) return;
+
+          const sender = await storage.getUser(userId);
+          const senderName = displayName(sender);
+          const preview = parsed.data.text.trim()
+            ? parsed.data.text.trim()
+            : parsed.data.attachments.some((a) => a.kind === "video")
+              ? "📹 Video"
+              : "📷 Photo";
+
+          await sendPushNotifications(
+            tokens,
+            {
+              title: senderName,
+              body: preview.slice(0, 140),
+              data: { screen: "conversation", conversationId: id },
+            },
+            { onStaleToken: (token) => storage.clearPushToken(token) },
+          );
+        } catch (err) {
+          logger.error({ err }, "Error sending message push notifications");
+        }
+      })();
     } catch (err) {
       logger.error({ err }, "Error sending message");
       res.status(500).json({ error: "Failed to send message" });

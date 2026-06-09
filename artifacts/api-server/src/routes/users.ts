@@ -4,8 +4,17 @@ import { z } from "zod";
 import { db, usersTable, friendshipsTable, squadsTable } from "@workspace/db";
 import { requireAuth } from "../middleware/currentUser";
 import { logger } from "../lib/logger";
+import { storage } from "../storage";
+import { sendPushNotifications } from "../lib/pushNotifications";
 
 const router: IRouter = Router();
+
+function displayName(user: { firstName?: string | null; lastName?: string | null; email?: string | null } | null | undefined): string {
+  if (!user) return "Someone";
+  const full = [user.firstName, user.lastName].filter(Boolean).join(" ").trim();
+  if (full) return full;
+  return user.email?.split("@")[0] ?? "Someone";
+}
 
 const MAX_IDS = 100;
 
@@ -169,6 +178,26 @@ router.post("/users/friends", requireAuth, async (req: Request, res: Response): 
       ])
       .onConflictDoNothing();
     res.json({ ok: true });
+
+    // Fire-and-forget: tell the new friend they were added.
+    void (async () => {
+      try {
+        const tokens = await storage.getPushTokensForUsers([friendId], { requireNotifyFriendActivity: true });
+        if (tokens.length === 0) return;
+        const adder = await storage.getUser(userId);
+        await sendPushNotifications(
+          tokens,
+          {
+            title: "New friend",
+            body: `${displayName(adder)} added you as a friend`,
+            data: { screen: "friends" },
+          },
+          { onStaleToken: (token) => storage.clearPushToken(token) },
+        );
+      } catch (err) {
+        logger.error({ err }, "Error sending friend-add push notification");
+      }
+    })();
   } catch (err) {
     logger.error({ err }, "Error adding friend");
     res.status(500).json({ error: "Failed to add friend" });

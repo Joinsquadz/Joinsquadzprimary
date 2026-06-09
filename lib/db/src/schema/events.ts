@@ -22,6 +22,7 @@ export const eventsTable = pgTable("events", {
   polls: jsonb("polls").$type<unknown[]>().notNull().default(sql`'[]'::jsonb`),
   messages: jsonb("messages").$type<unknown[]>().notNull().default(sql`'[]'::jsonb`),
   isPublic: boolean("is_public").notNull().default(false),
+  reminderSentAt: timestamp("reminder_sent_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 

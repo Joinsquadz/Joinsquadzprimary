@@ -183,12 +183,34 @@ function PushNotificationHandler() {
         const Notifications = await import("expo-notifications");
         sub = Notifications.addNotificationResponseReceivedListener((response) => {
           const data = response.notification.request.content.data as Record<string, string> | undefined;
-          if (!data || data.screen !== "availability") return;
+          if (!data?.screen) return;
 
-          if (data.squadId) {
-            router.push({ pathname: "/availability", params: { squadId: data.squadId } } as never);
-          } else if (data.eventId) {
-            router.push({ pathname: "/availability", params: { eventId: data.eventId } } as never);
+          switch (data.screen) {
+            case "availability":
+              if (data.squadId) {
+                router.push({ pathname: "/availability", params: { squadId: data.squadId } } as never);
+              } else if (data.eventId) {
+                router.push({ pathname: "/availability", params: { eventId: data.eventId } } as never);
+              }
+              break;
+            case "conversation":
+              if (data.conversationId) {
+                router.push({ pathname: "/conversation/[id]", params: { id: data.conversationId } } as never);
+              }
+              break;
+            case "event":
+              if (data.eventId) {
+                router.push({ pathname: "/event/[id]", params: { id: data.eventId } } as never);
+              }
+              break;
+            case "squad":
+              if (data.squadId) {
+                router.push({ pathname: "/squad/[id]", params: { id: data.squadId } } as never);
+              }
+              break;
+            case "friends":
+              router.push("/friends" as never);
+              break;
           }
         });
       } catch {

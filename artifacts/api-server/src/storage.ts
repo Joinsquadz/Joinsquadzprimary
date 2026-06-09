@@ -17,9 +17,10 @@ import {
   type AvailabilityResponse,
   type DbConversation,
   type DbConversationMessage,
+  type DbEvent,
   type MessageAttachment,
 } from '@workspace/db/schema';
-import { eq, sql, count, and, gte, lt, desc, asc, inArray, ne } from 'drizzle-orm';
+import { eq, sql, count, and, gte, lt, desc, asc, inArray, ne, isNull } from 'drizzle-orm';
 import { db } from '@workspace/db';
 
 /**
@@ -1124,7 +1125,14 @@ export class Storage {
 
   async getPushTokensForUsers(
     userIds: string[],
-    opts: { requireNotifyReminders?: boolean; requireNotifySquadJoin?: boolean; requireNotifySquadLeave?: boolean } = {},
+    opts: {
+      requireNotifyReminders?: boolean;
+      requireNotifySquadJoin?: boolean;
+      requireNotifySquadLeave?: boolean;
+      requireNotifyMessages?: boolean;
+      requireNotifyEventInvites?: boolean;
+      requireNotifyFriendActivity?: boolean;
+    } = {},
   ): Promise<string[]> {
     if (userIds.length === 0) return [];
     const conditions = [inArray(usersTable.id, userIds)];
@@ -1137,11 +1145,48 @@ export class Storage {
     if (opts.requireNotifySquadLeave) {
       conditions.push(eq(usersTable.notifySquadLeave, true));
     }
+    if (opts.requireNotifyMessages) {
+      conditions.push(eq(usersTable.notifyMessages, true));
+    }
+    if (opts.requireNotifyEventInvites) {
+      conditions.push(eq(usersTable.notifyEventInvites, true));
+    }
+    if (opts.requireNotifyFriendActivity) {
+      conditions.push(eq(usersTable.notifyFriendActivity, true));
+    }
     const rows = await db
       .select({ pushToken: usersTable.pushToken })
       .from(usersTable)
       .where(and(...conditions));
     return rows.map((r) => r.pushToken).filter((t): t is string => Boolean(t));
+  }
+
+  /**
+   * Events eligible for an automatic "starting soon" reminder scan: not
+   * cancelled, no reminder sent yet, and with a concrete (non-TBD) date string.
+   * The caller best-effort parses the free-form `date` text to decide whether
+   * the event falls inside the reminder window.
+   */
+  async getEventsPendingReminder(): Promise<DbEvent[]> {
+    return db
+      .select()
+      .from(eventsTable)
+      .where(
+        and(
+          eq(eventsTable.cancelled, false),
+          isNull(eventsTable.reminderSentAt),
+          ne(eventsTable.date, ""),
+          ne(eventsTable.date, "TBD"),
+        ),
+      );
+  }
+
+  /** Mark an event as having had its automatic reminder sent (fire-once). */
+  async markEventReminderSent(eventId: string): Promise<void> {
+    await db
+      .update(eventsTable)
+      .set({ reminderSentAt: new Date() })
+      .where(eq(eventsTable.id, eventId));
   }
 
   async storePushTicket(ticketId: string, pushToken: string): Promise<void> {
