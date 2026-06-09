@@ -252,6 +252,44 @@ router.get("/squads/muted", requireAuth, async (req: Request, res: Response): Pr
   res.json({ squads });
 });
 
+// GET /api/squads/stream — User-level SSE stream for all squad updates.
+// Opens a single long-lived connection that covers every squad the
+// authenticated user currently belongs to. Any mutation on any of those
+// squads (PATCH, join, leave, add/remove member) pushes an "update" event
+// immediately. The client can call refreshSquads() and all screens sharing
+// AppContext will reflect the change without requiring a focus-switch.
+router.get("/squads/stream", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const userId = (req.user as { id: string }).id;
+
+  const allSquads = await db.select({ id: squadsTable.id, memberIds: squadsTable.memberIds }).from(squadsTable);
+  const squadIds = allSquads
+    .filter((s) => ((s.memberIds ?? []) as string[]).includes(userId))
+    .map((s) => s.id);
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  res.write("event: connected\ndata: {}\n\n");
+
+  const unsubscribers = squadIds.map((sid) =>
+    onSquadUpdate(sid, () => {
+      res.write(`event: update\ndata: {"squadId":"${sid}"}\n\n`);
+    }),
+  );
+
+  const heartbeat = setInterval(() => {
+    res.write(": heartbeat\n\n");
+  }, 25000);
+
+  req.on("close", () => {
+    clearInterval(heartbeat);
+    unsubscribers.forEach((u) => u());
+  });
+});
+
 router.get("/squads/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const id = parseId(req.params.id);
   const userId = (req.user as { id: string }).id;

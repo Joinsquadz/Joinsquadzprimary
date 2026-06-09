@@ -24,7 +24,6 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { runSquadPoll, squadSignature } from "@/lib/squadLiveRefresh";
-import { useSquadStream } from "@/hooks/useSquadStream";
 import { useData, useAuth, type FoundUser } from "@/context/AppContext";
 import { useMutedSquads } from "@/context/MutedSquadsContext";
 import { useMessages } from "@/context/MessagesContext";
@@ -250,19 +249,24 @@ export default function SquadDetailScreen() {
     playConflictBanner();
   }, [conflictSquadId, id, clearConflictSquad, playConflictBanner]);
 
-  // ── Real-time squad updates via SSE ──────────────────────────────────────
-  // The SSE hook connects to /api/squads/:id/stream while the screen is
-  // focused. Any mutation on the server (PATCH, join, leave, add/remove
-  // member) emits an "update" event that arrives here instantly, triggering
-  // refreshSquads() and the "Refreshed" banner — no polling lag.
-  useSquadStream({
-    squadId: id ?? null,
-    authToken,
-    onUpdate: useCallback(async () => {
-      await refreshSquads();
+  // ── Real-time squad updates via global SSE ───────────────────────────────
+  // AppContext opens a single SSE connection to /api/squads/stream that covers
+  // all of the user's squads. When a remote mutation arrives, AppContext calls
+  // refreshSquads() which updates the squads array in state. This effect
+  // watches the version field of this squad and plays the "Refreshed" banner
+  // whenever it changes — no screen-scoped SSE connection needed.
+  const currentSquadVersion = getSquad(id ?? "")?.version;
+  const prevSquadVersionRef = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (prevSquadVersionRef.current === undefined) {
+      prevSquadVersionRef.current = currentSquadVersion;
+      return;
+    }
+    if (currentSquadVersion !== prevSquadVersionRef.current) {
+      prevSquadVersionRef.current = currentSquadVersion;
       playConflictBanner();
-    }, [refreshSquads, playConflictBanner]),
-  });
+    }
+  }, [currentSquadVersion, playConflictBanner]);
 
   // ── 60 s safety-net poll ─────────────────────────────────────────────────
   // Catches any update that arrives while the SSE connection is temporarily

@@ -563,6 +563,69 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => sub.remove();
   }, [isLoggedIn, refreshSquads]);
 
+  // Global squad stream — one SSE connection per session covering all of the
+  // user's squads. Any mutation on any squad (PATCH, join, leave, add/remove
+  // member) pushes an "update" event here, triggering refreshSquads() so that
+  // every screen sharing AppContext (squad list, header, detail) updates
+  // simultaneously without requiring a focus-switch to the detail screen.
+  useEffect(() => {
+    if (!isLoggedIn || !authToken) return;
+
+    let cancelled = false;
+    const controller = new AbortController();
+    const token = authToken; // capture current token for this connection lifetime
+
+    const run = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/api/squads/stream`, {
+          headers: {
+            Accept: "text/event-stream",
+            "Cache-Control": "no-cache",
+            Authorization: `Bearer ${token}`,
+          },
+          signal: controller.signal,
+        });
+
+        if (!response.ok || !response.body) return;
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (!cancelled) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+
+          const blocks = buffer.split("\n\n");
+          buffer = blocks.pop() ?? "";
+
+          for (const block of blocks) {
+            if (block.includes("event: update")) {
+              void refreshSquads();
+            }
+          }
+        }
+
+        reader.releaseLock();
+      } catch (err) {
+        // AbortError is expected on logout / token change — not a problem.
+        if (err instanceof Error && err.name !== "AbortError") {
+          // Network failure. The AppState refresh on foreground will catch
+          // any missed updates until the token rotates and reopens the stream.
+        }
+      }
+    };
+
+    void run();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [isLoggedIn, authToken, refreshSquads]);
+
   useEffect(() => {
     AsyncStorage.getItem(AUTH_TOKEN_KEY).then(token => {
       if (token) {
