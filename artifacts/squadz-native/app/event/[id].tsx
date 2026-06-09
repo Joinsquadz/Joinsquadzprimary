@@ -161,6 +161,7 @@ export default function EventDetailScreen() {
   const [costTotal, setCostTotal] = useState("");
   const [costShares, setCostShares] = useState<Record<string, string>>({});
   const [splitMode, setSplitMode] = useState<"even" | "manual">("even");
+  const [taskSaving, setTaskSaving] = useState(false);
   const [costSaving, setCostSaving] = useState(false);
   const [pollSaving, setPollSaving] = useState(false);
   const [selectedParticipantIds, setSelectedParticipantIds] = useState<Set<string>>(new Set());
