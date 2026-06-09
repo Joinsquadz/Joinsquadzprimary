@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useFocusEffect } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
@@ -14,6 +14,7 @@ import {
   Alert,
   ActivityIndicator,
   Switch,
+  Animated,
 } from "react-native";
 import { SettleUp } from "@/components/SettleUp";
 import { addEventToCalendar, parseEventStart } from "@/lib/calendar";
@@ -64,6 +65,8 @@ export default function EventDetailScreen() {
     refreshEvents,
     getSquad,
     currentUser,
+    conflictEventId,
+    clearConflictEvent,
   } = useData();
 
   const event = getEvent(id ?? "");
@@ -206,6 +209,18 @@ export default function EventDetailScreen() {
 
   const [chatText, setChatText] = useState("");
   const [chatSending, setChatSending] = useState(false);
+
+  const conflictBannerAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (!id || conflictEventId !== id) return;
+    clearConflictEvent();
+    Animated.sequence([
+      Animated.timing(conflictBannerAnim, { toValue: 1, duration: 200, useNativeDriver: false }),
+      Animated.delay(2500),
+      Animated.timing(conflictBannerAnim, { toValue: 0, duration: 350, useNativeDriver: false }),
+    ]).start();
+  }, [conflictEventId, id, clearConflictEvent, conflictBannerAnim]);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
@@ -610,6 +625,20 @@ export default function EventDetailScreen() {
           </TouchableOpacity>
         ))}
       </ScrollView>
+
+      {/* Conflict refresh banner */}
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.conflictBanner,
+          {
+            height: conflictBannerAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 40] }),
+            opacity: conflictBannerAnim,
+          },
+        ]}
+      >
+        <Text style={styles.conflictBannerText}>↻ Refreshed — showing latest version</Text>
+      </Animated.View>
 
       {/* Tab content */}
       <ScrollView
@@ -1745,4 +1774,6 @@ const styles = StyleSheet.create({
   modalBtnText: { fontSize: 15, fontWeight: "800" },
   responseBadge: { minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 5, alignItems: "center", justifyContent: "center", marginRight: 4 },
   responseBadgeText: { color: "#fff", fontSize: 11, fontWeight: "800" },
+  conflictBanner: { overflow: "hidden", alignItems: "center", justifyContent: "center", backgroundColor: "#F59E0B18" },
+  conflictBannerText: { fontSize: 12, fontWeight: "700", color: "#B45309", letterSpacing: 0.2 },
 });

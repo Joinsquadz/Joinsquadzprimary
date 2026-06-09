@@ -145,6 +145,8 @@ type AppContextType = {
   votePoll: (eventId: string, pollId: string, optionId: string) => void;
   sendMessage: (eventId: string, text: string) => Promise<{ error?: string }>;
   refreshEvents: () => Promise<void>;
+  conflictEventId: string | null;
+  clearConflictEvent: () => void;
 
   squads: Squad[];
   getSquad: (id: string) => Squad | undefined;
@@ -206,6 +208,8 @@ const AppContext = createContext<AppContextType>({
   votePoll: noop,
   sendMessage: async () => ({}),
   refreshEvents: async () => {},
+  conflictEventId: null,
+  clearConflictEvent: noop,
   squads: [],
   getSquad: () => undefined,
   addSquad: asyncNoop,
@@ -277,6 +281,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [squadsLoading, setSquadsLoading] = useState(true);
   const [friends, setFriends] = useState<string[]>(INITIAL_FRIENDS);
   const [ownPaymentHandles, setOwnPaymentHandles] = useState<PaymentHandles>({ venmo: null, cashapp: null, zelle: null });
+  const [conflictEventId, setConflictEventId] = useState<string | null>(null);
+  const clearConflictEvent = useCallback(() => setConflictEventId(null), []);
   const currentUserIdRef = useRef<string>(ME.id);
   // Always holds the latest auth token so async mutations can detect a
   // session change (logout/login) mid-flight and refuse to commit stale state.
@@ -829,7 +835,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           if (res.status === 409) {
             const data = await res.json() as { error?: string; conflict?: boolean };
             if (data.conflict) {
-              showToast(data.error ?? "Someone else just updated this", { durationMs: 8000, action: { label: "Refresh", onPress: () => void refreshEvents() } });
+              showToast("Someone else just updated this — showing latest");
+              setConflictEventId(eventId);
+              void refreshEvents();
               return;
             }
             return Promise.reject();
@@ -897,7 +905,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (res.status === 409) {
             const data = await res.json() as { error?: string; conflict?: boolean };
             if (data.conflict) {
-              showToast(data.error ?? "Someone else just updated this", { durationMs: 8000, action: { label: "Refresh", onPress: () => void refreshEvents() } });
+              showToast("Someone else just updated this — showing latest");
+              setConflictEventId(eventId);
+              void refreshEvents();
               return;
             }
             throw new Error("conflict");
@@ -926,17 +936,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             : e,
         ),
       );
-      const claimBody: Record<string, unknown> = { assigneeId: userId };
-      if (currentVersion !== undefined) claimBody.version = currentVersion;
+      const body: Record<string, unknown> = { assigneeId: userId };
+      if (currentVersion !== undefined) body.version = currentVersion;
       try {
         const res = await apiFetch(`/api/events/${eventId}/tasks/${taskId}`, {
           method: "PATCH",
-          body: JSON.stringify(claimBody),
+          body: JSON.stringify(body),
         });
         if (res.status === 409) {
           const data = await res.json() as { error?: string; conflict?: boolean };
           if (data.conflict) {
-            showToast(data.error ?? "Someone else just updated this", { durationMs: 8000, action: { label: "Refresh", onPress: () => void refreshEvents() } });
+            showToast("Someone else just updated this — showing latest");
+            setConflictEventId(eventId);
+            void refreshEvents();
             return;
           }
           throw new Error("conflict");
@@ -977,7 +989,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               e.id === eventId ? { ...e, tasks: e.tasks.filter((t) => t.id !== tempId) } : e,
             ),
           );
-          showToast("Someone else just updated this", { durationMs: 8000, action: { label: "Refresh", onPress: () => void refreshEvents() } });
+          showToast("Someone else just updated this — showing latest");
+          setConflictEventId(eventId);
+          void refreshEvents();
           return { error: "Update conflict" };
         }
         if (!res.ok) {
@@ -1564,6 +1578,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         votePoll,
         sendMessage,
         refreshEvents,
+        conflictEventId,
+        clearConflictEvent,
         squads,
         getSquad,
         addSquad,
