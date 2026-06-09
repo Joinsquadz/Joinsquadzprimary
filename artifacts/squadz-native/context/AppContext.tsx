@@ -741,9 +741,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       })
         .then((res) => res.ok ? res.json() as Promise<Record<string, unknown>> : Promise.reject())
         .then(applyEventUpdate)
-        .catch(() => {});
+        .catch(() => { void refreshEvents(); });
     },
-    [apiFetch, applyEventUpdate, apiUser],
+    [apiFetch, applyEventUpdate, apiUser, refreshEvents],
   );
 
   const addEvent = useCallback(async (input: NewEventInput): Promise<string> => {
@@ -807,9 +807,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       void apiFetch(`/api/events/${eventId}`, { method: "PATCH", body: JSON.stringify(patch) })
         .then((res) => res.ok ? res.json() as Promise<Record<string, unknown>> : Promise.reject())
         .then(applyEventUpdate)
-        .catch(() => {});
+        .catch(() => { void refreshEvents(); });
     },
-    [apiFetch, applyEventUpdate],
+    [apiFetch, applyEventUpdate, refreshEvents],
   );
 
   const joinEvent = useCallback(async (inviteCode: string): Promise<{ error?: string }> => {
@@ -837,8 +837,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const cancelEvent = useCallback((eventId: string) => {
     // Optimistic removal
     setEvents((prev) => prev.filter((e) => e.id !== eventId));
-    void apiFetch(`/api/events/${eventId}`, { method: "DELETE" }).catch(() => {});
-  }, [apiFetch]);
+    void apiFetch(`/api/events/${eventId}`, { method: "DELETE" })
+      .then((res) => { if (!res.ok) void refreshEvents(); })
+      .catch(() => { void refreshEvents(); });
+  }, [apiFetch, refreshEvents]);
 
   const toggleTask = useCallback(
     (eventId: string, taskId: string) => {
@@ -859,9 +861,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       })
         .then((res) => res.ok ? res.json() as Promise<Record<string, unknown>> : Promise.reject())
         .then(applyEventUpdate)
-        .catch(() => {});
+        .catch(() => { void refreshEvents(); });
     },
-    [events, apiFetch, applyEventUpdate],
+    [events, apiFetch, applyEventUpdate, refreshEvents],
   );
 
   const claimTask = useCallback(
@@ -881,9 +883,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       })
         .then((res) => res.ok ? res.json() as Promise<Record<string, unknown>> : Promise.reject())
         .then(applyEventUpdate)
-        .catch(() => {});
+        .catch(() => { void refreshEvents(); });
     },
-    [apiFetch, applyEventUpdate, apiUser],
+    [apiFetch, applyEventUpdate, apiUser, refreshEvents],
   );
 
   const addTask = useCallback(
@@ -1159,9 +1161,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       })
         .then((res) => res.ok ? res.json() as Promise<Record<string, unknown>> : Promise.reject())
         .then(applyEventUpdate)
-        .catch(() => {});
+        .catch(() => { void refreshEvents(); });
     },
-    [apiFetch, applyEventUpdate, apiUser],
+    [apiFetch, applyEventUpdate, apiUser, refreshEvents],
   );
 
   const sendMessage = useCallback(
