@@ -23,7 +23,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
-import { runSquadPoll } from "@/lib/squadLiveRefresh";
+import { runSquadPoll, squadSignature } from "@/lib/squadLiveRefresh";
 import { useSquadStream } from "@/hooks/useSquadStream";
 import { useData, useAuth, type FoundUser } from "@/context/AppContext";
 import { useMutedSquads } from "@/context/MutedSquadsContext";
@@ -115,12 +115,32 @@ export default function SquadDetailScreen() {
   const handleAddUser = async (user: FoundUser) => {
     if (!id || !user.friendCode) return;
     setAddingUserId(user.id);
+    // Snapshot the squad before the async call so we can compute the expected
+    // post-add signature deterministically, without relying on React state that
+    // may not have flushed yet when the await resolves.
+    const squadBeforeAdd = getSquad(id);
     const result = await addMemberByFriendCode(id, user.friendCode);
     setAddingUserId(null);
     if (result.error) {
       setSearchError(result.error);
     } else {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      // Pre-seed the poll baseline so the next tick doesn't mistake our own
+      // optimistic member addition for a remote change and fire a spurious banner.
+      if (squadBeforeAdd) {
+        const newMemberIds = squadBeforeAdd.memberIds.includes(user.id)
+          ? squadBeforeAdd.memberIds
+          : [...squadBeforeAdd.memberIds, user.id];
+        lastSquadSigRef.current = squadSignature({
+          name: squadBeforeAdd.name,
+          emoji: squadBeforeAdd.emoji,
+          description: squadBeforeAdd.description ?? null,
+          color: squadBeforeAdd.color,
+          isPublic: squadBeforeAdd.isPublic,
+          membersCanInvite: squadBeforeAdd.membersCanInvite,
+          memberIds: newMemberIds,
+        });
+      }
       // Stay in the modal — the squad state update flips the row to "In squad"
       // so the creator can keep adding people without reopening
     }
@@ -354,7 +374,20 @@ export default function SquadDetailScreen() {
           const result = await removeMember(squad.id, memberId);
           setRemovingMemberId(null);
           if (result.error) Alert.alert("Error", result.error);
-          else Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          else {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            // Pre-seed the poll baseline so the next tick doesn't mistake our own
+            // optimistic member removal for a remote change and fire a spurious banner.
+            lastSquadSigRef.current = squadSignature({
+              name: squad.name,
+              emoji: squad.emoji,
+              description: squad.description ?? null,
+              color: squad.color,
+              isPublic: squad.isPublic,
+              membersCanInvite: squad.membersCanInvite,
+              memberIds: squad.memberIds.filter((mid) => mid !== memberId),
+            });
+          }
         },
       },
     ]);
@@ -372,7 +405,21 @@ export default function SquadDetailScreen() {
           const result = await removeMember(squad.id, currentUser.id);
           setRemovingMemberId(null);
           if (result.error) Alert.alert("Error", result.error);
-          else { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); goBack(); }
+          else {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            // Pre-seed the poll baseline so the next tick doesn't mistake our own
+            // optimistic leave for a remote change and fire a spurious banner.
+            lastSquadSigRef.current = squadSignature({
+              name: squad.name,
+              emoji: squad.emoji,
+              description: squad.description ?? null,
+              color: squad.color,
+              isPublic: squad.isPublic,
+              membersCanInvite: squad.membersCanInvite,
+              memberIds: squad.memberIds.filter((mid) => mid !== currentUser.id),
+            });
+            goBack();
+          }
         },
       },
     ]);

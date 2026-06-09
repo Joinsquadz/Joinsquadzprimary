@@ -383,6 +383,41 @@ describe("runSquadPoll", () => {
     expect(onChanged).not.toHaveBeenCalled();
   });
 
+  it("does NOT fire the banner when adding a member and pre-seeding the new member list", async () => {
+    // Seed baseline with the original member list.
+    fetchMock.mockResolvedValueOnce(okResponse(baseSnapshot));
+    await runSquadPoll(makeOpts());
+
+    // Simulate: user added u3; optimistic state now includes u3; pre-seed the sig.
+    const afterAdd = { ...baseSnapshot, memberIds: ["u1", "u2", "u3"] };
+    lastSig = squadSignature(afterAdd);
+
+    // Next poll confirms the addition — should be silent.
+    fetchMock.mockResolvedValueOnce(okResponse(afterAdd));
+    await runSquadPoll(makeOpts());
+
+    expect(refreshSquads).not.toHaveBeenCalled();
+    expect(onChanged).not.toHaveBeenCalled();
+  });
+
+  it("does NOT fire the banner when removing a member and pre-seeding the reduced member list", async () => {
+    // Seed baseline with three members.
+    const threeMembers = { ...baseSnapshot, memberIds: ["u1", "u2", "u3"] };
+    fetchMock.mockResolvedValueOnce(okResponse(threeMembers));
+    await runSquadPoll(makeOpts());
+
+    // Simulate: user removed u3; optimistic state now has only u1+u2; pre-seed the sig.
+    const afterRemove = { ...baseSnapshot, memberIds: ["u1", "u2"] };
+    lastSig = squadSignature(afterRemove);
+
+    // Next poll confirms the removal — should be silent.
+    fetchMock.mockResolvedValueOnce(okResponse(afterRemove));
+    await runSquadPoll(makeOpts());
+
+    expect(refreshSquads).not.toHaveBeenCalled();
+    expect(onChanged).not.toHaveBeenCalled();
+  });
+
   it("still fires the banner for a DIFFERENT remote edit even after the user's own edit was pre-seeded", async () => {
     // User renamed the squad; the optimistic sig is pre-seeded.
     const myEdit = { ...baseSnapshot, name: "My New Name" };
