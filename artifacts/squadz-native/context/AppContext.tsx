@@ -131,7 +131,7 @@ type AppContextType = {
   cancelEvent: (eventId: string) => void;
   toggleTask: (eventId: string, taskId: string) => void;
   claimTask: (eventId: string, taskId: string) => void;
-  addTask: (eventId: string, title: string) => void;
+  addTask: (eventId: string, title: string) => Promise<{ error?: string }>;
   addCost: (eventId: string, input: { description: string; amount: number; shares: CostShare[] }) => Promise<{ error?: string }>;
   markSharePaid: (eventId: string, costId: string, paid: boolean) => void;
   confirmShare: (eventId: string, costId: string, debtorId: string, confirmed: boolean) => void;
@@ -140,9 +140,9 @@ type AppContextType = {
   fetchPaymentHandles: (
     eventId: string,
   ) => Promise<Record<string, { venmo: string | null; cashapp: string | null; zelle: string | null }>>;
-  addPoll: (eventId: string, question: string, options: string[]) => void;
+  addPoll: (eventId: string, question: string, options: string[]) => Promise<{ error?: string }>;
   votePoll: (eventId: string, pollId: string, optionId: string) => void;
-  sendMessage: (eventId: string, text: string) => void;
+  sendMessage: (eventId: string, text: string) => Promise<{ error?: string }>;
   refreshEvents: () => Promise<void>;
 
   squads: Squad[];
@@ -193,16 +193,16 @@ const AppContext = createContext<AppContextType>({
   cancelEvent: noop,
   toggleTask: noop,
   claimTask: noop,
-  addTask: noop,
+  addTask: async () => ({}),
   addCost: async () => ({}),
   markSharePaid: noop,
   confirmShare: noop,
   ownPaymentHandles: { venmo: null, cashapp: null, zelle: null },
   updateOwnPaymentHandles: noop,
   fetchPaymentHandles: async () => ({}),
-  addPoll: noop,
+  addPoll: async () => ({}),
   votePoll: noop,
-  sendMessage: noop,
+  sendMessage: async () => ({}),
   refreshEvents: async () => {},
   squads: [],
   getSquad: () => undefined,
@@ -885,9 +885,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   const addTask = useCallback(
-    (eventId: string, title: string) => {
-      // Optimistic update
+    async (eventId: string, title: string): Promise<{ error?: string }> => {
       const tempId = `t${Date.now()}`;
+      // Optimistic update
       setEvents((prev) =>
         prev.map((e) =>
           e.id === eventId
@@ -895,13 +895,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             : e,
         ),
       );
-      void apiFetch(`/api/events/${eventId}/tasks`, {
-        method: "POST",
-        body: JSON.stringify({ title }),
-      })
-        .then((res) => res.ok ? res.json() as Promise<Record<string, unknown>> : Promise.reject())
-        .then(applyEventUpdate)
-        .catch(() => {});
+      try {
+        const res = await apiFetch(`/api/events/${eventId}/tasks`, {
+          method: "POST",
+          body: JSON.stringify({ title }),
+        });
+        if (!res.ok) {
+          setEvents((prev) =>
+            prev.map((e) =>
+              e.id === eventId ? { ...e, tasks: e.tasks.filter((t) => t.id !== tempId) } : e,
+            ),
+          );
+          let message = "Could not save task. Please try again.";
+          try {
+            const body = await res.json() as { error?: string };
+            if (body.error) message = body.error;
+          } catch { /* ignore */ }
+          return { error: message };
+        }
+        const data = await res.json() as Record<string, unknown>;
+        applyEventUpdate(data);
+        return {};
+      } catch {
+        setEvents((prev) =>
+          prev.map((e) =>
+            e.id === eventId ? { ...e, tasks: e.tasks.filter((t) => t.id !== tempId) } : e,
+          ),
+        );
+        return { error: "Could not save task. Check your connection and try again." };
+      }
     },
     [apiFetch, applyEventUpdate],
   );
@@ -1056,32 +1078,48 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   const addPoll = useCallback(
-    (eventId: string, question: string, options: string[]) => {
+    async (eventId: string, question: string, options: string[]): Promise<{ error?: string }> => {
+      const tempId = `p${Date.now()}`;
+      const tempPoll = {
+        id: tempId,
+        question,
+        options: options.map((label, i) => ({ id: `po${Date.now()}${i}`, label, voterIds: [] })),
+      };
       // Optimistic update
       setEvents((prev) =>
         prev.map((e) =>
-          e.id === eventId
-            ? {
-                ...e,
-                polls: [
-                  ...e.polls,
-                  {
-                    id: `p${Date.now()}`,
-                    question,
-                    options: options.map((label, i) => ({ id: `po${Date.now()}${i}`, label, voterIds: [] })),
-                  },
-                ],
-              }
-            : e,
+          e.id === eventId ? { ...e, polls: [...e.polls, tempPoll] } : e,
         ),
       );
-      void apiFetch(`/api/events/${eventId}/polls`, {
-        method: "POST",
-        body: JSON.stringify({ question, options }),
-      })
-        .then((res) => res.ok ? res.json() as Promise<Record<string, unknown>> : Promise.reject())
-        .then(applyEventUpdate)
-        .catch(() => {});
+      try {
+        const res = await apiFetch(`/api/events/${eventId}/polls`, {
+          method: "POST",
+          body: JSON.stringify({ question, options }),
+        });
+        if (!res.ok) {
+          setEvents((prev) =>
+            prev.map((e) =>
+              e.id === eventId ? { ...e, polls: e.polls.filter((p) => p.id !== tempId) } : e,
+            ),
+          );
+          let message = "Could not save poll. Please try again.";
+          try {
+            const body = await res.json() as { error?: string };
+            if (body.error) message = body.error;
+          } catch { /* ignore */ }
+          return { error: message };
+        }
+        const data = await res.json() as Record<string, unknown>;
+        applyEventUpdate(data);
+        return {};
+      } catch {
+        setEvents((prev) =>
+          prev.map((e) =>
+            e.id === eventId ? { ...e, polls: e.polls.filter((p) => p.id !== tempId) } : e,
+          ),
+        );
+        return { error: "Could not save poll. Check your connection and try again." };
+      }
     },
     [apiFetch, applyEventUpdate],
   );
@@ -1125,23 +1163,46 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   const sendMessage = useCallback(
-    (eventId: string, text: string) => {
+    async (eventId: string, text: string): Promise<{ error?: string }> => {
       const senderId = apiUser?.id ?? currentUserIdRef.current;
+      const tempId = `m${Date.now()}`;
       // Optimistic update
       setEvents((prev) =>
         prev.map((e) =>
           e.id === eventId
-            ? { ...e, messages: [...e.messages, { id: `m${Date.now()}`, senderId, text, time: "Just now" }] }
+            ? { ...e, messages: [...e.messages, { id: tempId, senderId, text, time: "Just now" }] }
             : e,
         ),
       );
-      void apiFetch(`/api/events/${eventId}/messages`, {
-        method: "POST",
-        body: JSON.stringify({ senderId, text }),
-      })
-        .then((res) => res.ok ? res.json() as Promise<Record<string, unknown>> : Promise.reject())
-        .then(applyEventUpdate)
-        .catch(() => {});
+      try {
+        const res = await apiFetch(`/api/events/${eventId}/messages`, {
+          method: "POST",
+          body: JSON.stringify({ senderId, text }),
+        });
+        if (!res.ok) {
+          setEvents((prev) =>
+            prev.map((e) =>
+              e.id === eventId ? { ...e, messages: e.messages.filter((m) => m.id !== tempId) } : e,
+            ),
+          );
+          let message = "Could not send message. Please try again.";
+          try {
+            const body = await res.json() as { error?: string };
+            if (body.error) message = body.error;
+          } catch { /* ignore */ }
+          return { error: message };
+        }
+        const data = await res.json() as Record<string, unknown>;
+        applyEventUpdate(data);
+        return {};
+      } catch {
+        setEvents((prev) =>
+          prev.map((e) =>
+            e.id === eventId ? { ...e, messages: e.messages.filter((m) => m.id !== tempId) } : e,
+          ),
+        );
+        return { error: "Could not send message. Check your connection and try again." };
+      }
     },
     [apiFetch, applyEventUpdate, apiUser],
   );

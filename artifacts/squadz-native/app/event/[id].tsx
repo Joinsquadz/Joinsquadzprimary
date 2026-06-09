@@ -385,22 +385,30 @@ export default function EventDetailScreen() {
   };
 
   // ---- Task modal ----
-  const saveTask = () => {
+  const saveTask = async () => {
     if (!newTask.trim()) return;
-    addTask(event.id, newTask.trim());
+    const result = await addTask(event.id, newTask.trim());
+    if (result.error) {
+      Alert.alert("Couldn't save task", result.error);
+      return;
+    }
     setNewTask("");
     setTaskModal(false);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
   };
 
   // ---- Poll modal ----
-  const savePoll = () => {
+  const savePoll = async () => {
     const opts = pollOpts.map((o) => o.trim()).filter(Boolean);
     if (!pollQ.trim() || opts.length < 2) {
       Alert.alert("Incomplete poll", "Add a question and at least 2 options.");
       return;
     }
-    addPoll(event.id, pollQ.trim(), opts);
+    const result = await addPoll(event.id, pollQ.trim(), opts);
+    if (result.error) {
+      Alert.alert("Couldn't save poll", result.error);
+      return;
+    }
     setPollQ("");
     setPollOpts(["", ""]);
     setPollModal(false);
@@ -1069,11 +1077,16 @@ export default function EventDetailScreen() {
             style={[styles.composerInput, { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
           />
           <TouchableOpacity
-            onPress={() => {
+            onPress={async () => {
               if (!chatText.trim()) return;
-              sendMessage(event.id, chatText.trim());
+              const text = chatText.trim();
               setChatText("");
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              const result = await sendMessage(event.id, text);
+              if (result.error) {
+                setChatText(text);
+                Alert.alert("Couldn't send message", result.error);
+              }
             }}
             style={[styles.sendBtn, { backgroundColor: chatText.trim() ? colors.primary : colors.border }]}
           >
