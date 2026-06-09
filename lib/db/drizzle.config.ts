@@ -6,7 +6,7 @@ const { host, port, user, password, database, ssl } = resolveDbConfig();
 
 export default defineConfig({
   schema: path.join(__dirname, "./src/schema/index.ts"),
-  out: path.join(__dirname, "./migrations"),
+  out: "./migrations",
   dialect: "postgresql",
   dbCredentials: {
     host: host as string,

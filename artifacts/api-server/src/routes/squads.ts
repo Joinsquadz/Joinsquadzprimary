@@ -465,7 +465,7 @@ router.post("/squads/:id/vault", requireAuth, async (req: Request, res: Response
             {
               title: squad.name ?? "Squad photos",
               body: `${name} added ${count} photo${count === 1 ? "" : "s"} to the vault`,
-              data: { screen: "squad", squadId: id },
+              data: { screen: "vault", squadId: id },
             },
             { onStaleToken: (token) => storage.clearPushToken(token) },
           );

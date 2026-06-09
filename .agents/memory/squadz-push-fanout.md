@@ -1,35 +1,45 @@
 ---
 name: Squadz push notification fan-out
-description: Invariants for every server-side push send and the event reminder scheduler in api-server.
+description: Invariants every feature push and the event reminder scheduler in api-server must satisfy.
 ---
 
 # Squadz push notification fan-out
 
-Every push that maps to a feature is sent fire-and-forget AFTER `res.json`, wrapped
-in try/catch + `logger.error`. Each send must satisfy ALL of:
+Every push that maps to a feature is sent fire-and-forget AFTER the response, in
+try/catch. Each send must satisfy ALL of:
 
 1. **Exclude the actor** (sender / host / sharer / joiner) from recipients.
-2. **Gate on the user preference** via `getPushTokensForUsers(ids, { requireNotify... })`
-   — the toggle names are `notify_messages` / `notify_event_invites` /
-   `notify_friend_activity` / `notify_reminders`. Skipping the flag means the Settings
-   toggle silently does nothing (the whole point of the feature).
-3. **Respect per-squad mute** for squad-scoped sends: call
-   `storage.filterUnmutedForSquad(ids, squadId)` BEFORE token lookup. Standalone
-   (non-squad, `squadId === ""`) events skip the mute filter.
+2. **Gate on the matching user preference.** The Settings toggles
+   (`notify_messages` / `notify_event_invites` / `notify_friend_activity` /
+   `notify_reminders`) are enforced at the token-lookup layer. Forgetting the flag
+   means the toggle silently does nothing — which is the whole feature.
+3. **Respect per-squad mute** for squad-scoped sends: mute-filter BEFORE token
+   lookup. Standalone (non-squad) events skip the mute filter.
 
-Pref mapping used: chat→messages; event invite + best-time-locked→event_invites;
-RSVP-to-host + friend-add + vault-share→friend_activity; "starting soon"→reminders.
+**Why:** the feature's entire point is that toggles actually work; a missing pref
+flag or mute filter is a functional bug, not a cosmetic one.
 
-## Reminder scheduler (index.ts) fire-once invariant
-**Why:** marking an event sent BEFORE the send (or before recipients exist) loses
-reminders on transient Expo failures and skips users who RSVP "going" later in the
-window — a code review caught exactly this.
+## Reminder scheduler fire-once rule
+A "starting soon" reminder must be marked sent **only after a successful send**,
+never before.
+
+**Why:** marking before the send (or before recipients exist) loses reminders on
+transient push-provider failures and skips users who RSVP "going" later in the
+lead window — a code review caught exactly this.
 
 **How to apply:**
-- Mark `reminderSentAt` ONLY after `sendPushNotifications` resolves successfully.
-- Do NOT mark when there are zero "going" RSVPs yet (later RSVPs in the 2h lead
-  window must still be reminded).
-- DO mark immediately when the parsed start is in the past, so the scan stops
-  reprocessing it. Unparseable dates are left unmarked (low volume, retried).
-- Event `date` is free-form text; parse best-effort via `lib/eventDate.ts`
-  `parseEventStart()` (returns null for TBD/unparseable).
+- No recipients yet → leave unmarked (late RSVPs must still be reminded).
+- Send failed → leave unmarked (retried next scan).
+- Event start already past → mark sent without sending (stops endless rescans).
+- Event date is free-form text, parsed best-effort; unparseable/TBD → skip, leave
+  unmarked.
+
+## Deep-link target nuance
+Photo-share notifications deep-link to the squad **vault**, not squad home — the
+vault is its own screen keyed by squadId. Picking the squad-home screen for a
+vault event is a deep-link bug.
+
+## Migration tooling gotcha
+`drizzle-kit generate` chokes on an **absolute** `out` path (builds a malformed
+`.//abs/path`). Keep `out` **relative** in `lib/db/drizzle.config.ts`; the db
+scripts always run with cwd = the db package.

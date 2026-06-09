@@ -208,6 +208,11 @@ function PushNotificationHandler() {
                 router.push({ pathname: "/squad/[id]", params: { id: data.squadId } } as never);
               }
               break;
+            case "vault":
+              if (data.squadId) {
+                router.push({ pathname: "/vault", params: { squadId: data.squadId } } as never);
+              }
+              break;
             case "friends":
               router.push("/friends" as never);
               break;
