@@ -679,10 +679,13 @@ export default function HomeScreen() {
               key={sq.id}
               style={[styles.pickerRow, { borderBottomColor: colors.border }]}
               onPress={() => {
+                const mode = pickerMode;
                 setPickerMode(null);
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                if (pickerMode === "invite") {
-                  void shareSquadInvite(sq);
+                if (mode === "invite") {
+                  // Delay until the modal close animation finishes (~300 ms on iOS)
+                  // so the Share sheet isn't blocked by the dismissing modal.
+                  setTimeout(() => { void shareSquadInvite(sq); }, 350);
                 } else {
                   router.push({ pathname: "/availability", params: { squadId: sq.id } } as never);
                 }
