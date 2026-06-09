@@ -130,7 +130,7 @@ type AppContextType = {
   toggleTask: (eventId: string, taskId: string) => void;
   claimTask: (eventId: string, taskId: string) => void;
   addTask: (eventId: string, title: string) => void;
-  addCost: (eventId: string, input: { description: string; amount: number; shares: CostShare[] }) => void;
+  addCost: (eventId: string, input: { description: string; amount: number; shares: CostShare[] }) => Promise<{ error?: string }>;
   markSharePaid: (eventId: string, costId: string, paid: boolean) => void;
   confirmShare: (eventId: string, costId: string, debtorId: string, confirmed: boolean) => void;
   fetchPaymentHandles: (
@@ -190,7 +190,7 @@ const AppContext = createContext<AppContextType>({
   toggleTask: noop,
   claimTask: noop,
   addTask: noop,
-  addCost: noop,
+  addCost: async () => ({}),
   markSharePaid: noop,
   confirmShare: noop,
   fetchPaymentHandles: async () => ({}),
@@ -871,13 +871,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   const addCost = useCallback(
-    (eventId: string, input: { description: string; amount: number; shares: CostShare[] }) => {
+    async (eventId: string, input: { description: string; amount: number; shares: CostShare[] }): Promise<{ error?: string }> => {
       const hasInvalid = input.shares.some((s) => s.amount < 0);
       const assigned = input.shares.reduce((sum, s) => sum + s.amount, 0);
-      if (input.amount <= 0 || hasInvalid || Math.abs(input.amount - assigned) >= 0.01) return;
+      if (input.amount <= 0 || hasInvalid || Math.abs(input.amount - assigned) >= 0.01)
+        return { error: "Invalid cost input." };
       const userId = apiUser?.id ?? currentUserIdRef.current;
+      const tempId = `c${Date.now()}`;
       const cost: Cost = {
-        id: `c${Date.now()}`,
+        id: tempId,
         description: input.description,
         amount: input.amount,
         paidById: userId,
@@ -887,13 +889,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setEvents((prev) =>
         prev.map((e) => (e.id === eventId ? { ...e, costs: [...e.costs, cost] } : e)),
       );
-      void apiFetch(`/api/events/${eventId}/costs`, {
-        method: "POST",
-        body: JSON.stringify({ ...input, paidById: userId }),
-      })
-        .then((res) => res.ok ? res.json() as Promise<Record<string, unknown>> : Promise.reject())
-        .then(applyEventUpdate)
-        .catch(() => {});
+      try {
+        const res = await apiFetch(`/api/events/${eventId}/costs`, {
+          method: "POST",
+          body: JSON.stringify({ ...input, paidById: userId }),
+        });
+        if (!res.ok) {
+          // Roll back the optimistic cost
+          setEvents((prev) =>
+            prev.map((e) =>
+              e.id === eventId ? { ...e, costs: e.costs.filter((c) => c.id !== tempId) } : e,
+            ),
+          );
+          let message = "Could not save expense. Please try again.";
+          try {
+            const body = await res.json() as { error?: string };
+            if (body.error) message = body.error;
+          } catch { /* ignore parse errors */ }
+          return { error: message };
+        }
+        const data = await res.json() as Record<string, unknown>;
+        applyEventUpdate(data);
+        return {};
+      } catch {
+        // Roll back the optimistic cost on network error
+        setEvents((prev) =>
+          prev.map((e) =>
+            e.id === eventId ? { ...e, costs: e.costs.filter((c) => c.id !== tempId) } : e,
+          ),
+        );
+        return { error: "Could not save expense. Check your connection and try again." };
+      }
     },
     [apiFetch, applyEventUpdate, apiUser],
   );

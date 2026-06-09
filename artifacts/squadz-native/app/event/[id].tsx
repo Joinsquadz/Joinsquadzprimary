@@ -336,7 +336,7 @@ export default function EventDetailScreen() {
     setSplitMode("manual");
   };
 
-  const saveCost = () => {
+  const saveCost = async () => {
     if (!costDesc.trim()) {
       Alert.alert("Missing info", "Add a description for the expense.");
       return;
@@ -360,7 +360,11 @@ export default function EventDetailScreen() {
     const shares = splitParticipants
       .map((m) => ({ userId: m.id, amount: parseFloat(activeShares[m.id] || "0") || 0 }))
       .filter((s) => s.amount > 0);
-    addCost(event.id, { description: costDesc.trim(), amount: totalNum, shares });
+    const result = await addCost(event.id, { description: costDesc.trim(), amount: totalNum, shares });
+    if (result.error) {
+      Alert.alert("Couldn't save expense", result.error);
+      return;
+    }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setCostModal(false);
   };
