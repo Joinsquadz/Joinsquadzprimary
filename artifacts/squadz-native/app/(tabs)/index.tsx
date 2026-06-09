@@ -58,7 +58,7 @@ export default function HomeScreen() {
   const [streaks, setStreaks] = useState<{ monthlyPlan: number; stayInTouch: number } | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [fabOpen, setFabOpen] = useState(false);
-  const [showSquadPicker, setShowSquadPicker] = useState(false);
+  const [pickerMode, setPickerMode] = useState<"find-time" | "invite" | null>(null);
 
   useEffect(() => {
     if (!authToken) return;
@@ -144,20 +144,33 @@ export default function HomeScreen() {
       router.push({ pathname: "/availability", params: { squadId: squads[0].id } } as never);
       return;
     }
-    setShowSquadPicker(true);
+    setPickerMode("find-time");
   };
 
-  const handleInvite = async () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const firstSquad = squads[0];
-    const message = firstSquad
-      ? `Join my squad "${firstSquad.emoji} ${firstSquad.name}" on SquadZ — let's find a time we're all actually free 🎉\n${firstSquad.inviteCode ? `https://joinsquadz.com/squad/join?code=${firstSquad.inviteCode}` : `https://joinsquadz.com/squad/${firstSquad.id}`}`
-      : `I'm on SquadZ — let's plan our next hangout and find a time everyone's free. Add me with my code ${friendCode}\nhttps://joinsquadz.com`;
+  const shareSquadInvite = async (squad: (typeof squads)[0]) => {
+    const link = squad.inviteCode
+      ? `https://joinsquadz.com/squad/join?code=${squad.inviteCode}`
+      : `https://joinsquadz.com/squad/${squad.id}`;
+    const message = `Join my squad "${squad.emoji} ${squad.name}" on SquadZ — let's find a time we're all actually free 🎉\n${link}`;
     try {
       await Share.share({ message });
     } catch {
       // user dismissed the share sheet
     }
+  };
+
+  const handleInvite = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (squads.length === 0) {
+      const message = `I'm on SquadZ — let's plan our next hangout and find a time everyone's free. Add me with my code ${friendCode}\nhttps://joinsquadz.com`;
+      try { await Share.share({ message }); } catch { /* dismissed */ }
+      return;
+    }
+    if (squads.length === 1) {
+      await shareSquadInvite(squads[0]);
+      return;
+    }
+    setPickerMode("invite");
   };
 
   // Pre-load user profiles shown in the hero card RSVP pips
@@ -643,30 +656,36 @@ export default function HomeScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Squad picker — shown when "Find a time" is tapped with multiple squads */}
+      {/* Squad picker — shared by "Find a time" and "Invite crew" */}
       <Modal
-        visible={showSquadPicker}
+        visible={pickerMode !== null}
         transparent
         animationType="slide"
-        onRequestClose={() => setShowSquadPicker(false)}
+        onRequestClose={() => setPickerMode(null)}
       >
         <TouchableOpacity
           style={styles.pickerBackdrop}
           activeOpacity={1}
-          onPress={() => setShowSquadPicker(false)}
+          onPress={() => setPickerMode(null)}
         />
         <View style={[styles.pickerSheet, { backgroundColor: colors.card, paddingBottom: insets.bottom + 12 }]}>
           <View style={[styles.pickerHandle, { backgroundColor: colors.border }]} />
           <Text style={[styles.pickerTitle, { color: colors.foreground }]}>Which squad?</Text>
-          <Text style={[styles.pickerSub, { color: colors.mutedForeground }]}>Choose the squad to find time for</Text>
+          <Text style={[styles.pickerSub, { color: colors.mutedForeground }]}>
+            {pickerMode === "invite" ? "Share an invite link for this squad" : "Choose the squad to find time for"}
+          </Text>
           {squads.map((sq) => (
             <TouchableOpacity
               key={sq.id}
               style={[styles.pickerRow, { borderBottomColor: colors.border }]}
               onPress={() => {
-                setShowSquadPicker(false);
+                setPickerMode(null);
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                router.push({ pathname: "/availability", params: { squadId: sq.id } } as never);
+                if (pickerMode === "invite") {
+                  void shareSquadInvite(sq);
+                } else {
+                  router.push({ pathname: "/availability", params: { squadId: sq.id } } as never);
+                }
               }}
               activeOpacity={0.8}
             >
@@ -679,7 +698,11 @@ export default function HomeScreen() {
                   {sq.memberIds.length} member{sq.memberIds.length !== 1 ? "s" : ""}
                 </Text>
               </View>
-              <Ionicons name="chevron-forward" size={18} color={colors.mutedForeground} />
+              <Ionicons
+                name={pickerMode === "invite" ? "share-outline" : "chevron-forward"}
+                size={18}
+                color={pickerMode === "invite" ? colors.primary : colors.mutedForeground}
+              />
             </TouchableOpacity>
           ))}
         </View>
