@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   FlatList,
   Platform,
+  Share,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
@@ -49,7 +50,8 @@ export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { currentUser, authToken } = useAuth();
-  const { events, squads, eventsLoading, squadsLoading, joinEvent, joinSquad } = useData();
+  const { events, squads, eventsLoading, squadsLoading, joinEvent, joinSquad, friendCode } = useData();
+  const [coachDismissed, setCoachDismissed] = useState(false);
   const [discoverEvents, setDiscoverEvents] = useState<DiscoverEvent[]>([]);
   const [discoverSquads, setDiscoverSquads] = useState<DiscoverSquad[]>([]);
   const [streaks, setStreaks] = useState<{ monthlyPlan: number; stayInTouch: number } | null>(null);
@@ -93,6 +95,28 @@ export default function HomeScreen() {
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const upNext = events[0] ?? null;
 
+  const handleFindTime = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (squads.length === 0) {
+      router.push("/squad/create" as never);
+      return;
+    }
+    router.push({ pathname: "/availability", params: { squadId: squads[0].id } } as never);
+  };
+
+  const handleInvite = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const firstSquad = squads[0];
+    const message = firstSquad
+      ? `Join my squad "${firstSquad.emoji} ${firstSquad.name}" on Squadz — let's find a time we're all actually free 🎉\n${firstSquad.inviteCode ? `https://joinsquadz.com/squad/join?code=${firstSquad.inviteCode}` : `https://joinsquadz.com/squad/${firstSquad.id}`}`
+      : `I'm on Squadz — let's plan our next hangout and find a time everyone's free. Add me with my code ${friendCode}\nhttps://joinsquadz.com`;
+    try {
+      await Share.share({ message });
+    } catch {
+      // user dismissed the share sheet
+    }
+  };
+
   // Pre-load user profiles shown in the hero card RSVP pips
   useEffect(() => {
     if (!upNext) return;
@@ -130,6 +154,47 @@ export default function HomeScreen() {
         contentContainerStyle={{ paddingBottom: insets.bottom + (Platform.OS === "web" ? 84 : 100) }}
         showsVerticalScrollIndicator={false}
       >
+        {/* First-run coach mark */}
+        {squads.length === 0 && !coachDismissed && (
+          <View style={styles.section}>
+            <View style={[styles.coach, { backgroundColor: colors.primary + "12", borderColor: colors.primary + "30" }]}>
+              <Text style={styles.coachEmoji}>💡</Text>
+              <Text style={[styles.coachText, { color: colors.foreground }]}>
+                New here? Create a squad, invite your crew, and Squadz finds the time everyone's free.
+              </Text>
+              <TouchableOpacity onPress={() => setCoachDismissed(true)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Ionicons name="close" size={16} color={colors.mutedForeground} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {/* Quick actions — always-present primary actions */}
+        <View style={[styles.section, { flexDirection: "row", gap: 12 }]}>
+          <TouchableOpacity
+            onPress={handleFindTime}
+            activeOpacity={0.85}
+            style={[styles.quickAction, { backgroundColor: colors.primary + "12", borderColor: colors.primary + "30" }]}
+          >
+            <View style={[styles.quickIcon, { backgroundColor: colors.primary + "22" }]}>
+              <Ionicons name="sparkles" size={20} color={colors.primary} />
+            </View>
+            <Text style={[styles.quickTitle, { color: colors.foreground }]}>Find a time</Text>
+            <Text style={[styles.quickSub, { color: colors.mutedForeground }]}>When's everyone free?</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => { void handleInvite(); }}
+            activeOpacity={0.85}
+            style={[styles.quickAction, { backgroundColor: "#2ECC8A12", borderColor: "#2ECC8A30" }]}
+          >
+            <View style={[styles.quickIcon, { backgroundColor: "#2ECC8A22" }]}>
+              <Ionicons name="person-add" size={20} color="#2ECC8A" />
+            </View>
+            <Text style={[styles.quickTitle, { color: colors.foreground }]}>Invite crew</Text>
+            <Text style={[styles.quickSub, { color: colors.mutedForeground }]}>Better with friends</Text>
+          </TouchableOpacity>
+        </View>
+
         {/* Hero "Up Next" card */}
         {eventsLoading ? (
           <View style={styles.section}>
@@ -173,7 +238,30 @@ export default function HomeScreen() {
               </LinearGradient>
             </TouchableOpacity>
           </View>
-        ) : null}
+        ) : (
+          <View style={styles.section}>
+            <View style={[styles.emptyHero, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Text style={styles.emptyHeroEmoji}>{squads.length === 0 ? "👋" : "🗓️"}</Text>
+              <Text style={[styles.emptyHeroTitle, { color: colors.foreground }]}>
+                {squads.length === 0 ? "Let's get your crew together" : "No plans yet — start one"}
+              </Text>
+              <Text style={[styles.emptyHeroSub, { color: colors.mutedForeground }]}>
+                {squads.length === 0
+                  ? "Create a squad and invite your friends to find the time everyone's free."
+                  : "Pick a time everyone's free, then turn it into a plan."}
+              </Text>
+              <TouchableOpacity
+                onPress={squads.length === 0 ? () => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push("/squad/create" as never); } : handleFindTime}
+                activeOpacity={0.9}
+                style={{ width: "100%" }}
+              >
+                <LinearGradient colors={["#FF5C3A", "#FF8C3A"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.emptyHeroBtn}>
+                  <Text style={styles.emptyHeroBtnText}>{squads.length === 0 ? "Create your first squad" : "Find a time"}</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
 
         {/* Streaks */}
         {streaks !== null && (streaks.monthlyPlan > 0 || streaks.stayInTouch > 0) ? (
@@ -493,6 +581,29 @@ const styles = StyleSheet.create({
   sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 14 },
   sectionTitle: { fontSize: 18, fontWeight: "800" },
   seeAll: { fontSize: 13, fontWeight: "600" },
+  coach: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    borderRadius: 14, borderWidth: 1, padding: 14,
+  },
+  coachEmoji: { fontSize: 18 },
+  coachText: { flex: 1, fontSize: 13, lineHeight: 18, fontWeight: "600" },
+  quickAction: {
+    flex: 1, borderRadius: 16, borderWidth: 1, padding: 14, gap: 6,
+  },
+  quickIcon: {
+    width: 36, height: 36, borderRadius: 11,
+    alignItems: "center", justifyContent: "center", marginBottom: 2,
+  },
+  quickTitle: { fontSize: 15, fontWeight: "800" },
+  quickSub: { fontSize: 12 },
+  emptyHero: {
+    borderRadius: 22, borderWidth: 1, padding: 22, alignItems: "center", gap: 8,
+  },
+  emptyHeroEmoji: { fontSize: 36 },
+  emptyHeroTitle: { fontSize: 18, fontWeight: "800", textAlign: "center" },
+  emptyHeroSub: { fontSize: 13, textAlign: "center", lineHeight: 18, marginBottom: 8 },
+  emptyHeroBtn: { borderRadius: 14, paddingVertical: 14, alignItems: "center" },
+  emptyHeroBtnText: { color: "#fff", fontSize: 15, fontWeight: "800" },
   heroCard: {
     borderRadius: 22, padding: 20, overflow: "hidden",
   },

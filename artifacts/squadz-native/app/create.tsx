@@ -495,6 +495,12 @@ export default function CreateEventScreen() {
                 </Text>
               </LinearGradient>
             </TouchableOpacity>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 10 }}>
+              <Ionicons name="lock-closed" size={13} color="#2ECC8A" />
+              <Text style={{ fontSize: 12, color: colors.mutedForeground, fontWeight: "600" }}>
+                Secure checkout via Stripe · Cancel anytime
+              </Text>
+            </View>
             <TouchableOpacity onPress={() => setShowUpgradeModal(false)} style={styles.upgradeDismiss}>
               <Text style={[styles.upgradeDismissText, { color: colors.textDim }]}>Maybe later</Text>
             </TouchableOpacity>

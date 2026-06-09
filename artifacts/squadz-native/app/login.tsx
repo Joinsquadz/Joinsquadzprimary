@@ -21,14 +21,6 @@ import { GradientButton } from "@/components/GradientButton";
 
 type Screen = "splash" | "signin";
 
-const AVATAR_FACES = [
-  { letter: "M", color: "#FF5C3A" },
-  { letter: "K", color: "#A855F7" },
-  { letter: "T", color: "#2ECC8A" },
-  { letter: "A", color: "#FFB547" },
-  { letter: "R", color: "#4A9EFF" },
-];
-
 const PILLS = [
   { icon: "🗓️", label: "Events", color: "#FF5C3A" },
   { icon: "🍔", label: "Food Plans", color: "#FFB547" },
@@ -277,18 +269,9 @@ export default function LoginScreen() {
         </View>
 
         <View style={[styles.socialProof, { backgroundColor: colors.surfaceUp, borderColor: colors.border }]}>
-          <View style={styles.avatarStack}>
-            {AVATAR_FACES.map((a, i) => (
-              <View
-                key={a.letter}
-                style={[styles.avatarBubble, { backgroundColor: a.color, marginLeft: i > 0 ? -9 : 0, zIndex: 5 - i }]}
-              >
-                <Text style={styles.avatarLetter}>{a.letter}</Text>
-              </View>
-            ))}
-          </View>
+          <View style={[styles.liveDot, { backgroundColor: "#2ECC8A" }]} />
           <Text style={[styles.socialProofText, { color: colors.mutedForeground }]}>
-            <Text style={{ color: "#fff", fontWeight: "700" }}>50k+ squads</Text> planning smarter
+            <Text style={{ color: "#fff", fontWeight: "700" }}>Now in early access</Text> — bring your crew
           </Text>
         </View>
 
@@ -365,13 +348,7 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     marginBottom: 18,
   },
-  avatarStack: { flexDirection: "row" },
-  avatarBubble: {
-    width: 26, height: 26, borderRadius: 13,
-    alignItems: "center", justifyContent: "center",
-    borderWidth: 2, borderColor: "#1A1A26",
-  },
-  avatarLetter: { fontSize: 10, fontWeight: "800", color: "#000" },
+  liveDot: { width: 8, height: 8, borderRadius: 4 },
   socialProofText: { fontSize: 13 },
 
   // Feature pills

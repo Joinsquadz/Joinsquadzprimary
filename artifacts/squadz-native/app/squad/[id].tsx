@@ -17,6 +17,7 @@ import {
   Switch,
   KeyboardAvoidingView,
 } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -450,6 +451,38 @@ export default function SquadDetailScreen() {
           </TouchableOpacity>
         )}
 
+        {/* Find the best time — primary action, surfaced near the top */}
+        <TouchableOpacity
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            router.push({ pathname: "/availability", params: { squadId: squad.id } } as never);
+          }}
+          activeOpacity={0.9}
+          style={{ marginTop: 12 }}
+        >
+          <LinearGradient
+            colors={[squad.color, squad.color + "CC"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.findTimeCta}
+          >
+            <View style={styles.findTimeIcon}>
+              <Ionicons name="sparkles" size={22} color="#fff" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.findTimeTitle}>{availabilityTitle ?? "Find the Best Time"}</Text>
+              <Text style={styles.findTimeSub}>Poll the squad · pick a time everyone's free</Text>
+            </View>
+            {newResponseCount > 0 ? (
+              <View style={styles.findTimeBadge}>
+                <Text style={styles.findTimeBadgeText}>{newResponseCount}</Text>
+              </View>
+            ) : (
+              <Ionicons name="chevron-forward" size={20} color="#fff" />
+            )}
+          </LinearGradient>
+        </TouchableOpacity>
+
         {/* Members */}
         <Text style={[styles.sectionTitle, { color: colors.foreground, marginTop: 24 }]}>Members</Text>
         {showLongPressHint && (
@@ -545,29 +578,6 @@ export default function SquadDetailScreen() {
             <Text style={[styles.photosTitle, { color: colors.foreground }]}>Squad Photos</Text>
             <Text style={[styles.photosSub, { color: colors.mutedForeground }]}>View vault · private memories</Text>
           </View>
-          <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
-        </TouchableOpacity>
-
-        {/* Find the best time */}
-        <TouchableOpacity
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            router.push({ pathname: "/availability", params: { squadId: squad.id } } as never);
-          }}
-          style={[styles.photosRow, { backgroundColor: colors.card, borderColor: colors.border, marginTop: 12 }]}
-        >
-          <View style={[styles.photosIcon, { backgroundColor: colors.primary + "20" }]}>
-            <Ionicons name="sparkles-outline" size={20} color={colors.primary} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.photosTitle, { color: colors.foreground }]}>{availabilityTitle ?? "Find the Best Time"}</Text>
-            <Text style={[styles.photosSub, { color: colors.mutedForeground }]}>Poll the squad · pick a time everyone's free</Text>
-          </View>
-          {newResponseCount > 0 && (
-            <View style={[styles.responseBadge, { backgroundColor: colors.primary }]}>
-              <Text style={styles.responseBadgeText}>{newResponseCount}</Text>
-            </View>
-          )}
           <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
         </TouchableOpacity>
 
@@ -1045,8 +1055,12 @@ const styles = StyleSheet.create({
   foundUserCode: { fontSize: 12, marginTop: 2 },
   addResultBtn: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6 },
   addResultBtnText: { color: "#fff", fontSize: 12, fontWeight: "800" },
-  responseBadge: { minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 5, alignItems: "center", justifyContent: "center", marginRight: 4 },
-  responseBadgeText: { color: "#fff", fontSize: 11, fontWeight: "800" },
+  findTimeCta: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 16, padding: 16 },
+  findTimeIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.22)", alignItems: "center", justifyContent: "center" },
+  findTimeTitle: { color: "#fff", fontSize: 16, fontWeight: "800" },
+  findTimeSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 2 },
+  findTimeBadge: { minWidth: 22, height: 22, borderRadius: 11, paddingHorizontal: 6, backgroundColor: "rgba(255,255,255,0.3)", alignItems: "center", justifyContent: "center" },
+  findTimeBadgeText: { color: "#fff", fontSize: 12, fontWeight: "800" },
   longPressHint: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 10, borderWidth: 1, paddingVertical: 7, paddingHorizontal: 11, marginBottom: 10, alignSelf: "flex-start" },
   longPressHintText: { fontSize: 12, fontWeight: "600" },
   newLinkRow: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 13, borderWidth: 1, padding: 12, marginTop: 12 },

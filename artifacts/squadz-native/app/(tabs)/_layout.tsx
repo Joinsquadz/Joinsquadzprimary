@@ -23,9 +23,9 @@ function NativeTabLayout() {
         <Icon sf={{ default: "person.2", selected: "person.2.fill" }} />
         <Label>SquadZ</Label>
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="activity">
-        <Icon sf={{ default: "bell", selected: "bell.fill" }} />
-        <Label>Activity</Label>
+      <NativeTabs.Trigger name="events">
+        <Icon sf={{ default: "calendar", selected: "calendar" }} />
+        <Label>Events</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="messages">
         <Icon sf={{ default: "bubble.left.and.bubble.right", selected: "bubble.left.and.bubble.right.fill" }} />
@@ -36,8 +36,9 @@ function NativeTabLayout() {
         <Icon sf={{ default: "person", selected: "person.fill" }} />
         <Label>You</Label>
       </NativeTabs.Trigger>
-      {/* Hidden destinations: navigable via router.navigate but not shown in the tab bar. */}
-      <NativeTabs.Trigger name="events" hidden />
+      {/* Hidden destinations: navigable via router.navigate but not shown in the tab bar.
+          Activity is reachable from the bell icon in the Home header. */}
+      <NativeTabs.Trigger name="activity" hidden />
       <NativeTabs.Trigger name="photos" hidden />
     </NativeTabs>
   );
@@ -104,14 +105,14 @@ function ClassicTabLayout() {
         }}
       />
       <Tabs.Screen
-        name="activity"
+        name="events"
         options={{
-          title: "Activity",
+          title: "Events",
           tabBarIcon: ({ color }) =>
             isIOS ? (
-              <SymbolView name="bell" tintColor={color} size={24} />
+              <SymbolView name="calendar" tintColor={color} size={24} />
             ) : (
-              <Ionicons name="notifications-outline" size={22} color={color} />
+              <Ionicons name="calendar-outline" size={22} color={color} />
             ),
         }}
       />
@@ -140,7 +141,7 @@ function ClassicTabLayout() {
             ),
         }}
       />
-      <Tabs.Screen name="events" options={{ tabBarButton: () => null }} />
+      <Tabs.Screen name="activity" options={{ tabBarButton: () => null }} />
       <Tabs.Screen name="photos" options={{ tabBarButton: () => null }} />
     </Tabs>
   );
