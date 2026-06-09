@@ -1130,7 +1130,11 @@ export default function EventDetailScreen() {
               <TouchableOpacity onPress={() => setCostModal(false)} style={[styles.modalBtn, { backgroundColor: colors.card }]}>
                 <Text style={[styles.modalBtnText, { color: colors.mutedForeground }]}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={saveCost} style={[styles.modalBtn, { backgroundColor: covered ? colors.primary : colors.border }]}>
+              <TouchableOpacity
+                onPress={saveCost}
+                disabled={totalNum <= 0}
+                style={[styles.modalBtn, { backgroundColor: covered ? colors.primary : colors.border, opacity: totalNum <= 0 ? 0.45 : 1 }]}
+              >
                 <Text style={[styles.modalBtnText, { color: covered ? "#fff" : colors.textDim }]}>Save expense</Text>
               </TouchableOpacity>
             </View>
