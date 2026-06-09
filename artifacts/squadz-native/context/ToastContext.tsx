@@ -1,11 +1,18 @@
 import React, { createContext, useCallback, useContext, useRef, useState } from "react";
-import { Animated, StyleSheet, Text, View } from "react-native";
+import { Animated, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useColors } from "@/hooks/useColors";
 
+type ToastAction = { label: string; onPress: () => void };
+
+export type ToastOptions = {
+  durationMs?: number;
+  action?: ToastAction;
+};
+
 type ToastContextType = {
-  showToast: (message: string, durationMs?: number) => void;
+  showToast: (message: string, options?: ToastOptions) => void;
 };
 
 const ToastContext = createContext<ToastContextType>({
@@ -18,14 +25,31 @@ export function useToast(): ToastContextType {
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [message, setMessage] = useState<string | null>(null);
+  const [action, setAction] = useState<ToastAction | null>(null);
   const opacity = useRef(new Animated.Value(0)).current;
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const colors = useColors();
   const insets = useSafeAreaInsets();
 
-  const showToast = useCallback((msg: string, durationMs = 3000) => {
+  const dismiss = useCallback(() => {
+    if (hideTimer.current) clearTimeout(hideTimer.current);
+    Animated.timing(opacity, {
+      toValue: 0,
+      duration: 220,
+      useNativeDriver: true,
+    }).start(() => {
+      setMessage(null);
+      setAction(null);
+    });
+  }, [opacity]);
+
+  const showToast = useCallback((msg: string, options?: ToastOptions) => {
+    const durationMs = options?.durationMs ?? (options?.action ? 8000 : 3000);
+    const toastAction = options?.action ?? null;
+
     if (hideTimer.current) clearTimeout(hideTimer.current);
     setMessage(msg);
+    setAction(toastAction);
 
     Animated.timing(opacity, {
       toValue: 1,
@@ -38,16 +62,24 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         toValue: 0,
         duration: 220,
         useNativeDriver: true,
-      }).start(() => setMessage(null));
+      }).start(() => {
+        setMessage(null);
+        setAction(null);
+      });
     }, durationMs);
   }, [opacity]);
+
+  const handleActionPress = useCallback(() => {
+    action?.onPress();
+    dismiss();
+  }, [action, dismiss]);
 
   return (
     <ToastContext.Provider value={{ showToast }}>
       {children}
       {message ? (
         <Animated.View
-          pointerEvents="none"
+          pointerEvents={action ? "box-none" : "none"}
           style={[
             styles.toast,
             {
@@ -60,6 +92,13 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         >
           <View style={[styles.dot, { backgroundColor: colors.destructive }]} />
           <Text style={[styles.text, { color: colors.foreground }]}>{message}</Text>
+          {action ? (
+            <TouchableOpacity onPress={handleActionPress} style={styles.actionButton} hitSlop={8}>
+              <Text style={[styles.actionLabel, { color: colors.primary ?? "#A855F7" }]}>
+                {action.label}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
         </Animated.View>
       ) : null}
     </ToastContext.Provider>
@@ -82,17 +121,27 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
     elevation: 8,
-    maxWidth: 320,
+    maxWidth: 340,
   },
   dot: {
     width: 8,
     height: 8,
     borderRadius: 4,
+    flexShrink: 0,
   },
   text: {
     fontSize: 14,
     fontWeight: "600",
     fontFamily: "Inter_600SemiBold",
     flexShrink: 1,
+  },
+  actionButton: {
+    flexShrink: 0,
+    marginLeft: 4,
+  },
+  actionLabel: {
+    fontSize: 14,
+    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
   },
 });

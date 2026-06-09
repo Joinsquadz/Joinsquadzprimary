@@ -320,7 +320,7 @@ export default function VaultScreen() {
       if (pro) {
         setConfirmingUpgrade(false);
         await fetchPhotos();
-        showToast("Welcome to Pro! Your full vault is unlocked.", 4000);
+        showToast("Welcome to Pro! Your full vault is unlocked.", { durationMs: 4000 });
         return;
       }
     }

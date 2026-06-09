@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useToast } from "@/context/ToastContext";
-import { AppState, Alert } from "react-native";
+import { AppState } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { API_BASE } from "@/lib/api";
 import { clearProfileCache } from "@/hooks/useUserProfiles";
@@ -749,8 +749,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           if (res.status === 409) {
             const data = await res.json() as { error?: string; conflict?: boolean };
             if (data.conflict) {
-              Alert.alert("Update conflict", data.error ?? "Someone else just updated this — refresh to see the latest");
-              void refreshEvents();
+              showToast(data.error ?? "Someone else just updated this", { durationMs: 8000, action: { label: "Refresh", onPress: () => void refreshEvents() } });
               return;
             }
             return Promise.reject();
@@ -830,8 +829,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           if (res.status === 409) {
             const data = await res.json() as { error?: string; conflict?: boolean };
             if (data.conflict) {
-              Alert.alert("Update conflict", data.error ?? "Someone else just updated this — refresh to see the latest");
-              void refreshEvents();
+              showToast(data.error ?? "Someone else just updated this", { durationMs: 8000, action: { label: "Refresh", onPress: () => void refreshEvents() } });
               return;
             }
             return Promise.reject();
@@ -899,8 +897,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (res.status === 409) {
             const data = await res.json() as { error?: string; conflict?: boolean };
             if (data.conflict) {
-              Alert.alert("Update conflict", data.error ?? "Someone else just updated this — refresh to see the latest");
-              void refreshEvents();
+              showToast(data.error ?? "Someone else just updated this", { durationMs: 8000, action: { label: "Refresh", onPress: () => void refreshEvents() } });
               return;
             }
             throw new Error("conflict");
@@ -939,8 +936,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (res.status === 409) {
           const data = await res.json() as { error?: string; conflict?: boolean };
           if (data.conflict) {
-            Alert.alert("Update conflict", data.error ?? "Someone else just updated this — refresh to see the latest");
-            void refreshEvents();
+            showToast(data.error ?? "Someone else just updated this", { durationMs: 8000, action: { label: "Refresh", onPress: () => void refreshEvents() } });
             return;
           }
           throw new Error("conflict");
@@ -981,8 +977,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               e.id === eventId ? { ...e, tasks: e.tasks.filter((t) => t.id !== tempId) } : e,
             ),
           );
-          Alert.alert("Update conflict", "Someone else just updated this event — refresh to see the latest");
-          void refreshEvents();
+          showToast("Someone else just updated this", { durationMs: 8000, action: { label: "Refresh", onPress: () => void refreshEvents() } });
           return { error: "Update conflict" };
         }
         if (!res.ok) {
@@ -1048,8 +1043,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               e.id === eventId ? { ...e, costs: e.costs.filter((c) => c.id !== tempId) } : e,
             ),
           );
-          Alert.alert("Update conflict", "Someone else just updated this event — refresh to see the latest");
-          void refreshEvents();
+          showToast("Someone else just updated this", { durationMs: 8000, action: { label: "Refresh", onPress: () => void refreshEvents() } });
           return { error: "Update conflict" };
         }
         if (!res.ok) {
@@ -1262,8 +1256,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           if (res.status === 409) {
             const data = await res.json() as { error?: string; conflict?: boolean };
             if (data.conflict) {
-              Alert.alert("Update conflict", data.error ?? "Someone else just updated this — refresh to see the latest");
-              void refreshEvents();
+              showToast(data.error ?? "Someone else just updated this", { durationMs: 8000, action: { label: "Refresh", onPress: () => void refreshEvents() } });
               return;
             }
             return Promise.reject();
@@ -1303,8 +1296,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               e.id === eventId ? { ...e, messages: e.messages.filter((m) => m.id !== tempId) } : e,
             ),
           );
-          Alert.alert("Update conflict", "Someone else just updated this event — refresh to see the latest");
-          void refreshEvents();
+          showToast("Someone else just updated this", { durationMs: 8000, action: { label: "Refresh", onPress: () => void refreshEvents() } });
           return { error: "Update conflict" };
         }
         if (!res.ok) {
