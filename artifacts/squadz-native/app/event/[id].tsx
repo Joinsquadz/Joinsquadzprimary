@@ -171,12 +171,9 @@ export default function EventDetailScreen() {
   const [calBusy, setCalBusy] = useState(false);
   const [remBusy, setRemBusy] = useState(false);
 
-  const [taskSaving, setTaskSaving] = useState(false);
-
   const [pollModal, setPollModal] = useState(false);
   const [pollQ, setPollQ] = useState("");
   const [pollOpts, setPollOpts] = useState<string[]>(["", ""]);
-  const [pollSaving, setPollSaving] = useState(false);
 
   const [editModal, setEditModal] = useState(false);
   const [edit, setEdit] = useState({ title: "", date: "", location: "", description: "", emoji: "🔥" });
