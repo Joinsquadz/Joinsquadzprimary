@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { eq, count, or, sql } from "drizzle-orm";
+import { eq, count, or, sql, and } from "drizzle-orm";
 import { z } from "zod";
 import { db, eventsTable, usersTable } from "@workspace/db";
 import { storage } from "../storage";
@@ -57,6 +57,7 @@ const UpdateEventBody = z.object({
   emoji: z.string().optional(),
   budget: z.number().optional(),
   isPublic: z.boolean().optional(),
+  version: z.number().int().optional(),
 });
 
 const SetRsvpBody = z.object({
@@ -66,12 +67,14 @@ const SetRsvpBody = z.object({
 
 const AddTaskBody = z.object({
   title: z.string().min(1),
+  version: z.number().int().optional(),
   category: z.string().optional(),
 });
 
 const PatchTaskBody = z.object({
   done: z.boolean().optional(),
   assigneeId: z.string().nullable().optional(),
+  version: z.number().int().optional(),
 });
 
 const AddCostBody = z.object({
@@ -84,11 +87,13 @@ const AddCostBody = z.object({
 const AddPollBody = z.object({
   question: z.string().min(1),
   options: z.array(z.string().min(1)),
+  version: z.number().int().optional(),
 });
 
 const VotePollBody = z.object({
   userId: z.string().optional(),
   optionId: z.string(),
+  version: z.number().int().optional(),
 });
 
 const SendMessageBody = z.object({
@@ -400,11 +405,22 @@ router.patch("/events/:id", requireAuth, async (req: Request, res: Response): Pr
     res.status(403).json({ error: "Access denied" });
     return;
   }
-  const patch: Record<string, unknown> = { ...parsed.data };
-  if (parsed.data.budget !== undefined) {
-    patch.budget = String(parsed.data.budget);
+  const { version: clientVersion, ...fieldsToUpdate } = parsed.data;
+  const patch: Record<string, unknown> = {
+    ...fieldsToUpdate,
+    version: sql`${eventsTable.version} + 1`,
+  };
+  if (fieldsToUpdate.budget !== undefined) {
+    patch.budget = String(fieldsToUpdate.budget);
   }
-  const [event] = await db.update(eventsTable).set(patch).where(eq(eventsTable.id, id)).returning();
+  const updateWhere = clientVersion !== undefined
+    ? and(eq(eventsTable.id, id), eq(eventsTable.version, clientVersion))
+    : eq(eventsTable.id, id);
+  const [event] = await db.update(eventsTable).set(patch).where(updateWhere).returning();
+  if (!event) {
+    res.status(409).json({ error: "Someone else just updated this — refresh to see the latest", conflict: true });
+    return;
+  }
   res.json(event);
 
   // Fire-and-forget: when a concrete time is locked in (date set to a real
@@ -509,11 +525,22 @@ router.post("/events/:id/tasks", requireAuth, async (req: Request, res: Response
   }
   const existing = await getEventAsMember(id, userId, res);
   if (!existing) return;
+  const { version: clientVersion, title, category } = parsed.data;
   const tasks = [
     ...(existing.tasks as unknown[]),
-    { id: `t${Date.now()}`, title: parsed.data.title, assigneeId: null, done: false, ...(parsed.data.category ? { category: parsed.data.category } : {}) },
+    { id: `t${Date.now()}`, title, category: category ?? null, assigneeId: null, done: false },
   ];
-  const [event] = await db.update(eventsTable).set({ tasks }).where(eq(eventsTable.id, id)).returning();
+  const updateWhere = clientVersion !== undefined
+    ? and(eq(eventsTable.id, id), eq(eventsTable.version, clientVersion))
+    : eq(eventsTable.id, id);
+  const [event] = await db.update(eventsTable)
+    .set({ tasks, version: sql`${eventsTable.version} + 1` })
+    .where(updateWhere)
+    .returning();
+  if (!event) {
+    res.status(409).json({ error: "Someone else just updated this — refresh to see the latest", conflict: true });
+    return;
+  }
   res.json(event);
 });
 
@@ -528,10 +555,21 @@ router.patch("/events/:id/tasks/:taskId", requireAuth, async (req: Request, res:
   }
   const existing = await getEventAsMember(id, userId, res);
   if (!existing) return;
+  const { version: clientVersion, ...taskFields } = parsed.data;
   const tasks = (existing.tasks as Array<{ id: string; done: boolean; assigneeId: string | null; title: string }>).map(
-    (t) => (t.id === taskId ? { ...t, ...parsed.data } : t),
+    (t) => (t.id === taskId ? { ...t, ...taskFields } : t),
   );
-  const [event] = await db.update(eventsTable).set({ tasks }).where(eq(eventsTable.id, id)).returning();
+  const updateWhere = clientVersion !== undefined
+    ? and(eq(eventsTable.id, id), eq(eventsTable.version, clientVersion))
+    : eq(eventsTable.id, id);
+  const [event] = await db.update(eventsTable)
+    .set({ tasks, version: sql`${eventsTable.version} + 1` })
+    .where(updateWhere)
+    .returning();
+  if (!event) {
+    res.status(409).json({ error: "Someone else just updated this — refresh to see the latest", conflict: true });
+    return;
+  }
   res.json(event);
 });
 
@@ -754,16 +792,27 @@ router.post("/events/:id/polls", requireAuth, async (req: Request, res: Response
   }
   const existing = await getEventAsMember(id, userId, res);
   if (!existing) return;
+  const { version: clientVersion, question, options } = parsed.data;
   const pollId = `p${Date.now()}`;
   const polls = [
     ...(existing.polls as unknown[]),
     {
       id: pollId,
-      question: parsed.data.question,
-      options: parsed.data.options.map((label: string, i: number) => ({ id: `po${Date.now()}${i}`, label, voterIds: [] })),
+      question,
+      options: options.map((label: string, i: number) => ({ id: `po${Date.now()}${i}`, label, voterIds: [] })),
     },
   ];
-  const [event] = await db.update(eventsTable).set({ polls }).where(eq(eventsTable.id, id)).returning();
+  const updateWhere = clientVersion !== undefined
+    ? and(eq(eventsTable.id, id), eq(eventsTable.version, clientVersion))
+    : eq(eventsTable.id, id);
+  const [event] = await db.update(eventsTable)
+    .set({ polls, version: sql`${eventsTable.version} + 1` })
+    .where(updateWhere)
+    .returning();
+  if (!event) {
+    res.status(409).json({ error: "Someone else just updated this — refresh to see the latest", conflict: true });
+    return;
+  }
   res.json(event);
 });
 
@@ -778,7 +827,7 @@ router.post("/events/:id/polls/:pollId/vote", requireAuth, async (req: Request, 
   }
   const existing = await getEventAsMember(id, userId, res);
   if (!existing) return;
-  const { optionId } = parsed.data;
+  const { optionId, version: clientVersion } = parsed.data;
   const polls = (
     existing.polls as Array<{ id: string; question: string; options: Array<{ id: string; label: string; voterIds: string[] }> }>
   ).map((poll) =>
@@ -795,7 +844,17 @@ router.post("/events/:id/polls/:pollId/vote", requireAuth, async (req: Request, 
           })),
         },
   );
-  const [event] = await db.update(eventsTable).set({ polls }).where(eq(eventsTable.id, id)).returning();
+  const updateWhere = clientVersion !== undefined
+    ? and(eq(eventsTable.id, id), eq(eventsTable.version, clientVersion))
+    : eq(eventsTable.id, id);
+  const [event] = await db.update(eventsTable)
+    .set({ polls, version: sql`${eventsTable.version} + 1` })
+    .where(updateWhere)
+    .returning();
+  if (!event) {
+    res.status(409).json({ error: "Someone else just updated this — refresh to see the latest", conflict: true });
+    return;
+  }
   res.json(event);
 });
 

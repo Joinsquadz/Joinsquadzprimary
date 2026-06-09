@@ -70,6 +70,7 @@ export type Event = {
   cancelled?: boolean;
   budget?: number;
   isPublic?: boolean;
+  version: number;
 };
 
 export type Squad = {

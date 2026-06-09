@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useToast } from "@/context/ToastContext";
-import { AppState } from "react-native";
+import { AppState, Alert } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { API_BASE } from "@/lib/api";
 import { clearProfileCache } from "@/hooks/useUserProfiles";
@@ -243,6 +243,7 @@ function dbEventToEvent(e: Record<string, unknown>): Event {
     polls: (e.polls as Event["polls"]) ?? [],
     messages: (e.messages as Event["messages"]) ?? [],
     isPublic: (e.isPublic as boolean) ?? false,
+    version: (e.version as number) ?? 1,
   };
 }
 
@@ -786,6 +787,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         costs: [],
         polls: [],
         messages: [],
+        version: 1,
       };
       setEvents((prev) => [newEvent, ...prev]);
       return id;
@@ -804,14 +806,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const updateEvent = useCallback(
     (eventId: string, patch: Partial<Pick<Event, "title" | "description" | "date" | "location" | "emoji" | "budget" | "isPublic">>) => {
+      const currentVersion = events.find((e) => e.id === eventId)?.version;
       // Optimistic update
       setEvents((prev) => prev.map((e) => (e.id === eventId ? { ...e, ...patch } : e)));
-      void apiFetch(`/api/events/${eventId}`, { method: "PATCH", body: JSON.stringify(patch) })
-        .then((res) => res.ok ? res.json() as Promise<Record<string, unknown>> : Promise.reject())
-        .then(applyEventUpdate)
+      const body = currentVersion !== undefined ? { ...patch, version: currentVersion } : patch;
+      void apiFetch(`/api/events/${eventId}`, { method: "PATCH", body: JSON.stringify(body) })
+        .then(async (res) => {
+          if (res.status === 409) {
+            const data = await res.json() as { error?: string; conflict?: boolean };
+            if (data.conflict) {
+              Alert.alert("Update conflict", data.error ?? "Someone else just updated this — refresh to see the latest");
+              void refreshEvents();
+              return;
+            }
+            return Promise.reject();
+          }
+          if (!res.ok) return Promise.reject();
+          return res.json() as Promise<Record<string, unknown>>;
+        })
+        .then((data) => { if (data) applyEventUpdate(data); })
         .catch(() => { void refreshEvents(); showToast("Couldn't save changes — please try again"); });
     },
-    [apiFetch, applyEventUpdate, refreshEvents],
+    [events, apiFetch, applyEventUpdate, refreshEvents, showToast],
   );
 
   const joinEvent = useCallback(async (inviteCode: string): Promise<{ error?: string }> => {
@@ -849,6 +865,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const event = events.find((e) => e.id === eventId);
       const task = event?.tasks.find((t) => t.id === taskId);
       if (!task) return;
+      const currentVersion = event?.version;
       // Optimistic update
       setEvents((prev) =>
         prev.map((e) =>
@@ -857,20 +874,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             : e,
         ),
       );
+      const body: Record<string, unknown> = { done: !task.done };
+      if (currentVersion !== undefined) body.version = currentVersion;
       void apiFetch(`/api/events/${eventId}/tasks/${taskId}`, {
         method: "PATCH",
-        body: JSON.stringify({ done: !task.done }),
+        body: JSON.stringify(body),
       })
-        .then((res) => res.ok ? res.json() as Promise<Record<string, unknown>> : Promise.reject())
-        .then(applyEventUpdate)
+        .then(async (res) => {
+          if (res.status === 409) {
+            const data = await res.json() as { error?: string; conflict?: boolean };
+            if (data.conflict) {
+              Alert.alert("Update conflict", data.error ?? "Someone else just updated this — refresh to see the latest");
+              void refreshEvents();
+              return;
+            }
+            return Promise.reject();
+          }
+          if (!res.ok) return Promise.reject();
+          return res.json() as Promise<Record<string, unknown>>;
+        })
+        .then((data) => { if (data) applyEventUpdate(data); })
         .catch(() => { void refreshEvents(); showToast("Couldn't update task — please try again"); });
     },
-    [events, apiFetch, applyEventUpdate, refreshEvents],
+    [events, apiFetch, applyEventUpdate, refreshEvents, showToast],
   );
 
   const claimTask = useCallback(
     (eventId: string, taskId: string) => {
       const userId = apiUser?.id ?? currentUserIdRef.current;
+      const currentVersion = events.find((e) => e.id === eventId)?.version;
       // Optimistic update
       setEvents((prev) =>
         prev.map((e) =>
@@ -879,20 +911,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             : e,
         ),
       );
+      const body: Record<string, unknown> = { assigneeId: userId };
+      if (currentVersion !== undefined) body.version = currentVersion;
       void apiFetch(`/api/events/${eventId}/tasks/${taskId}`, {
         method: "PATCH",
-        body: JSON.stringify({ assigneeId: userId }),
+        body: JSON.stringify(body),
       })
-        .then((res) => res.ok ? res.json() as Promise<Record<string, unknown>> : Promise.reject())
-        .then(applyEventUpdate)
+        .then(async (res) => {
+          if (res.status === 409) {
+            const data = await res.json() as { error?: string; conflict?: boolean };
+            if (data.conflict) {
+              Alert.alert("Update conflict", data.error ?? "Someone else just updated this — refresh to see the latest");
+              void refreshEvents();
+              return;
+            }
+            return Promise.reject();
+          }
+          if (!res.ok) return Promise.reject();
+          return res.json() as Promise<Record<string, unknown>>;
+        })
+        .then((data) => { if (data) applyEventUpdate(data); })
         .catch(() => { void refreshEvents(); showToast("Couldn't claim task — please try again"); });
     },
-    [apiFetch, applyEventUpdate, apiUser, refreshEvents],
+    [events, apiFetch, applyEventUpdate, apiUser, refreshEvents, showToast],
   );
 
   const addTask = useCallback(
     async (eventId: string, title: string, category?: string): Promise<{ error?: string }> => {
       const tempId = `t${Date.now()}`;
+      const currentVersion = events.find((e) => e.id === eventId)?.version;
       // Optimistic update
       setEvents((prev) =>
         prev.map((e) =>
@@ -904,8 +951,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       try {
         const res = await apiFetch(`/api/events/${eventId}/tasks`, {
           method: "POST",
-          body: JSON.stringify({ title, ...(category ? { category } : {}) }),
+          body: JSON.stringify({ title, ...(category ? { category } : {}), ...(currentVersion !== undefined ? { version: currentVersion } : {}) }),
         });
+        if (res.status === 409) {
+          // Revert the optimistic task
+          setEvents((prev) =>
+            prev.map((e) =>
+              e.id === eventId ? { ...e, tasks: e.tasks.filter((t) => t.id !== tempId) } : e,
+            ),
+          );
+          Alert.alert("Update conflict", "Someone else just updated this event — refresh to see the latest");
+          void refreshEvents();
+          return { error: "Update conflict" };
+        }
         if (!res.ok) {
           setEvents((prev) =>
             prev.map((e) =>
@@ -917,6 +975,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             const body = await res.json() as { error?: string };
             if (body.error) message = body.error;
           } catch { /* ignore */ }
+          showToast(message);
           return { error: message };
         }
         const data = await res.json() as Record<string, unknown>;
@@ -928,10 +987,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             e.id === eventId ? { ...e, tasks: e.tasks.filter((t) => t.id !== tempId) } : e,
           ),
         );
+        showToast("Could not save task. Check your connection and try again.");
         return { error: "Could not save task. Check your connection and try again." };
       }
     },
-    [apiFetch, applyEventUpdate],
+    [apiFetch, applyEventUpdate, events, refreshEvents, showToast],
   );
 
   const addCost = useCallback(

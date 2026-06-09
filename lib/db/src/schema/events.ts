@@ -1,4 +1,4 @@
-import { pgTable, text, boolean, numeric, jsonb, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, boolean, numeric, jsonb, timestamp, integer } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -24,6 +24,7 @@ export const eventsTable = pgTable("events", {
   isPublic: boolean("is_public").notNull().default(false),
   reminderSentAt: timestamp("reminder_sent_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  version: integer("version").notNull().default(1),
 });
 
 export const insertEventSchema = createInsertSchema(eventsTable).omit({ createdAt: true });

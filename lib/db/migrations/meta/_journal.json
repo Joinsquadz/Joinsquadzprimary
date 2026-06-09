@@ -22,6 +22,13 @@
       "when": 1781022357136,
       "tag": "0002_smart_moondragon",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1781027011253,
+      "tag": "0003_spotty_exodus",
+      "breakpoints": true
     }
   ]
 }
