@@ -154,6 +154,7 @@ type AppContextType = {
   votePoll: (eventId: string, pollId: string, optionId: string) => void;
   sendMessage: (eventId: string, text: string) => Promise<{ error?: string }>;
   refreshEvents: () => Promise<void>;
+  refreshSquads: () => Promise<void>;
   conflictEventId: string | null;
   conflictSnapshot: ConflictSnapshot | null;
   clearConflictEvent: () => void;
@@ -220,6 +221,7 @@ const AppContext = createContext<AppContextType>({
   votePoll: noop,
   sendMessage: async () => ({}),
   refreshEvents: async () => {},
+  refreshSquads: async () => {},
   conflictEventId: null,
   conflictSnapshot: null,
   clearConflictEvent: noop,
@@ -1628,6 +1630,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         votePoll,
         sendMessage,
         refreshEvents,
+        refreshSquads,
         conflictEventId,
         conflictSnapshot,
         clearConflictEvent,

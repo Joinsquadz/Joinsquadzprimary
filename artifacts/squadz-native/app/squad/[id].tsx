@@ -50,7 +50,7 @@ function getFriendCodeInitials(u: FoundUser): string {
 export default function SquadDetailScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { events, squads, getSquad, updateSquad, regenerateInviteCode, leaveSquad, currentUser, addMemberByFriendCode, removeMember, conflictSquadId, clearConflictSquad } = useData();
+  const { events, squads, getSquad, updateSquad, regenerateInviteCode, leaveSquad, currentUser, addMemberByFriendCode, removeMember, conflictSquadId, clearConflictSquad, refreshSquads } = useData();
   const { resolveUser, prefetchUsers, seedUser } = useUserCache();
   const { getSquadConversation } = useMessages();
   const { authToken } = useAuth();
@@ -213,15 +213,79 @@ export default function SquadDetailScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, currentUser.id]);
 
-  useEffect(() => {
-    if (!id || conflictSquadId !== id) return;
-    clearConflictSquad();
+  const playConflictBanner = useCallback(() => {
+    conflictBannerAnim.stopAnimation();
     Animated.sequence([
       Animated.timing(conflictBannerAnim, { toValue: 1, duration: 200, useNativeDriver: false }),
       Animated.delay(2500),
       Animated.timing(conflictBannerAnim, { toValue: 0, duration: 350, useNativeDriver: false }),
     ]).start();
-  }, [conflictSquadId, id, clearConflictSquad, conflictBannerAnim]);
+  }, [conflictBannerAnim]);
+
+  useEffect(() => {
+    if (!id || conflictSquadId !== id) return;
+    clearConflictSquad();
+    playConflictBanner();
+  }, [conflictSquadId, id, clearConflictSquad, playConflictBanner]);
+
+  // Live refresh: while the detail screen is focused, poll the squad for
+  // remote edits (name/emoji/settings/members). When a change made by someone
+  // else is detected, pull the latest into the shared state and play the same
+  // "Refreshed" banner — so the open view never silently goes stale.
+  const lastSquadSigRef = useRef<string | null>(null);
+  useFocusEffect(
+    useCallback(() => {
+      if (!id) return;
+      let active = true;
+
+      const signature = (s: {
+        name?: string | null;
+        emoji?: string | null;
+        description?: string | null;
+        color?: string | null;
+        isPublic?: boolean | null;
+        membersCanInvite?: boolean | null;
+        memberIds?: string[] | null;
+      }): string =>
+        JSON.stringify([
+          s.name ?? "",
+          s.emoji ?? "",
+          s.description ?? "",
+          s.color ?? "",
+          Boolean(s.isPublic),
+          Boolean(s.membersCanInvite),
+          [...(s.memberIds ?? [])].sort(),
+        ]);
+
+      const poll = async () => {
+        try {
+          const res = await fetch(`${API_BASE}/api/squads/${id}`, { headers: authHeaders() });
+          if (!active || !res.ok) return;
+          const data = (await res.json()) as Parameters<typeof signature>[0];
+          const nextSig = signature(data);
+          if (lastSquadSigRef.current === null) {
+            lastSquadSigRef.current = nextSig;
+            return;
+          }
+          if (nextSig !== lastSquadSigRef.current) {
+            lastSquadSigRef.current = nextSig;
+            await refreshSquads();
+            if (active) playConflictBanner();
+          }
+        } catch {
+          // Network unavailable — keep current view, try again next tick
+        }
+      };
+
+      void poll();
+      const interval = setInterval(() => void poll(), 12000);
+      return () => {
+        active = false;
+        clearInterval(interval);
+        lastSquadSigRef.current = null;
+      };
+    }, [id, authHeaders, refreshSquads, playConflictBanner])
+  );
 
   async function handleOpenChat(squadId: string) {
     if (openingChat) return;
