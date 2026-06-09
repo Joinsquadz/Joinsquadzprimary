@@ -21,10 +21,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
+import { LinearGradient } from "expo-linear-gradient";
 import { useColors } from "@/hooks/useColors";
 import { useInteractionGuard, useModalGuard } from "@/hooks/useInteractionGuard";
 import { useAuth } from "@/context/AppContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
+import { GradientButton } from "@/components/GradientButton";
 
 const DAY_COUNT_OPTIONS = [3, 5, 7, 14, 21, 30];
 const DEFAULT_DAY_COUNT = 7;
@@ -1112,15 +1114,11 @@ export default function AvailabilityScreen() {
           </ScrollView>
 
           <View style={[styles.bottomBar, { borderTopColor: colors.border, paddingBottom: botPad + 12, backgroundColor: colors.background }]}>
-            <TouchableOpacity
+            <GradientButton
+              label={creating ? "Creating…" : "Create poll"}
               onPress={() => void createPoll()}
               disabled={creating}
-              style={[styles.saveBtn, { backgroundColor: colors.primary, opacity: creating ? 0.7 : 1 }]}
-            >
-              <Text style={[styles.saveBtnText, { color: "#fff" }]}>
-                {creating ? "Creating…" : "Create poll"}
-              </Text>
-            </TouchableOpacity>
+            />
           </View>
 
           {Platform.OS === "ios" && pickerOpen && (
@@ -1209,17 +1207,25 @@ export default function AvailabilityScreen() {
             )}
 
             {data.best && (
-              <View style={[styles.bestCard, { backgroundColor: colors.primary + "18", borderColor: colors.primary + "44" }]}>
-                <View style={[styles.bestIcon, { backgroundColor: colors.primary }]}>
-                  <Ionicons name="sparkles" size={16} color="#fff" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.bestLabel, { color: colors.primary }]}>Best time</Text>
-                  <Text style={[styles.bestValue, { color: colors.foreground }]}>{prettyCell(data.best.cell)}</Text>
-                  <Text style={[styles.bestSub, { color: colors.mutedForeground }]}>
-                    {data.best.count} of {data.best.total} free
-                  </Text>
-                </View>
+              <View style={styles.heroWrap}>
+                <LinearGradient
+                  colors={["#FF5C3A", "#FF8050"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.heroCard}
+                >
+                  <View style={styles.heroIcon}>
+                    <Ionicons name="sparkles" size={20} color="#fff" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.heroLabel}>BEST TIME FOR EVERYONE</Text>
+                    <Text style={styles.heroValue} numberOfLines={2}>{prettyCell(data.best.cell)}</Text>
+                  </View>
+                  <View style={styles.heroFreePill}>
+                    <Text style={styles.heroFreeCount}>{data.best.count}/{data.best.total}</Text>
+                    <Text style={styles.heroFreeLabel}>free</Text>
+                  </View>
+                </LinearGradient>
               </View>
             )}
 
@@ -1661,22 +1667,18 @@ export default function AvailabilityScreen() {
               </Animated.View>
             )}
             {data.best && !dirty && (
-              <TouchableOpacity onPress={() => void useThisTime()} style={[styles.secondaryBtn, { borderColor: colors.primary }]}>
+              <TouchableOpacity onPress={() => void useThisTime()} style={[styles.secondaryBtn, { borderColor: colors.primary, backgroundColor: colors.primary + "14" }]}>
                 <Ionicons name={eventId ? "checkmark-circle-outline" : "calendar-outline"} size={18} color={colors.primary} />
                 <Text style={[styles.secondaryBtnText, { color: colors.primary }]}>
                   {eventId ? `Use ${prettyCell(data.best.cell)}` : "Create event at best time"}
                 </Text>
               </TouchableOpacity>
             )}
-            <TouchableOpacity
+            <GradientButton
+              label={saving ? "Saving…" : dirty ? "Save my availability" : "Saved"}
               onPress={() => void save()}
               disabled={saving || !dirty}
-              style={[styles.saveBtn, { backgroundColor: dirty ? colors.primary : colors.border }]}
-            >
-              <Text style={[styles.saveBtnText, { color: dirty ? "#fff" : colors.textDim }]}>
-                {saving ? "Saving…" : dirty ? "Save my availability" : "Saved"}
-              </Text>
-            </TouchableOpacity>
+            />
           </View>
         </>
       ) : null}
@@ -2047,41 +2049,44 @@ const styles = StyleSheet.create({
   renamedByText: { fontSize: 11, fontWeight: "500", marginTop: 2 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, padding: 24 },
   errorText: { fontSize: 15, textAlign: "center" },
-  retryBtn: { borderRadius: 10, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 8 },
+  retryBtn: { borderRadius: 12, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 9 },
   retryText: { fontSize: 14, fontWeight: "700" },
   body: { flex: 1 },
-  subtitle: { fontSize: 14, lineHeight: 20, paddingTop: 16, paddingBottom: 4 },
-  bestCard: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 16, borderWidth: 1, padding: 14, marginTop: 14 },
-  bestIcon: { width: 32, height: 32, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  bestLabel: { fontSize: 11, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.6 },
-  bestValue: { fontSize: 17, fontWeight: "800", marginTop: 1 },
-  bestSub: { fontSize: 12, marginTop: 1 },
+  subtitle: { fontSize: 14, lineHeight: 21, paddingTop: 16, paddingBottom: 4 },
+  heroWrap: { marginTop: 16, borderRadius: 20, shadowColor: "#FF5C3A", shadowOpacity: 0.45, shadowRadius: 24, shadowOffset: { width: 0, height: 10 }, elevation: 10 },
+  heroCard: { flexDirection: "row", alignItems: "center", gap: 14, borderRadius: 20, paddingVertical: 18, paddingHorizontal: 18 },
+  heroIcon: { width: 44, height: 44, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.18)" },
+  heroLabel: { fontSize: 11, fontWeight: "800", letterSpacing: 1, color: "rgba(255,255,255,0.9)" },
+  heroValue: { fontSize: 22, fontWeight: "900", color: "#fff", marginTop: 3, letterSpacing: -0.3 },
+  heroFreePill: { alignItems: "center", borderRadius: 14, backgroundColor: "rgba(255,255,255,0.2)", paddingHorizontal: 13, paddingVertical: 8 },
+  heroFreeCount: { fontSize: 16, fontWeight: "900", color: "#fff" },
+  heroFreeLabel: { fontSize: 10, fontWeight: "800", color: "rgba(255,255,255,0.9)", marginTop: 1, textTransform: "uppercase", letterSpacing: 0.5 },
   liveRow: { flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 10 },
   liveDot: { width: 6, height: 6, borderRadius: 3 },
   liveText: { fontSize: 11, fontWeight: "600" },
-  gridWrap: { marginTop: 20 },
-  gridHeaderRow: { flexDirection: "row", marginBottom: 6 },
+  gridWrap: { marginTop: 22 },
+  gridHeaderRow: { flexDirection: "row", marginBottom: 7 },
   timeLabelCol: { width: 38 },
   dayHeaderCol: { flex: 1, alignItems: "center" },
-  dayHeader: { textAlign: "center", fontSize: 11, fontWeight: "700" },
+  dayHeader: { textAlign: "center", fontSize: 12, fontWeight: "800" },
   dayHeaderSub: { textAlign: "center", fontSize: 10, fontWeight: "600", marginTop: 1 },
   gridRow: { flexDirection: "row", alignItems: "center", marginBottom: 6 },
-  timeLabel: { width: 38, fontSize: 11, fontWeight: "600" },
-  cell: { flex: 1, height: 38, marginHorizontal: 2, borderRadius: 8, alignItems: "center", justifyContent: "center" },
-  cellCount: { fontSize: 12, fontWeight: "800" },
+  timeLabel: { width: 38, fontSize: 11, fontWeight: "700" },
+  cell: { flex: 1, height: 42, marginHorizontal: 2.5, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  cellCount: { fontSize: 13, fontWeight: "800" },
   legendRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 18, flexWrap: "wrap" },
-  legendSwatch: { width: 18, height: 18, borderRadius: 5, borderWidth: 1, borderColor: "transparent" },
+  legendSwatch: { width: 18, height: 18, borderRadius: 6, borderWidth: 1, borderColor: "transparent" },
   legendText: { fontSize: 12, marginRight: 8 },
-  respText: { fontSize: 13, marginTop: 16, fontWeight: "600" },
+  respText: { fontSize: 13, marginTop: 16, fontWeight: "700" },
   updatedText: { fontSize: 11, fontWeight: "600", marginTop: 4 },
-  memberSection: { marginTop: 12 },
+  memberSection: { marginTop: 16 },
   memberSectionLabel: { fontSize: 12, fontWeight: "600", marginBottom: 10 },
   memberList: { gap: 8 },
   memberItem: { flexDirection: "row", alignItems: "center", gap: 10 },
   memberAvatarWrap: { position: "relative", alignItems: "center" },
-  memberAvatar: { width: 36, height: 36, borderRadius: 18, borderWidth: 1.5, alignItems: "center", justifyContent: "center", overflow: "hidden" },
-  memberAvatarImage: { width: 36, height: 36, borderRadius: 18 },
-  respondedDot: { position: "absolute", bottom: -2, right: -2, width: 14, height: 14, borderRadius: 7, alignItems: "center", justifyContent: "center" },
+  memberAvatar: { width: 38, height: 38, borderRadius: 19, borderWidth: 1.5, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  memberAvatarImage: { width: 38, height: 38, borderRadius: 19 },
+  respondedDot: { position: "absolute", bottom: -2, right: -2, width: 15, height: 15, borderRadius: 7.5, alignItems: "center", justifyContent: "center", borderWidth: 1.5, borderColor: "#0A0A0F" },
   memberInitial: { fontSize: 14, fontWeight: "800" },
   avatarTooltip: {
     position: "absolute",
@@ -2109,10 +2114,10 @@ const styles = StyleSheet.create({
   memberPendingText: { fontSize: 12, marginTop: 8, fontWeight: "600" },
   pendingCountBtn: { flexDirection: "row", alignItems: "center", gap: 5, alignSelf: "flex-start", marginBottom: 10, paddingVertical: 4, paddingHorizontal: 2 },
   pendingCountText: { fontSize: 12, fontWeight: "600" },
-  filterBanner: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 10, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 7, marginBottom: 10 },
+  filterBanner: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 9, marginBottom: 10 },
   filterDot: { width: 6, height: 6, borderRadius: 3 },
   filterBannerText: { flex: 1, fontSize: 12, fontWeight: "700" },
-  pendingList: { marginTop: 12, borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, gap: 10 },
+  pendingList: { marginTop: 12, borderRadius: 14, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12, gap: 10 },
   pendingHeader: { flexDirection: "row", alignItems: "center", gap: 6 },
   pendingHeaderText: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 },
   pendingMemberRow: { flexDirection: "row", alignItems: "center", gap: 10 },
@@ -2120,37 +2125,35 @@ const styles = StyleSheet.create({
   pendingInitial: { fontSize: 12, fontWeight: "800" },
   pendingName: { fontSize: 13, fontWeight: "700" },
   pendingStatus: { fontSize: 11, marginTop: 1 },
-  nudgeBtn: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 20, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 5 },
+  nudgeBtn: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 20, borderWidth: 1, paddingHorizontal: 11, paddingVertical: 6 },
   nudgeBtnText: { fontSize: 12, fontWeight: "700" },
-  nudgedBanner: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 12, borderWidth: 1, padding: 12, marginTop: 16 },
+  nudgedBanner: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 14, borderWidth: 1, padding: 13, marginTop: 16 },
   nudgedBannerText: { flex: 1, fontSize: 13, fontWeight: "600" },
-  bottomBar: { paddingHorizontal: 20, paddingTop: 12, borderTopWidth: 1, gap: 10 },
+  bottomBar: { paddingHorizontal: 20, paddingTop: 14, borderTopWidth: 1, gap: 12 },
   droppedBanner: { flexDirection: "row", alignItems: "flex-start", gap: 8, borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10 },
   droppedBannerText: { flex: 1, fontSize: 13, lineHeight: 18 },
-  secondaryBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 14, borderWidth: 1.5, paddingVertical: 13 },
+  secondaryBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 16, borderWidth: 1.5, paddingVertical: 15 },
   secondaryBtnText: { fontSize: 15, fontWeight: "800" },
-  saveBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", borderRadius: 14, paddingVertical: 15 },
-  saveBtnText: { fontSize: 16, fontWeight: "800" },
-  setupLabel: { fontSize: 13, fontWeight: "700", marginTop: 22, marginBottom: 10 },
-  dateBtn: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 14, borderWidth: 1.5, paddingHorizontal: 16, paddingVertical: 14 },
+  setupLabel: { fontSize: 12, fontWeight: "800", marginTop: 22, marginBottom: 10, textTransform: "uppercase", letterSpacing: 0.8 },
+  dateBtn: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 16, borderWidth: 1.5, paddingHorizontal: 16, paddingVertical: 14 },
   dateBtnText: { flex: 1, fontSize: 15, fontWeight: "700" },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  chip: { borderRadius: 12, borderWidth: 1.5, paddingHorizontal: 16, paddingVertical: 10 },
+  chip: { borderRadius: 22, borderWidth: 1.5, paddingHorizontal: 16, paddingVertical: 9 },
   chipText: { fontSize: 14, fontWeight: "700" },
-  previewCard: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 14, borderWidth: 1, padding: 14, marginTop: 22 },
-  previewText: { fontSize: 15, fontWeight: "700" },
-  pickerOverlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.5)" },
-  pickerSheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20 },
-  pickerToolbar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 8, paddingVertical: 10, borderBottomWidth: 1 },
+  previewCard: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 16, borderWidth: 1, padding: 15, marginTop: 22 },
+  previewText: { flex: 1, fontSize: 15, fontWeight: "700" },
+  pickerOverlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.6)" },
+  pickerSheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24 },
+  pickerToolbar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 8, paddingVertical: 12, borderBottomWidth: 1 },
   pickerBtn: { padding: 8 },
   pickerBtnText: { fontSize: 15 },
-  pickerTitle: { fontSize: 16, fontWeight: "700" },
+  pickerTitle: { fontSize: 16, fontWeight: "800" },
   editRangeBtn: { padding: 8, marginLeft: "auto" },
-  editSheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "85%" },
+  editSheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: "85%" },
   editRangeNote: { fontSize: 13, lineHeight: 18, marginTop: 18 },
-  rangeUpdatedBanner: { flexDirection: "row", alignItems: "flex-start", gap: 8, borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, marginTop: 14 },
+  rangeUpdatedBanner: { flexDirection: "row", alignItems: "flex-start", gap: 8, borderRadius: 14, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 11, marginTop: 14 },
   rangeUpdatedText: { flex: 1, fontSize: 13, lineHeight: 18, fontWeight: "600" },
-  newResponseBanner: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, marginTop: 14 },
+  newResponseBanner: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 14, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 11, marginTop: 14 },
   newResponseBadge: { minWidth: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center", paddingHorizontal: 5 },
   newResponseBadgeText: { fontSize: 12, fontWeight: "800", color: "#fff" },
   newResponseText: { flex: 1, fontSize: 13, lineHeight: 18, fontWeight: "600" },
@@ -2158,7 +2161,7 @@ const styles = StyleSheet.create({
   miniAvatar: { width: 16, height: 16, borderRadius: 8, borderWidth: 1.5, alignItems: "center", justifyContent: "center", overflow: "hidden" },
   miniAvatarImg: { width: 16, height: 16, borderRadius: 8 },
   miniAvatarLetter: { fontSize: 7, fontWeight: "800", color: "#fff" },
-  cellSheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "70%" },
+  cellSheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: "70%" },
   cellSheetSectionLabel: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 14 },
   cellSheetMemberList: { gap: 12, marginBottom: 24 },
   cellSheetMemberRow: { flexDirection: "row", alignItems: "center", gap: 12 },
@@ -2170,10 +2173,10 @@ const styles = StyleSheet.create({
   cellSheetAvatarInitial: { fontSize: 16, fontWeight: "800", color: "#fff" },
   cellSheetMemberName: { fontSize: 15, fontWeight: "600" },
   cellSheetEmpty: { fontSize: 14, lineHeight: 20, marginBottom: 24 },
-  cellSheetToggleBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 14, borderWidth: 1.5, paddingVertical: 14, marginTop: 4 },
+  cellSheetToggleBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 16, borderWidth: 1.5, paddingVertical: 15, marginTop: 4 },
   cellSheetToggleBtnText: { fontSize: 15, fontWeight: "800" },
-  timelineSection: { marginTop: 12, borderRadius: 12, borderWidth: 1, overflow: "hidden" },
-  timelineToggleRow: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 10 },
+  timelineSection: { marginTop: 12, borderRadius: 14, borderWidth: 1, overflow: "hidden" },
+  timelineToggleRow: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 11 },
   timelineToggleText: { flex: 1, fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 },
   timelineList: { paddingHorizontal: 12, paddingBottom: 10, gap: 10 },
   timelineRow: { flexDirection: "row", alignItems: "center", gap: 8 },
