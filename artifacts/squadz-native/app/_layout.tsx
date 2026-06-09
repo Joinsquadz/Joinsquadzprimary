@@ -17,6 +17,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { PushNotificationBanner } from "@/components/PushNotificationBanner";
 import { AppProvider, useAuth } from "@/context/AppContext";
+import { ToastProvider } from "@/context/ToastContext";
 import { MessagesProvider } from "@/context/MessagesContext";
 import { UserCacheProvider } from "@/context/UserCacheContext";
 import { MutedSquadsProvider } from "@/context/MutedSquadsContext";
@@ -342,6 +343,7 @@ export default function RootLayout() {
         <QueryClientProvider client={queryClient}>
           <GestureHandlerRootView style={{ flex: 1 }}>
             <KeyboardProvider>
+              <ToastProvider>
               <AppProvider>
                 <MutedSquadsConnector>
                   <UserCacheProvider>
@@ -351,6 +353,7 @@ export default function RootLayout() {
                   </UserCacheProvider>
                 </MutedSquadsConnector>
               </AppProvider>
+              </ToastProvider>
             </KeyboardProvider>
           </GestureHandlerRootView>
         </QueryClientProvider>

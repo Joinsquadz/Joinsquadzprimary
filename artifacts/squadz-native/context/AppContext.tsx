@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo } from "react";
+import { useToast } from "@/context/ToastContext";
 import { AppState } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { API_BASE } from "@/lib/api";
@@ -262,6 +263,7 @@ function dbSquadToSquad(s: Record<string, unknown>): Squad {
 }
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
+  const { showToast } = useToast();
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [apiUser, setApiUser] = useState<ApiUser | null>(null);
@@ -741,7 +743,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       })
         .then((res) => res.ok ? res.json() as Promise<Record<string, unknown>> : Promise.reject())
         .then(applyEventUpdate)
-        .catch(() => { void refreshEvents(); });
+        .catch(() => { void refreshEvents(); showToast("Couldn't save your RSVP — please try again"); });
     },
     [apiFetch, applyEventUpdate, apiUser, refreshEvents],
   );
@@ -807,7 +809,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       void apiFetch(`/api/events/${eventId}`, { method: "PATCH", body: JSON.stringify(patch) })
         .then((res) => res.ok ? res.json() as Promise<Record<string, unknown>> : Promise.reject())
         .then(applyEventUpdate)
-        .catch(() => { void refreshEvents(); });
+        .catch(() => { void refreshEvents(); showToast("Couldn't save changes — please try again"); });
     },
     [apiFetch, applyEventUpdate, refreshEvents],
   );
@@ -838,8 +840,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Optimistic removal
     setEvents((prev) => prev.filter((e) => e.id !== eventId));
     void apiFetch(`/api/events/${eventId}`, { method: "DELETE" })
-      .then((res) => { if (!res.ok) void refreshEvents(); })
-      .catch(() => { void refreshEvents(); });
+      .then((res) => { if (!res.ok) { void refreshEvents(); showToast("Couldn't cancel event — please try again"); } })
+      .catch(() => { void refreshEvents(); showToast("Couldn't cancel event — please try again"); });
   }, [apiFetch, refreshEvents]);
 
   const toggleTask = useCallback(
@@ -861,7 +863,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       })
         .then((res) => res.ok ? res.json() as Promise<Record<string, unknown>> : Promise.reject())
         .then(applyEventUpdate)
-        .catch(() => { void refreshEvents(); });
+        .catch(() => { void refreshEvents(); showToast("Couldn't update task — please try again"); });
     },
     [events, apiFetch, applyEventUpdate, refreshEvents],
   );
@@ -883,7 +885,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       })
         .then((res) => res.ok ? res.json() as Promise<Record<string, unknown>> : Promise.reject())
         .then(applyEventUpdate)
-        .catch(() => { void refreshEvents(); });
+        .catch(() => { void refreshEvents(); showToast("Couldn't claim task — please try again"); });
     },
     [apiFetch, applyEventUpdate, apiUser, refreshEvents],
   );
@@ -1161,7 +1163,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       })
         .then((res) => res.ok ? res.json() as Promise<Record<string, unknown>> : Promise.reject())
         .then(applyEventUpdate)
-        .catch(() => { void refreshEvents(); });
+        .catch(() => { void refreshEvents(); showToast("Couldn't save your vote — please try again"); });
     },
     [apiFetch, applyEventUpdate, apiUser, refreshEvents],
   );
