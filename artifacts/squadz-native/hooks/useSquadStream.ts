@@ -11,6 +11,8 @@ type Options = {
   onUpdate: () => void;
 };
 
+const INITIAL_BACKOFF_MS = 1_000;
+const MAX_BACKOFF_MS = 30_000;
 const MAX_RETRIES = 10;
 
 /**
@@ -23,6 +25,11 @@ const MAX_RETRIES = 10;
  * whenever the app transitions from background → active (AppState "active"),
  * because mobile OSes silently kill background TCP connections.
  *
+ * On a network-level error (non-AbortError), the hook retries automatically
+ * using exponential backoff (1 s → 2 s → 4 s … capped at 30 s). The backoff
+ * resets to the initial value when the stream successfully reconnects. Any
+ * pending retry is cancelled on blur or when the app goes to the background.
+ *
  * Returns a `status` field: "connected" while the stream is alive,
  * "reconnecting" while establishing or retrying, "error" after too many
  * failed attempts (user should see a persistent indicator).
@@ -32,25 +39,32 @@ export function useSquadStream({ squadId, authToken, onUpdate }: Options): { sta
   onUpdateRef.current = onUpdate;
 
   const abortRef = useRef<AbortController | null>(null);
+  // True while the squad-detail screen is in the Expo Router focus stack.
   const focusedRef = useRef(false);
-  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Holds the current backoff delay in ms; reset on successful connect.
+  const retryDelayRef = useRef(INITIAL_BACKOFF_MS);
+  // Counts consecutive failures; used to cap retries and show "error" state.
   const retryCountRef = useRef(0);
+  // Holds the setTimeout handle for a pending reconnect attempt.
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [status, setStatus] = useState<SquadStreamStatus>("reconnecting");
 
   // Stable ref to always call the latest `connect` from async callbacks.
   const connectRef = useRef<() => void>(() => {});
 
-  const connect = useCallback(() => {
-    if (!squadId) return;
-
-    // Cancel any pending retry.
+  const cancelRetry = useCallback(() => {
     if (retryTimerRef.current !== null) {
       clearTimeout(retryTimerRef.current);
       retryTimerRef.current = null;
     }
+  }, []);
 
-    // Tear down any existing connection before opening a new one.
+  const connect = useCallback(() => {
+    if (!squadId) return;
+
+    // Cancel any pending retry and tear down any existing connection.
+    cancelRetry();
     abortRef.current?.abort();
 
     const controller = new AbortController();
@@ -67,8 +81,9 @@ export function useSquadStream({ squadId, authToken, onUpdate }: Options): { sta
         return;
       }
 
-      // Exponential back-off capped at 30 s.
-      const delay = Math.min(2000 * retryCountRef.current, 30_000);
+      // Exponential back-off capped at MAX_BACKOFF_MS.
+      const delay = retryDelayRef.current;
+      retryDelayRef.current = Math.min(delay * 2, MAX_BACKOFF_MS);
       retryTimerRef.current = setTimeout(() => {
         retryTimerRef.current = null;
         if (focusedRef.current) connectRef.current();
@@ -91,8 +106,9 @@ export function useSquadStream({ squadId, authToken, onUpdate }: Options): { sta
           return;
         }
 
-        // Stream established — reset retry counter and announce "connected".
+        // Stream established — reset retry counter/delay and announce "connected".
         retryCountRef.current = 0;
+        retryDelayRef.current = INITIAL_BACKOFF_MS;
         setStatus("connected");
 
         const reader = response.body.getReader();
@@ -130,44 +146,47 @@ export function useSquadStream({ squadId, authToken, onUpdate }: Options): { sta
     };
 
     void run();
-  }, [squadId, authToken]);
+  }, [squadId, authToken, cancelRetry]);
 
   // Keep the ref current so the retry timer always calls the latest connect.
   connectRef.current = connect;
 
-  // Open the stream on focus; close it on blur.
+  // Open the stream on focus; close it (and cancel any pending retry) on blur.
   useFocusEffect(
     useCallback(() => {
       focusedRef.current = true;
       retryCountRef.current = 0;
+      retryDelayRef.current = INITIAL_BACKOFF_MS;
       connect();
 
       return () => {
         focusedRef.current = false;
-        if (retryTimerRef.current !== null) {
-          clearTimeout(retryTimerRef.current);
-          retryTimerRef.current = null;
-        }
+        cancelRetry();
         abortRef.current?.abort();
         abortRef.current = null;
         setStatus("reconnecting");
       };
-    }, [connect]),
+    }, [connect, cancelRetry]),
   );
 
   // Reconnect when the app returns from the background while this screen is
   // focused. Mobile OSes silently drop TCP connections after a few seconds in
   // the background, so the existing SSE stream is already dead by the time the
-  // user opens the app again. Without this the 60 s poll is the only recovery.
+  // user opens the app again. Also cancel any pending retry when the app moves
+  // to the background — the focus-restore path above will handle reconnection.
   useEffect(() => {
     const sub = AppState.addEventListener("change", (nextState) => {
       if (nextState === "active" && focusedRef.current) {
         retryCountRef.current = 0;
+        retryDelayRef.current = INITIAL_BACKOFF_MS;
         connect();
+      } else if (nextState === "background") {
+        cancelRetry();
+        abortRef.current?.abort();
       }
     });
     return () => sub.remove();
-  }, [connect]);
+  }, [connect, cancelRetry]);
 
   return { status };
 }
