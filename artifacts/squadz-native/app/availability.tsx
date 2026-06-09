@@ -181,6 +181,10 @@ export default function AvailabilityScreen() {
   const params = useLocalSearchParams<{ squadId?: string; eventId?: string; from?: string }>();
   const squadId = params.squadId || undefined;
   const eventId = params.eventId || undefined;
+  // True when the screen was opened from the event-creation flow. In that case
+  // we always start a fresh poll setup rather than reloading the squad's last
+  // (possibly abandoned) board.
+  const fromCreate = params.from === "create";
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
@@ -683,8 +687,17 @@ export default function AvailabilityScreen() {
       setLoading(false);
       return;
     }
+    // Coming from event creation: skip loading any prior poll and let the user
+    // set up a fresh date range for this new event.
+    if (fromCreate) {
+      setData(null);
+      setNeedsSetup(true);
+      setError(null);
+      setLoading(false);
+      return;
+    }
     void loadPoll();
-  }, [loadPoll, squadId, eventId]);
+  }, [loadPoll, squadId, eventId, fromCreate]);
 
   const counts = useMemo(() => {
     const m = new Map<string, number>();
@@ -712,6 +725,10 @@ export default function AvailabilityScreen() {
     }
     return result;
   }, [selectedMemberIds, data]);
+
+  // Guards against a long-press (which opens the details sheet) ALSO firing the
+  // short-press toggle on release. Reset at the start of every touch via onPressIn.
+  const longPressFiredRef = useRef(false);
 
   const toggleCell = (cell: string) => {
     stampInteraction();
@@ -1189,7 +1206,7 @@ export default function AvailabilityScreen() {
             showsVerticalScrollIndicator={false}
           >
             <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
-              Tap the times you're free. We'll highlight when the most people can make it.
+              Tap the times you're free — tap again to clear. Long-press a slot to see who's free. We'll highlight when the most people can make it.
             </Text>
 
             {rangeUpdatedVisible && (
@@ -1344,7 +1361,10 @@ export default function AvailabilityScreen() {
                     return (
                       <TouchableOpacity
                         key={cell}
-                        onPress={() => openCellSheet(cell)}
+                        onPressIn={() => { longPressFiredRef.current = false; }}
+                        onPress={() => { if (longPressFiredRef.current) return; toggleCell(cell); }}
+                        onLongPress={() => { longPressFiredRef.current = true; openCellSheet(cell); }}
+                        delayLongPress={250}
                         activeOpacity={0.7}
                         style={[styles.cell, cellStyle(cell)]}
                       >
