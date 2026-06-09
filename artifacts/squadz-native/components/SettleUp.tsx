@@ -9,8 +9,6 @@ import {
   computeOwedToMe,
   payWithVenmoHandle,
   payWithCashAppHandle,
-  payWithVenmo,
-  payWithCashApp,
   type PaymentStatus,
 } from "@/lib/settle";
 import type { Cost } from "@/types";
@@ -94,34 +92,44 @@ export function SettleUp({
                     </Text>
                   </View>
                 </View>
-                <View style={styles.payRow}>
-                  <TouchableOpacity
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      void (h.venmo ? payWithVenmoHandle(h.venmo, group.outstanding, note) : payWithVenmo(group.outstanding, note));
-                    }}
-                    style={[styles.payBtn, { backgroundColor: "#3D95CE" }]}
-                  >
-                    <Text style={styles.payBtnText}>Venmo</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      void (h.cashapp ? payWithCashAppHandle(h.cashapp, group.outstanding) : payWithCashApp(group.outstanding));
-                    }}
-                    style={[styles.payBtn, { backgroundColor: "#00C244" }]}
-                  >
-                    <Text style={styles.payBtnText}>Cash App</Text>
-                  </TouchableOpacity>
-                  {h.zelle && (
-                    <TouchableOpacity
-                      onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); void copyZelle(h.zelle!); }}
-                      style={[styles.payBtn, { backgroundColor: "#6D1ED4" }]}
-                    >
-                      <Text style={styles.payBtnText}>Zelle</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
+                {(h.venmo || h.cashapp || h.zelle) ? (
+                  <View style={styles.payRow}>
+                    {h.venmo && (
+                      <TouchableOpacity
+                        onPress={() => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          void payWithVenmoHandle(h.venmo!, group.outstanding, note);
+                        }}
+                        style={[styles.payBtn, { backgroundColor: "#3D95CE" }]}
+                      >
+                        <Text style={styles.payBtnText}>Venmo</Text>
+                      </TouchableOpacity>
+                    )}
+                    {h.cashapp && (
+                      <TouchableOpacity
+                        onPress={() => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          void payWithCashAppHandle(h.cashapp!, group.outstanding);
+                        }}
+                        style={[styles.payBtn, { backgroundColor: "#00C244" }]}
+                      >
+                        <Text style={styles.payBtnText}>Cash App</Text>
+                      </TouchableOpacity>
+                    )}
+                    {h.zelle && (
+                      <TouchableOpacity
+                        onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); void copyZelle(h.zelle!); }}
+                        style={[styles.payBtn, { backgroundColor: "#6D1ED4" }]}
+                      >
+                        <Text style={styles.payBtnText}>Zelle</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                ) : (
+                  <Text style={[styles.noHandlesHint, { color: colors.mutedForeground }]}>
+                    Ask {firstName} to add a payment method in their profile.
+                  </Text>
+                )}
                 {group.shares.map((s) => {
                   const label = statusLabel(s.status);
                   const locked = s.status === "confirmed";
@@ -231,4 +239,5 @@ const styles = StyleSheet.create({
   miniBtn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 7 },
   miniBtnOutline: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 7, borderWidth: 1 },
   miniBtnText: { color: "#fff", fontWeight: "700", fontSize: 12 },
+  noHandlesHint: { fontSize: 12, fontStyle: "italic" },
 });
