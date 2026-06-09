@@ -14,6 +14,7 @@ import {
   Modal,
   TextInput,
   AppState,
+  Share,
   type AppStateStatus,
 } from "react-native";
 import { router, useLocalSearchParams, useFocusEffect, useNavigation } from "expo-router";
@@ -191,9 +192,10 @@ export default function AvailabilityScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const { authToken, currentUser } = useAuth();
-  const params = useLocalSearchParams<{ squadId?: string; eventId?: string; from?: string }>();
+  const params = useLocalSearchParams<{ squadId?: string; eventId?: string; pollId?: string; from?: string }>();
   const squadId = params.squadId || undefined;
   const eventId = params.eventId || undefined;
+  const pollId = params.pollId || undefined;
   // True when the screen was opened from the event-creation flow. In that case
   // we always start a fresh poll setup rather than reloading the squad's last
   // (possibly abandoned) board.
@@ -463,9 +465,9 @@ export default function AvailabilityScreen() {
     setNeedsSetup(false);
 
     // Read the last-viewed timestamp BEFORE fetching so we can compare once
-    // the payload arrives. Keyed by the squad/event so different polls don't
-    // share a timestamp.
-    const avKey = `availability_lastviewed_${squadId ?? eventId}`;
+    // the payload arrives. Keyed by the squad/event/poll so different polls
+    // don't share a timestamp.
+    const avKey = `availability_lastviewed_${pollId ?? squadId ?? eventId}`;
     let lastViewedAt: Date | null = null;
     try {
       const stored = await AsyncStorage.getItem(avKey);
@@ -478,11 +480,20 @@ export default function AvailabilityScreen() {
     const timeoutId = setTimeout(() => controller.abort(), 15_000);
 
     try {
-      const qs = new URLSearchParams(squadId ? { squadId } : { eventId: eventId ?? "" });
-      const res = await fetch(`${API_BASE}/api/availability/polls/find?${qs.toString()}`, {
-        headers: authHeaders(),
-        signal: controller.signal,
-      });
+      let res: Response;
+      if (pollId) {
+        // Invite-link flow: open poll directly by ID (no squadId/eventId needed).
+        res = await fetch(`${API_BASE}/api/availability/polls/${pollId}`, {
+          headers: authHeaders(),
+          signal: controller.signal,
+        });
+      } else {
+        const qs = new URLSearchParams(squadId ? { squadId } : { eventId: eventId ?? "" });
+        res = await fetch(`${API_BASE}/api/availability/polls/find?${qs.toString()}`, {
+          headers: authHeaders(),
+          signal: controller.signal,
+        });
+      }
       if (res.status === 404) {
         // No poll yet — let the creator choose the date range.
         setData(null);
@@ -538,7 +549,7 @@ export default function AvailabilityScreen() {
       clearTimeout(timeoutId);
       setLoading(false);
     }
-  }, [authToken, authHeaders, squadId, eventId, currentUser]);
+  }, [authToken, authHeaders, squadId, eventId, pollId, currentUser]);
 
   const createPoll = useCallback(async () => {
     setCreating(true);
@@ -714,8 +725,8 @@ export default function AvailabilityScreen() {
   }, [data]);
 
   useEffect(() => {
-    if (!squadId && !eventId) {
-      setError("Missing squad or event.");
+    if (!squadId && !eventId && !pollId) {
+      setError("Missing squad, event, or poll.");
       setLoading(false);
       return;
     }
@@ -729,7 +740,7 @@ export default function AvailabilityScreen() {
       return;
     }
     void loadPoll();
-  }, [loadPoll, squadId, eventId, fromCreate]);
+  }, [loadPoll, squadId, eventId, pollId, fromCreate]);
 
   const counts = useMemo(() => {
     const m = new Map<string, number>();
@@ -982,6 +993,17 @@ export default function AvailabilityScreen() {
     }
   }, [data, authHeaders]);
 
+  const sharePoll = useCallback(async () => {
+    if (!data) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const title = data.poll.title || "Find the Best Time";
+    const link = `https://joinsquadz.com/availability?pollId=${data.poll.id}`;
+    const message = `Help me find the best time — fill in your availability on Squadz!\n\n${link}`;
+    try {
+      await Share.share(Platform.OS === "ios" ? { message, url: link } : { message });
+    } catch { /* user cancelled */ }
+  }, [data]);
+
   const isCreator = data?.poll.createdBy === currentUser?.id;
 
   const total = data?.respondentCount ?? 0;
@@ -1033,11 +1055,18 @@ export default function AvailabilityScreen() {
             </Text>
           ) : null}
         </View>
-        {isCreator && (
-          <TouchableOpacity onPress={openEditRange} style={styles.editRangeBtn}>
-            <Ionicons name="calendar-outline" size={20} color={colors.primary} />
-          </TouchableOpacity>
-        )}
+        <View style={styles.headerActions}>
+          {data && (
+            <TouchableOpacity onPress={() => void sharePoll()} style={styles.headerActionBtn} hitSlop={8}>
+              <Ionicons name="share-outline" size={20} color={colors.primary} />
+            </TouchableOpacity>
+          )}
+          {isCreator && (
+            <TouchableOpacity onPress={openEditRange} style={styles.headerActionBtn} hitSlop={8}>
+              <Ionicons name="calendar-outline" size={20} color={colors.primary} />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       {loading ? (
@@ -1511,6 +1540,25 @@ export default function AvailabilityScreen() {
               Updated just now
             </Animated.Text>
 
+            {!squadId && (
+              <TouchableOpacity
+                onPress={() => void sharePoll()}
+                style={[styles.inviteCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.inviteIconWrap, { backgroundColor: colors.primary + "18" }]}>
+                  <Ionicons name="person-add-outline" size={18} color={colors.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.inviteCardTitle, { color: colors.foreground }]}>Invite people</Text>
+                  <Text style={[styles.inviteCardSub, { color: colors.mutedForeground }]}>
+                    Share a link so friends can add their availability
+                  </Text>
+                </View>
+                <Ionicons name="share-outline" size={18} color={colors.primary} />
+              </TouchableOpacity>
+            )}
+
             {nudgedBanner && (
               <View style={[styles.nudgedBanner, { backgroundColor: colors.primary + "18", borderColor: colors.primary + "44" }]}>
                 <Ionicons name="notifications-outline" size={16} color={colors.primary} />
@@ -1837,6 +1885,22 @@ export default function AvailabilityScreen() {
                 <Ionicons name={eventId ? "checkmark-circle-outline" : "calendar-outline"} size={18} color={colors.primary} />
                 <Text style={[styles.secondaryBtnText, { color: colors.primary }]}>
                   {eventId ? `Use ${prettyCell(data.best.cell)}` : "Create event at best time"}
+                </Text>
+              </TouchableOpacity>
+            )}
+            {!eventId && !dirty && (
+              <TouchableOpacity
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  router.push({
+                    pathname: "/create",
+                    params: squadId ? { prefillSquad: squadId } : {},
+                  } as never);
+                }}
+                style={styles.skipPollBtn}
+              >
+                <Text style={[styles.skipPollBtnText, { color: colors.mutedForeground }]}>
+                  {data.best ? "Set a different time" : "Skip poll — create event now"}
                 </Text>
               </TouchableOpacity>
             )}
@@ -2336,6 +2400,14 @@ const styles = StyleSheet.create({
   pickerBtn: { padding: 8 },
   pickerBtnText: { fontSize: 15 },
   pickerTitle: { fontSize: 16, fontWeight: "800" },
+  headerActions: { flexDirection: "row", alignItems: "center", gap: 2 },
+  headerActionBtn: { padding: 8 },
+  inviteCard: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 14, borderWidth: 1, padding: 13, marginTop: 14 },
+  inviteIconWrap: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  inviteCardTitle: { fontSize: 14, fontWeight: "700", marginBottom: 2 },
+  inviteCardSub: { fontSize: 12, lineHeight: 16 },
+  skipPollBtn: { alignItems: "center", paddingVertical: 2 },
+  skipPollBtnText: { fontSize: 13, fontWeight: "600", textDecorationLine: "underline" },
   editRangeBtn: { padding: 8, marginLeft: "auto" },
   editSheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: "85%" },
   editRangeNote: { fontSize: 13, lineHeight: 18, marginTop: 18 },

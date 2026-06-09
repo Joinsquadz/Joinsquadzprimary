@@ -556,6 +556,9 @@ export class Storage {
         if (event.rsvps && Object.prototype.hasOwnProperty.call(event.rsvps, userId)) return true;
       }
     }
+    // Non-squad polls are open to any authenticated user who has the poll ID.
+    // The UUID acts as the access token for invite-by-link sharing.
+    if (!poll.squadId) return true;
     return false;
   }
 
