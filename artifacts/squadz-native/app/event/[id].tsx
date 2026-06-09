@@ -56,6 +56,7 @@ export default function EventDetailScreen() {
     addCost,
     markSharePaid,
     confirmShare,
+    ownPaymentHandles,
     fetchPaymentHandles,
     addPoll,
     votePoll,
@@ -856,7 +857,14 @@ export default function EventDetailScreen() {
                   meId={currentUser.id}
                   eventTitle={event.title}
                   colors={colors}
-                  handles={paymentHandles}
+                  handles={{
+                    ...paymentHandles,
+                    [currentUser.id]: {
+                      venmo: ownPaymentHandles.venmo,
+                      cashapp: ownPaymentHandles.cashapp,
+                      zelle: ownPaymentHandles.zelle,
+                    },
+                  }}
                   resolveUser={resolveForDisplay}
                   onMarkPaid={(costId, paid) => markSharePaid(event.id, costId, paid)}
                   onConfirm={(costId, debtorId, confirmed) => confirmShare(event.id, costId, debtorId, confirmed)}

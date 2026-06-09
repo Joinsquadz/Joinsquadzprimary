@@ -109,7 +109,7 @@ export default function ProfileScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { currentUser, logout, authToken } = useAuth();
-  const { events, squads, friendCode } = useData();
+  const { events, squads, friendCode, updateOwnPaymentHandles } = useData();
   const params = useLocalSearchParams<{ checkout?: string }>();
 
   const didCheckoutSuccess = params.checkout === "success";
@@ -438,6 +438,7 @@ export default function ProfileScreen() {
         return;
       }
       setPaymentHandles((prev) => ({ ...prev, [HANDLE_FIELD_MAP[key]]: value }));
+      updateOwnPaymentHandles({ [key]: value });
       setEditingHandle(null);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch {

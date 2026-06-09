@@ -72,6 +72,8 @@ function getUserName(u: ApiUser): string {
   return fromEmail || "You";
 }
 
+export type PaymentHandles = { venmo: string | null; cashapp: string | null; zelle: string | null };
+
 export type InviteCtx = {
   code: string;
   title: string;
@@ -133,6 +135,8 @@ type AppContextType = {
   addCost: (eventId: string, input: { description: string; amount: number; shares: CostShare[] }) => Promise<{ error?: string }>;
   markSharePaid: (eventId: string, costId: string, paid: boolean) => void;
   confirmShare: (eventId: string, costId: string, debtorId: string, confirmed: boolean) => void;
+  ownPaymentHandles: PaymentHandles;
+  updateOwnPaymentHandles: (patch: Partial<PaymentHandles>) => void;
   fetchPaymentHandles: (
     eventId: string,
   ) => Promise<Record<string, { venmo: string | null; cashapp: string | null; zelle: string | null }>>;
@@ -193,6 +197,8 @@ const AppContext = createContext<AppContextType>({
   addCost: async () => ({}),
   markSharePaid: noop,
   confirmShare: noop,
+  ownPaymentHandles: { venmo: null, cashapp: null, zelle: null },
+  updateOwnPaymentHandles: noop,
   fetchPaymentHandles: async () => ({}),
   addPoll: noop,
   votePoll: noop,
@@ -265,6 +271,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [eventsLoading, setEventsLoading] = useState(true);
   const [squadsLoading, setSquadsLoading] = useState(true);
   const [friends, setFriends] = useState<string[]>(INITIAL_FRIENDS);
+  const [ownPaymentHandles, setOwnPaymentHandles] = useState<PaymentHandles>({ venmo: null, cashapp: null, zelle: null });
   const currentUserIdRef = useRef<string>(ME.id);
   // Always holds the latest auth token so async mutations can detect a
   // session change (logout/login) mid-flight and refuse to commit stale state.
@@ -389,6 +396,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (authToken) void fetchFriends();
     else setFriends([]);
   }, [authToken, fetchFriends]);
+
+  const fetchOwnHandles = useCallback(async () => {
+    try {
+      const res = await apiFetch("/api/user/preferences");
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        venmoHandle?: string | null;
+        cashappHandle?: string | null;
+        zelleHandle?: string | null;
+      };
+      setOwnPaymentHandles({
+        venmo: data.venmoHandle ?? null,
+        cashapp: data.cashappHandle ?? null,
+        zelle: data.zelleHandle ?? null,
+      });
+    } catch {
+      // Network unavailable — keep current handles
+    }
+  }, [apiFetch]);
+
+  const updateOwnPaymentHandles = useCallback((patch: Partial<PaymentHandles>) => {
+    setOwnPaymentHandles((prev) => ({ ...prev, ...patch }));
+  }, []);
+
+  useEffect(() => {
+    if (authToken) void fetchOwnHandles();
+    else setOwnPaymentHandles({ venmo: null, cashapp: null, zelle: null });
+  }, [authToken, fetchOwnHandles]);
 
   const fetchApiUser = useCallback(async (token: string) => {
     try {
@@ -674,6 +709,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setEvents([]);
     setSquads([]);
     setIsLoggedIn(false);
+    setOwnPaymentHandles({ venmo: null, cashapp: null, zelle: null });
     currentUserIdRef.current = ME.id;
   }, [authToken]);
 
@@ -1317,6 +1353,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         addCost,
         markSharePaid,
         confirmShare,
+        ownPaymentHandles,
+        updateOwnPaymentHandles,
         fetchPaymentHandles,
         addPoll,
         votePoll,
