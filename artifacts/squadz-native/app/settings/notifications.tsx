@@ -26,6 +26,7 @@ type Prefs = {
   notifyFriendActivity: boolean;
   notifySquadJoin: boolean;
   notifySquadLeave: boolean;
+  notifyPayments: boolean;
 };
 
 type MutedSquad = {
@@ -47,6 +48,7 @@ const ROWS: { key: keyof Prefs; icon: keyof typeof Ionicons.glyphMap; label: str
   { key: "notifyFriendActivity", icon: "people-outline", label: "Friend Activity", sub: "When friends join or RSVP" },
   { key: "notifySquadJoin", icon: "person-add-outline", label: "New Squad Members", sub: "When someone joins one of your squads" },
   { key: "notifySquadLeave", icon: "person-remove-outline", label: "Squad Departures", sub: "When someone leaves or is removed from a squad" },
+  { key: "notifyPayments", icon: "cash-outline", label: "Payments", sub: "When you owe money or someone settles up with you" },
 ];
 
 export default function NotificationsScreen() {
@@ -86,6 +88,7 @@ export default function NotificationsScreen() {
           notifyFriendActivity: data.notifyFriendActivity,
           notifySquadJoin: data.notifySquadJoin,
           notifySquadLeave: data.notifySquadLeave,
+          notifyPayments: data.notifyPayments,
         });
       }
       if (mutedRes.ok) {

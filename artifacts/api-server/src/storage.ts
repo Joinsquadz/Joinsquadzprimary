@@ -1132,6 +1132,7 @@ export class Storage {
       requireNotifyMessages?: boolean;
       requireNotifyEventInvites?: boolean;
       requireNotifyFriendActivity?: boolean;
+      requireNotifyPayments?: boolean;
     } = {},
   ): Promise<string[]> {
     if (userIds.length === 0) return [];
@@ -1153,6 +1154,9 @@ export class Storage {
     }
     if (opts.requireNotifyFriendActivity) {
       conditions.push(eq(usersTable.notifyFriendActivity, true));
+    }
+    if (opts.requireNotifyPayments) {
+      conditions.push(eq(usersTable.notifyPayments, true));
     }
     const rows = await db
       .select({ pushToken: usersTable.pushToken })

@@ -16,6 +16,7 @@ const PatchPreferencesBody = z.object({
   notifyFriendActivity: z.boolean().optional(),
   notifySquadJoin: z.boolean().optional(),
   notifySquadLeave: z.boolean().optional(),
+  notifyPayments: z.boolean().optional(),
   privateProfile: z.boolean().optional(),
   showRsvpActivity: z.boolean().optional(),
 });
@@ -27,14 +28,35 @@ const PREF_FIELDS = [
   "notifyFriendActivity",
   "notifySquadJoin",
   "notifySquadLeave",
+  "notifyPayments",
   "privateProfile",
   "showRsvpActivity",
 ] as const;
+
+/**
+ * Normalize a user-entered payment handle: trim, strip a leading "@", and if a
+ * full profile URL was pasted (venmo.com/u/foo, cash.app/$foo), reduce it to the
+ * bare username. An empty result becomes null (handle cleared). Zelle handles
+ * are usually an email/phone, so we only trim + strip a stray leading "@".
+ */
+function normalizeHandle(raw: string): string | null {
+  let h = raw.trim();
+  if (!h) return null;
+  const urlMatch = h.match(/^(?:https?:\/\/)?(?:www\.)?(?:venmo\.com\/(?:u\/)?|account\.venmo\.com\/u\/|cash\.app\/)(.+)$/i);
+  if (urlMatch) h = urlMatch[1];
+  h = h.replace(/^[@$]+/, "").replace(/\/+$/, "").trim();
+  return h || null;
+}
+
+const HANDLE_FIELDS = ["venmoHandle", "cashappHandle", "zelleHandle"] as const;
 
 const PatchProfileBody = z.object({
   firstName: z.string().trim().min(1).max(60).optional(),
   lastName: z.string().trim().max(60).nullable().optional(),
   profileImageUrl: z.string().trim().max(2048).nullable().optional(),
+  venmoHandle: z.string().trim().max(120).nullable().optional(),
+  cashappHandle: z.string().trim().max(120).nullable().optional(),
+  zelleHandle: z.string().trim().max(120).nullable().optional(),
 });
 
 router.get("/user/preferences", requireAuth, async (req: Request, res: Response): Promise<void> => {
@@ -49,8 +71,12 @@ router.get("/user/preferences", requireAuth, async (req: Request, res: Response)
       notifyFriendActivity: usersTable.notifyFriendActivity,
       notifySquadJoin: usersTable.notifySquadJoin,
       notifySquadLeave: usersTable.notifySquadLeave,
+      notifyPayments: usersTable.notifyPayments,
       privateProfile: usersTable.privateProfile,
       showRsvpActivity: usersTable.showRsvpActivity,
+      venmoHandle: usersTable.venmoHandle,
+      cashappHandle: usersTable.cashappHandle,
+      zelleHandle: usersTable.zelleHandle,
     }).from(usersTable).where(eq(usersTable.id, userId));
 
     if (!user) {
@@ -78,6 +104,10 @@ router.patch("/user/profile", requireAuth, async (req: Request, res: Response): 
     if (parsed.data.firstName !== undefined) patch.firstName = parsed.data.firstName;
     if (parsed.data.lastName !== undefined) patch.lastName = parsed.data.lastName;
     if (parsed.data.profileImageUrl !== undefined) patch.profileImageUrl = parsed.data.profileImageUrl;
+    for (const field of HANDLE_FIELDS) {
+      const value = parsed.data[field];
+      if (value !== undefined) patch[field] = value === null ? null : normalizeHandle(value);
+    }
 
     if (Object.keys(patch).length === 0) {
       res.status(400).json({ error: "No fields to update" });
@@ -93,6 +123,9 @@ router.patch("/user/profile", requireAuth, async (req: Request, res: Response): 
         firstName: usersTable.firstName,
         lastName: usersTable.lastName,
         profileImageUrl: usersTable.profileImageUrl,
+        venmoHandle: usersTable.venmoHandle,
+        cashappHandle: usersTable.cashappHandle,
+        zelleHandle: usersTable.zelleHandle,
       });
 
     res.json({ user: updated });
@@ -143,6 +176,7 @@ router.patch("/user/preferences", requireAuth, async (req: Request, res: Respons
         notifyFriendActivity: usersTable.notifyFriendActivity,
         notifySquadJoin: usersTable.notifySquadJoin,
         notifySquadLeave: usersTable.notifySquadLeave,
+        notifyPayments: usersTable.notifyPayments,
         privateProfile: usersTable.privateProfile,
         showRsvpActivity: usersTable.showRsvpActivity,
       });

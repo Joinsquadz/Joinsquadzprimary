@@ -15,7 +15,7 @@ import {
   ActivityIndicator,
   Switch,
 } from "react-native";
-import { computeSettle, payWithVenmo, payWithCashApp } from "@/lib/settle";
+import { SettleUp } from "@/components/SettleUp";
 import { addEventToCalendar, parseEventStart } from "@/lib/calendar";
 import { scheduleRsvpReminder } from "@/lib/reminders";
 import { router, useLocalSearchParams } from "expo-router";
@@ -54,6 +54,9 @@ export default function EventDetailScreen() {
     claimTask,
     addTask,
     addCost,
+    markSharePaid,
+    confirmShare,
+    fetchPaymentHandles,
     addPoll,
     votePoll,
     sendMessage,
@@ -129,6 +132,16 @@ export default function EventDetailScreen() {
     return () => clearInterval(interval);
   }, [tab, refreshEvents]);
 
+  // Load payment handles when the Costs tab is opened, to power settle-up deep links.
+  useEffect(() => {
+    if (tab !== "costs" || !id) return;
+    let active = true;
+    void fetchPaymentHandles(id).then((h) => {
+      if (active) setPaymentHandles(h);
+    });
+    return () => { active = false; };
+  }, [tab, id, fetchPaymentHandles]);
+
   // Modals
   const [taskModal, setTaskModal] = useState(false);
   const [newTask, setNewTask] = useState("");
@@ -137,6 +150,9 @@ export default function EventDetailScreen() {
   const [costDesc, setCostDesc] = useState("");
   const [costTotal, setCostTotal] = useState("");
   const [costShares, setCostShares] = useState<Record<string, string>>({});
+  const [paymentHandles, setPaymentHandles] = useState<
+    Record<string, { venmo: string | null; cashapp: string | null; zelle: string | null }>
+  >({});
   const [calBusy, setCalBusy] = useState(false);
   const [remBusy, setRemBusy] = useState(false);
 
@@ -797,54 +813,16 @@ export default function EventDetailScreen() {
                     </Text>
                   </View>
                 </View>
-                {(() => {
-                  const settleLines = computeSettle(event.costs, currentUser.id);
-                  return (
-                    <View style={[styles.settleCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                      <Text style={[styles.settleHeader, { color: colors.foreground }]}>Settle up</Text>
-                      {settleLines.length === 0 ? (
-                        <Text style={[styles.settleAllClear, { color: colors.mutedForeground }]}>You're all settled up 🎉</Text>
-                      ) : (
-                        settleLines.map((line) => {
-                          const other = resolveForDisplay(line.userId);
-                          const iOwe = line.net < 0;
-                          const amt = Math.abs(line.net);
-                          const note = `${event.title} — settle up`;
-                          const firstName = other.name.split(" ")[0];
-                          return (
-                            <View key={line.userId} style={styles.settleRow}>
-                              <UserAvatar initials={other.initials} color={other.color} imageUrl={other.profileImageUrl} size={32} fontSize={11} />
-                              <View style={{ flex: 1 }}>
-                                <Text style={[styles.settleName, { color: colors.foreground }]}>
-                                  {iOwe ? `You owe ${firstName}` : `${firstName} owes you`}
-                                </Text>
-                                <Text style={[styles.settleAmt, { color: iOwe ? colors.destructive : colors.green }]}>
-                                  ${amt.toFixed(2)}
-                                </Text>
-                              </View>
-                              {iOwe && (
-                                <View style={styles.settleActions}>
-                                  <TouchableOpacity
-                                    onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); void payWithVenmo(amt, note); }}
-                                    style={[styles.payBtn, { backgroundColor: "#3D95CE" }]}
-                                  >
-                                    <Text style={styles.payBtnText}>Venmo</Text>
-                                  </TouchableOpacity>
-                                  <TouchableOpacity
-                                    onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); void payWithCashApp(amt); }}
-                                    style={[styles.payBtn, { backgroundColor: "#00C244" }]}
-                                  >
-                                    <Text style={styles.payBtnText}>Cash App</Text>
-                                  </TouchableOpacity>
-                                </View>
-                              )}
-                            </View>
-                          );
-                        })
-                      )}
-                    </View>
-                  );
-                })()}
+                <SettleUp
+                  costs={event.costs}
+                  meId={currentUser.id}
+                  eventTitle={event.title}
+                  colors={colors}
+                  handles={paymentHandles}
+                  resolveUser={resolveForDisplay}
+                  onMarkPaid={(costId, paid) => markSharePaid(event.id, costId, paid)}
+                  onConfirm={(costId, debtorId, confirmed) => confirmShare(event.id, costId, debtorId, confirmed)}
+                />
                 {event.costs.map((cost) => {
                   const payer = resolveForDisplay(cost.paidById);
                   const myShare = cost.shares.find((s) => s.userId === currentUser.id)?.amount ?? 0;

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -40,6 +40,9 @@ export default function EditProfileScreen() {
   const [firstName, setFirstName] = useState(initial.first);
   const [lastName, setLastName] = useState(initial.last);
   const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [venmo, setVenmo] = useState("");
+  const [cashapp, setCashapp] = useState("");
+  const [zelle, setZelle] = useState("");
   const [saving, setSaving] = useState(false);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
@@ -47,6 +50,30 @@ export default function EditProfileScreen() {
   function authHeaders(): Record<string, string> {
     return buildAuthHeaders(authToken);
   }
+
+  // Load the user's saved payment handles so they can edit them in place.
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/user/preferences`, { headers: authHeaders() });
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          venmoHandle?: string | null;
+          cashappHandle?: string | null;
+          zelleHandle?: string | null;
+        };
+        if (!active) return;
+        setVenmo(data.venmoHandle ?? "");
+        setCashapp(data.cashappHandle ?? "");
+        setZelle(data.zelleHandle ?? "");
+      } catch {
+        // Non-blocking: handles just stay empty if the fetch fails.
+      }
+    })();
+    return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function pickPhoto() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -109,6 +136,9 @@ export default function EditProfileScreen() {
       const body: Record<string, unknown> = {
         firstName: firstName.trim(),
         lastName: lastName.trim() || null,
+        venmoHandle: venmo.trim() || null,
+        cashappHandle: cashapp.trim() || null,
+        zelleHandle: zelle.trim() || null,
       };
       if (profileImageUrl) body.profileImageUrl = profileImageUrl;
 
@@ -199,6 +229,44 @@ export default function EditProfileScreen() {
           style={[styles.input, { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
         />
 
+        <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Payment handles</Text>
+        <Text style={[styles.sectionSub, { color: colors.mutedForeground }]}>
+          Squad members use these to pay you back when settling up. Leave blank to hide.
+        </Text>
+
+        <Text style={[styles.label, { color: colors.mutedForeground, marginTop: 16 }]}>Venmo</Text>
+        <TextInput
+          value={venmo}
+          onChangeText={setVenmo}
+          placeholder="@your-venmo"
+          placeholderTextColor={colors.mutedForeground}
+          autoCapitalize="none"
+          autoCorrect={false}
+          style={[styles.input, { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
+        />
+
+        <Text style={[styles.label, { color: colors.mutedForeground, marginTop: 16 }]}>Cash App</Text>
+        <TextInput
+          value={cashapp}
+          onChangeText={setCashapp}
+          placeholder="$yourcashtag"
+          placeholderTextColor={colors.mutedForeground}
+          autoCapitalize="none"
+          autoCorrect={false}
+          style={[styles.input, { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
+        />
+
+        <Text style={[styles.label, { color: colors.mutedForeground, marginTop: 16 }]}>Zelle</Text>
+        <TextInput
+          value={zelle}
+          onChangeText={setZelle}
+          placeholder="email or phone"
+          placeholderTextColor={colors.mutedForeground}
+          autoCapitalize="none"
+          autoCorrect={false}
+          style={[styles.input, { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
+        />
+
         <View style={{ marginTop: 28 }}>
           {saving ? (
             <View style={[styles.savingBtn, { backgroundColor: colors.primary }]}>
@@ -221,6 +289,8 @@ const styles = StyleSheet.create({
   avatarImg: { width: 96, height: 96, borderRadius: 48 },
   cameraBadge: { position: "absolute", bottom: 0, right: 0, width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", borderWidth: 2 },
   changePhoto: { marginTop: 12, fontSize: 14, fontWeight: "600" },
+  sectionTitle: { fontSize: 16, fontWeight: "700", marginTop: 28 },
+  sectionSub: { fontSize: 13, marginTop: 4, lineHeight: 18 },
   label: { fontSize: 13, fontWeight: "600", marginBottom: 8 },
   input: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13, fontSize: 15 },
   savingBtn: { borderRadius: 14, paddingVertical: 15, alignItems: "center", justifyContent: "center" },

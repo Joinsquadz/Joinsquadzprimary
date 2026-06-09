@@ -131,6 +131,11 @@ type AppContextType = {
   claimTask: (eventId: string, taskId: string) => void;
   addTask: (eventId: string, title: string) => void;
   addCost: (eventId: string, input: { description: string; amount: number; shares: CostShare[] }) => void;
+  markSharePaid: (eventId: string, costId: string, paid: boolean) => void;
+  confirmShare: (eventId: string, costId: string, debtorId: string, confirmed: boolean) => void;
+  fetchPaymentHandles: (
+    eventId: string,
+  ) => Promise<Record<string, { venmo: string | null; cashapp: string | null; zelle: string | null }>>;
   addPoll: (eventId: string, question: string, options: string[]) => void;
   votePoll: (eventId: string, pollId: string, optionId: string) => void;
   sendMessage: (eventId: string, text: string) => void;
@@ -186,6 +191,9 @@ const AppContext = createContext<AppContextType>({
   claimTask: noop,
   addTask: noop,
   addCost: noop,
+  markSharePaid: noop,
+  confirmShare: noop,
+  fetchPaymentHandles: async () => ({}),
   addPoll: noop,
   votePoll: noop,
   sendMessage: noop,
@@ -890,6 +898,101 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [apiFetch, applyEventUpdate, apiUser],
   );
 
+  const markSharePaid = useCallback(
+    (eventId: string, costId: string, paid: boolean) => {
+      const userId = apiUser?.id ?? currentUserIdRef.current;
+      const nowIso = new Date().toISOString();
+      // Optimistic update: stamp/clear my own share on this cost.
+      setEvents((prev) =>
+        prev.map((e) =>
+          e.id !== eventId
+            ? e
+            : {
+                ...e,
+                costs: e.costs.map((c) =>
+                  c.id !== costId
+                    ? c
+                    : {
+                        ...c,
+                        shares: c.shares.map((s) =>
+                          s.userId === userId ? { ...s, paidAt: paid ? nowIso : null } : s,
+                        ),
+                      },
+                ),
+              },
+        ),
+      );
+      void apiFetch(`/api/events/${eventId}/costs/${costId}/mark-paid`, {
+        method: "POST",
+        body: JSON.stringify({ paid }),
+      })
+        .then((res) => (res.ok ? (res.json() as Promise<Record<string, unknown>>) : Promise.reject()))
+        .then(applyEventUpdate)
+        .catch(() => {
+          void refreshEvents();
+        });
+    },
+    [apiFetch, applyEventUpdate, apiUser, refreshEvents],
+  );
+
+  const confirmShare = useCallback(
+    (eventId: string, costId: string, debtorId: string, confirmed: boolean) => {
+      const nowIso = new Date().toISOString();
+      // Optimistic update: confirm sets confirmedAt; un-mark clears both stamps.
+      setEvents((prev) =>
+        prev.map((e) =>
+          e.id !== eventId
+            ? e
+            : {
+                ...e,
+                costs: e.costs.map((c) =>
+                  c.id !== costId
+                    ? c
+                    : {
+                        ...c,
+                        shares: c.shares.map((s) =>
+                          s.userId !== debtorId
+                            ? s
+                            : confirmed
+                              ? { ...s, confirmedAt: nowIso }
+                              : { ...s, paidAt: null, confirmedAt: null },
+                        ),
+                      },
+                ),
+              },
+        ),
+      );
+      void apiFetch(`/api/events/${eventId}/costs/${costId}/shares/${encodeURIComponent(debtorId)}/confirm`, {
+        method: "POST",
+        body: JSON.stringify({ confirmed }),
+      })
+        .then((res) => (res.ok ? (res.json() as Promise<Record<string, unknown>>) : Promise.reject()))
+        .then(applyEventUpdate)
+        .catch(() => {
+          void refreshEvents();
+        });
+    },
+    [apiFetch, applyEventUpdate, refreshEvents],
+  );
+
+  const fetchPaymentHandles = useCallback(
+    async (
+      eventId: string,
+    ): Promise<Record<string, { venmo: string | null; cashapp: string | null; zelle: string | null }>> => {
+      try {
+        const res = await apiFetch(`/api/events/${eventId}/payment-handles`);
+        if (!res.ok) return {};
+        const data = (await res.json()) as {
+          handles?: Record<string, { venmo: string | null; cashapp: string | null; zelle: string | null }>;
+        };
+        return data.handles ?? {};
+      } catch {
+        return {};
+      }
+    },
+    [apiFetch],
+  );
+
   const addPoll = useCallback(
     (eventId: string, question: string, options: string[]) => {
       // Optimistic update
@@ -1186,6 +1289,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         claimTask,
         addTask,
         addCost,
+        markSharePaid,
+        confirmShare,
+        fetchPaymentHandles,
         addPoll,
         votePoll,
         sendMessage,

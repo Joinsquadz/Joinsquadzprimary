@@ -18,6 +18,10 @@ export type Task = {
 export type CostShare = {
   userId: string;
   amount: number;
+  /** ISO timestamp set when the debtor marks this share as paid (null/absent = unpaid). */
+  paidAt?: string | null;
+  /** ISO timestamp set when the payer confirms the payment was received. */
+  confirmedAt?: string | null;
 };
 
 export type Cost = {
