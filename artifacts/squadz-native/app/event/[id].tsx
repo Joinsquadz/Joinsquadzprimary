@@ -324,6 +324,10 @@ export default function EventDetailScreen() {
       Alert.alert("Missing info", "Add a description for the expense.");
       return;
     }
+    if (totalNum <= 0) {
+      Alert.alert("Missing amount", "Enter a total greater than $0.");
+      return;
+    }
     if (hasNegative) {
       Alert.alert("Invalid amount", "Shares can't be negative. Enter $0 or more for each person.");
       return;
