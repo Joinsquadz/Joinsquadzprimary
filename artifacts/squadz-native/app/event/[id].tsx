@@ -31,7 +31,7 @@ import { goingCount } from "@/lib/eventUtils";
 import type { RsvpStatus } from "@/types";
 import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
 
-type EventTab = "overview" | "guests" | "tasks" | "costs" | "chat" | "photos" | "admin";
+type EventTab = "overview" | "guests" | "tasks" | "food" | "costs" | "chat" | "photos" | "admin";
 
 const EMOJIS = ["🔥", "🎉", "🎮", "🏖️", "🍕", "🎸", "⚽", "🎬", "🍻", "🎊"];
 
@@ -153,6 +153,8 @@ export default function EventDetailScreen() {
   // Modals
   const [taskModal, setTaskModal] = useState(false);
   const [newTask, setNewTask] = useState("");
+  const [foodModal, setFoodModal] = useState(false);
+  const [newFoodItem, setNewFoodItem] = useState("");
 
   const [costModal, setCostModal] = useState(false);
   const [costDesc, setCostDesc] = useState("");
@@ -286,6 +288,7 @@ export default function EventDetailScreen() {
     { key: "overview", label: "Overview" },
     { key: "guests", label: "Guests" },
     { key: "tasks", label: "Tasks" },
+    { key: "food", label: "🍕 Food" },
     { key: "costs", label: "Costs" },
     { key: "chat", label: "Chat" },
     { key: "photos", label: "📷 Photos" },
@@ -395,6 +398,18 @@ export default function EventDetailScreen() {
     }
     setNewTask("");
     setTaskModal(false);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  };
+
+  const saveFoodItem = async () => {
+    if (!newFoodItem.trim()) return;
+    const result = await addTask(event.id, newFoodItem.trim(), "food");
+    if (result.error) {
+      Alert.alert("Couldn't add food item", result.error);
+      return;
+    }
+    setNewFoodItem("");
+    setFoodModal(false);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
   };
 
@@ -828,6 +843,66 @@ export default function EventDetailScreen() {
           </View>
         )}
 
+        {tab === "food" && (
+          <View style={{ gap: 8 }}>
+            {(() => {
+              const foodItems = event.tasks.filter((t) => (t as { category?: string }).category === "food");
+              const claimedCount = foodItems.filter((t) => t.assigneeId ?? t.done).length;
+              return (
+                <>
+                  {foodItems.length > 0 && (
+                    <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>
+                      {claimedCount}/{foodItems.length} claimed
+                    </Text>
+                  )}
+                  {foodItems.length === 0 ? (
+                    <View style={styles.emptyState}>
+                      <Text style={{ fontSize: 36, marginBottom: 8 }}>🍕</Text>
+                      <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No food list yet</Text>
+                      <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>Add dishes and let people claim what they're bringing</Text>
+                    </View>
+                  ) : (
+                    foodItems.map((task) => {
+                      const assignee = task.assigneeId ? resolveForDisplay(task.assigneeId) : null;
+                      return (
+                        <View key={task.id} style={[styles.taskRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                          <TouchableOpacity onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); toggleTask(event.id, task.id); }}>
+                            <Ionicons
+                              name={task.done ? "checkmark-circle" : "ellipse-outline"}
+                              size={24}
+                              color={task.done ? colors.green : colors.border}
+                            />
+                          </TouchableOpacity>
+                          <Text style={[styles.taskText, { color: task.done ? colors.mutedForeground : colors.foreground, textDecorationLine: task.done ? "line-through" : "none" }]}>
+                            {task.title}
+                          </Text>
+                          {assignee ? (
+                            <UserAvatar initials={assignee.initials} color={assignee.color} imageUrl={assignee.profileImageUrl} size={28} fontSize={10} />
+                          ) : (
+                            <TouchableOpacity
+                              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); claimTask(event.id, task.id); }}
+                              style={[styles.claimBtn, { backgroundColor: colors.primary + "20", borderColor: colors.primary + "40" }]}
+                            >
+                              <Text style={[styles.claimText, { color: colors.primary }]}>I'll bring it</Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      );
+                    })
+                  )}
+                  <TouchableOpacity
+                    onPress={() => setFoodModal(true)}
+                    style={[styles.addRow, { borderColor: colors.border }]}
+                  >
+                    <Ionicons name="add" size={20} color={colors.primary} />
+                    <Text style={[styles.addText, { color: colors.primary }]}>Add food item</Text>
+                  </TouchableOpacity>
+                </>
+              );
+            })()}
+          </View>
+        )}
+
         {tab === "costs" && (
           <View style={{ gap: 8 }}>
             {hasBudget ? (
@@ -1101,6 +1176,31 @@ export default function EventDetailScreen() {
           </TouchableOpacity>
         </View>
       )}
+
+      {/* ---- Add Food Item Modal ---- */}
+      <Modal visible={foodModal} transparent animationType="fade" onRequestClose={() => setFoodModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Text style={[styles.modalTitle, { color: colors.foreground }]}>Add to food list</Text>
+            <TextInput
+              placeholder="e.g. Chips & dip, veggie platter…"
+              placeholderTextColor={colors.textDim}
+              value={newFoodItem}
+              onChangeText={setNewFoodItem}
+              autoFocus
+              style={[styles.modalInput, { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity onPress={() => { setNewFoodItem(""); setFoodModal(false); }} style={[styles.modalBtn, { backgroundColor: colors.card }]}>
+                <Text style={[styles.modalBtnText, { color: colors.mutedForeground }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => { void saveFoodItem(); }} style={[styles.modalBtn, { backgroundColor: colors.primary }]}>
+                <Text style={[styles.modalBtnText, { color: "#fff" }]}>Add item</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* ---- Add Task Modal ---- */}
       <Modal visible={taskModal} transparent animationType="fade" onRequestClose={() => setTaskModal(false)}>

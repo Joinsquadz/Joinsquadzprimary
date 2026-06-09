@@ -131,7 +131,7 @@ type AppContextType = {
   cancelEvent: (eventId: string) => void;
   toggleTask: (eventId: string, taskId: string) => void;
   claimTask: (eventId: string, taskId: string) => void;
-  addTask: (eventId: string, title: string) => Promise<{ error?: string }>;
+  addTask: (eventId: string, title: string, category?: string) => Promise<{ error?: string }>;
   addCost: (eventId: string, input: { description: string; amount: number; shares: CostShare[] }) => Promise<{ error?: string }>;
   markSharePaid: (eventId: string, costId: string, paid: boolean) => void;
   confirmShare: (eventId: string, costId: string, debtorId: string, confirmed: boolean) => void;
@@ -889,20 +889,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   const addTask = useCallback(
-    async (eventId: string, title: string): Promise<{ error?: string }> => {
+    async (eventId: string, title: string, category?: string): Promise<{ error?: string }> => {
       const tempId = `t${Date.now()}`;
       // Optimistic update
       setEvents((prev) =>
         prev.map((e) =>
           e.id === eventId
-            ? { ...e, tasks: [...e.tasks, { id: tempId, title, assigneeId: null, done: false }] }
+            ? { ...e, tasks: [...e.tasks, { id: tempId, title, assigneeId: null, done: false, ...(category ? { category } : {}) }] }
             : e,
         ),
       );
       try {
         const res = await apiFetch(`/api/events/${eventId}/tasks`, {
           method: "POST",
-          body: JSON.stringify({ title }),
+          body: JSON.stringify({ title, ...(category ? { category } : {}) }),
         });
         if (!res.ok) {
           setEvents((prev) =>

@@ -42,6 +42,14 @@ const ALL_SLOT_OPTIONS: string[] = [
 ];
 const DEFAULT_SLOTS: string[] = ["6PM","7PM","8PM","9PM","10PM"];
 
+const SLOT_PERIODS = [
+  { label: "Night",     slots: ["12AM","1AM","2AM","3AM","4AM","5AM"] as string[] },
+  { label: "Morning",   slots: ["6AM","7AM","8AM","9AM","10AM","11AM"] as string[] },
+  { label: "Afternoon", slots: ["12PM","1PM","2PM","3PM","4PM","5PM"] as string[] },
+  { label: "Evening",   slots: ["6PM","7PM","8PM","9PM","10PM","11PM"] as string[] },
+];
+const SLOT_WINDOW = 6;
+
 const DAY_FULL: Record<string, string> = {
   Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday", Thu: "Thursday",
   Fri: "Friday", Sat: "Saturday", Sun: "Sunday",
@@ -213,11 +221,14 @@ export default function AvailabilityScreen() {
   const [needsSetup, setNeedsSetup] = useState(false);
   // Index of the first day column currently shown in the paged grid.
   const [dayWindowStart, setDayWindowStart] = useState(0);
+  // Index of the first slot row currently shown in the paged grid.
+  const [slotWindowStart, setSlotWindowStart] = useState(0);
   const [creating, setCreating] = useState(false);
   const [pollTitle, setPollTitle] = useState("");
   const [rangeStart, setRangeStart] = useState<Date>(new Date());
   const [rangeDays, setRangeDays] = useState<number>(DEFAULT_DAY_COUNT);
   const [selectedSlots, setSelectedSlots] = useState<Set<string>>(new Set(DEFAULT_SLOTS));
+  const [slotPeriod, setSlotPeriod] = useState<string>("Evening");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerDate, setPickerDate] = useState<Date>(new Date());
 
@@ -351,6 +362,7 @@ export default function AvailabilityScreen() {
   const [editStart, setEditStart] = useState<Date>(new Date());
   const [editDays, setEditDays] = useState<number>(DEFAULT_DAY_COUNT);
   const [editSlots, setEditSlots] = useState<Set<string>>(new Set(DEFAULT_SLOTS));
+  const [editSlotPeriod, setEditSlotPeriod] = useState<string>("Evening");
   const [editPickerOpen, setEditPickerOpen] = useState(false);
   const [editPickerDate, setEditPickerDate] = useState<Date>(new Date());
   const [updating, setUpdating] = useState(false);
@@ -1133,9 +1145,23 @@ export default function AvailabilityScreen() {
               })}
             </View>
 
-            <Text style={[styles.setupLabel, { color: colors.mutedForeground }]}>Time slots</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+              <Text style={[styles.setupLabel, { color: colors.mutedForeground, marginBottom: 0 }]}>Time slots</Text>
+              <Text style={[styles.chipText, { color: colors.mutedForeground }]}>{selectedSlots.size} selected</Text>
+            </View>
+            <View style={[styles.chipRow, { marginBottom: 8 }]}>
+              {SLOT_PERIODS.map((p) => (
+                <TouchableOpacity
+                  key={p.label}
+                  onPress={() => { stampInteraction(); Haptics.selectionAsync(); setSlotPeriod(p.label); }}
+                  style={[styles.chip, { backgroundColor: slotPeriod === p.label ? colors.primary : colors.card, borderColor: slotPeriod === p.label ? colors.primary : colors.border }]}
+                >
+                  <Text style={[styles.chipText, { color: slotPeriod === p.label ? "#fff" : colors.foreground }]}>{p.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
             <View style={styles.chipRow}>
-              {ALL_SLOT_OPTIONS.map((s) => {
+              {(SLOT_PERIODS.find(p => p.label === slotPeriod)?.slots ?? SLOT_PERIODS[3].slots).map((s) => {
                 const active = selectedSlots.has(s);
                 return (
                   <TouchableOpacity
@@ -1358,73 +1384,111 @@ export default function AvailabilityScreen() {
                   );
                 })}
               </View>
-              {data.poll.slots.map((slot) => (
-                <View key={slot} style={styles.gridRow}>
-                  <Text style={[styles.timeLabel, { color: colors.mutedForeground }]}>{slot}</Text>
-                  {visibleDays.map((day) => {
-                    const cell = `${day}-${slot}`;
-                    const c = counts.get(cell) ?? 0;
-                    const isLight = total === 0 || c / total < 0.66;
-                    const countColor = isLight ? colors.foreground : "#fff";
+              {(() => {
+                const allSlots = data.poll.slots;
+                const slotMaxStart = Math.max(0, allSlots.length - SLOT_WINDOW);
+                const sWinStart = Math.min(slotWindowStart, slotMaxStart);
+                const visibleSlots = allSlots.slice(sWinStart, sWinStart + SLOT_WINDOW);
+                const showSlotPager = allSlots.length > SLOT_WINDOW;
+                return (
+                  <>
+                    {showSlotPager && (
+                      <View style={[styles.pagerRow, { marginTop: 6 }]}>
+                        <TouchableOpacity
+                          onPress={() => { Haptics.selectionAsync(); setSlotWindowStart(Math.max(0, sWinStart - SLOT_WINDOW)); }}
+                          disabled={sWinStart === 0}
+                          style={[styles.pagerBtn, { backgroundColor: colors.card, borderColor: colors.border, opacity: sWinStart === 0 ? 0.4 : 1 }]}
+                          hitSlop={8}
+                        >
+                          <Ionicons name="chevron-up" size={18} color={colors.foreground} />
+                        </TouchableOpacity>
+                        <View style={styles.pagerLabelWrap}>
+                          <Text style={[styles.pagerLabel, { color: colors.foreground }]} numberOfLines={1}>
+                            {visibleSlots[0]}{visibleSlots.length > 1 ? ` – ${visibleSlots[visibleSlots.length - 1]}` : ""}
+                          </Text>
+                          <Text style={[styles.pagerSub, { color: colors.textDim }]}>
+                            Slots {sWinStart + 1}–{sWinStart + visibleSlots.length} of {allSlots.length}
+                          </Text>
+                        </View>
+                        <TouchableOpacity
+                          onPress={() => { Haptics.selectionAsync(); setSlotWindowStart(Math.min(slotMaxStart, sWinStart + SLOT_WINDOW)); }}
+                          disabled={sWinStart >= slotMaxStart}
+                          style={[styles.pagerBtn, { backgroundColor: colors.card, borderColor: colors.border, opacity: sWinStart >= slotMaxStart ? 0.4 : 1 }]}
+                          hitSlop={8}
+                        >
+                          <Ionicons name="chevron-down" size={18} color={colors.foreground} />
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                    {visibleSlots.map((slot) => (
+                      <View key={slot} style={styles.gridRow}>
+                        <Text style={[styles.timeLabel, { color: colors.mutedForeground }]}>{slot}</Text>
+                        {visibleDays.map((day) => {
+                          const cell = `${day}-${slot}`;
+                          const c = counts.get(cell) ?? 0;
+                          const isLight = total === 0 || c / total < 0.66;
+                          const countColor = isLight ? colors.foreground : "#fff";
 
-                    // Build mini avatar stack when cellUsers data is available.
-                    const cellUids = data.cellUsers?.[cell];
-                    const freeMembers: MemberInfo[] = cellUids
-                      ? cellUids.map((id) => memberMap.get(id)).filter((m): m is MemberInfo => m !== undefined)
-                      : [];
+                          const cellUids = data.cellUsers?.[cell];
+                          const freeMembers: MemberInfo[] = cellUids
+                            ? cellUids.map((id) => memberMap.get(id)).filter((m): m is MemberInfo => m !== undefined)
+                            : [];
 
-                    const MINI_MAX = 3;
-                    const showStack = c > 0 && freeMembers.length > 0 && freeMembers.length <= MINI_MAX;
-                    const showOverflow = c > 0 && freeMembers.length > MINI_MAX;
-                    const showFallbackCount = c > 0 && freeMembers.length === 0;
+                          const MINI_MAX = 3;
+                          const showStack = c > 0 && freeMembers.length > 0 && freeMembers.length <= MINI_MAX;
+                          const showOverflow = c > 0 && freeMembers.length > MINI_MAX;
+                          const showFallbackCount = c > 0 && freeMembers.length === 0;
 
-                    return (
-                      <TouchableOpacity
-                        key={cell}
-                        onPressIn={() => { longPressFiredRef.current = false; }}
-                        onPress={() => { if (longPressFiredRef.current) return; toggleCell(cell); }}
-                        onLongPress={() => { longPressFiredRef.current = true; openCellSheet(cell); }}
-                        delayLongPress={250}
-                        activeOpacity={0.7}
-                        style={[styles.cell, cellStyle(cell)]}
-                      >
-                        {showStack && (
-                          <View style={styles.miniStack}>
-                            {freeMembers.map((m, idx) => (
-                              <View
-                                key={m.id}
-                                style={[
-                                  styles.miniAvatar,
-                                  {
-                                    marginLeft: idx === 0 ? 0 : -5,
-                                    zIndex: freeMembers.length - idx,
-                                    backgroundColor: colors.primary,
-                                    borderColor: colors.background,
-                                  },
-                                ]}
-                              >
-                                {m.avatarUrl ? (
-                                  <Image source={{ uri: m.avatarUrl }} style={styles.miniAvatarImg} />
-                                ) : (
-                                  <Text style={styles.miniAvatarLetter}>
-                                    {m.displayName.charAt(0).toUpperCase()}
-                                  </Text>
-                                )}
-                              </View>
-                            ))}
-                          </View>
-                        )}
-                        {showOverflow && (
-                          <Text style={[styles.cellCount, { color: countColor }]}>{c}</Text>
-                        )}
-                        {showFallbackCount && (
-                          <Text style={[styles.cellCount, { color: countColor }]}>{c}</Text>
-                        )}
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              ))}
+                          return (
+                            <TouchableOpacity
+                              key={cell}
+                              onPressIn={() => { longPressFiredRef.current = false; }}
+                              onPress={() => { if (longPressFiredRef.current) return; toggleCell(cell); }}
+                              onLongPress={() => { longPressFiredRef.current = true; openCellSheet(cell); }}
+                              delayLongPress={250}
+                              activeOpacity={0.7}
+                              style={[styles.cell, cellStyle(cell)]}
+                            >
+                              {showStack && (
+                                <View style={styles.miniStack}>
+                                  {freeMembers.map((m, idx) => (
+                                    <View
+                                      key={m.id}
+                                      style={[
+                                        styles.miniAvatar,
+                                        {
+                                          marginLeft: idx === 0 ? 0 : -5,
+                                          zIndex: freeMembers.length - idx,
+                                          backgroundColor: colors.primary,
+                                          borderColor: colors.background,
+                                        },
+                                      ]}
+                                    >
+                                      {m.avatarUrl ? (
+                                        <Image source={{ uri: m.avatarUrl }} style={styles.miniAvatarImg} />
+                                      ) : (
+                                        <Text style={styles.miniAvatarLetter}>
+                                          {m.displayName.charAt(0).toUpperCase()}
+                                        </Text>
+                                      )}
+                                    </View>
+                                  ))}
+                                </View>
+                              )}
+                              {showOverflow && (
+                                <Text style={[styles.cellCount, { color: countColor }]}>{c}</Text>
+                              )}
+                              {showFallbackCount && (
+                                <Text style={[styles.cellCount, { color: countColor }]}>{c}</Text>
+                              )}
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    ))}
+                  </>
+                );
+              })()}
                   </>
                 );
               })()}
@@ -2049,9 +2113,23 @@ export default function AvailabilityScreen() {
                 })}
               </View>
 
-              <Text style={[styles.setupLabel, { color: colors.mutedForeground }]}>Time slots</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                <Text style={[styles.setupLabel, { color: colors.mutedForeground, marginBottom: 0 }]}>Time slots</Text>
+                <Text style={[styles.chipText, { color: colors.mutedForeground }]}>{editSlots.size} selected</Text>
+              </View>
+              <View style={[styles.chipRow, { marginBottom: 8 }]}>
+                {SLOT_PERIODS.map((p) => (
+                  <TouchableOpacity
+                    key={p.label}
+                    onPress={() => { Haptics.selectionAsync(); setEditSlotPeriod(p.label); }}
+                    style={[styles.chip, { backgroundColor: editSlotPeriod === p.label ? colors.primary : colors.card, borderColor: editSlotPeriod === p.label ? colors.primary : colors.border }]}
+                  >
+                    <Text style={[styles.chipText, { color: editSlotPeriod === p.label ? "#fff" : colors.foreground }]}>{p.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
               <View style={styles.chipRow}>
-                {ALL_SLOT_OPTIONS.map((s) => {
+                {(SLOT_PERIODS.find(p => p.label === editSlotPeriod)?.slots ?? SLOT_PERIODS[3].slots).map((s) => {
                   const active = editSlots.has(s);
                   return (
                     <TouchableOpacity

@@ -66,6 +66,7 @@ const SetRsvpBody = z.object({
 
 const AddTaskBody = z.object({
   title: z.string().min(1),
+  category: z.string().optional(),
 });
 
 const PatchTaskBody = z.object({
@@ -510,7 +511,7 @@ router.post("/events/:id/tasks", requireAuth, async (req: Request, res: Response
   if (!existing) return;
   const tasks = [
     ...(existing.tasks as unknown[]),
-    { id: `t${Date.now()}`, title: parsed.data.title, assigneeId: null, done: false },
+    { id: `t${Date.now()}`, title: parsed.data.title, assigneeId: null, done: false, ...(parsed.data.category ? { category: parsed.data.category } : {}) },
   ];
   const [event] = await db.update(eventsTable).set({ tasks }).where(eq(eventsTable.id, id)).returning();
   res.json(event);
