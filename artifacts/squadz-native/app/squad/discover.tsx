@@ -112,7 +112,7 @@ export default function DiscoverSquadsScreen() {
     const link = `https://joinsquadz.com/squad/join-public?id=${squad.id}`;
     try {
       await Share.share({
-        message: `Join "${squad.emoji} ${squad.name}" on Squadz!\n${link}`,
+        message: `Join "${squad.emoji} ${squad.name}" on SquadZ!\n${link}`,
       });
     } catch {
       // User dismissed the share sheet — nothing to do.

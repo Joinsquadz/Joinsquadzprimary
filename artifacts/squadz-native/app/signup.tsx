@@ -158,9 +158,11 @@ export default function SignupScreen() {
           <Text style={[styles.serifHeadingLg, { color: colors.foreground, textAlign: "center", marginBottom: 6 }]}>
             Create your account
           </Text>
+          {hasInvite && (
           <Text style={[styles.sub, { color: colors.mutedForeground, textAlign: "center" }]}>
-            {hasInvite ? `Join ${params.inviteTitle} and start planning` : "Join 50,000+ squads planning smarter"}
+            {`Join ${params.inviteTitle} and start planning`}
           </Text>
+        )}
         </View>
 
         <View style={{ paddingHorizontal: 24 }}>
@@ -227,7 +229,7 @@ export default function SignupScreen() {
           </View>
 
           <Text style={[styles.hint, { color: colors.textDim }]}>
-            We'll email you a link to confirm your address — you can start using Squadz right away.
+            We'll email you a link to confirm your address — you can start using SquadZ right away.
           </Text>
 
           {errorMsg ? (

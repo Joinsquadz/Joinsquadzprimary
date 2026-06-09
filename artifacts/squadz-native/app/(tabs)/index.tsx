@@ -108,8 +108,8 @@ export default function HomeScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const firstSquad = squads[0];
     const message = firstSquad
-      ? `Join my squad "${firstSquad.emoji} ${firstSquad.name}" on Squadz — let's find a time we're all actually free 🎉\n${firstSquad.inviteCode ? `https://joinsquadz.com/squad/join?code=${firstSquad.inviteCode}` : `https://joinsquadz.com/squad/${firstSquad.id}`}`
-      : `I'm on Squadz — let's plan our next hangout and find a time everyone's free. Add me with my code ${friendCode}\nhttps://joinsquadz.com`;
+      ? `Join my squad "${firstSquad.emoji} ${firstSquad.name}" on SquadZ — let's find a time we're all actually free 🎉\n${firstSquad.inviteCode ? `https://joinsquadz.com/squad/join?code=${firstSquad.inviteCode}` : `https://joinsquadz.com/squad/${firstSquad.id}`}`
+      : `I'm on SquadZ — let's plan our next hangout and find a time everyone's free. Add me with my code ${friendCode}\nhttps://joinsquadz.com`;
     try {
       await Share.share({ message });
     } catch {
@@ -157,7 +157,7 @@ export default function HomeScreen() {
             <View style={[styles.coach, { backgroundColor: colors.primary + "12", borderColor: colors.primary + "30" }]}>
               <Text style={styles.coachEmoji}>💡</Text>
               <Text style={[styles.coachText, { color: colors.foreground }]}>
-                New here? Create a squad, invite your crew, and Squadz finds the time everyone's free.
+                New here? Create a squad, invite your crew, and SquadZ finds the time everyone's free.
               </Text>
               <TouchableOpacity onPress={() => setCoachDismissed(true)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                 <Ionicons name="close" size={16} color={colors.mutedForeground} />

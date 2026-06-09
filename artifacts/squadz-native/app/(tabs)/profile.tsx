@@ -50,17 +50,17 @@ async function getOrCreateSquadzCalendar(): Promise<string | null> {
     const Calendar = await loadCalendar();
     if (!Calendar) return null;
     const calendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
-    const existing = calendars.find(c => c.title === "Squadz");
+    const existing = calendars.find(c => c.title === "SquadZ");
     if (existing) return existing.id;
 
     const defaultCalendar = await Calendar.getDefaultCalendarAsync();
     const newId = await Calendar.createCalendarAsync({
-      title: "Squadz",
+      title: "SquadZ",
       color: "#FF5C3A",
       entityType: Calendar.EntityTypes.EVENT,
       sourceId: defaultCalendar.source?.id,
       source: defaultCalendar.source,
-      name: "Squadz",
+      name: "SquadZ",
       ownerAccount: defaultCalendar.ownerAccount ?? "personal",
       accessLevel: Calendar.CalendarAccessLevel.OWNER,
     });
@@ -341,7 +341,7 @@ export default function ProfileScreen() {
         if (status !== "granted") {
           Alert.alert(
             "Calendar Permission Required",
-            "Please allow Squadz to access your calendar in Settings to enable Calendar Sync.",
+            "Please allow SquadZ to access your calendar in Settings to enable Calendar Sync.",
             [
               { text: "Cancel", style: "cancel" },
               { text: "Open Settings", onPress: () => Linking.openSettings() },
@@ -381,7 +381,7 @@ export default function ProfileScreen() {
             await writeEventsToCalendar(eventsToSync, calendarId);
             Alert.alert(
               "Calendar Sync On",
-              "Your Squadz events have been added to your calendar. Future accepted events will sync automatically.",
+              "Your SquadZ events have been added to your calendar. Future accepted events will sync automatically.",
             );
           }
         } catch {
@@ -422,9 +422,9 @@ export default function ProfileScreen() {
     } else {
       try {
         await Share.share({
-          message: `Add me on Squadz! 👥\n\nTap the link to add me instantly:\n${inviteUrl}\n\nOr use code: ${friendCode}`,
+          message: `Add me on SquadZ! 👥\n\nTap the link to add me instantly:\n${inviteUrl}\n\nOr use code: ${friendCode}`,
           url: inviteUrl,
-          title: "Add me on Squadz",
+          title: "Add me on SquadZ",
         });
       } catch {
         // User dismissed share sheet — no action needed
@@ -442,7 +442,7 @@ export default function ProfileScreen() {
         headers: { "Content-Type": "application/json", "Accept": "application/json" },
         body: JSON.stringify({
           to: devPushToken,
-          title: "Squadz test notification",
+          title: "SquadZ test notification",
           body: "Push pipeline check — notification delivered successfully!",
           data: { smokeTest: true, sentAt: new Date().toISOString() },
           sound: "default",
@@ -510,9 +510,9 @@ export default function ProfileScreen() {
     ? [
         {
           icon: "checkmark-circle",
-          label: "Squadz Pro — Active",
+          label: "SquadZ Pro — Active",
           color: colors.gold,
-          onPress: () => Alert.alert("Squadz Pro", "You're on Pro! Manage your subscription below."),
+          onPress: () => Alert.alert("SquadZ Pro", "You're on Pro! Manage your subscription below."),
         },
         {
           icon: "gift-outline",
@@ -564,7 +564,7 @@ export default function ProfileScreen() {
     proSection,
     [
       { icon: "help-circle-outline", label: "Help & Support", onPress: () => Alert.alert("Help & Support", "Need a hand? Reach us at support@joinsquadz.com") },
-      { icon: "star-outline", label: "Rate Squadz", onPress: () => Alert.alert("Rate Squadz", "Thanks for the love! ⭐️ Ratings open in the App Store.") },
+      { icon: "star-outline", label: "Rate SquadZ", onPress: () => Alert.alert("Rate SquadZ", "Thanks for the love! ⭐️ Ratings open in the App Store.") },
     ],
     [
       {
@@ -589,7 +589,7 @@ export default function ProfileScreen() {
               <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12, marginBottom: 10 }}>
                 <Text style={styles.successEmoji}>🎉</Text>
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.successTitle, { color: colors.green }]}>Welcome to Squadz Pro!</Text>
+                  <Text style={[styles.successTitle, { color: colors.green }]}>Welcome to SquadZ Pro!</Text>
                   <Text style={[styles.successBody, { color: colors.mutedForeground }]}>
                     Your upgrade is confirmed. Tap a feature to explore what's unlocked.
                   </Text>

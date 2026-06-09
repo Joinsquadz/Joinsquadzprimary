@@ -344,8 +344,8 @@ export default function SquadDetailScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     Share.share({
       message: inviteCode
-        ? `Join my squad "${squad.emoji} ${squad.name}" on Squadz!\n\nUse invite code: ${inviteCode}\n${inviteLink}`
-        : `Join my squad "${squad.emoji} ${squad.name}" on Squadz! ${inviteLink}`,
+        ? `Join my squad "${squad.emoji} ${squad.name}" on SquadZ!\n\nUse invite code: ${inviteCode}\n${inviteLink}`
+        : `Join my squad "${squad.emoji} ${squad.name}" on SquadZ! ${inviteLink}`,
     });
   };
 
@@ -353,7 +353,7 @@ export default function SquadDetailScreen() {
   const sharePublicLink = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     Share.share({
-      message: `Join "${squad.emoji} ${squad.name}" on Squadz — anyone can join!\n${publicLink}`,
+      message: `Join "${squad.emoji} ${squad.name}" on SquadZ — anyone can join!\n${publicLink}`,
     });
   };
 
@@ -649,7 +649,7 @@ export default function SquadDetailScreen() {
                 {/* Shared squads */}
                 {profileData && profileData.sharedSquads.length > 0 && (
                   <>
-                    <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>Shared Squadz</Text>
+                    <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>Shared SquadZ</Text>
                     {profileData.sharedSquads.map((sq) => (
                       <View key={sq.id} style={[styles.foundUserCard, { borderColor: colors.border }]}>
                         <Text style={{ fontSize: 20 }}>{sq.emoji}</Text>
@@ -976,7 +976,7 @@ export default function SquadDetailScreen() {
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     Share.share({
-                      message: `Join my squad "${squad.emoji} ${squad.name}" on Squadz!\n\nUse invite code: ${newInviteCode}\nhttps://joinsquadz.com/squad/join?code=${newInviteCode}`,
+                      message: `Join my squad "${squad.emoji} ${squad.name}" on SquadZ!\n\nUse invite code: ${newInviteCode}\nhttps://joinsquadz.com/squad/join?code=${newInviteCode}`,
                     });
                   }}
                   style={[styles.shareNowBtn, { backgroundColor: colors.primary }]}

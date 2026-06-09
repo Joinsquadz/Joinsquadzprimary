@@ -26,8 +26,8 @@ const STEP_ICONS = ["👋", "🔥", "📲"];
 const STEP_TITLES = ["What should we call you?", "Create your first squad", "Invite your crew"];
 const STEP_DESCS = [
   "This is how your crew will see you",
-  "A squad is your group — your crew joins next so Squadz can find when everyone's free",
-  "Squadz only works its magic once your people are in",
+  "A squad is your group — your crew joins next so SquadZ can find when everyone's free",
+  "SquadZ only works its magic once your people are in",
 ];
 const TOTAL_STEPS = 3;
 
@@ -64,8 +64,8 @@ export default function OnboardingScreen() {
     : `https://joinsquadz.com`;
 
   const shareMessage = createdSquad
-    ? `Join my squad "${createdSquad.emoji} ${createdSquad.name}" on Squadz — let's find a time we're all actually free 🎉\n${inviteLink}${inviteCode ? `\nInvite code: ${inviteCode}` : ""}`
-    : `I'm on Squadz — let's plan our next hangout and find a time everyone's free. Add me with my code ${friendCode}\nhttps://joinsquadz.com`;
+    ? `Join my squad "${createdSquad.emoji} ${createdSquad.name}" on SquadZ — let's find a time we're all actually free 🎉\n${inviteLink}${inviteCode ? `\nInvite code: ${inviteCode}` : ""}`
+    : `I'm on SquadZ — let's plan our next hangout and find a time everyone's free. Add me with my code ${friendCode}\nhttps://joinsquadz.com`;
 
   const handleComplete = () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -246,7 +246,7 @@ export default function OnboardingScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={[styles.whyTitle, { color: colors.foreground }]}>Why invite now?</Text>
                 <Text style={[styles.whyText, { color: colors.mutedForeground }]}>
-                  Squadz finds the time everyone's actually free — that only works once your crew is in. Get 2+ friends in to unlock your overlap and lock in your first plan.
+                  SquadZ finds the time everyone's actually free — that only works once your crew is in. Get 2+ friends in to unlock your overlap and lock in your first plan.
                 </Text>
               </View>
             </View>

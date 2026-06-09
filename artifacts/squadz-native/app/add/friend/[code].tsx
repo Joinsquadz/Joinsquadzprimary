@@ -135,7 +135,7 @@ export default function AddFriendViaLinkScreen() {
           onPress={() => router.replace("/(tabs)" as never)}
           style={[styles.btn, { backgroundColor: colors.primary, marginTop: 28 }]}
         >
-          <Text style={styles.btnText}>Go to Squadz</Text>
+          <Text style={styles.btnText}>Go to SquadZ</Text>
         </TouchableOpacity>
       </View>
     );
@@ -153,7 +153,7 @@ export default function AddFriendViaLinkScreen() {
         <Text style={[styles.sub, { color: colors.mutedForeground }]}>
           {isSelf
             ? "You can't add yourself as a friend."
-            : "You're now connected on Squadz."}
+            : "You're now connected on SquadZ."}
         </Text>
         <TouchableOpacity
           onPress={() => router.replace("/friends" as never)}
@@ -209,7 +209,7 @@ export default function AddFriendViaLinkScreen() {
         ) : isLoggedIn ? (
           <>
             <Text style={[styles.note, { color: colors.mutedForeground, textAlign: "center", marginBottom: 24 }]}>
-              Tap the button below to connect with {inviterName} on Squadz.
+              Tap the button below to connect with {inviterName} on SquadZ.
             </Text>
             <TouchableOpacity
               onPress={() => { void handleAddFriend(); }}
@@ -229,7 +229,7 @@ export default function AddFriendViaLinkScreen() {
         ) : (
           <>
             <Text style={[styles.note, { color: colors.mutedForeground, textAlign: "center", marginBottom: 24 }]}>
-              {inviterName} wants to connect with you on Squadz. Sign up or log in to add them.
+              {inviterName} wants to connect with you on SquadZ. Sign up or log in to add them.
             </Text>
             <TouchableOpacity
               onPress={() => router.push({ pathname: "/signup", params: { friendCode: normalizedCode } } as never)}

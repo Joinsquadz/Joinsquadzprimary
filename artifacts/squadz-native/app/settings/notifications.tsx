@@ -207,7 +207,7 @@ export default function NotificationsScreen() {
       ) : (
         <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 40 }}>
           <Text style={[styles.sectionHint, { color: colors.mutedForeground }]}>
-            Choose what Squadz notifies you about.
+            Choose what SquadZ notifies you about.
           </Text>
           <View style={[styles.group, { backgroundColor: colors.card, borderColor: colors.border }]}>
             {ROWS.map((row, i) => (

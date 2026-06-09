@@ -72,9 +72,9 @@ export default function FriendsScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const inviteUrl = buildInviteUrl(friendCode);
     Share.share({
-      message: `Add me on Squadz! 👥\n\nTap the link to add me instantly:\n${inviteUrl}\n\nOr use code: ${friendCode}`,
+      message: `Add me on SquadZ! 👥\n\nTap the link to add me instantly:\n${inviteUrl}\n\nOr use code: ${friendCode}`,
       url: inviteUrl,
-      title: "Add me on Squadz",
+      title: "Add me on SquadZ",
     });
   }
 
@@ -92,8 +92,8 @@ export default function FriendsScreen() {
     } else {
       try {
         await Share.share({
-          message: `Add me on Squadz! My friend code is ${friendCode}`,
-          title: "My Squadz Friend Code",
+          message: `Add me on SquadZ! My friend code is ${friendCode}`,
+          title: "My SquadZ Friend Code",
         });
       } catch {
         // dismissed
@@ -105,7 +105,7 @@ export default function FriendsScreen() {
     if (!friendCode) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const inviteUrl = buildInviteUrl(friendCode);
-    const msg = `Hey! Add me on Squadz 🎉\n\nTap the link: ${inviteUrl}\n\nOr use my code: ${friendCode}`;
+    const msg = `Hey! Add me on SquadZ 🎉\n\nTap the link: ${inviteUrl}\n\nOr use my code: ${friendCode}`;
     if (Platform.OS !== "web") {
       try {
         const SMS = await import("expo-sms");
@@ -118,7 +118,7 @@ export default function FriendsScreen() {
         // fall through to Share
       }
     }
-    Share.share({ message: msg, title: "Add me on Squadz" });
+    Share.share({ message: msg, title: "Add me on SquadZ" });
   }
 
   async function handleAddFriend() {
@@ -135,7 +135,7 @@ export default function FriendsScreen() {
         headers: buildAuthHeaders(authToken),
       });
       if (res.status === 404) {
-        Alert.alert("Code Not Found", "No Squadz user has that friend code. Double-check it and try again.");
+        Alert.alert("Code Not Found", "No SquadZ user has that friend code. Double-check it and try again.");
         return;
       }
       if (!res.ok) {
@@ -145,14 +145,14 @@ export default function FriendsScreen() {
       const found = await res.json() as { id: string; firstName?: string; lastName?: string };
       const name = [found.firstName, found.lastName].filter(Boolean).join(" ") || "your new friend";
       if (friends.includes(found.id)) {
-        Alert.alert("Already Friends!", `You and ${name} are already connected on Squadz.`);
+        Alert.alert("Already Friends!", `You and ${name} are already connected on SquadZ.`);
         return;
       }
       addFriend(found.id);
       setCodeInput("");
       inputRef.current?.blur();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert("Friend Added! 🎉", `You and ${name} are now friends on Squadz.`);
+      Alert.alert("Friend Added! 🎉", `You and ${name} are now friends on SquadZ.`);
     } catch {
       Alert.alert("Network Error", "Couldn't connect. Please check your connection and try again.");
     } finally {
@@ -320,7 +320,7 @@ export default function FriendsScreen() {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.friendName, { color: colors.foreground }]}>{user.name}</Text>
-                <Text style={[styles.friendSub, { color: colors.mutedForeground }]}>Squadz friend</Text>
+                <Text style={[styles.friendSub, { color: colors.mutedForeground }]}>SquadZ friend</Text>
               </View>
               <TouchableOpacity
                 onPress={() => handleMessage(user.id)}
