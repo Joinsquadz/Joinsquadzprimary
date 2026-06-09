@@ -45,7 +45,7 @@ All services degrade gracefully when their env vars are absent (Supabase Auth fa
 
 ### Deep links (shared squad links → open the app)
 
-`https://getsquadz.com/squad/join-public?id=<id>` opens the native app via iOS universal links / Android app links. The association files are served by the api-server at `/.well-known/apple-app-site-association` and `/.well-known/assetlinks.json` (the proxy routes `/.well-known` to it). Set these env vars at deploy time so the links actually verify against the signed builds (defaults are placeholders that serve valid JSON but won't verify):
+`https://joinsquadz.com/squad/join-public?id=<id>` opens the native app via iOS universal links / Android app links. The association files are served by the api-server at `/.well-known/apple-app-site-association` and `/.well-known/assetlinks.json` (the proxy routes `/.well-known` to it). Set these env vars at deploy time so the links actually verify against the signed builds (defaults are placeholders that serve valid JSON but won't verify):
 
 - `IOS_APP_ID` — `<TEAM_ID>.com.squadz.app` (Apple Developer Team ID + bundle id)
 - `ANDROID_SHA256_CERT_FINGERPRINTS` — comma-separated SHA-256 signing-cert fingerprints (from Play App Signing / your keystore)
@@ -71,12 +71,12 @@ TEST_PUSH_TOKEN=ExponentPushToken[xxxx] pnpm --filter @workspace/scripts run smo
 
 ### Deep links open the app (universal links / app links)
 
-Pre-launch check that a shared squad link (`https://getsquadz.com/squad/join-public?id=<id>`) actually opens the native app. This has an automatable half (the association files are well-formed and non-placeholder) and a manual half (real-device taps), because the identity values must match the *signed* builds and a real device must be observed opening the app.
+Pre-launch check that a shared squad link (`https://joinsquadz.com/squad/join-public?id=<id>`) actually opens the native app. This has an automatable half (the association files are well-formed and non-placeholder) and a manual half (real-device taps), because the identity values must match the *signed* builds and a real device must be observed opening the app.
 
 **Automated check — run against the deployed environment:**
 
 ```sh
-SQUADZ_BASE_URL=https://getsquadz.com pnpm --filter @workspace/scripts run smoke-test-deeplinks
+SQUADZ_BASE_URL=https://joinsquadz.com pnpm --filter @workspace/scripts run smoke-test-deeplinks
 ```
 
 - Fetches `/.well-known/apple-app-site-association` and `/.well-known/assetlinks.json` and asserts: HTTP 200 with no redirect, `Content-Type: application/json`, AASA `appID` is in `<TEAM_ID>.<BUNDLE_ID>` form and is **not** the `TEAMID.*` placeholder, paths/components cover `/squad/join-public`, and assetlinks has at least one valid colon-hex SHA-256 fingerprint (not the empty placeholder).
@@ -90,9 +90,9 @@ SQUADZ_BASE_URL=https://getsquadz.com pnpm --filter @workspace/scripts run smoke
 
 **Manual round-trip (cannot be automated — requires real hardware):**
 
-1. Apple AASA validator: `https://app-site-association.cdn-apple.com/a/v1/getsquadz.com` (Apple's CDN fetches and validates your AASA).
-2. Google Digital Asset Links tester: <https://developers.google.com/digital-asset-links/tools/generator> (point it at `getsquadz.com` + `com.squadz.app`).
-3. On a real **iOS** device with the signed build installed, tap `https://getsquadz.com/squad/join-public?id=<id>` — it must open the app on the join-public screen (not Safari).
+1. Apple AASA validator: `https://app-site-association.cdn-apple.com/a/v1/joinsquadz.com` (Apple's CDN fetches and validates your AASA).
+2. Google Digital Asset Links tester: <https://developers.google.com/digital-asset-links/tools/generator> (point it at `joinsquadz.com` + `com.squadz.app`).
+3. On a real **iOS** device with the signed build installed, tap `https://joinsquadz.com/squad/join-public?id=<id>` — it must open the app on the join-public screen (not Safari).
 4. On a real **Android** device with the signed build installed, run `adb shell pm verify-app-links --re-verify com.squadz.app`, then `adb shell pm get-app-links com.squadz.app` — expect the domain to show `verified`. Then tap the link — it must open the app.
 
 **Pass/fail log:**

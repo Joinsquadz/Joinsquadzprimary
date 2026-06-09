@@ -563,7 +563,7 @@ export default function ProfileScreen() {
     ],
     proSection,
     [
-      { icon: "help-circle-outline", label: "Help & Support", onPress: () => Alert.alert("Help & Support", "Need a hand? Reach us at support@getsquadz.com") },
+      { icon: "help-circle-outline", label: "Help & Support", onPress: () => Alert.alert("Help & Support", "Need a hand? Reach us at support@joinsquadz.com") },
       { icon: "star-outline", label: "Rate Squadz", onPress: () => Alert.alert("Rate Squadz", "Thanks for the love! ⭐️ Ratings open in the App Store.") },
     ],
     [

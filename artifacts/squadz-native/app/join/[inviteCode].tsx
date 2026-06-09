@@ -27,7 +27,7 @@ type EventPreview = {
 /**
  * Event invite deep-link target.
  *
- * Shared event links (`getsquadz.com/join/<inviteCode>`) open here via iOS
+ * Shared event links (`joinsquadz.com/join/<inviteCode>`) open here via iOS
  * universal links / Android app links. The screen accepts the invite by code
  * and routes straight to the event on success. Logged-out friends are sent to
  * sign in / sign up carrying the code so they land back here afterwards.

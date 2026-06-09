@@ -3,7 +3,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 /**
  * Apple App Site Association + Android Asset Links.
  *
- * These files let tapping a `https://getsquadz.com/squad/join-public?id=<id>`
+ * These files let tapping a `https://joinsquadz.com/squad/join-public?id=<id>`
  * link open the native Squadz app directly (iOS universal links / Android app
  * links) instead of a browser. They MUST be served:
  *   - over HTTPS, with no redirects, and

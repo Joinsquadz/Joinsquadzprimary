@@ -337,7 +337,7 @@ export default function SquadDetailScreen() {
     ]);
   };
   const inviteCode = squad.inviteCode ?? null;
-  const inviteLink = inviteCode ? `https://getsquadz.com/squad/join?code=${inviteCode}` : `https://getsquadz.com/squad/${squad.id}`;
+  const inviteLink = inviteCode ? `https://joinsquadz.com/squad/join?code=${inviteCode}` : `https://joinsquadz.com/squad/${squad.id}`;
 
   const shareInvite = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -348,7 +348,7 @@ export default function SquadDetailScreen() {
     });
   };
 
-  const publicLink = `https://getsquadz.com/squad/join-public?id=${squad.id}`;
+  const publicLink = `https://joinsquadz.com/squad/join-public?id=${squad.id}`;
   const sharePublicLink = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     Share.share({
@@ -959,14 +959,14 @@ export default function SquadDetailScreen() {
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.newLinkLabel, { color: colors.primary }]}>New link ready</Text>
                   <Text style={[styles.newLinkCode, { color: colors.mutedForeground }]} numberOfLines={1}>
-                    {`getsquadz.com/squad/join?code=${newInviteCode}`}
+                    {`joinsquadz.com/squad/join?code=${newInviteCode}`}
                   </Text>
                 </View>
                 <TouchableOpacity
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     Share.share({
-                      message: `Join my squad "${squad.emoji} ${squad.name}" on Squadz!\n\nUse invite code: ${newInviteCode}\nhttps://getsquadz.com/squad/join?code=${newInviteCode}`,
+                      message: `Join my squad "${squad.emoji} ${squad.name}" on Squadz!\n\nUse invite code: ${newInviteCode}\nhttps://joinsquadz.com/squad/join?code=${newInviteCode}`,
                     });
                   }}
                   style={[styles.shareNowBtn, { backgroundColor: colors.primary }]}

@@ -109,7 +109,7 @@ export default function DiscoverSquadsScreen() {
 
   const handleShare = async (squad: PublicSquad) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const link = `https://getsquadz.com/squad/join-public?id=${squad.id}`;
+    const link = `https://joinsquadz.com/squad/join-public?id=${squad.id}`;
     try {
       await Share.share({
         message: `Join "${squad.emoji} ${squad.name}" on Squadz!\n${link}`,

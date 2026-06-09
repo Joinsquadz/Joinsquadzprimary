@@ -79,8 +79,8 @@ export default function PrivacyScreen() {
   }
 
   const links: { icon: keyof typeof Ionicons.glyphMap; label: string; url: string }[] = [
-    { icon: "document-text-outline", label: "Terms of Service", url: "https://getsquadz.com/terms" },
-    { icon: "shield-checkmark-outline", label: "Privacy Policy", url: "https://getsquadz.com/privacy" },
+    { icon: "document-text-outline", label: "Terms of Service", url: "https://joinsquadz.com/terms" },
+    { icon: "shield-checkmark-outline", label: "Privacy Policy", url: "https://joinsquadz.com/privacy" },
   ];
 
   return (

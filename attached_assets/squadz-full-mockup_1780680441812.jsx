@@ -545,7 +545,7 @@ function InviteMembersScreen({ go }) {
           <span style={{ fontSize: 20 }}>🔗</span>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 12, color: T.textDim, fontFamily: font }}>Squad invite link</div>
-            <div style={{ fontSize: 13, color: T.textSub, fontFamily: fontMono }}>getsquadz.com/join/abc123</div>
+            <div style={{ fontSize: 13, color: T.textSub, fontFamily: fontMono }}>joinsquadz.com/join/abc123</div>
           </div>
           <div style={{ background: T.accentDim, borderRadius: 8, padding: "5px 10px", fontSize: 12, color: T.accent, fontWeight: 700, fontFamily: font, cursor: "pointer" }}>Copy</div>
         </div>
@@ -1231,7 +1231,7 @@ function EventOverviewTab({ go }) {
 
       <SectionLabel>Event Details</SectionLabel>
       <Card>
-        {[["📅", "Sat, Jun 7 · 5:00 PM – 10:00 PM"], ["📍", "Marcus's Place, 142 Oak St"], ["👥", "The Usual Suspects"], ["🔗", "getsquadz.com/event/xyz"]].map(([icon, val]) => (
+        {[["📅", "Sat, Jun 7 · 5:00 PM – 10:00 PM"], ["📍", "Marcus's Place, 142 Oak St"], ["👥", "The Usual Suspects"], ["🔗", "joinsquadz.com/event/xyz"]].map(([icon, val]) => (
           <div key={val} style={{ display: "flex", gap: 10, padding: "8px 0", borderTop: `1px solid ${T.border}`, fontSize: 13, color: T.textSub, fontFamily: font }}>
             <span>{icon}</span><span style={{ flex: 1 }}>{val}</span>
           </div>

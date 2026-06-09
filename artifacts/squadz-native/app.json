@@ -16,7 +16,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.squadz.app",
-      "associatedDomains": ["applinks:getsquadz.com"]
+      "associatedDomains": ["applinks:joinsquadz.com"]
     },
     "android": {
       "package": "com.squadz.app",
@@ -27,17 +27,17 @@
           "data": [
             {
               "scheme": "https",
-              "host": "getsquadz.com",
+              "host": "joinsquadz.com",
               "pathPrefix": "/squad/join-public"
             },
             {
               "scheme": "https",
-              "host": "getsquadz.com",
+              "host": "joinsquadz.com",
               "pathPrefix": "/squad/join"
             },
             {
               "scheme": "https",
-              "host": "getsquadz.com",
+              "host": "joinsquadz.com",
               "pathPrefix": "/join"
             }
           ],
@@ -52,7 +52,7 @@
       [
         "expo-router",
         {
-          "origin": "https://getsquadz.com"
+          "origin": "https://joinsquadz.com"
         }
       ],
       "expo-font",

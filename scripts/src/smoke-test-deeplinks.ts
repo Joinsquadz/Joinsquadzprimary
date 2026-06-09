@@ -2,7 +2,7 @@
  * Deep-link (universal links / app links) association-file smoke test.
  *
  * Usage:
- *   SQUADZ_BASE_URL=https://getsquadz.com pnpm --filter @workspace/scripts run smoke-test-deeplinks
+ *   SQUADZ_BASE_URL=https://joinsquadz.com pnpm --filter @workspace/scripts run smoke-test-deeplinks
  *
  * Fetches the two association files that make a shared squad link open the
  * native app and asserts every property a real device's verifier requires:
@@ -27,7 +27,7 @@
  *   1 — at least one check failed, OR placeholders are still in place.
  */
 
-const DEFAULT_BASE_URL = "https://getsquadz.com";
+const DEFAULT_BASE_URL = "https://joinsquadz.com";
 const JOIN_PATH = "/squad/join-public";
 const SHA256_FINGERPRINT_RE = /^([0-9A-F]{2}:){31}[0-9A-F]{2}$/i;
 

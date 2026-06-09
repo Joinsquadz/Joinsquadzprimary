@@ -627,12 +627,12 @@ export default function EventDetailScreen() {
               <Text style={[styles.cardTitle, { color: colors.mutedForeground }]}>Invite friends</Text>
               <Text style={[styles.inviteCode, { color: colors.primary, marginBottom: 4 }]}>{event.inviteCode}</Text>
               <Text style={[styles.inviteLink, { color: colors.mutedForeground, marginBottom: 12 }]}>
-                getsquadz.com/join/{event.inviteCode}
+                joinsquadz.com/join/{event.inviteCode}
               </Text>
               <TouchableOpacity
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  Share.share({ message: `Join ${event.title}! https://getsquadz.com/join/${event.inviteCode}` });
+                  Share.share({ message: `Join ${event.title}! https://joinsquadz.com/join/${event.inviteCode}` });
                 }}
                 style={[styles.shareInviteBtn, { backgroundColor: colors.primary + "20", borderColor: colors.primary + "40" }]}
               >
@@ -947,10 +947,10 @@ export default function EventDetailScreen() {
               <Text style={[styles.cardTitle, { color: colors.mutedForeground }]}>Invite code</Text>
               <Text style={[styles.inviteCode, { color: colors.primary }]}>{event.inviteCode}</Text>
               <Text style={[styles.inviteLink, { color: colors.mutedForeground }]}>
-                getsquadz.com/join/{event.inviteCode}
+                joinsquadz.com/join/{event.inviteCode}
               </Text>
               <TouchableOpacity
-                onPress={() => Share.share({ message: `Join ${event.title}! https://getsquadz.com/join/${event.inviteCode}` })}
+                onPress={() => Share.share({ message: `Join ${event.title}! https://joinsquadz.com/join/${event.inviteCode}` })}
                 style={[styles.shareInviteBtn, { backgroundColor: colors.primary + "20", borderColor: colors.primary + "40" }]}
               >
                 <Ionicons name="share-outline" size={16} color={colors.primary} />

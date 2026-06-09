@@ -24,7 +24,7 @@ app.set("trust proxy", 1);
 // Mobile native clients send no Origin header and are always passed through.
 // Browser clients must come from an explicitly allowed origin.
 function buildAllowedOrigins(): Set<string> {
-  const origins = new Set<string>(["https://getsquadz.com"]);
+  const origins = new Set<string>(["https://joinsquadz.com"]);
   if (process.env.REPLIT_DEV_DOMAIN) {
     origins.add(`https://${process.env.REPLIT_DEV_DOMAIN}`);
   }
