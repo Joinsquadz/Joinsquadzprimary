@@ -585,10 +585,15 @@ router.post("/auth/register", async (req: Request, res: Response) => {
 
   // --- Supabase Auth path (when SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY are set) ---
   if (supabaseAdmin) {
+    // Mark the Supabase user as confirmed at creation so a session is issued
+    // immediately (and future logins work). Email verification is handled by
+    // our OWN flow (sendVerification → /auth/verify-email sets
+    // users.emailVerified), which is the real source of truth — Supabase's
+    // email_confirmed_at is only used here to unblock password sign-in.
     const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
-      email_confirm: false,
+      email_confirm: true,
       user_metadata: { firstName: firstName || null, lastName: lastName || null, phone: phone || null },
     });
     if (createErr) {
@@ -681,7 +686,10 @@ router.post("/auth/login", async (req: Request, res: Response) => {
       token: data.session.access_token,
       refreshToken: data.session.refresh_token,
       user: toAuthUser(dbUser),
-      emailVerified: data.user.email_confirmed_at != null,
+      // Reflect OUR verification flow (users.emailVerified), not Supabase's
+      // email_confirmed_at — we confirm Supabase users at creation to unblock
+      // sign-in, so its flag is always true and not a real verification signal.
+      emailVerified: dbUser.emailVerified,
       phone: dbUser.phone,
     });
     return;
