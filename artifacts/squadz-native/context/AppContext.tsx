@@ -177,6 +177,7 @@ type AppContextType = {
   addFriend: (userId: string) => void;
   removeFriend: (userId: string) => void;
   outstandingBalancesCount: number;
+  squadStreamStatus: "connected" | "reconnecting" | "error";
 };
 
 const noop = () => {};
@@ -242,6 +243,7 @@ const AppContext = createContext<AppContextType>({
   addFriend: noop,
   removeFriend: noop,
   outstandingBalancesCount: 0,
+  squadStreamStatus: "reconnecting",
 });
 
 function dbEventToEvent(e: Record<string, unknown>): Event {
@@ -568,63 +570,134 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // member) pushes an "update" event here, triggering refreshSquads() so that
   // every screen sharing AppContext (squad list, header, detail) updates
   // simultaneously without requiring a focus-switch to the detail screen.
+  //
+  // Auto-retries with exponential back-off (up to 30 s) when the connection
+  // drops unexpectedly (server restart, network blip, proxy timeout), so users
+  // don't silently miss live updates mid-session.
+  const [squadStreamStatus, setSquadStreamStatus] = useState<"connected" | "reconnecting" | "error">("reconnecting");
+
+  const globalStreamAbortRef = useRef<AbortController | null>(null);
+  const globalStreamRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const globalStreamRetryCountRef = useRef(0);
+  // Stable ref so the retry timer always calls the latest connect fn.
+  const globalStreamConnectRef = useRef<() => void>(() => {});
+
+  const MAX_GLOBAL_STREAM_RETRIES = 10;
+
   useEffect(() => {
     if (!isLoggedIn || !authToken) return;
 
-    let cancelled = false;
-    const controller = new AbortController();
-    const token = authToken; // capture current token for this connection lifetime
+    const token = authToken;
 
-    const run = async () => {
-      try {
-        const response = await fetch(`${API_BASE}/api/squads/stream`, {
-          headers: {
-            Accept: "text/event-stream",
-            "Cache-Control": "no-cache",
-            Authorization: `Bearer ${token}`,
-          },
-          signal: controller.signal,
-        });
+    const connect = () => {
+      if (globalStreamRetryTimerRef.current !== null) {
+        clearTimeout(globalStreamRetryTimerRef.current);
+        globalStreamRetryTimerRef.current = null;
+      }
 
-        if (!response.ok || !response.body) return;
+      globalStreamAbortRef.current?.abort();
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
+      const controller = new AbortController();
+      globalStreamAbortRef.current = controller;
 
-        while (!cancelled) {
-          const { done, value } = await reader.read();
-          if (done) break;
+      setSquadStreamStatus("reconnecting");
 
-          buffer += decoder.decode(value, { stream: true });
+      const scheduleRetry = () => {
+        if (controller.signal.aborted) return;
 
-          const blocks = buffer.split("\n\n");
-          buffer = blocks.pop() ?? "";
+        globalStreamRetryCountRef.current += 1;
+        if (globalStreamRetryCountRef.current > MAX_GLOBAL_STREAM_RETRIES) {
+          setSquadStreamStatus("error");
+          return;
+        }
 
-          for (const block of blocks) {
-            if (block.includes("event: update")) {
-              void refreshSquads();
+        // Exponential back-off: 1 s, 2 s, 4 s, 8 s … capped at 30 s.
+        const delay = Math.min(1000 * (2 ** (globalStreamRetryCountRef.current - 1)), 30_000);
+        globalStreamRetryTimerRef.current = setTimeout(() => {
+          globalStreamRetryTimerRef.current = null;
+          globalStreamConnectRef.current();
+        }, delay);
+      };
+
+      const run = async () => {
+        try {
+          const response = await fetch(`${API_BASE}/api/squads/stream`, {
+            headers: {
+              Accept: "text/event-stream",
+              "Cache-Control": "no-cache",
+              Authorization: `Bearer ${token}`,
+            },
+            signal: controller.signal,
+          });
+
+          if (!response.ok || !response.body) {
+            scheduleRetry();
+            return;
+          }
+
+          // Stream established — reset retry counter and announce "connected".
+          globalStreamRetryCountRef.current = 0;
+          setSquadStreamStatus("connected");
+
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+
+            const blocks = buffer.split("\n\n");
+            buffer = blocks.pop() ?? "";
+
+            for (const block of blocks) {
+              if (block.includes("event: update")) {
+                void refreshSquads();
+              }
             }
           }
-        }
 
-        reader.releaseLock();
-      } catch (err) {
-        // AbortError is expected on logout / token change — not a problem.
-        if (err instanceof Error && err.name !== "AbortError") {
-          // Network failure. The AppState refresh on foreground will catch
-          // any missed updates until the token rotates and reopens the stream.
+          reader.releaseLock();
+
+          // Stream closed cleanly (server restart, proxy timeout, etc.) — retry.
+          scheduleRetry();
+        } catch (err) {
+          // AbortError is expected on logout / token change — not a problem.
+          if (err instanceof Error && err.name === "AbortError") return;
+          scheduleRetry();
         }
-      }
+      };
+
+      void run();
     };
 
-    void run();
+    globalStreamConnectRef.current = connect;
+    globalStreamRetryCountRef.current = 0;
+    connect();
 
     return () => {
-      cancelled = true;
-      controller.abort();
+      if (globalStreamRetryTimerRef.current !== null) {
+        clearTimeout(globalStreamRetryTimerRef.current);
+        globalStreamRetryTimerRef.current = null;
+      }
+      globalStreamAbortRef.current?.abort();
+      globalStreamAbortRef.current = null;
     };
   }, [isLoggedIn, authToken, refreshSquads]);
+
+  // Reset retry counter and reconnect immediately when the app returns to the
+  // foreground — mobile OSes silently drop TCP connections in the background.
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active" && isLoggedIn && authToken) {
+        globalStreamRetryCountRef.current = 0;
+        globalStreamConnectRef.current();
+      }
+    });
+    return () => sub.remove();
+  }, [isLoggedIn, authToken]);
 
   useEffect(() => {
     AsyncStorage.getItem(AUTH_TOKEN_KEY).then(token => {
@@ -1714,6 +1787,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         addFriend,
         removeFriend,
         outstandingBalancesCount,
+        squadStreamStatus,
       }}
     >
       {children}
