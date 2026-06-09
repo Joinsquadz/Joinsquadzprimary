@@ -150,6 +150,7 @@ export default function EventDetailScreen() {
   const [costDesc, setCostDesc] = useState("");
   const [costTotal, setCostTotal] = useState("");
   const [costShares, setCostShares] = useState<Record<string, string>>({});
+  const [splitMode, setSplitMode] = useState<"even" | "manual">("even");
   const [paymentHandles, setPaymentHandles] = useState<
     Record<string, { venmo: string | null; cashapp: string | null; zelle: string | null }>
   >({});
@@ -285,29 +286,37 @@ export default function EventDetailScreen() {
     setCostDesc("");
     setCostTotal("");
     setCostShares({});
+    setSplitMode("even");
     setCostModal(true);
   };
   const totalNum = parseFloat(costTotal) || 0;
-  const shareValues = costParticipants.map((m) => parseFloat(costShares[m.id] || "0") || 0);
+
+  // Compute even-split shares inline so they stay in sync with the total
+  const evenShares: Record<string, string> = {};
+  if (totalNum > 0 && costParticipants.length > 0) {
+    const per = Math.floor((totalNum / costParticipants.length) * 100) / 100;
+    let running = 0;
+    costParticipants.forEach((m, i) => {
+      if (i === costParticipants.length - 1) {
+        evenShares[m.id] = (Math.round((totalNum - running) * 100) / 100).toFixed(2);
+      } else {
+        evenShares[m.id] = per.toFixed(2);
+        running += per;
+      }
+    });
+  }
+
+  const activeShares = splitMode === "even" ? evenShares : costShares;
+  const shareValues = costParticipants.map((m) => parseFloat(activeShares[m.id] || "0") || 0);
   const hasNegative = shareValues.some((v) => v < 0);
   const assignedNum = shareValues.reduce((sum, v) => sum + v, 0);
   const remaining = totalNum - assignedNum;
   const covered = totalNum > 0 && !hasNegative && Math.abs(remaining) < 0.01;
 
-  const splitEvenly = () => {
-    if (totalNum <= 0) return;
-    const per = Math.floor((totalNum / costParticipants.length) * 100) / 100;
-    const next: Record<string, string> = {};
-    let running = 0;
-    costParticipants.forEach((m, i) => {
-      if (i === costParticipants.length - 1) {
-        next[m.id] = (Math.round((totalNum - running) * 100) / 100).toFixed(2);
-      } else {
-        next[m.id] = per.toFixed(2);
-        running += per;
-      }
-    });
-    setCostShares(next);
+  const switchToManual = () => {
+    // Copy current even-split values so the user has a good starting point
+    setCostShares({ ...evenShares });
+    setSplitMode("manual");
   };
 
   const saveCost = () => {
@@ -324,7 +333,7 @@ export default function EventDetailScreen() {
       return;
     }
     const shares = costParticipants
-      .map((m) => ({ userId: m.id, amount: parseFloat(costShares[m.id] || "0") || 0 }))
+      .map((m) => ({ userId: m.id, amount: parseFloat(activeShares[m.id] || "0") || 0 }))
       .filter((s) => s.amount > 0);
     addCost(event.id, { description: costDesc.trim(), amount: totalNum, shares });
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -1033,7 +1042,7 @@ export default function EventDetailScreen() {
           <View style={[styles.modalCardLarge, { backgroundColor: colors.surface, borderColor: colors.border, paddingBottom: botPad + 16 }]}>
             <Text style={[styles.modalTitle, { color: colors.foreground }]}>Add expense</Text>
             <Text style={[styles.modalHint, { color: colors.mutedForeground }]}>
-              You paid. Assign amounts until the full bill is covered.
+              You paid. Choose how to split the bill.
             </Text>
             <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
               <TextInput
@@ -1053,8 +1062,25 @@ export default function EventDetailScreen() {
                   keyboardType="decimal-pad"
                   style={[styles.amountInput, { color: colors.foreground }]}
                 />
-                <TouchableOpacity onPress={splitEvenly} style={[styles.splitBtn, { backgroundColor: colors.primary + "20", borderColor: colors.primary + "40" }]}>
-                  <Text style={[styles.splitText, { color: colors.primary }]}>Split evenly</Text>
+              </View>
+
+              {/* Split mode toggle */}
+              <View style={[styles.splitToggle, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <TouchableOpacity
+                  onPress={() => setSplitMode("even")}
+                  style={[styles.splitToggleBtn, splitMode === "even" && { backgroundColor: colors.primary }]}
+                >
+                  <Text style={[styles.splitToggleText, { color: splitMode === "even" ? "#fff" : colors.mutedForeground }]}>
+                    Split evenly
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={switchToManual}
+                  style={[styles.splitToggleBtn, splitMode === "manual" && { backgroundColor: colors.primary }]}
+                >
+                  <Text style={[styles.splitToggleText, { color: splitMode === "manual" ? "#fff" : colors.mutedForeground }]}>
+                    Enter manually
+                  </Text>
                 </TouchableOpacity>
               </View>
 
@@ -1063,17 +1089,26 @@ export default function EventDetailScreen() {
                 <View key={m.id} style={[styles.assignRow, { borderColor: colors.border }]}>
                   <UserAvatar initials={m.initials} color={m.color} imageUrl={m.profileImageUrl} size={32} fontSize={11} />
                   <Text style={[styles.assignName, { color: colors.foreground }]}>{m.name.split(" ")[0]}{m.id === currentUser.id ? " (You)" : ""}</Text>
-                  <View style={[styles.assignInputWrap, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                    <Text style={[styles.dollar, { color: colors.textDim }]}>$</Text>
-                    <TextInput
-                      placeholder="0"
-                      placeholderTextColor={colors.textDim}
-                      value={costShares[m.id] ?? ""}
-                      onChangeText={(v) => setCostShares((p) => ({ ...p, [m.id]: v }))}
-                      keyboardType="decimal-pad"
-                      style={[styles.assignInput, { color: colors.foreground }]}
-                    />
-                  </View>
+                  {splitMode === "even" ? (
+                    <View style={[styles.assignInputWrap, { backgroundColor: colors.primary + "12", borderColor: colors.primary + "30" }]}>
+                      <Text style={[styles.dollar, { color: colors.primary }]}>$</Text>
+                      <Text style={[styles.assignInput, { color: colors.primary, textAlignVertical: "center", paddingTop: 2 }]}>
+                        {activeShares[m.id] ?? "—"}
+                      </Text>
+                    </View>
+                  ) : (
+                    <View style={[styles.assignInputWrap, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                      <Text style={[styles.dollar, { color: colors.textDim }]}>$</Text>
+                      <TextInput
+                        placeholder="0"
+                        placeholderTextColor={colors.textDim}
+                        value={costShares[m.id] ?? ""}
+                        onChangeText={(v) => setCostShares((p) => ({ ...p, [m.id]: v }))}
+                        keyboardType="decimal-pad"
+                        style={[styles.assignInput, { color: colors.foreground }]}
+                      />
+                    </View>
+                  )}
                 </View>
               ))}
             </ScrollView>
@@ -1368,8 +1403,9 @@ const styles = StyleSheet.create({
   amountRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   dollar: { fontSize: 16, fontWeight: "700" },
   amountInput: { flex: 1, fontSize: 16, fontWeight: "700", height: "100%" },
-  splitBtn: { borderRadius: 14, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 6 },
-  splitText: { fontSize: 12, fontWeight: "700" },
+  splitToggle: { flexDirection: "row", borderRadius: 12, borderWidth: 1.5, marginTop: 10, overflow: "hidden" },
+  splitToggleBtn: { flex: 1, paddingVertical: 9, alignItems: "center", justifyContent: "center" },
+  splitToggleText: { fontSize: 13, fontWeight: "700" },
   assignLabel: { fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.8, marginTop: 14, marginBottom: 6 },
   assignRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 },
   assignName: { flex: 1, fontSize: 14, fontWeight: "600" },
