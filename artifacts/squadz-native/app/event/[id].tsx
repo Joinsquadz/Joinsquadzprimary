@@ -1198,8 +1198,8 @@ export default function EventDetailScreen() {
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={saveCost}
-                disabled={totalNum <= 0}
-                style={[styles.modalBtn, { backgroundColor: covered ? colors.primary : colors.border, opacity: totalNum <= 0 ? 0.45 : 1 }]}
+                disabled={totalNum <= 0 || !covered}
+                style={[styles.modalBtn, { backgroundColor: covered ? colors.primary : colors.border, opacity: totalNum <= 0 || !covered ? 0.45 : 1 }]}
               >
                 <Text style={[styles.modalBtnText, { color: covered ? "#fff" : colors.textDim }]}>Save expense</Text>
               </TouchableOpacity>
