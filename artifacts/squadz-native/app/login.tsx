@@ -262,10 +262,7 @@ export default function LoginScreen() {
             <View style={[styles.iconGlow, { backgroundColor: "#FF5C3A" }]} />
             <SquadzIcon size={92} style={styles.appIcon} />
           </View>
-          <Text style={styles.wordmark}>squadz</Text>
-          <View style={styles.earlyBadge}>
-            <Text style={styles.earlyBadgeText}>✦ Early Access</Text>
-          </View>
+          <Text style={styles.wordmark}>SquadZ</Text>
           <Text style={[styles.tagline, { color: colors.mutedForeground }]}>
             Stop texting. Start actually hanging.
           </Text>
