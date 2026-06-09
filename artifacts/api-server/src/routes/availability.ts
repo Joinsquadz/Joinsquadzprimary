@@ -95,7 +95,7 @@ const CreatePollBody = z
     squadId: z.string().optional(),
     eventId: z.string().optional(),
     title: z.string().trim().min(1).max(120).optional(),
-    days: z.array(z.string().max(20)).max(14).optional(),
+    days: z.array(z.string().max(20)).max(31).optional(),
     slots: z.array(z.string().max(20)).max(48).optional(),
   })
   .refine((d) => d.squadId || d.eventId, {
@@ -112,13 +112,13 @@ const FindPollQuery = z
   });
 
 const UpsertResponseBody = z.object({
-  cells: z.array(z.string().max(40)).max(672),
+  cells: z.array(z.string().max(40)).max(1488),
 });
 
 const UpdatePollBody = z
   .object({
     title: z.string().trim().max(120).optional(),
-    days: z.array(z.string().max(20)).min(1).max(14).optional(),
+    days: z.array(z.string().max(20)).min(1).max(31).optional(),
     slots: z.array(z.string().max(20)).min(1).max(48).optional(),
   })
   .refine((d) => d.title !== undefined || d.days || d.slots, {

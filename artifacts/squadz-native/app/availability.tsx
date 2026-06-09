@@ -29,6 +29,10 @@ import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { GradientButton } from "@/components/GradientButton";
 
 const DAY_COUNT_OPTIONS = [3, 5, 7, 14, 21, 30];
+// How many day-columns are shown in the grid at once. Larger ranges page
+// through these windows with prev/next arrows instead of cramming every day
+// onto one screen.
+const DAY_WINDOW = 5;
 const DEFAULT_DAY_COUNT = 7;
 const ALL_SLOT_OPTIONS: string[] = ["6AM","7AM","8AM","9AM","10AM","11AM","12PM","1PM","2PM","3PM","4PM","5PM","6PM","7PM","8PM","9PM","10PM"];
 const DEFAULT_SLOTS: string[] = ["6PM","7PM","8PM","9PM","10PM"];
@@ -198,6 +202,8 @@ export default function AvailabilityScreen() {
   // Setup state: shown when no poll exists yet so the creator can pick the
   // availability range (start date + number of days) before it's created.
   const [needsSetup, setNeedsSetup] = useState(false);
+  // Index of the first day column currently shown in the paged grid.
+  const [dayWindowStart, setDayWindowStart] = useState(0);
   const [creating, setCreating] = useState(false);
   const [pollTitle, setPollTitle] = useState("");
   const [rangeStart, setRangeStart] = useState<Date>(new Date());
@@ -1261,10 +1267,46 @@ export default function AvailabilityScreen() {
                   </Text>
                 </View>
               )}
-              <View style={styles.gridHeaderRow}>
-                <View style={styles.timeLabelCol} />
-                {data.poll.days.map((d) => {
-                  const h = dayHeader(d);
+              {(() => {
+                const allDays = data.poll.days;
+                const maxStart = Math.max(0, allDays.length - DAY_WINDOW);
+                const winStart = Math.min(dayWindowStart, maxStart);
+                const visibleDays = allDays.slice(winStart, winStart + DAY_WINDOW);
+                const showPager = allDays.length > DAY_WINDOW;
+                return (
+                  <>
+                    {showPager && (
+                      <View style={styles.pagerRow}>
+                        <TouchableOpacity
+                          onPress={() => { Haptics.selectionAsync(); setDayWindowStart(Math.max(0, winStart - DAY_WINDOW)); }}
+                          disabled={winStart === 0}
+                          style={[styles.pagerBtn, { backgroundColor: colors.card, borderColor: colors.border, opacity: winStart === 0 ? 0.4 : 1 }]}
+                          hitSlop={8}
+                        >
+                          <Ionicons name="chevron-back" size={18} color={colors.foreground} />
+                        </TouchableOpacity>
+                        <View style={styles.pagerLabelWrap}>
+                          <Text style={[styles.pagerLabel, { color: colors.foreground }]} numberOfLines={1}>
+                            {prettyDay(visibleDays[0])}{visibleDays.length > 1 ? ` – ${prettyDay(visibleDays[visibleDays.length - 1])}` : ""}
+                          </Text>
+                          <Text style={[styles.pagerSub, { color: colors.textDim }]}>
+                            Days {winStart + 1}–{winStart + visibleDays.length} of {allDays.length}
+                          </Text>
+                        </View>
+                        <TouchableOpacity
+                          onPress={() => { Haptics.selectionAsync(); setDayWindowStart(Math.min(maxStart, winStart + DAY_WINDOW)); }}
+                          disabled={winStart >= maxStart}
+                          style={[styles.pagerBtn, { backgroundColor: colors.card, borderColor: colors.border, opacity: winStart >= maxStart ? 0.4 : 1 }]}
+                          hitSlop={8}
+                        >
+                          <Ionicons name="chevron-forward" size={18} color={colors.foreground} />
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                    <View style={styles.gridHeaderRow}>
+                      <View style={styles.timeLabelCol} />
+                      {visibleDays.map((d) => {
+                        const h = dayHeader(d);
                   return (
                     <View key={d} style={styles.dayHeaderCol}>
                       <Text style={[styles.dayHeader, { color: colors.mutedForeground }]}>
@@ -1282,7 +1324,7 @@ export default function AvailabilityScreen() {
               {data.poll.slots.map((slot) => (
                 <View key={slot} style={styles.gridRow}>
                   <Text style={[styles.timeLabel, { color: colors.mutedForeground }]}>{slot}</Text>
-                  {data.poll.days.map((day) => {
+                  {visibleDays.map((day) => {
                     const cell = `${day}-${slot}`;
                     const c = counts.get(cell) ?? 0;
                     const isLight = total === 0 || c / total < 0.66;
@@ -1343,6 +1385,9 @@ export default function AvailabilityScreen() {
                   })}
                 </View>
               ))}
+                  </>
+                );
+              })()}
             </View>
 
             {/* Legend */}
@@ -2085,6 +2130,11 @@ const styles = StyleSheet.create({
   liveDot: { width: 6, height: 6, borderRadius: 3 },
   liveText: { fontSize: 11, fontWeight: "600" },
   gridWrap: { marginTop: 22 },
+  pagerRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 14 },
+  pagerBtn: { width: 40, height: 40, borderRadius: 12, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  pagerLabelWrap: { flex: 1, alignItems: "center" },
+  pagerLabel: { fontSize: 15, fontWeight: "800" },
+  pagerSub: { fontSize: 11, fontWeight: "600", marginTop: 1 },
   gridHeaderRow: { flexDirection: "row", marginBottom: 7 },
   timeLabelCol: { width: 38 },
   dayHeaderCol: { flex: 1, alignItems: "center" },
