@@ -151,6 +151,7 @@ export default function EventDetailScreen() {
   const [costTotal, setCostTotal] = useState("");
   const [costShares, setCostShares] = useState<Record<string, string>>({});
   const [splitMode, setSplitMode] = useState<"even" | "manual">("even");
+  const [selectedParticipantIds, setSelectedParticipantIds] = useState<Set<string>>(new Set());
   const [paymentHandles, setPaymentHandles] = useState<
     Record<string, { venmo: string | null; cashapp: string | null; zelle: string | null }>
   >({});
@@ -287,17 +288,33 @@ export default function EventDetailScreen() {
     setCostTotal("");
     setCostShares({});
     setSplitMode("even");
+    setSelectedParticipantIds(new Set(Object.keys(event.rsvps)));
     setCostModal(true);
   };
   const totalNum = parseFloat(costTotal) || 0;
 
+  // Only include participants that the user has selected for this split
+  const splitParticipants = costParticipants.filter((m) => selectedParticipantIds.has(m.id));
+
+  const toggleSplitParticipant = (uid: string) => {
+    setSelectedParticipantIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(uid)) {
+        next.delete(uid);
+      } else {
+        next.add(uid);
+      }
+      return next;
+    });
+  };
+
   // Compute even-split shares inline so they stay in sync with the total
   const evenShares: Record<string, string> = {};
-  if (totalNum > 0 && costParticipants.length > 0) {
-    const per = Math.floor((totalNum / costParticipants.length) * 100) / 100;
+  if (totalNum > 0 && splitParticipants.length > 0) {
+    const per = Math.floor((totalNum / splitParticipants.length) * 100) / 100;
     let running = 0;
-    costParticipants.forEach((m, i) => {
-      if (i === costParticipants.length - 1) {
+    splitParticipants.forEach((m, i) => {
+      if (i === splitParticipants.length - 1) {
         evenShares[m.id] = (Math.round((totalNum - running) * 100) / 100).toFixed(2);
       } else {
         evenShares[m.id] = per.toFixed(2);
@@ -307,11 +324,11 @@ export default function EventDetailScreen() {
   }
 
   const activeShares = splitMode === "even" ? evenShares : costShares;
-  const shareValues = costParticipants.map((m) => parseFloat(activeShares[m.id] || "0") || 0);
+  const shareValues = splitParticipants.map((m) => parseFloat(activeShares[m.id] || "0") || 0);
   const hasNegative = shareValues.some((v) => v < 0);
   const assignedNum = shareValues.reduce((sum, v) => sum + v, 0);
   const remaining = totalNum - assignedNum;
-  const covered = totalNum > 0 && !hasNegative && Math.abs(remaining) < 0.01;
+  const covered = totalNum > 0 && splitParticipants.length > 0 && !hasNegative && Math.abs(remaining) < 0.01;
 
   const switchToManual = () => {
     // Copy current even-split values so the user has a good starting point
@@ -328,6 +345,10 @@ export default function EventDetailScreen() {
       Alert.alert("Missing amount", "Enter a total greater than $0.");
       return;
     }
+    if (splitParticipants.length === 0) {
+      Alert.alert("No one selected", "Select at least one person to split the cost with.");
+      return;
+    }
     if (hasNegative) {
       Alert.alert("Invalid amount", "Shares can't be negative. Enter $0 or more for each person.");
       return;
@@ -336,7 +357,7 @@ export default function EventDetailScreen() {
       Alert.alert("Bill not covered", `Assign the full $${totalNum.toFixed(2)} across people. $${remaining.toFixed(2)} left.`);
       return;
     }
-    const shares = costParticipants
+    const shares = splitParticipants
       .map((m) => ({ userId: m.id, amount: parseFloat(activeShares[m.id] || "0") || 0 }))
       .filter((s) => s.amount > 0);
     addCost(event.id, { description: costDesc.trim(), amount: totalNum, shares });
@@ -1068,6 +1089,43 @@ export default function EventDetailScreen() {
                 />
               </View>
 
+              {/* Participant picker — only show when there are 2+ RSVP'd guests */}
+              {costParticipants.length > 1 && (
+                <>
+                  <Text style={[styles.assignLabel, { color: colors.mutedForeground }]}>Who's included</Text>
+                  {costParticipants.map((m) => {
+                    const selected = selectedParticipantIds.has(m.id);
+                    return (
+                      <TouchableOpacity
+                        key={m.id}
+                        onPress={() => toggleSplitParticipant(m.id)}
+                        style={[
+                          styles.assignRow,
+                          { borderColor: selected ? colors.primary + "50" : colors.border, backgroundColor: selected ? colors.primary + "08" : "transparent" },
+                        ]}
+                        activeOpacity={0.7}
+                      >
+                        <UserAvatar initials={m.initials} color={m.color} imageUrl={m.profileImageUrl} size={32} fontSize={11} />
+                        <Text style={[styles.assignName, { color: colors.foreground, flex: 1 }]}>
+                          {m.name.split(" ")[0]}{m.id === currentUser.id ? " (You)" : ""}
+                        </Text>
+                        <View style={[
+                          styles.participantCheckbox,
+                          { borderColor: selected ? colors.primary : colors.border, backgroundColor: selected ? colors.primary : "transparent" },
+                        ]}>
+                          {selected && <Ionicons name="checkmark" size={13} color="#fff" />}
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                  {splitParticipants.length === 0 && (
+                    <Text style={[styles.assignLabel, { color: colors.destructive, marginTop: 2 }]}>
+                      Select at least one person.
+                    </Text>
+                  )}
+                </>
+              )}
+
               {/* Split mode toggle */}
               <View style={[styles.splitToggle, { backgroundColor: colors.card, borderColor: colors.border }]}>
                 <TouchableOpacity
@@ -1088,33 +1146,37 @@ export default function EventDetailScreen() {
                 </TouchableOpacity>
               </View>
 
-              <Text style={[styles.assignLabel, { color: colors.mutedForeground }]}>Who owes what</Text>
-              {costParticipants.map((m) => (
-                <View key={m.id} style={[styles.assignRow, { borderColor: colors.border }]}>
-                  <UserAvatar initials={m.initials} color={m.color} imageUrl={m.profileImageUrl} size={32} fontSize={11} />
-                  <Text style={[styles.assignName, { color: colors.foreground }]}>{m.name.split(" ")[0]}{m.id === currentUser.id ? " (You)" : ""}</Text>
-                  {splitMode === "even" ? (
-                    <View style={[styles.assignInputWrap, { backgroundColor: colors.primary + "12", borderColor: colors.primary + "30" }]}>
-                      <Text style={[styles.dollar, { color: colors.primary }]}>$</Text>
-                      <Text style={[styles.assignInput, { color: colors.primary, textAlignVertical: "center", paddingTop: 2 }]}>
-                        {activeShares[m.id] ?? "—"}
-                      </Text>
+              {splitParticipants.length > 0 && (
+                <>
+                  <Text style={[styles.assignLabel, { color: colors.mutedForeground }]}>Who owes what</Text>
+                  {splitParticipants.map((m) => (
+                    <View key={m.id} style={[styles.assignRow, { borderColor: colors.border }]}>
+                      <UserAvatar initials={m.initials} color={m.color} imageUrl={m.profileImageUrl} size={32} fontSize={11} />
+                      <Text style={[styles.assignName, { color: colors.foreground }]}>{m.name.split(" ")[0]}{m.id === currentUser.id ? " (You)" : ""}</Text>
+                      {splitMode === "even" ? (
+                        <View style={[styles.assignInputWrap, { backgroundColor: colors.primary + "12", borderColor: colors.primary + "30" }]}>
+                          <Text style={[styles.dollar, { color: colors.primary }]}>$</Text>
+                          <Text style={[styles.assignInput, { color: colors.primary, textAlignVertical: "center", paddingTop: 2 }]}>
+                            {activeShares[m.id] ?? "—"}
+                          </Text>
+                        </View>
+                      ) : (
+                        <View style={[styles.assignInputWrap, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                          <Text style={[styles.dollar, { color: colors.textDim }]}>$</Text>
+                          <TextInput
+                            placeholder="0"
+                            placeholderTextColor={colors.textDim}
+                            value={costShares[m.id] ?? ""}
+                            onChangeText={(v) => setCostShares((p) => ({ ...p, [m.id]: v }))}
+                            keyboardType="decimal-pad"
+                            style={[styles.assignInput, { color: colors.foreground }]}
+                          />
+                        </View>
+                      )}
                     </View>
-                  ) : (
-                    <View style={[styles.assignInputWrap, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                      <Text style={[styles.dollar, { color: colors.textDim }]}>$</Text>
-                      <TextInput
-                        placeholder="0"
-                        placeholderTextColor={colors.textDim}
-                        value={costShares[m.id] ?? ""}
-                        onChangeText={(v) => setCostShares((p) => ({ ...p, [m.id]: v }))}
-                        keyboardType="decimal-pad"
-                        style={[styles.assignInput, { color: colors.foreground }]}
-                      />
-                    </View>
-                  )}
-                </View>
-              ))}
+                  ))}
+                </>
+              )}
             </ScrollView>
 
             <View style={[styles.coverageBar, { borderColor: covered ? colors.green : colors.border, backgroundColor: (covered ? colors.green : colors.gold) + "15" }]}>
@@ -1415,8 +1477,9 @@ const styles = StyleSheet.create({
   splitToggleBtn: { flex: 1, paddingVertical: 9, alignItems: "center", justifyContent: "center" },
   splitToggleText: { fontSize: 13, fontWeight: "700" },
   assignLabel: { fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.8, marginTop: 14, marginBottom: 6 },
-  assignRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 },
+  assignRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6, paddingHorizontal: 4, borderRadius: 10, borderWidth: 1, borderColor: "transparent" },
   assignName: { flex: 1, fontSize: 14, fontWeight: "600" },
+  participantCheckbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
   assignInputWrap: { flexDirection: "row", alignItems: "center", gap: 2, borderRadius: 10, borderWidth: 1, paddingHorizontal: 10, width: 100, height: 40 },
   assignInput: { flex: 1, fontSize: 14, fontWeight: "700", height: "100%" },
   coverageBar: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 12, borderWidth: 1.5, paddingHorizontal: 12, paddingVertical: 10, marginTop: 6 },
