@@ -26,6 +26,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { useColors } from "@/hooks/useColors";
 import { useAuth, useData } from "@/context/AppContext";
+import { useToast } from "@/context/ToastContext";
 import { startProCheckout } from "@/lib/checkout";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
@@ -139,7 +140,7 @@ export default function VaultScreen() {
   const [uploadEventId, setUploadEventId] = useState<string>("");
   const [activeSquad, setActiveSquad] = useState<string>("all");
   const [eventPickerOpen, setEventPickerOpen] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const { showToast } = useToast();
 
   // Squad vault state (only used when squadId is present)
   const [squadPhotos, setSquadPhotos] = useState<SquadVaultPhoto[]>([]);
@@ -319,8 +320,7 @@ export default function VaultScreen() {
       if (pro) {
         setConfirmingUpgrade(false);
         await fetchPhotos();
-        setToast("Welcome to Pro! Your full vault is unlocked.");
-        setTimeout(() => setToast(null), 4000);
+        showToast("Welcome to Pro! Your full vault is unlocked.", 4000);
         return;
       }
     }
@@ -894,12 +894,6 @@ export default function VaultScreen() {
         </ScrollView>
       )}
 
-      {toast && (
-        <View style={[styles.toast, { bottom: botPad + 32, backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.toastText, { color: colors.foreground }]}>{toast}</Text>
-        </View>
-      )}
-
       <Modal
         visible={pickerOpen}
         animationType="slide"
@@ -1142,21 +1136,6 @@ const styles = StyleSheet.create({
   },
   uploadLabel: { fontSize: 15, fontWeight: "700", fontFamily: "Inter_700Bold" },
   uploadSub: { fontSize: 12, fontFamily: "Inter_400Regular", position: "absolute", bottom: 8 },
-  toast: {
-    position: "absolute",
-    left: 20,
-    right: 20,
-    borderRadius: 12,
-    borderWidth: 1,
-    padding: 14,
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  toastText: { fontSize: 14, fontWeight: "600", fontFamily: "Inter_600SemiBold" },
   attrOverlay: {
     position: "absolute",
     bottom: 0,

@@ -16,6 +16,7 @@ import { router } from "expo-router";
 
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AppContext";
+import { useToast } from "@/context/ToastContext";
 import { downloadPhoto } from "@/lib/downloadPhoto";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
@@ -51,7 +52,7 @@ export default function PhotosTab() {
   const [selected, setSelected] = useState<number | null>(null);
   const [activeFilter, setActiveFilter] = useState("All");
   const [downloadingId, setDownloadingId] = useState<number | "all" | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  const { showToast } = useToast();
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + 96;
@@ -98,11 +99,6 @@ export default function PhotosTab() {
   const filteredPhotos = viewablePhotos.filter(
     (p) => activeFilter === "All" || p.squadName === activeFilter,
   );
-
-  const showToast = useCallback((msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 2600);
-  }, []);
 
   const handleDownload = useCallback(
     async (photo: LivePhoto) => {
@@ -358,11 +354,6 @@ export default function PhotosTab() {
         </ScrollView>
       )}
 
-      {toast && (
-        <View style={[styles.toast, { bottom: botPad - 56, backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.toastText, { color: colors.foreground }]}>{toast}</Text>
-        </View>
-      )}
     </View>
   );
 }
@@ -451,18 +442,4 @@ const styles = StyleSheet.create({
   detailMeta: { fontSize: 13, fontFamily: "Inter_400Regular", marginBottom: 14 },
   detailDownloadBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 12, paddingVertical: 12 },
   detailDownloadText: { color: "#fff", fontWeight: "700", fontFamily: "Inter_700Bold", fontSize: 14 },
-  toast: {
-    position: "absolute",
-    alignSelf: "center",
-    borderWidth: 1,
-    borderRadius: 24,
-    paddingHorizontal: 18,
-    paddingVertical: 11,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 8,
-  },
-  toastText: { fontSize: 13, fontWeight: "600", fontFamily: "Inter_600SemiBold" },
 });
