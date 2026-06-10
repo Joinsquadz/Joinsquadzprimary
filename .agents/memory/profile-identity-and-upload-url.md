@@ -51,6 +51,25 @@ containment boundary (private media stays auth-gated, only avatars are public).
   private/auth-gated path on error (that re-creates the broken-avatar bug). Verify the
   public bucket is actually `public===true` before trusting it, don't just assume it
   exists.
-**Watch:** a one-off `StorageApiError: new row violates row-level security policy` on
-`createSignedUploadUrl` was seen in-server but was NOT reproducible with the same
-service-role client — treat as a transient Supabase hiccup, not the root cause.
+# Storage RLS denial = a user session contaminated the shared supabase client
+
+Symptom: `StorageApiError: new row violates row-level security policy` (403) on
+`createBucket` / `createSignedUploadUrl` IN-SERVER, while the identical service_role
+client works in a standalone script. The startup key check confirms `role:
+"service_role"`, so the key is fine — the request just isn't being sent as
+service_role.
+
+**Why:** supabase-js keeps a signed-in user's session IN MEMORY on the client even
+with `persistSession:false`. The Storage sub-client resolves its `Authorization`
+header from that session, so after ANY session-setting auth call
+(`signInWithPassword`, `refreshSession`, `setSession`) on a client, every later
+`.storage.*` call on the SAME client sends the user's JWT instead of the service key
+→ RLS denial. It's intermittent: storage works until a user logs in on the server,
+then breaks. `admin.createUser` and `getUser(token)` are non-mutating and safe.
+
+**How to apply:** keep TWO separate client instances (`services/supabase.ts`):
+`supabaseAdmin` (Storage + admin.*, must stay pristine) and `supabaseAuth` (the
+session-setting flows in `routes/auth.ts`). Never call signInWithPassword/
+refreshSession/setSession on the admin/storage client. Repro/verify: sign a user in
+on a shared client, then a `.storage` write flips OK→RLS; on separate clients it
+stays OK.

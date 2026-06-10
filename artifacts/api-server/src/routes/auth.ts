@@ -24,7 +24,7 @@ import {
   type SessionData,
 } from "../lib/auth";
 import { sendVerificationEmail, sendPasswordResetEmail } from "../emailService";
-import { supabaseAdmin } from "../services/supabase";
+import { supabaseAdmin, supabaseAuth } from "../services/supabase";
 import { trackEvent, identifyUser } from "../services/analytics";
 
 const OIDC_COOKIE_TTL = 10 * 60 * 1000;
@@ -584,7 +584,7 @@ router.post("/auth/register", async (req: Request, res: Response) => {
   const { password, phone, firstName, lastName } = parsed.data;
 
   // --- Supabase Auth path (when SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY are set) ---
-  if (supabaseAdmin) {
+  if (supabaseAdmin && supabaseAuth) {
     // Mark the Supabase user as confirmed at creation so a session is issued
     // immediately (and future logins work). Email verification is handled by
     // our OWN flow (sendVerification → /auth/verify-email sets
@@ -605,7 +605,7 @@ router.post("/auth/register", async (req: Request, res: Response) => {
       });
       return;
     }
-    const { data: signIn } = await supabaseAdmin.auth.signInWithPassword({ email, password });
+    const { data: signIn } = await supabaseAuth.auth.signInWithPassword({ email, password });
     const dbUser = await syncSupabaseUser(created.user, { firstName, lastName, phone });
     void sendVerification(req, dbUser);
     identifyUser(dbUser.id, { email, firstName: dbUser.firstName ?? undefined, lastName: dbUser.lastName ?? undefined });
@@ -670,8 +670,8 @@ router.post("/auth/login", async (req: Request, res: Response) => {
   const email = normalizeEmail(parsed.data.email);
 
   // --- Supabase Auth path (when SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY are set) ---
-  if (supabaseAdmin) {
-    const { data, error } = await supabaseAdmin.auth.signInWithPassword({
+  if (supabaseAdmin && supabaseAuth) {
+    const { data, error } = await supabaseAuth.auth.signInWithPassword({
       email,
       password: parsed.data.password,
     });
@@ -727,7 +727,7 @@ router.post("/auth/logout", async (req: Request, res: Response) => {
  * No-ops (501) when Supabase is not configured.
  */
 router.post("/auth/refresh", async (req: Request, res: Response) => {
-  if (!supabaseAdmin) {
+  if (!supabaseAuth) {
     res.status(501).json({ error: "Token refresh requires Supabase to be configured." });
     return;
   }
@@ -736,7 +736,7 @@ router.post("/auth/refresh", async (req: Request, res: Response) => {
     res.status(400).json({ error: "refreshToken is required." });
     return;
   }
-  const { data, error } = await supabaseAdmin.auth.refreshSession({ refresh_token: refreshToken });
+  const { data, error } = await supabaseAuth.auth.refreshSession({ refresh_token: refreshToken });
   if (error || !data.session) {
     res.status(401).json({ error: "Invalid or expired refresh token." });
     return;
