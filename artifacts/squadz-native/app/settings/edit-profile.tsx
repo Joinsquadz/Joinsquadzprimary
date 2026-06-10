@@ -22,7 +22,7 @@ import { useAuth } from "@/context/AppContext";
 import { useUserCache } from "@/context/UserCacheContext";
 import { UserAvatar } from "@/components/UserAvatar";
 import { GradientButton } from "@/components/GradientButton";
-import { API_BASE, buildAuthHeaders } from "@/lib/api";
+import { API_BASE, buildAuthHeaders, resolveUploadedUrl } from "@/lib/api";
 
 function splitName(name: string): { first: string; last: string } {
   const parts = name.trim().split(/\s+/);
@@ -116,7 +116,7 @@ export default function EditProfileScreen() {
         headers: { "Content-Type": blob.type || "image/jpeg" },
       });
       if (!putRes.ok) return null;
-      return `/api/storage${objectPath}`;
+      return resolveUploadedUrl(objectPath);
     } catch {
       return null;
     }

@@ -22,6 +22,22 @@ export function resolveApiBase(): string {
 export const API_BASE = resolveApiBase();
 
 /**
+ * Resolves an upload `objectPath` returned by POST /storage/uploads/request-url
+ * into a URL the client can load.
+ *
+ * - Public uploads (e.g. profile avatars) come back as a full Supabase public
+ *   URL (`https://...`) and must be used verbatim.
+ * - Protected uploads come back as a relative `/objects/...` path served through
+ *   the auth-gated `/api/storage` proxy.
+ *
+ * Prepending the proxy prefix to a full URL yields a broken link, so callers
+ * must branch on whether the path is already absolute.
+ */
+export function resolveUploadedUrl(objectPath: string): string {
+  return /^https?:\/\//i.test(objectPath) ? objectPath : `/api/storage${objectPath}`;
+}
+
+/**
  * Builds auth headers for authenticated API calls.
  * Returns a Bearer Authorization header when a token is present, otherwise
  * an empty object. The result is compatible with both `HeadersInit` and

@@ -26,4 +26,8 @@ export type MockUser = {
   profileImageUrl?: string | null;
 };
 
-export const ME: MockUser = { id: "me", name: "Jordan Park", initials: "JP", color: USER_COLORS[0] };
+// Neutral placeholder for the brief window before the real authenticated user
+// (apiUser) loads. NEVER give this a real-looking name/initials — it is shown as
+// `currentUser` while apiUser is momentarily null, and a fake name leaks into the
+// UI as if it were the signed-in person.
+export const ME: MockUser = { id: "me", name: "You", initials: "", color: USER_COLORS[0] };
