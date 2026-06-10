@@ -105,8 +105,8 @@ describe("useSquadStream — auto-reconnect with exponential backoff", () => {
   // ── Helper: extract the delay values passed to setTimeout ──────────────────
   function scheduledDelays(): number[] {
     return setTimeoutSpy.mock.calls
-      .map((c) => c[1])
-      .filter((d): d is number => typeof d === "number");
+      .map((c: unknown[]) => c[1])
+      .filter((d: unknown): d is number => typeof d === "number");
   }
 
   // ── Backoff progression ───────────────────────────────────────────────────

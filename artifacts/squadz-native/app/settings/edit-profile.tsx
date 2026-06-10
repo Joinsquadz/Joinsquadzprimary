@@ -34,7 +34,7 @@ export default function EditProfileScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { currentUser, authToken, refreshUser } = useAuth();
-  const { seedUser } = useUserCache();
+  const { seedUser, resolveUser } = useUserCache();
 
   const initial = splitName(currentUser.name);
   const [firstName, setFirstName] = useState(initial.first);
@@ -178,6 +178,7 @@ export default function EditProfileScreen() {
         initials: updatedInitials,
         color: currentUser.color,
         profileImageUrl: profileImageUrl ?? currentUser.profileImageUrl ?? null,
+        isPro: resolveUser(currentUser.id).isPro,
       });
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);

@@ -8,9 +8,38 @@ import { storage } from "../storage";
 import { logger } from "../lib/logger";
 import { sendPushNotifications } from "../lib/pushNotifications";
 import { emitSquadUpdate, onSquadUpdate } from "../lib/squadEvents";
+import { resolveProStatus, resolveProStatusForIds } from "../lib/proStatus";
 
 function generateInviteCode(): string {
   return randomBytes(5).toString("hex").toUpperCase();
+}
+
+const FREE_SQUAD_LIMIT = 2;
+
+/**
+ * Count how many squads a user currently belongs to.
+ */
+async function countSquadsForUser(userId: string): Promise<number> {
+  const [row] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(squadsTable)
+    .where(sql`${squadsTable.memberIds} @> ${JSON.stringify([userId])}::jsonb`);
+  return row?.count ?? 0;
+}
+
+/**
+ * Returns true if the (free) user is at or over the squad limit and should be
+ * blocked from joining/creating another. Pro users are never blocked. The check
+ * only gates NEW joins/creates — existing memberships are never revoked, so a
+ * user already in 3+ squads (e.g. after a downgrade) keeps them all.
+ */
+async function isAtSquadLimit(userId: string): Promise<boolean> {
+  const user = await storage.getUser(userId);
+  if (!user) return false;
+  const isPro = await resolveProStatus(user);
+  if (isPro) return false;
+  const count = await countSquadsForUser(userId);
+  return count >= FREE_SQUAD_LIMIT;
 }
 
 const router: IRouter = Router();
@@ -64,6 +93,17 @@ router.post("/squads/:id/join", requireAuth, async (req: Request, res: Response)
   }
   // Snapshot pre-join members for notification targeting (before the update).
   const memberIds = (squad.memberIds ?? []) as string[];
+
+  // Free squad limit: block NEW joins past the cap (already-members pass through
+  // so a re-join stays an idempotent no-op).
+  if (!memberIds.includes(userId) && (await isAtSquadLimit(userId))) {
+    res.status(403).json({
+      error: `Free plan is limited to ${FREE_SQUAD_LIMIT} squads. Upgrade to Squadz+ to join more.`,
+      code: "SQUAD_LIMIT",
+      limit: FREE_SQUAD_LIMIT,
+    });
+    return;
+  }
 
   // Atomic append: the WHERE NOT @> guard ensures that even under concurrent
   // joins, no member is silently overwritten. If the user is already a member
@@ -149,6 +189,16 @@ router.post("/squads/join-via-code", requireAuth, async (req: Request, res: Resp
   // Snapshot pre-join members for notification targeting (before the update).
   const memberIds = (squad.memberIds ?? []) as string[];
 
+  // Free squad limit: block NEW joins past the cap (already-members pass through).
+  if (!memberIds.includes(userId) && (await isAtSquadLimit(userId))) {
+    res.status(403).json({
+      error: `Free plan is limited to ${FREE_SQUAD_LIMIT} squads. Upgrade to Squadz+ to join more.`,
+      code: "SQUAD_LIMIT",
+      limit: FREE_SQUAD_LIMIT,
+    });
+    return;
+  }
+
   // Atomic append: the WHERE NOT @> guard prevents the classic concurrent
   // read-modify-write race where two simultaneous joins each overwrite the
   // other's append. 0 rows returned means the user was already a member.
@@ -216,6 +266,17 @@ router.post("/squads", requireAuth, async (req: Request, res: Response): Promise
     return;
   }
   const userId = (req.user as { id: string }).id;
+
+  // Free squad limit: creating a squad counts toward the cap.
+  if (await isAtSquadLimit(userId)) {
+    res.status(403).json({
+      error: `Free plan is limited to ${FREE_SQUAD_LIMIT} squads. Upgrade to Squadz+ to create more.`,
+      code: "SQUAD_LIMIT",
+      limit: FREE_SQUAD_LIMIT,
+    });
+    return;
+  }
+
   const memberIds = Array.from(new Set([userId, ...parsed.data.memberIds]));
   const inviteCode = generateInviteCode();
   const [squad] = await db.insert(squadsTable).values({ ...parsed.data, memberIds, creatorId: userId, inviteCode }).returning();
@@ -315,7 +376,9 @@ router.get("/squads/:id", requireAuth, async (req: Request, res: Response): Prom
           .from(usersTable)
           .where(inArray(usersTable.id, memberIds))
       : [];
-  res.json({ ...squad, members });
+  const proMap = await resolveProStatusForIds(memberIds);
+  const membersWithPro = members.map((m) => ({ ...m, isPro: proMap[m.id] ?? false }));
+  res.json({ ...squad, members: membersWithPro });
 });
 
 // GET /api/squads/:id/stream — SSE endpoint for real-time squad updates.

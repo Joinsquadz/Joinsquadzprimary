@@ -15,7 +15,7 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useAuth, useData } from "@/context/AppContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
-import { UserAvatar } from "@/components/UserAvatar";
+import { ProAvatar } from "@/components/ProAvatar";
 
 type SharedSquad = { id: string; name: string; emoji: string; color: string };
 
@@ -26,6 +26,7 @@ type UserProfile = {
   profileImageUrl: string | null;
   bio: string | null;
   hometown: string | null;
+  isPro: boolean;
   sharedSquads: SharedSquad[];
 };
 
@@ -144,12 +145,13 @@ export default function UserProfileScreen() {
         {/* Avatar + name card */}
         <View style={[styles.profileCard, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
           <View style={styles.avatarWrap}>
-            <UserAvatar
+            <ProAvatar
               initials={initials(profile.name)}
               color={avatarColor(profile.id)}
               imageUrl={profile.profileImageUrl}
               size={88}
               fontSize={30}
+              isPro={profile.isPro}
             />
           </View>
           <Text style={[styles.name, { color: colors.foreground }]}>{profile.name}</Text>

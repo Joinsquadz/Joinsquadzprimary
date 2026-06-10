@@ -309,6 +309,7 @@ function RootLayoutNav() {
         <Stack.Screen name="join/[inviteCode]" />
         <Stack.Screen name="squad/create" />
         <Stack.Screen name="conversation/[id]" />
+        <Stack.Screen name="moment/compose" />
         <Stack.Screen name="friends" />
         <Stack.Screen name="vault" />
         <Stack.Screen name="availability" />

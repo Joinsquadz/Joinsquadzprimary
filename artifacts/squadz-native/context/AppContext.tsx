@@ -11,6 +11,18 @@ import { track, identify, reset as analyticsReset } from "@/lib/analytics";
 const AUTH_TOKEN_KEY = "@squadz/authToken";
 const REFRESH_TOKEN_KEY = "@squadz/refreshToken";
 
+/**
+ * Thrown by addSquad when the server rejects a create because the free user is
+ * at the 2-squad limit. Callers can catch this to prompt an upgrade instead of
+ * falling back to an optimistic local squad.
+ */
+export class SquadLimitError extends Error {
+  constructor() {
+    super("SQUAD_LIMIT");
+    this.name = "SquadLimitError";
+  }
+}
+
 // All app-level AsyncStorage keys. Add new keys here so they are
 // automatically cleared on logout, preventing data leaking between accounts.
 const ALL_APP_STORAGE_KEYS: string[] = [
@@ -1516,22 +1528,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const addSquad = useCallback(async (input: { name: string; description?: string; emoji: string; color: string; isPublic?: boolean }): Promise<string> => {
     const userId = apiUser?.id ?? currentUserIdRef.current;
-    try {
-      const res = await apiFetch("/api/squads", {
-        method: "POST",
-        body: JSON.stringify({ ...input, memberIds: [userId] }),
-      });
-      if (!res.ok) throw new Error("Failed to create squad");
-      const squad = await res.json() as Record<string, unknown>;
-      const mapped = dbSquadToSquad(squad);
-      setSquads((prev) => [...prev, mapped]);
-      return mapped.id;
-    } catch {
+    const optimisticFallback = (): string => {
       const id = `s${Date.now()}`;
       const newSquad: Squad = { id, name: input.name, description: input.description ?? null, emoji: input.emoji, color: input.color, memberIds: [userId], isPublic: input.isPublic ?? false };
       setSquads((prev) => [...prev, newSquad]);
       return id;
+    };
+    let res: Awaited<ReturnType<typeof apiFetch>>;
+    try {
+      res = await apiFetch("/api/squads", {
+        method: "POST",
+        body: JSON.stringify({ ...input, memberIds: [userId] }),
+      });
+    } catch {
+      // Network failure — fall back to an optimistic local squad.
+      return optimisticFallback();
     }
+    // Free squad limit reached — surface to the caller so it can prompt an upgrade
+    // instead of silently creating an optimistic local squad.
+    if (res.status === 403) {
+      const body = (await res.json().catch(() => ({}))) as { code?: string };
+      if (body.code === "SQUAD_LIMIT") throw new SquadLimitError();
+      return optimisticFallback();
+    }
+    if (!res.ok) return optimisticFallback();
+    const squad = await res.json() as Record<string, unknown>;
+    const mapped = dbSquadToSquad(squad);
+    setSquads((prev) => [...prev, mapped]);
+    return mapped.id;
   }, [apiFetch, apiUser]);
 
   const updateSquad = useCallback(

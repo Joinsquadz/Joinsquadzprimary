@@ -22,6 +22,10 @@ function NativeTabLayout() {
         <Label>Home</Label>
         {outstandingBalancesCount > 0 ? <Badge>{outstandingBalancesCount > 99 ? "99+" : String(outstandingBalancesCount)}</Badge> : null}
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="feed">
+        <Icon sf={{ default: "sparkles", selected: "sparkles" }} />
+        <Label>Vibe</Label>
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="squads">
         <Icon sf={{ default: "person.2", selected: "person.2.fill" }} />
         <Label>SquadZ</Label>
@@ -94,6 +98,18 @@ function ClassicTabLayout() {
               <SymbolView name="house" tintColor={color} size={24} />
             ) : (
               <Ionicons name="home-outline" size={22} color={color} />
+            ),
+        }}
+      />
+      <Tabs.Screen
+        name="feed"
+        options={{
+          title: "Vibe",
+          tabBarIcon: ({ color }) =>
+            isIOS ? (
+              <SymbolView name="sparkles" tintColor={color} size={24} />
+            ) : (
+              <Ionicons name="sparkles-outline" size={22} color={color} />
             ),
         }}
       />

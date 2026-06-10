@@ -28,6 +28,7 @@ import { useEventStream } from "@/hooks/useEventStream";
 import { useData, useAuth } from "@/context/AppContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { UserAvatar } from "@/components/UserAvatar";
+import { ProAvatar } from "@/components/ProAvatar";
 import { ContactSheet } from "@/components/ContactSheet";
 import { goingCount } from "@/lib/eventUtils";
 import type { RsvpStatus } from "@/types";
@@ -286,7 +287,12 @@ export default function EventDetailScreen() {
   const squad = getSquad(event.squadId);
 
   function resolveForDisplay(userId: string): ResolvedUser {
-    if (userId === currentUser.id) return currentUser as unknown as ResolvedUser;
+    if (userId === currentUser.id) {
+      return {
+        ...(currentUser as unknown as ResolvedUser),
+        isPro: resolveUser(currentUser.id).isPro,
+      };
+    }
     return resolveUser(userId);
   }
 
@@ -923,7 +929,7 @@ export default function EventDetailScreen() {
                 }}
                 style={[styles.guestRow, { backgroundColor: colors.card, borderColor: colors.border }]}
               >
-                <UserAvatar initials={u.initials} color={u.color} imageUrl={u.profileImageUrl} size={44} fontSize={15} />
+                <ProAvatar initials={u.initials} color={u.color} imageUrl={u.profileImageUrl} size={44} fontSize={15} isPro={u.isPro} />
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.guestName, { color: colors.foreground }]}>{u.name}{u.id === currentUser.id ? " (You)" : ""}</Text>
                   <Text style={[styles.guestStatus, { color: statusColor(status) }]}>{STATUS_LABEL[status]}</Text>

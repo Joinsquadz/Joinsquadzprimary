@@ -15,7 +15,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
-import { useData } from "@/context/AppContext";
+import { useData, SquadLimitError } from "@/context/AppContext";
+import { UpgradeModal } from "@/components/UpgradeModal";
 
 const EMOJIS = ["🔥", "🎉", "🎮", "🏖️", "🍕", "🎸", "⚽", "🎬", "🍻", "🎊", "🏀", "🎲", "🧗", "🎤"];
 const COLORS = ["#FF5C3A", "#4A9EFF", "#2ECC8A", "#A855F7", "#FFB547", "#FF6B9D"];
@@ -40,6 +41,7 @@ export default function CreateSquadScreen() {
   const [emoji, setEmoji] = useState("🔥");
   const [color, setColor] = useState(COLORS[0]);
   const [isPublic, setIsPublic] = useState(false);
+  const [showUpgrade, setShowUpgrade] = useState(false);
 
   const pickCategory = (cat: (typeof CATEGORIES)[number]) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -53,10 +55,20 @@ export default function CreateSquadScreen() {
       Alert.alert("Missing info", "Give your squad a name.");
       return;
     }
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     const desc = description.trim();
-    const id = await addSquad({ name: name.trim(), description: desc || undefined, emoji, color, isPublic });
-    router.replace(`/squad/${id}` as never);
+    try {
+      const id = await addSquad({ name: name.trim(), description: desc || undefined, emoji, color, isPublic });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      router.replace(`/squad/${id}` as never);
+    } catch (err) {
+      if (err instanceof SquadLimitError) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        setShowUpgrade(true);
+        return;
+      }
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert("Couldn't create squad", "Something went wrong. Please try again.");
+    }
   };
 
   const canCreate = !!name.trim();
@@ -213,6 +225,12 @@ export default function CreateSquadScreen() {
           </Text>
         </TouchableOpacity>
       </View>
+
+      <UpgradeModal
+        visible={showUpgrade}
+        trigger="squad_limit"
+        onClose={() => setShowUpgrade(false)}
+      />
     </View>
   );
 }

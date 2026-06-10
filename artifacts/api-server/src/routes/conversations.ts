@@ -5,6 +5,7 @@ import { requireAuth } from "../middleware/currentUser";
 import { logger } from "../lib/logger";
 import { sendPushNotifications } from "../lib/pushNotifications";
 import { emitConversationUpdate, onConversationUpdate } from "../lib/conversationUpdates";
+import { resolveProStatus } from "../lib/proStatus";
 
 function displayName(user: { firstName?: string | null; lastName?: string | null; email?: string | null } | null | undefined): string {
   if (!user) return "Someone";
@@ -132,13 +133,29 @@ router.get(
         storage.getConversationMessages(id),
         storage.getConversationParticipants(id),
       ]);
+
+      // DM gate: direct messages are a Squadz+ feature. For non-Pro users we
+      // redact message bodies/attachments at the API level (never trust the
+      // client to hide them) while keeping metadata — id, sender, timestamp —
+      // so the client can render a blurred placeholder per message.
+      let locked = false;
+      if (convo.type === "direct") {
+        const me = await storage.getUser(userId);
+        const isPro = me ? await resolveProStatus(me) : false;
+        locked = !isPro;
+      }
+      const safeMessages = locked
+        ? messages.map((m) => ({ ...m, text: "", attachments: [], locked: true }))
+        : messages;
+
       res.json({
         conversation: {
           id: convo.id,
           type: convo.type,
           squadId: convo.squadId,
+          locked,
         },
-        messages,
+        messages: safeMessages,
         participants,
       });
     } catch (err) {

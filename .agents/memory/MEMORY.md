@@ -27,3 +27,4 @@
 - [Squadz push fan-out](squadz-push-fanout.md) — every feature push: exclude actor + gate on notify_* pref + filterUnmutedForSquad for squad sends; reminder scheduler marks reminderSentAt only AFTER successful send (never before).
 - [Availability poll caps](availability-poll-caps.md) — mobile DAY_COUNT_OPTIONS must match server days cap (BOTH Create+Update schemas) and cells cap (=maxDays×48); grid is windowed (DAY_WINDOW) with arrow pager, not all-on-screen.
 - [Squadz activation UX](squadz-activation-ux.md) — onboarding has NO paywall (value before payment); invite-crew is the climax; Find-the-Best-Time stays prominent; no fake social proof.
+- [Feed/Moments per-ID authz](feed-moments-audience-authz.md) — per-id reaction/comment/view endpoints must re-check audience membership (canViewPost/canViewMoment), not just row existence, or it's an IDOR.

@@ -6,6 +6,7 @@ import { requireAuth } from "../middleware/currentUser";
 import { logger } from "../lib/logger";
 import { storage } from "../storage";
 import { sendPushNotifications } from "../lib/pushNotifications";
+import { resolveProStatus } from "../lib/proStatus";
 
 const router: IRouter = Router();
 
@@ -71,11 +72,24 @@ router.get("/users", requireAuth, async (req, res) => {
       firstName: usersTable.firstName,
       lastName: usersTable.lastName,
       profileImageUrl: usersTable.profileImageUrl,
+      stripeSubscriptionId: usersTable.stripeSubscriptionId,
+      stripeCustomerId: usersTable.stripeCustomerId,
     })
     .from(usersTable)
     .where(inArray(usersTable.id, ids));
 
-  res.json(rows);
+  // Resolve Pro status for the gold-ring badge. Free users (no Stripe linkage)
+  // short-circuit to false without any subscription lookup, so the common case
+  // stays cheap; only users with a subscription/customer id hit storage.
+  const enriched = await Promise.all(
+    rows.map(async (row) => {
+      const { stripeSubscriptionId, stripeCustomerId, ...pub } = row;
+      const isPro = await resolveProStatus(row as never);
+      return { ...pub, isPro };
+    }),
+  );
+
+  res.json(enriched);
 });
 
 const SEARCH_LIMIT = 20;
@@ -249,15 +263,19 @@ router.get("/users/:id/profile", requireAuth, async (req: Request, res: Response
       return;
     }
     // Squads where both the requester and the target are members.
-    const sharedSquads = await db
-      .select({ id: squadsTable.id, name: squadsTable.name, emoji: squadsTable.emoji, color: squadsTable.color })
-      .from(squadsTable)
-      .where(
-        and(
-          sql`${squadsTable.memberIds} @> ${JSON.stringify([requesterId])}::jsonb`,
-          sql`${squadsTable.memberIds} @> ${JSON.stringify([targetId])}::jsonb`,
+    const [sharedSquads, fullTarget] = await Promise.all([
+      db
+        .select({ id: squadsTable.id, name: squadsTable.name, emoji: squadsTable.emoji, color: squadsTable.color })
+        .from(squadsTable)
+        .where(
+          and(
+            sql`${squadsTable.memberIds} @> ${JSON.stringify([requesterId])}::jsonb`,
+            sql`${squadsTable.memberIds} @> ${JSON.stringify([targetId])}::jsonb`,
+          ),
         ),
-      );
+      storage.getUser(targetId),
+    ]);
+    const isPro = fullTarget ? await resolveProStatus(fullTarget) : false;
     const name = [target.firstName, target.lastName].filter(Boolean).join(" ") || "Unknown";
     res.json({
       id: target.id,
@@ -266,6 +284,7 @@ router.get("/users/:id/profile", requireAuth, async (req: Request, res: Response
       profileImageUrl: target.profileImageUrl ?? null,
       bio: target.bio ?? null,
       hometown: target.hometown ?? null,
+      isPro,
       sharedSquads,
     });
   } catch (err) {

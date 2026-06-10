@@ -8,6 +8,7 @@ export type ResolvedUser = {
   initials: string;
   color: string;
   profileImageUrl: string | null;
+  isPro: boolean;
 };
 
 const USER_COLORS = [
@@ -22,7 +23,7 @@ function colorFromId(id: string): string {
 }
 
 function makePlaceholder(id: string): ResolvedUser {
-  return { id, name: "...", initials: "??", color: colorFromId(id), profileImageUrl: null };
+  return { id, name: "...", initials: "??", color: colorFromId(id), profileImageUrl: null, isPro: false };
 }
 
 type ApiUserRow = {
@@ -30,6 +31,7 @@ type ApiUserRow = {
   firstName: string | null;
   lastName: string | null;
   profileImageUrl: string | null;
+  isPro?: boolean;
 };
 
 function apiRowToResolved(row: ApiUserRow): ResolvedUser {
@@ -48,6 +50,7 @@ function apiRowToResolved(row: ApiUserRow): ResolvedUser {
     initials,
     color: colorFromId(row.id),
     profileImageUrl: row.profileImageUrl ?? null,
+    isPro: row.isPro ?? false,
   };
 }
 

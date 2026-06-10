@@ -16,6 +16,7 @@ vi.mock("../storage", () => ({
     getOrCreateSquadConversation: (squadId: string, _userId: string) =>
       state.member ? Promise.resolve({ id: `squad-${squadId}` }) : Promise.resolve(null),
     getConversationForMember: () => Promise.resolve(state.member),
+    getUser: (id: string) => Promise.resolve({ id }),
     getConversationMessages: () => Promise.resolve(state.messages),
     getConversationParticipants: () => Promise.resolve(state.participants),
     addConversationMessage: (id: string, senderId: string, text: string) =>

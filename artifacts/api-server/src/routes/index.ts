@@ -17,6 +17,8 @@ import suggestionsRouter from "./suggestions";
 import pushTokensRouter from "./pushTokens";
 import usersRouter from "./users";
 import friendInviteRouter from "./friendInvite";
+import feedRouter from "./feed";
+import momentsRouter from "./moments";
 
 const router: IRouter = Router();
 
@@ -38,5 +40,7 @@ router.use(streaksRouter);
 router.use(suggestionsRouter);
 router.use(pushTokensRouter);
 router.use(friendInviteRouter);
+router.use(feedRouter);
+router.use(momentsRouter);
 
 export default router;

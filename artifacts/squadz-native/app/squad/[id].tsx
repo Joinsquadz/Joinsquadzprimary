@@ -30,6 +30,8 @@ import { useMutedSquads } from "@/context/MutedSquadsContext";
 import { useMessages } from "@/context/MessagesContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { UserAvatar } from "@/components/UserAvatar";
+import { ProAvatar } from "@/components/ProAvatar";
+import { MomentsRingRow } from "@/components/MomentsRingRow";
 import { ContactSheet } from "@/components/ContactSheet";
 import { EventCard } from "@/components/EventCard";
 import { goingCount } from "@/lib/eventUtils";
@@ -191,7 +193,7 @@ export default function SquadDetailScreen() {
     useCallback(() => {
       if (!id) return;
       let active = true;
-      type EnrichedMember = { id: string; firstName: string | null; lastName: string | null; profileImageUrl: string | null };
+      type EnrichedMember = { id: string; firstName: string | null; lastName: string | null; profileImageUrl: string | null; isPro?: boolean };
       fetch(`${API_BASE}/api/squads/${id}`, { headers: authHeaders() })
         .then((r) => (r.ok ? (r.json() as Promise<{ members?: EnrichedMember[] }>) : null))
         .catch(() => null)
@@ -211,7 +213,7 @@ export default function SquadDetailScreen() {
             for (const c of m.id) hash = (hash * 31 + c.charCodeAt(0)) & 0xffffffff;
             const COLORS = ["#FF5C3A","#A855F7","#2ECC8A","#FFB547","#4A9EFF","#E91E8C","#00BCD4","#FF9800","#8BC34A","#9C27B0"];
             const color = COLORS[Math.abs(hash) % COLORS.length];
-            seedUser({ id: m.id, name, initials, color: color ?? "#FF5C3A", profileImageUrl: m.profileImageUrl ?? null });
+            seedUser({ id: m.id, name, initials, color: color ?? "#FF5C3A", profileImageUrl: m.profileImageUrl ?? null, isPro: m.isPro ?? false });
           });
         });
       return () => { active = false; };
@@ -392,6 +394,7 @@ export default function SquadDetailScreen() {
         initials: currentUser.initials,
         color: currentUser.color,
         profileImageUrl: currentUser.profileImageUrl ?? null,
+        isPro: resolveUser(currentUser.id).isPro,
       };
     }
     return resolveUser(mid);
@@ -650,6 +653,12 @@ export default function SquadDetailScreen() {
           </LinearGradient>
         </TouchableOpacity>
 
+        {/* Moments */}
+        <Text style={[styles.sectionTitle, { color: colors.foreground, marginTop: 24 }]}>Moments</Text>
+        <View style={{ marginHorizontal: -20 }}>
+          <MomentsRingRow mode="squad" squadId={squad.id} />
+        </View>
+
         {/* Members */}
         <Text style={[styles.sectionTitle, { color: colors.foreground, marginTop: 24 }]}>Members</Text>
         {showLongPressHint && (
@@ -675,7 +684,7 @@ export default function SquadDetailScreen() {
                   {isBeingRemoved ? (
                     <ActivityIndicator size="small" color={colors.primary} style={{ height: 44 }} />
                   ) : (
-                    <UserAvatar initials={m.initials} color={m.color} imageUrl={m.profileImageUrl} size={44} fontSize={15} />
+                    <ProAvatar initials={m.initials} color={m.color} imageUrl={m.profileImageUrl} size={44} fontSize={15} isPro={m.isPro} />
                   )}
                   <Text style={[styles.memberName, { color: colors.foreground }]} numberOfLines={1}>
                     {m.id === currentUser.id ? "You" : m.name.split(" ")[0]}

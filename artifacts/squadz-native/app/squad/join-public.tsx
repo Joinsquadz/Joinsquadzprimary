@@ -14,6 +14,7 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useData, useAuth } from "@/context/AppContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
+import { UpgradeModal } from "@/components/UpgradeModal";
 
 type PublicSquadPreview = {
   id: string;
@@ -43,6 +44,7 @@ export default function JoinPublicSquadScreen() {
   const [joining, setJoining] = useState(false);
   const [joined, setJoined] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
+  const [showUpgrade, setShowUpgrade] = useState(false);
 
   const alreadyMember = !!(squadId && getSquad(squadId));
 
@@ -87,7 +89,12 @@ export default function JoinPublicSquadScreen() {
         headers: buildAuthHeaders(authToken),
       });
       if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        const body = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
+        if (body.code === "SQUAD_LIMIT") {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          setShowUpgrade(true);
+          return;
+        }
         throw new Error(body.error ?? "Couldn't join this squad.");
       }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -226,6 +233,12 @@ export default function JoinPublicSquadScreen() {
           </TouchableOpacity>
         )}
       </View>
+
+      <UpgradeModal
+        visible={showUpgrade}
+        trigger="squad_limit"
+        onClose={() => setShowUpgrade(false)}
+      />
     </View>
   );
 }

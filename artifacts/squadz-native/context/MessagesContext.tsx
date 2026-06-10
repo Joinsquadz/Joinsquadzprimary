@@ -41,6 +41,7 @@ export type ChatMessage = {
   createdAt: string;
   pending?: boolean;
   failed?: boolean;
+  locked?: boolean;
 };
 
 export type ChatParticipant = {
@@ -53,7 +54,7 @@ export type ChatParticipant = {
 };
 
 export type ThreadData = {
-  conversation: { id: string; type: string; squadId: string | null };
+  conversation: { id: string; type: string; squadId: string | null; locked?: boolean };
   messages: ChatMessage[];
   participants: ChatParticipant[];
 };

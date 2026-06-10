@@ -14,6 +14,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
+import { BlurView } from "expo-blur";
 import * as ImagePicker from "expo-image-picker";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
@@ -29,6 +30,9 @@ import {
   type ChatParticipant,
 } from "@/context/MessagesContext";
 import AttachmentVideo from "@/components/AttachmentVideo";
+import { UpgradeModal } from "@/components/UpgradeModal";
+import { ProAvatar } from "@/components/ProAvatar";
+import { useUserCache } from "@/context/UserCacheContext";
 
 const AVATAR_PALETTE = ["#FF5C3A", "#4A9EFF", "#2ECC8A", "#A855F7", "#FFB547"];
 
@@ -64,10 +68,13 @@ export default function ConversationScreen() {
   const { currentUser, authToken } = useAuth();
   const { conversations, fetchThread, sendMessage, markRead } = useMessages();
   const { showToast } = useToast();
+  const { resolveUser, prefetchUsers } = useUserCache();
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [participants, setParticipants] = useState<ChatParticipant[]>([]);
   const [convType, setConvType] = useState<"direct" | "squad">("direct");
+  const [locked, setLocked] = useState(false);
+  const [upgradeVisible, setUpgradeVisible] = useState(false);
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState("");
   const [uploading, setUploading] = useState(false);
@@ -85,6 +92,14 @@ export default function ConversationScreen() {
     for (const p of participants) m.set(p.userId, p);
     return m;
   }, [participants]);
+
+  // Resolve participants through the user cache so we can show the Pro gold
+  // ring on sender avatars (the thread payload doesn't include isPro).
+  useEffect(() => {
+    if (participants.length > 0) {
+      prefetchUsers(participants.map((p) => p.userId));
+    }
+  }, [participants, prefetchUsers]);
 
   const title = useMemo(() => {
     if (listItem) return listItem.title;
@@ -108,6 +123,7 @@ export default function ConversationScreen() {
         });
         setParticipants(data.participants);
         setConvType(data.conversation.type === "squad" ? "squad" : "direct");
+        setLocked(Boolean(data.conversation.locked));
       }
       if (showSpinner) setLoading(false);
     },
@@ -371,6 +387,26 @@ export default function ConversationScreen() {
         </View>
       </View>
 
+      {/* DM gate banner — non-Pro users can't read direct messages */}
+      {locked && (
+        <TouchableOpacity
+          activeOpacity={0.85}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setUpgradeVisible(true);
+          }}
+          style={[styles.lockBanner, { backgroundColor: colors.primary + "14", borderBottomColor: colors.border }]}
+        >
+          <Ionicons name="lock-closed" size={15} color={colors.primary} />
+          <Text style={[styles.lockBannerText, { color: colors.foreground }]} numberOfLines={1}>
+            Direct messages are a Squadz+ feature
+          </Text>
+          <View style={[styles.lockBannerBtn, { backgroundColor: colors.primary }]}>
+            <Text style={styles.lockBannerBtnText}>Unlock</Text>
+          </View>
+        </TouchableOpacity>
+      )}
+
       {/* Stream reconnecting indicator */}
       {streamStatus !== "connected" && (
         <View style={styles.reconnectBanner} pointerEvents="none">
@@ -422,62 +458,113 @@ export default function ConversationScreen() {
                   <View key={m.id}>
                     <View style={[styles.msgRow, mine && { flexDirection: "row-reverse" }]}>
                       {!mine && (
-                        <View
-                          style={[
-                            styles.avatar,
-                            { backgroundColor: colorForId(m.senderId) },
-                          ]}
-                        >
-                          {sender?.profileImageUrl ? (
-                            <Image
-                              source={{ uri: sender.profileImageUrl }}
-                              style={StyleSheet.absoluteFill}
-                              contentFit="cover"
-                            />
-                          ) : (
-                            <Text style={styles.avatarText}>{initialFor(senderName)}</Text>
-                          )}
-                        </View>
+                        <ProAvatar
+                          initials={initialFor(senderName)}
+                          color={colorForId(m.senderId)}
+                          imageUrl={sender?.profileImageUrl}
+                          size={30}
+                          fontSize={12}
+                          isPro={resolveUser(m.senderId).isPro}
+                        />
                       )}
                       <View style={{ maxWidth: "76%" }}>
-                        <View
-                          style={[
-                            styles.bubble,
-                            {
-                              backgroundColor: mine ? colors.primary : colors.card,
-                              borderColor: colors.border,
-                              opacity: m.pending ? 0.7 : 1,
-                            },
-                          ]}
-                        >
-                          {showName && (
-                            <Text style={[styles.senderName, { color: colors.mutedForeground }]}>
-                              {senderName.split(" ")[0]}
-                            </Text>
-                          )}
-                          {m.attachments.map((att, i) =>
-                            renderAttachment(att, `${m.id}-att-${i}`),
-                          )}
-                          {!!m.text && (
-                            <Text
-                              style={[
-                                styles.bubbleText,
-                                { color: mine ? "#fff" : colors.foreground },
-                                m.attachments.length > 0 && { marginTop: 8 },
-                              ]}
-                            >
-                              {m.text}
-                            </Text>
-                          )}
-                          <Text
+                        {m.locked ? (
+                          <TouchableOpacity
+                            activeOpacity={0.85}
+                            onPress={() => {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              setUpgradeVisible(true);
+                            }}
                             style={[
-                              styles.bubbleTime,
-                              { color: mine ? "rgba(255,255,255,0.7)" : colors.textDim },
+                              styles.bubble,
+                              styles.lockedBubble,
+                              {
+                                backgroundColor: mine ? colors.primary : colors.card,
+                                borderColor: colors.border,
+                              },
                             ]}
                           >
-                            {formatTime(m.createdAt)}
-                          </Text>
-                        </View>
+                            {showName && (
+                              <Text style={[styles.senderName, { color: colors.mutedForeground }]}>
+                                {senderName.split(" ")[0]}
+                              </Text>
+                            )}
+                            <View style={styles.lockedLines} pointerEvents="none">
+                              <View
+                                style={[
+                                  styles.lockedLine,
+                                  { width: 150, backgroundColor: mine ? "#ffffff66" : colors.textDim },
+                                ]}
+                              />
+                              <View
+                                style={[
+                                  styles.lockedLine,
+                                  { width: 96, backgroundColor: mine ? "#ffffff55" : colors.textDim },
+                                ]}
+                              />
+                            </View>
+                            <BlurView
+                              intensity={18}
+                              tint={mine ? "light" : "dark"}
+                              style={StyleSheet.absoluteFill}
+                              pointerEvents="none"
+                            />
+                            <View style={styles.lockBadge} pointerEvents="none">
+                              <Ionicons
+                                name="lock-closed"
+                                size={15}
+                                color={mine ? "#fff" : colors.primary}
+                              />
+                              <Text
+                                style={[
+                                  styles.lockBadgeText,
+                                  { color: mine ? "#fff" : colors.foreground },
+                                ]}
+                              >
+                                Tap to unlock
+                              </Text>
+                            </View>
+                          </TouchableOpacity>
+                        ) : (
+                          <View
+                            style={[
+                              styles.bubble,
+                              {
+                                backgroundColor: mine ? colors.primary : colors.card,
+                                borderColor: colors.border,
+                                opacity: m.pending ? 0.7 : 1,
+                              },
+                            ]}
+                          >
+                            {showName && (
+                              <Text style={[styles.senderName, { color: colors.mutedForeground }]}>
+                                {senderName.split(" ")[0]}
+                              </Text>
+                            )}
+                            {m.attachments.map((att, i) =>
+                              renderAttachment(att, `${m.id}-att-${i}`),
+                            )}
+                            {!!m.text && (
+                              <Text
+                                style={[
+                                  styles.bubbleText,
+                                  { color: mine ? "#fff" : colors.foreground },
+                                  m.attachments.length > 0 && { marginTop: 8 },
+                                ]}
+                              >
+                                {m.text}
+                              </Text>
+                            )}
+                            <Text
+                              style={[
+                                styles.bubbleTime,
+                                { color: mine ? "rgba(255,255,255,0.7)" : colors.textDim },
+                              ]}
+                            >
+                              {formatTime(m.createdAt)}
+                            </Text>
+                          </View>
+                        )}
                         {receipt && (
                           <Text
                             style={[
@@ -538,6 +625,16 @@ export default function ConversationScreen() {
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
+
+      <UpgradeModal
+        visible={upgradeVisible}
+        trigger="dm_gate"
+        onClose={() => setUpgradeVisible(false)}
+        onUpgradeSuccess={() => {
+          setUpgradeVisible(false);
+          void loadThread(true);
+        }}
+      />
     </View>
   );
 }
@@ -567,6 +664,21 @@ const styles = StyleSheet.create({
   },
   avatarText: { color: "#fff", fontSize: 12, fontWeight: "800" },
   bubble: { borderRadius: 18, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 9 },
+  lockedBubble: { overflow: "hidden", minWidth: 170, justifyContent: "center" },
+  lockedLines: { gap: 7, paddingVertical: 2 },
+  lockedLine: { height: 9, borderRadius: 5, opacity: 0.5 },
+  lockBadge: {
+    ...StyleSheet.absoluteFillObject,
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+  },
+  lockBadgeText: { fontSize: 12.5, fontWeight: "700" },
+  lockBanner: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    paddingHorizontal: 14, paddingVertical: 9, borderBottomWidth: 1,
+  },
+  lockBannerText: { flex: 1, fontSize: 13, fontWeight: "600" },
+  lockBannerBtn: { borderRadius: 9, paddingHorizontal: 12, paddingVertical: 5 },
+  lockBannerBtnText: { color: "#fff", fontSize: 12.5, fontWeight: "800" },
   senderName: { fontSize: 11, fontWeight: "700", marginBottom: 3 },
   bubbleText: { fontSize: 15, lineHeight: 20 },
   bubbleTime: { fontSize: 10, marginTop: 5, alignSelf: "flex-end" },
