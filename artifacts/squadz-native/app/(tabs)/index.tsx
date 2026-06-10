@@ -21,6 +21,7 @@ import { EventCard } from "@/components/EventCard";
 import { SkeletonBox } from "@/components/SkeletonBox";
 import { goingCount } from "@/lib/eventUtils";
 import { useUserCache } from "@/context/UserCacheContext";
+import { ProAvatar } from "@/components/ProAvatar";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
 type DiscoverEvent = { id: string; emoji: string; title: string; date: string; inviteCode: string };
@@ -198,6 +199,19 @@ export default function HomeScreen() {
             style={[styles.bellBtn, { backgroundColor: colors.card }]}
           >
             <Ionicons name="notifications-outline" size={22} color={colors.foreground} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.navigate("/(tabs)/profile"); }}
+            accessibilityLabel="Your profile"
+          >
+            <ProAvatar
+              initials={currentUser.initials}
+              color={currentUser.color}
+              imageUrl={currentUser.profileImageUrl}
+              size={40}
+              fontSize={15}
+              isPro={resolveUser(currentUser.id).isPro}
+            />
           </TouchableOpacity>
         </View>
       </View>

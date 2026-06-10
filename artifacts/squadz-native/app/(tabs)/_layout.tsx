@@ -22,10 +22,6 @@ function NativeTabLayout() {
         <Label>Home</Label>
         {outstandingBalancesCount > 0 ? <Badge>{outstandingBalancesCount > 99 ? "99+" : String(outstandingBalancesCount)}</Badge> : null}
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="feed">
-        <Icon sf={{ default: "sparkles", selected: "sparkles" }} />
-        <Label>Vibe</Label>
-      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="squads">
         <Icon sf={{ default: "person.2", selected: "person.2.fill" }} />
         <Label>SquadZ</Label>
@@ -39,12 +35,14 @@ function NativeTabLayout() {
         <Label>Messages</Label>
         {unreadCount > 0 ? <Badge>{unreadCount > 99 ? "99+" : String(unreadCount)}</Badge> : null}
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="profile">
-        <Icon sf={{ default: "person", selected: "person.fill" }} />
-        <Label>You</Label>
+      <NativeTabs.Trigger name="feed">
+        <Icon sf={{ default: "sparkles", selected: "sparkles" }} />
+        <Label>Vibe</Label>
       </NativeTabs.Trigger>
       {/* Hidden destinations: navigable via router.navigate but not shown in the tab bar.
+          Profile ("You") is reachable from the avatar in the Home header.
           Activity is reachable from the bell icon in the Home header. */}
+      <NativeTabs.Trigger name="profile" hidden />
       <NativeTabs.Trigger name="activity" hidden />
       <NativeTabs.Trigger name="photos" hidden />
     </NativeTabs>
@@ -102,18 +100,6 @@ function ClassicTabLayout() {
         }}
       />
       <Tabs.Screen
-        name="feed"
-        options={{
-          title: "Vibe",
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="sparkles" tintColor={color} size={24} />
-            ) : (
-              <Ionicons name="sparkles-outline" size={22} color={color} />
-            ),
-        }}
-      />
-      <Tabs.Screen
         name="squads"
         options={{
           title: "SquadZ",
@@ -151,17 +137,18 @@ function ClassicTabLayout() {
         }}
       />
       <Tabs.Screen
-        name="profile"
+        name="feed"
         options={{
-          title: "You",
+          title: "Vibe",
           tabBarIcon: ({ color }) =>
             isIOS ? (
-              <SymbolView name="person" tintColor={color} size={24} />
+              <SymbolView name="sparkles" tintColor={color} size={24} />
             ) : (
-              <Ionicons name="person-outline" size={22} color={color} />
+              <Ionicons name="sparkles-outline" size={22} color={color} />
             ),
         }}
       />
+      <Tabs.Screen name="profile" options={{ tabBarButton: () => null }} />
       <Tabs.Screen name="activity" options={{ tabBarButton: () => null }} />
       <Tabs.Screen name="photos" options={{ tabBarButton: () => null }} />
     </Tabs>
