@@ -434,7 +434,10 @@ export default function Landing() {
             <SquadzIcon size={28} style={{ borderRadius: 9 }} />
             <span style={{ fontFamily: "'Georgia', serif", fontSize: 21, fontWeight: 700, letterSpacing: "-0.04em" }}>squadz</span>
           </div>
-          <div style={{ fontSize: 13.5, color: T.textDim }}>© {new Date().getFullYear()} Squadz · Stop texting. Start actually hanging.</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 22, flexWrap: "wrap" }}>
+            <a href="/privacy" style={{ fontSize: 13.5, color: T.textDim, textDecoration: "none" }}>Privacy Policy</a>
+            <div style={{ fontSize: 13.5, color: T.textDim }}>© {new Date().getFullYear()} Squadz · Stop texting. Start actually hanging.</div>
+          </div>
         </div>
       </footer>
     </div>
