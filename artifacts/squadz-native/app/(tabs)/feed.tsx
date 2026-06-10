@@ -404,7 +404,7 @@ export default function FeedScreen() {
         <TouchableOpacity
           onPress={() => {
             void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            router.push("/(tabs)/profile");
+            router.push("/profile");
           }}
           style={styles.profileBtn}
           hitSlop={8}

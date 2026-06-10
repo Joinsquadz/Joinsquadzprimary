@@ -140,7 +140,7 @@ export default function ProfileScreen() {
   const [notifPermission, setNotifPermission] = useState<"granted" | "denied" | "undetermined" | null>(null);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
-  const botPad = insets.bottom + (Platform.OS === "web" ? 84 : 100);
+  const botPad = insets.bottom + 24;
 
   const myEvents = events.filter(
     (e) => e.hostId === currentUser.id || e.rsvps[currentUser.id] === "going" || e.rsvps[currentUser.id] === "maybe",
@@ -659,12 +659,23 @@ export default function ProfileScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
+      <View style={[styles.topBar, { paddingTop: topPad + 8, borderBottomColor: colors.border }]}>
+        <TouchableOpacity
+          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); if (router.canGoBack()) { router.back(); } else { router.replace("/(tabs)"); } }}
+          style={[styles.backBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+          accessibilityLabel="Go back"
+        >
+          <Ionicons name="arrow-back" size={20} color={colors.foreground} />
+        </TouchableOpacity>
+        <Text style={[styles.topBarTitle, { color: colors.foreground }]}>You</Text>
+        <View style={{ width: 40 }} />
+      </View>
       <ScrollView
         contentContainerStyle={{ paddingBottom: botPad }}
         showsVerticalScrollIndicator={false}
       >
         {showSuccessBanner && (
-          <Animated.View style={[styles.successBanner, { backgroundColor: colors.green + "18", borderColor: colors.green + "50", opacity: bannerOpacity, marginTop: topPad + 12 }]}>
+          <Animated.View style={[styles.successBanner, { backgroundColor: colors.green + "18", borderColor: colors.green + "50", opacity: bannerOpacity, marginTop: 12 }]}>
             <View style={{ flex: 1 }}>
               <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12, marginBottom: 10 }}>
                 <Text style={styles.successEmoji}>🎉</Text>
@@ -682,7 +693,7 @@ export default function ProfileScreen() {
                 {([
                   { key: "events", icon: "🗓️", label: "Unlimited Events", route: "/(tabs)/events" },
                   { key: "vault", icon: "📷", label: "Photo Vault", route: "/vault" },
-                  { key: "calendar", icon: "📅", label: "Calendar Sync", route: "/(tabs)/profile" },
+                  { key: "calendar", icon: "📅", label: "Calendar Sync", route: "/profile" },
                 ] as const).map((f) => (
                   <TouchableOpacity
                     key={f.key}
@@ -706,7 +717,7 @@ export default function ProfileScreen() {
             </View>
           </Animated.View>
         )}
-        <View style={[styles.profileCard, { paddingTop: showSuccessBanner ? 16 : topPad + 20, borderBottomColor: colors.border }]}>
+        <View style={[styles.profileCard, { paddingTop: showSuccessBanner ? 16 : 20, borderBottomColor: colors.border }]}>
           <TouchableOpacity
             onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push("/settings/edit-profile" as never); }}
             activeOpacity={0.8}
@@ -1104,6 +1115,15 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
+  topBar: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1,
+  },
+  backBtn: {
+    width: 40, height: 40, borderRadius: 12, borderWidth: 1,
+    alignItems: "center", justifyContent: "center",
+  },
+  topBarTitle: { fontSize: 18, fontWeight: "800" },
   profileCard: { alignItems: "center", paddingHorizontal: 24, paddingBottom: 24, borderBottomWidth: 1 },
   avatarEditBadge: { position: "absolute", bottom: 0, right: 0, width: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center", borderWidth: 2 },
   nameRow: { flexDirection: "row", alignItems: "center", marginTop: 12, marginBottom: 16 },

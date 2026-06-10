@@ -201,7 +201,7 @@ export default function HomeScreen() {
             <Ionicons name="notifications-outline" size={22} color={colors.foreground} />
           </TouchableOpacity>
           <TouchableOpacity
-            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.navigate("/(tabs)/profile"); }}
+            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push("/profile"); }}
             accessibilityLabel="Your profile"
           >
             <ProAvatar

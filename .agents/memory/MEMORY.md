@@ -28,4 +28,4 @@
 - [Availability poll caps](availability-poll-caps.md) — mobile DAY_COUNT_OPTIONS must match server days cap (BOTH Create+Update schemas) and cells cap (=maxDays×48); grid is windowed (DAY_WINDOW) with arrow pager, not all-on-screen.
 - [Squadz activation UX](squadz-activation-ux.md) — onboarding has NO paywall (value before payment); invite-crew is the climax; Find-the-Best-Time stays prominent; no fake social proof.
 - [Feed/Moments per-ID authz](feed-moments-audience-authz.md) — per-id reaction/comment/view endpoints must re-check audience membership (canViewPost/canViewMoment), not just row existence, or it's an IDOR.
-- [Squadz tab nav structure](squadz-tab-nav-structure.md) — bottom bar = Home/SquadZ/Events/Messages/Vibe(5th slot); profile+activity are hidden tabs reached from Home header (avatar / bell); keep BOTH NativeTabs + Classic layouts in sync.
+- [Squadz tab nav structure](squadz-tab-nav-structure.md) — bottom bar = Home/SquadZ/Events/Messages/Vibe(5th slot); profile("You") is a ROOT STACK route (push "/profile") not a hidden tab; reached from Home-header avatar + Vibe header; keep BOTH NativeTabs + Classic layouts in sync.
