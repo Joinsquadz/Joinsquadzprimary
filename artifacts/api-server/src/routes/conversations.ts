@@ -183,6 +183,20 @@ router.post(
         res.status(403).json({ error: "Access denied" });
         return;
       }
+
+      // Provenance: only attach media you uploaded. The attachment ACL authorizes
+      // the message sender to read the bytes, so without this a user could point
+      // an attachment at another user's private object path and self-authorize
+      // access. Public uploads (full https URLs) carry no private path to forge.
+      for (const att of parsed.data.attachments) {
+        if (/^https?:\/\//i.test(att.url)) continue;
+        const owner = await storage.getUploadOwner(att.url);
+        if (owner !== userId) {
+          res.status(403).json({ error: "You can only attach media you uploaded." });
+          return;
+        }
+      }
+
       const message = await storage.addConversationMessage(
         id,
         userId,

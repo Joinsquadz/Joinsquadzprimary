@@ -155,6 +155,18 @@ router.post("/vault/photos", requireAuth, async (req: Request, res: Response): P
       return;
     }
 
+    // Provenance: only add media you uploaded. A vault url with no existing photo
+    // row (e.g. another user's moment/message object path) would otherwise let a
+    // user create a row they "own" and self-authorize read access via the photo
+    // ACL. Public uploads (full https URLs) carry no private path to forge.
+    if (!/^https?:\/\//i.test(parsedBody.data.url)) {
+      const owner = await storage.getUploadOwner(parsedBody.data.url);
+      if (owner !== userId) {
+        res.status(403).json({ error: "You can only add media you uploaded." });
+        return;
+      }
+    }
+
     const photo = await storage.addPhoto(userId, parsedBody.data.url, parsedBody.data.eventId);
     res.status(201).json({ photo });
   } catch (err) {

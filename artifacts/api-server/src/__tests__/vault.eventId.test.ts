@@ -12,6 +12,7 @@ vi.mock("../storage", () => ({
     getEvent: vi.fn().mockResolvedValue(null),
     getPhotosByEventId: vi.fn().mockResolvedValue([]),
     addPhoto: vi.fn(),
+    getUploadOwner: vi.fn(),
   },
 }));
 
@@ -42,6 +43,7 @@ describe("POST /api/vault/photos eventId handling", () => {
   beforeEach(() => {
     vi.mocked(storage.getUser).mockResolvedValue(proUserRow as never);
     vi.mocked(storage.getSubscription).mockResolvedValue({ status: "active" } as never);
+    vi.mocked(storage.getUploadOwner).mockResolvedValue(PRO_USER_ID);
   });
 
   it("passes the eventId through to storage and returns the saved row with it", async () => {
@@ -92,6 +94,35 @@ describe("POST /api/vault/photos eventId handling", () => {
       undefined,
     );
     expect(res.body.photo.eventId).toBeNull();
+  });
+});
+
+describe("POST /api/vault/photos media provenance", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(storage.getUser).mockResolvedValue(proUserRow as never);
+    vi.mocked(storage.getSubscription).mockResolvedValue({ status: "active" } as never);
+    vi.mocked(storage.addPhoto).mockResolvedValue({ id: 99 } as never);
+  });
+
+  it("rejects a url whose object path was uploaded by another user", async () => {
+    vi.mocked(storage.getUploadOwner).mockResolvedValue("someone-else");
+    const app = await makeApp({ id: PRO_USER_ID });
+    const res = await request(app)
+      .post("/api/vault/photos")
+      .send({ url: "/objects/supabase/uploads/foreign.jpg" });
+    expect(res.status).toBe(403);
+    expect(storage.addPhoto).not.toHaveBeenCalled();
+  });
+
+  it("rejects a url pointing at an unknown (unrecorded) object path", async () => {
+    vi.mocked(storage.getUploadOwner).mockResolvedValue(null);
+    const app = await makeApp({ id: PRO_USER_ID });
+    const res = await request(app)
+      .post("/api/vault/photos")
+      .send({ url: "/objects/supabase/uploads/orphan.jpg" });
+    expect(res.status).toBe(403);
+    expect(storage.addPhoto).not.toHaveBeenCalled();
   });
 });
 

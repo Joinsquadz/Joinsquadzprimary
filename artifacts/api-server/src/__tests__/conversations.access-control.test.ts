@@ -5,6 +5,7 @@ const state = vi.hoisted(() => ({
   member: null as { id: string; type: string; squadId: string | null } | null,
   messages: [] as unknown[],
   participants: [] as unknown[],
+  uploadOwner: null as string | null,
 }));
 
 vi.mock("../storage", () => ({
@@ -22,6 +23,7 @@ vi.mock("../storage", () => ({
     addConversationMessage: (id: string, senderId: string, text: string) =>
       Promise.resolve({ id: "msg-1", conversationId: id, senderId, text }),
     markConversationRead: () => Promise.resolve(),
+    getUploadOwner: () => Promise.resolve(state.uploadOwner),
   },
 }));
 
@@ -39,6 +41,7 @@ beforeEach(() => {
   state.member = null;
   state.messages = [];
   state.participants = [];
+  state.uploadOwner = null;
 });
 
 describe("GET /api/conversations", () => {
@@ -165,6 +168,38 @@ describe("POST /api/conversations/:id/messages", () => {
     const res = await request(await makeApp({ id: ME }))
       .post("/api/conversations/c1/messages")
       .send({ text: "hi" });
+    expect(res.status).toBe(201);
+    expect(res.body.id).toBe("msg-1");
+  });
+});
+
+describe("POST /api/conversations/:id/messages — attachment provenance", () => {
+  const ATTACHMENT = { kind: "image", url: "/objects/supabase/uploads/clip.png" };
+
+  it("rejects an attachment whose object path was uploaded by another user", async () => {
+    state.member = { id: "c1", type: "direct", squadId: null };
+    state.uploadOwner = "someone-else";
+    const res = await request(await makeApp({ id: ME }))
+      .post("/api/conversations/c1/messages")
+      .send({ attachments: [ATTACHMENT] });
+    expect(res.status).toBe(403);
+  });
+
+  it("rejects an attachment pointing at an unknown (unrecorded) object path", async () => {
+    state.member = { id: "c1", type: "direct", squadId: null };
+    state.uploadOwner = null;
+    const res = await request(await makeApp({ id: ME }))
+      .post("/api/conversations/c1/messages")
+      .send({ attachments: [ATTACHMENT] });
+    expect(res.status).toBe(403);
+  });
+
+  it("accepts an attachment the sender uploaded", async () => {
+    state.member = { id: "c1", type: "direct", squadId: null };
+    state.uploadOwner = ME;
+    const res = await request(await makeApp({ id: ME }))
+      .post("/api/conversations/c1/messages")
+      .send({ attachments: [ATTACHMENT] });
     expect(res.status).toBe(201);
     expect(res.body.id).toBe("msg-1");
   });

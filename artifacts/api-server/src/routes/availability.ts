@@ -544,6 +544,31 @@ router.post("/availability/polls/:id/nudge", requireAuth, async (req: Request, r
       return;
     }
 
+    // Verify the target is actually a participant in this poll's scope. Without
+    // this, the poll creator could push-spam any arbitrary userId by passing it
+    // here — the only prior gate was "hasn't responded", which every non-member
+    // trivially satisfies.
+    const participantIds = new Set<string>();
+    if (poll.squadId) {
+      const squad = await storage.getSquad(poll.squadId);
+      for (const pid of (squad?.memberIds ?? []) as string[]) participantIds.add(pid);
+    }
+    if (poll.eventId) {
+      const event = await storage.getEvent(poll.eventId);
+      if (event) {
+        participantIds.add(event.hostId);
+        for (const pid of Object.keys(event.rsvps ?? {})) participantIds.add(pid);
+        if (event.squadId) {
+          const squad = await storage.getSquad(event.squadId);
+          for (const pid of (squad?.memberIds ?? []) as string[]) participantIds.add(pid);
+        }
+      }
+    }
+    if (!participantIds.has(targetUserId)) {
+      res.status(403).json({ error: "You can only nudge members of this poll." });
+      return;
+    }
+
     // Debounce: reject if a nudge was already sent recently.
     const recent = await storage.getRecentNudge(pollId, userId, targetUserId, NUDGE_DEBOUNCE_MS);
     if (recent) {
