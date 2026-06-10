@@ -1,0 +1,121 @@
+Before writing any new code, and after completing each feature from the build prompt, follow this validation process. The goal is to ensure every new feature is fully interconnected with existing architecture and that nothing is broken in the process of building.
+
+Phase 0 — Pre-Build Audit
+Before touching any code, complete the following:
+
+Map every existing feature that the new build will touch — directly or indirectly. Document which components, API routes, database models, and SSE channels are affected.
+Identify all existing user states that interact with the new features: free users, Squadz+ users, squad organizers, squad members, and users with no squads.
+Flag any existing features that share infrastructure with what's being built — specifically: the existing UpgradeModal, Stripe Checkout flow, notification system, SSE real-time layer, photo vault, squad membership logic, and the friends graph.
+Do not begin implementation until this map is complete. If anything is unclear about the existing architecture before starting, surface it as a question rather than making an assumption.
+
+
+Phase 1 — Build in Isolation First
+For each feature, build and validate it in isolation before connecting it to the rest of the app:
+
+Vibe Feed
+2-Squad Free Limit
+DM Gate + Blur
+Pro Gold Ring Badge
+Moments
+
+Each feature should be testable on its own before any cross-feature wiring occurs. Do not move to Phase 2 until the isolated feature behaves correctly across all user states.
+
+Phase 2 — Cross-Feature Integration Checklist
+After each feature is built, run through the following integration checks before moving to the next feature.
+Vibe Feed:
+
+ Posts composed by free users respect the audience picker and only appear to the selected audience
+ Posts composed by Squadz+ users behave identically — Pro status does not bypass audience controls
+ Event announcement posts only appear in the feed when the organizer explicitly chose to broadcast — verify no auto-posting occurs under any condition
+ Reactions and comments update in real-time via SSE without disrupting existing squad chat or event comment SSE channels
+ The Feed tab appears correctly in the bottom nav across all screen sizes and does not break existing tab routing
+ The profile icon in the top right correctly routes to the existing You/Profile screen with no loss of functionality
+ New users with zero posts see an onboarding nudge — not a blank screen
+ Deleting a post removes it from all audience members' feeds in real-time
+ Audience picker defaults to Friends only under all conditions — verify no edge case defaults to a wider audience
+ Moments ring row appears correctly at the top of the feed above the post scroll
+ Friends Moments in the ring row are visible only to mutually added friends — verified at the API level
+
+2-Squad Free Limit:
+
+ Free users cannot create or join a 3rd squad via any route — UI, deep link, invite code, or direct API call
+ Existing free users with more than 2 squads are grandfathered — no retroactive removal
+ The UpgradeModal surfaces correctly at every entry point: create squad, join squad, /discover join button
+ Squadz+ users have no squad limit — verify the limit check does not fire for Pro accounts under any condition
+ Downgrading from Squadz+ to free does not immediately remove the user from squads — implement a grace period or soft limit behavior
+
+DM Gate + Blur:
+
+ Blur renders correctly on all message types: text, photo, emoji, and any other existing DM content types
+ Message content is not exposed in the API response for free users — gate exists at the API level not just the UI
+ Upgrading to Squadz+ removes the blur and restores full DM access without requiring a logout or app restart
+ The UpgradeModal triggered from the DM screen correctly returns the user to the DM inbox after a successful upgrade
+ Users who downgrade from Pro see the blur applied to their inbox — verify downgrade state is handled
+ DM notifications still deliver to free users — they know a message exists even if they cannot read it
+
+Pro Gold Ring Badge:
+
+ Gold ring appears on Squadz+ member avatars in: squad member lists, Vibe Feed posts, comment threads, chat messages, Moments ring rows, and event attendee lists
+ Gold ring does not appear for free users under any condition including expired Pro subscriptions
+ Tapping an avatar opens that person's friend profile correctly from every surface it appears on
+ The friend profile view displays a "SquadZ Pro" label below or near the name for Squadz+ members
+ The Pro label does not appear on free user profiles under any condition
+ When a free user upgrades mid-session their avatar updates to show the gold ring without requiring a logout or restart
+ When a Pro subscription lapses the gold ring and Pro label are removed on next session load
+
+Moments:
+
+ Moments composer is accessible from both the Vibe Feed and the squad view
+ Audience picker correctly scopes Friends Moments to the feed ring row and Squad Moments to the squad ring row — these two surfaces are fully independent
+ Friends Moments are visible only to mutually added friends — verified at the API level
+ Squad Moments are visible only to members of the selected squad — verified at the API level
+ Unseen vs seen ring state updates correctly after a user views a Moment
+ Emoji reactions on Moments function via the same SSE layer as Vibe Feed reactions — verify no channel conflicts
+ Moments expire after exactly 24 hours — expiry is handled server-side not client-side only
+ Deleted Moments are removed immediately from all relevant ring rows
+ Viewer list is only accessible to the poster — verified at the API level
+ Video Moments under 60 seconds upload and play correctly — test across different file sizes and formats
+ Moments do not appear in the photo vault or any surface outside their designated ring row
+
+
+Phase 3 — Full Regression Test
+After all five features are built and individually validated, run a full regression pass across the entire existing app:
+
+Squad creation and joining flows
+Event creation, RSVP, and task signup
+Availability polling and heatmap
+Group chat and event chat via SSE
+Photo vault upload, display, and 30-day retention logic
+Cost splitting and balance tracking
+Friend add via code and invite link
+Push notification delivery and preferences
+Streaks and gamification logic
+Stripe Checkout, webhook, and subscription status
+Profile editing and payment handle storage
+/discover squad browsing
+
+For each: confirm it behaves identically to how it behaved before the new build. Any regression must be fixed before the build is considered complete.
+
+Phase 4 — Edge Case & State Validation
+
+A free user who hits the 2-squad limit tries every possible entry point to join a 3rd squad
+A Squadz+ user upgrades mid-session and all Pro features unlock without restart
+A Pro user's subscription lapses and the app correctly downgrades their experience gracefully
+A user posts a Vibe to multiple squads and then deletes it — confirm it disappears from all audiences simultaneously
+A user with no friends and no squads opens the app for the first time — confirm no broken states or empty crashes
+A squad organizer broadcasts an event announcement — confirm it appears in the feed for the correct audience only
+A Moment posted to Friends expires — confirm it disappears from the feed ring row for all friends simultaneously
+A Moment posted to a squad expires — confirm it disappears from that squad's ring row simultaneously for all members
+A user posts a Friends Moment and a Squad Moment back to back — confirm they appear on the correct surfaces independently with no crossover
+SSE connection drops mid-session — confirm reconnection restores feed, chat, and Moments state correctly
+
+
+Delivery Standard
+Do not mark any feature as complete until:
+
+Its Phase 2 checklist is fully checked off
+No console errors exist related to that feature
+The feature behaves correctly when tested as a free user, a Squadz+ user, and a new user with no data
+Phase 3 regression confirms no existing features were broken
+
+If any checklist item cannot be completed or reveals a deeper architectural issue, surface it explicitly before continuing. Do not paper over problems with workarounds that create technical debt.

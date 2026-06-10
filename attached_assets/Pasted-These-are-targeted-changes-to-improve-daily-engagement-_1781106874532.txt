@@ -1,0 +1,96 @@
+These are targeted changes to improve daily engagement and drive upsell conversion. No new pricing tiers. Work through in order of priority.
+
+1. Vibe Feed (Tier 1 — highest priority)
+Build a user-intent-driven Vibe Feed as a new tab in the bottom navigation. The core principle: nothing appears in the feed unless the user explicitly chose to post it. No automatic broadcasting of RSVPs, poll responses, cost activity, squad joins, or any implicit action.
+Navigation change:
+
+Remove "You" from the bottom nav bar
+Move the profile/You access to a top-right icon on the Home screen, sitting alongside the existing notification bell
+Replace the fifth bottom nav slot with a Feed tab
+
+What the feed contains:
+
+Vibe posts — short status updates composed and posted intentionally (e.g. "Free tonight 🍕", "Need plans this weekend 👀", "Just landed in Miami 🌴")
+Photos a user explicitly shares to their feed (separate from the photo vault)
+Event announcements — only when the event organizer manually chooses to broadcast
+Opt-in milestone posts — user must tap to share, never auto-posted
+Moments ring row — a row of avatar rings sitting above the post scroll showing Friends-audience Moments
+
+Composing a Vibe post:
+Every post goes through a composer with two required choices before publishing:
+
+Content — text, optional photo, optional emoji/vibe tag
+Audience picker — three options:
+
+Friends only (default)
+A specific squad
+Multiple squads (user selects which ones)
+
+
+
+No post should bypass the audience picker. Default is always Friends only. Publishing without an active audience selection should not be possible.
+Reactions + comments:
+Each feed post supports emoji reactions and a threaded comment reply. Both real-time via existing SSE infrastructure.
+Empty state:
+New users with zero posts should see an onboarding nudge encouraging them to post their first Vibe — not a blank screen.
+
+2. 2-Squad Free Limit Enforcement (Tier 1 — API/config change)
+Enforce a hard limit of 2 squads for free users at the API level. When a free user attempts to create or join a 3rd squad, surface the existing UpgradeModal explaining the limit and what Squadz+ unlocks.
+Free users browsing /discover should see the Join button in a locked state for squads beyond their limit, with a tooltip explaining the Pro requirement.
+Existing free users who already have more than 2 squads are grandfathered — do not retroactively remove them from squads.
+
+3. DMs Gated to Squadz+ (Tier 1)
+Direct messaging requires Squadz+. Free users should see the DM inbox but all message content should be visually blurred. Attempting to interact with a blurred message surfaces the UpgradeModal.
+The blur should be visible enough to communicate that real content exists and is waiting — not a blank or empty state. The goal is genuine FOMO, not just a locked door.
+The gate must exist at the API level, not just the UI. Message content should not be exposed in the API response for free users regardless of how the request is made.
+DM notifications should still deliver to free users — they should know a message exists even if they cannot read it.
+
+4. Pro Member Badge — Gold Ring (Tier 2)
+Squadz+ members display a gold ring around their profile avatar everywhere their avatar appears — squad member lists, the Vibe Feed, comment threads, chat messages, Moments ring rows, and event attendee lists.
+The gold ring is a passive status indicator only. It is not a separate tappable element and does not trigger a modal or tooltip on its own.
+Tapping an avatar behaves as it always does — it opens that person's friend profile. Inside the profile view, Squadz+ members should have a visible indicator that reads "SquadZ Pro" — a subtle badge or label displayed on their profile, below or near their name.
+The Pro label on the profile is informational only. It does not need to link to an upgrade flow from another user's profile — it simply communicates their status.
+When a free user upgrades mid-session their own avatar updates to show the gold ring without requiring a logout or restart. When a Pro subscription lapses the gold ring and Pro label are removed on next session load.
+
+5. Moments (Tier 3)
+Build a Moments feature — ephemeral 24-hour posts, visual-first (photo or short video under 60 seconds) with optional text overlay. Available to all users, no Pro gate at this stage.
+Placement — two surfaces:
+
+Feed ring row: A row of avatar rings sits at the top of the Vibe Feed, above the post scroll. These are Moments posted to Friends and are visible to all friends the user has added.
+Squad ring row: A separate row of avatar rings sits at the top of each squad view. These are Moments posted to that specific squad only.
+
+A Moment posted to Friends appears in the feed ring row only. A Moment posted to a specific squad appears in that squad's ring row only. These two surfaces are independent.
+Composing a Moment:
+Camera-forward composer. Flow:
+
+Capture or upload photo or video (under 60 seconds)
+Optional text overlay
+Audience picker — two options only:
+
+Friends (appears in feed ring row, visible to all added friends)
+Squad (select one squad, appears in that squad's ring row only)
+
+
+Post
+
+Viewing:
+Unseen Moments show a colored ring. Seen Moments show a faded ring. Tapping a ring opens the Moment full screen. Users can react with emoji. Viewer list visible to poster only.
+Privacy controls:
+
+Users can delete their own Moment at any time before expiry
+Viewer list visible to poster only
+Friends Moments visible only to mutually added friends — nothing is public
+Squad Moments visible only to members of that squad
+
+What's deferred:
+
+Saving Moments to the photo vault as a Squadz+ feature
+Any Pro gating of Moments functionality
+
+
+Global Notes:
+
+The only paid tier is Squadz+ at $20/year. Do not add new pricing tiers.
+All upgrade modals should reuse the existing UpgradeModal component and funnel to the existing Stripe Checkout flow.
+Privacy is a core design principle across all features. Default to less visibility, not more. Users should always feel in control of who sees what.
+The Vibe Feed, Moments, DM inbox, and Pro badge should feel like a cohesive social layer. Review navigation flow across all four before beginning implementation.
