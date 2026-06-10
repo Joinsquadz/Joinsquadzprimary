@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, unique, index } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, integer, unique, index } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 export const feedPostsTable = pgTable(
@@ -6,8 +6,11 @@ export const feedPostsTable = pgTable(
   {
     id: text("id").primaryKey().default(sql`gen_random_uuid()`),
     authorId: text("author_id").notNull(),
-    text: text("text").notNull(),
+    text: text("text").notNull().default(""),
     audience: text("audience").notNull(), // "friends" | squadId
+    mediaUrl: text("media_url"),
+    mediaType: text("media_type").$type<"photo" | "video">(),
+    durationMs: integer("duration_ms"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },

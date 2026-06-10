@@ -189,6 +189,9 @@ router.get("/feed", requireAuth, async (req: Request, res: Response): Promise<vo
         authorId: p.authorId,
         text: p.text,
         audience: p.audience,
+        mediaUrl: p.mediaUrl,
+        mediaType: p.mediaType,
+        durationMs: p.durationMs,
         createdAt: p.createdAt,
         reactions: counts,
         myReactions: mine,
@@ -207,10 +210,20 @@ router.get("/feed", requireAuth, async (req: Request, res: Response): Promise<vo
   }
 });
 
-const CreatePostBody = z.object({
-  text: z.string().trim().min(1).max(1000),
-  audience: z.string().min(1), // "friends" | squadId
-});
+const CreatePostBody = z
+  .object({
+    text: z.string().trim().max(1000).optional().default(""),
+    audience: z.string().min(1), // "friends" | squadId
+    mediaUrl: z.string().min(1).optional(),
+    mediaType: z.enum(["photo", "video"]).optional(),
+    durationMs: z.number().int().positive().optional(),
+  })
+  .refine((d) => d.text.length > 0 || Boolean(d.mediaUrl), {
+    message: "A post needs text or media.",
+  })
+  .refine((d) => !d.mediaUrl || Boolean(d.mediaType), {
+    message: "Media posts must include a mediaType.",
+  });
 
 // POST /api/feed/posts — create a post. Free and Pro users can both post.
 router.post("/feed/posts", requireAuth, async (req: Request, res: Response): Promise<void> => {
@@ -221,7 +234,7 @@ router.post("/feed/posts", requireAuth, async (req: Request, res: Response): Pro
       res.status(400).json({ error: parsed.error.message });
       return;
     }
-    const { text, audience } = parsed.data;
+    const { text, audience, mediaUrl, mediaType, durationMs } = parsed.data;
 
     // Validate audience: "friends" is always allowed; a squad audience requires
     // the author to be a member of that squad.
@@ -233,17 +246,45 @@ router.post("/feed/posts", requireAuth, async (req: Request, res: Response): Pro
       }
     }
 
+    // Provenance: a post may only reference media the author uploaded. This stops
+    // a user from pointing a post at someone else's private object and then
+    // self-authorizing via the feed media ACL (the author can always view it).
+    if (mediaUrl) {
+      const owner = await storage.getUploadOwner(mediaUrl);
+      if (owner !== userId) {
+        res.status(403).json({ error: "You can only attach media you uploaded." });
+        return;
+      }
+    }
+
     const [post] = await db
       .insert(feedPostsTable)
-      .values({ authorId: userId, text, audience })
+      .values({
+        authorId: userId,
+        text,
+        audience,
+        mediaUrl: mediaUrl ?? null,
+        mediaType: mediaUrl ? (mediaType ?? null) : null,
+        durationMs: mediaUrl && mediaType === "video" ? (durationMs ?? null) : null,
+      })
       .returning();
 
     res.status(201).json({ id: post.id });
 
+    // Push/notification preview: caption if present, else a media label.
+    const preview =
+      text.length > 0
+        ? text.length > 80
+          ? `${text.slice(0, 77)}...`
+          : text
+        : mediaType === "video"
+          ? "🎥 Shared a clip"
+          : "📷 Shared a photo";
+
     // Fire-and-forget: fan out SSE updates + push to the audience.
     void (async () => {
       try {
-        const recipientIds = await notifyFeedAudience(userId, audience, text);
+        const recipientIds = await notifyFeedAudience(userId, audience);
         recipientIds.forEach((id) => emitFeedUpdate(id));
         emitFeedUpdate(userId);
 
@@ -258,7 +299,7 @@ router.post("/feed/posts", requireAuth, async (req: Request, res: Response): Pro
               tokens,
               {
                 title: authorName,
-                body: text.length > 80 ? `${text.slice(0, 77)}...` : text,
+                body: preview,
                 data: { screen: "feed" },
               },
               { onStaleToken: (token) => storage.clearPushToken(token) },

@@ -12,6 +12,9 @@ import {
   conversationParticipantsTable,
   conversationMessagesTable,
   pushTicketsTable,
+  feedPostsTable,
+  friendshipsTable,
+  objectUploadsTable,
   type Photo,
   type AvailabilityPoll,
   type AvailabilityResponse,
@@ -1030,6 +1033,54 @@ export class Storage {
       if (seen.has(row.conversationId)) continue;
       seen.add(row.conversationId);
       if (await this.getConversationForMember(row.conversationId, userId)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Record the owner of a freshly-issued upload path. Idempotent: the path is
+   * server-generated and only handed to the requester, so the first (and only)
+   * writer is the legitimate owner. Re-recording a path keeps the original owner.
+   */
+  async recordUpload(ownerId: string, objectPath: string): Promise<void> {
+    await db
+      .insert(objectUploadsTable)
+      .values({ ownerId, objectPath })
+      .onConflictDoNothing({ target: objectUploadsTable.objectPath });
+  }
+
+  /** Returns the user who uploaded the given object path, or null if unknown. */
+  async getUploadOwner(objectPath: string): Promise<string | null> {
+    const [row] = await db
+      .select({ ownerId: objectUploadsTable.ownerId })
+      .from(objectUploadsTable)
+      .where(eq(objectUploadsTable.objectPath, objectPath));
+    return row?.ownerId ?? null;
+  }
+
+  async canUserViewFeedMedia(objectPath: string, userId: string): Promise<boolean> {
+    const posts = await db
+      .select({ authorId: feedPostsTable.authorId, audience: feedPostsTable.audience })
+      .from(feedPostsTable)
+      .where(and(eq(feedPostsTable.mediaUrl, objectPath), isNull(feedPostsTable.deletedAt)));
+    if (posts.length === 0) return false;
+
+    for (const post of posts) {
+      if (post.authorId === userId) return true;
+      if (post.audience === "friends") {
+        const [row] = await db
+          .select({ ownerId: friendshipsTable.ownerId })
+          .from(friendshipsTable)
+          .where(
+            and(
+              eq(friendshipsTable.ownerId, post.authorId),
+              eq(friendshipsTable.friendId, userId),
+            ),
+          );
+        if (row) return true;
+      } else if (await this.isSquadMember(post.audience, userId)) {
+        return true;
+      }
     }
     return false;
   }

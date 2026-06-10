@@ -7,6 +7,7 @@ vi.mock("../storage", () => ({
   storage: {
     canUserViewPhotoByUrl: () => Promise.resolve(canView.value),
     canUserViewMessageAttachment: () => Promise.resolve(false),
+    canUserViewFeedMedia: () => Promise.resolve(false),
   },
 }));
 

@@ -36,6 +36,11 @@ router.post("/storage/uploads/request-url", requireAuth, async (req: Request, re
     const isPublicAccess = (req.body as Record<string, unknown>).isPublicAccess === true;
     const supabaseUpload = await createStorageUploadUrl(contentType, isPublicAccess);
     if (supabaseUpload) {
+      // Bind the new object path to the requester so other features can verify
+      // ownership before serving it (prevents claiming another user's object).
+      if (!isPublicAccess) {
+        await storage.recordUpload(req.user!.id, supabaseUpload.objectPath);
+      }
       res.json(
         RequestUploadUrlResponse.parse({
           uploadURL: supabaseUpload.uploadURL,
@@ -49,6 +54,7 @@ router.post("/storage/uploads/request-url", requireAuth, async (req: Request, re
     // Fall back to Replit Object Storage
     const uploadURL = await objectStorageService.getObjectEntityUploadURL();
     const objectPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
+    await storage.recordUpload(req.user!.id, objectPath);
 
     res.json(
       RequestUploadUrlResponse.parse({
@@ -121,7 +127,8 @@ router.get("/storage/objects/*path", requireAuth, async (req: Request, res: Resp
       // conversation participant may access private Supabase objects.
       const canAccess =
         (await storage.canUserViewPhotoByUrl(objectPath, userId)) ||
-        (await storage.canUserViewMessageAttachment(objectPath, userId));
+        (await storage.canUserViewMessageAttachment(objectPath, userId)) ||
+        (await storage.canUserViewFeedMedia(objectPath, userId));
       if (!canAccess) {
         res.status(403).json({ error: "Forbidden" });
         return;
@@ -140,7 +147,8 @@ router.get("/storage/objects/*path", requireAuth, async (req: Request, res: Resp
     // Authorize before revealing whether the object exists.
     const canAccess =
       (await storage.canUserViewPhotoByUrl(objectPath, userId)) ||
-      (await storage.canUserViewMessageAttachment(objectPath, userId));
+      (await storage.canUserViewMessageAttachment(objectPath, userId)) ||
+      (await storage.canUserViewFeedMedia(objectPath, userId));
     if (!canAccess) {
       res.status(403).json({ error: "Forbidden" });
       return;

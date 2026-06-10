@@ -9,7 +9,8 @@
 - [Squad photo roll-up](squad-photo-rollup.md) — curated per-squad vault via photos.squadId+sharedToSquad; member-only routes, share only your OWN photos; web SquadDetail is mock, mobile is functional.
 - [Friends IS server-backed](friends-no-backend.md) — /api/users/friends GET/POST/DELETE exist; AppContext friends[]+addFriend/removeFriend/fetchFriends; derive isFriend via friends.includes(id), no helper.
 - [RN modal overflow trap](rn-modal-overflow-trap.md) — iOS transparent slide modals have no swipe-dismiss; data-length content needs maxHeight+ScrollView+persistent absolute close (X), else Close pushed off-screen traps user. Reuse components/ContactSheet.tsx.
-- [Object storage read ACL (closed)](object-storage-acl-gap.md) — /objects/* AND request-url now auth-gated; photos.url DB-unique for provenance; residual: objectPath has no upload-time owner binding.
+- [Object storage read ACL (closed)](object-storage-acl-gap.md) — /objects/* AND request-url auth-gated; upload-time owner binding via object_uploads (recordUpload/getUploadOwner); feed verifies media ownership; moments don't yet.
+- [Protected video web auth](protected-video-web-auth.md) — DOM <video> can't send auth headers; AttachmentVideo must blob-fetch protected /objects/* clips (feed+moments web path), else 401 while images render.
 - [Squad PATCH membership is intentional](squad-patch-membership.md) — any member editing memberIds via PATCH /squads/:id is tested behavior, NOT a bug; don't "fix" it. Optimistic squad mutations should reconcile via refreshSquads(), not local reinsert.
 - [Auth provider constraints](auth-provider-constraints.md) — app uses Replit Auth; Clerk migration unsupported + Clerk has no SMS/Facebook; Google+Facebook+SMS OTP = custom build.
 - [Squadz native-module web safety](squadz-native-module-web-safety.md) — Expo-web preview crashes on top-level native imports; guard + dynamic-import native modules, web uses pure-web path.

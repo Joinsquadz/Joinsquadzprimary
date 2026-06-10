@@ -13,9 +13,12 @@ import {
   Alert,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 import * as Haptics from "expo-haptics";
+import * as ImagePicker from "expo-image-picker";
+import AttachmentVideo from "@/components/AttachmentVideo";
 import { useColors } from "@/hooks/useColors";
 import { useAuth, useData } from "@/context/AppContext";
 import { useUserCache } from "@/context/UserCacheContext";
@@ -29,12 +32,26 @@ type FeedPost = {
   authorId: string;
   text: string;
   audience: string; // "friends" | squadId
+  mediaUrl: string | null;
+  mediaType: "photo" | "video" | null;
+  durationMs: number | null;
   createdAt: string;
   reactions: Record<string, number>;
   myReactions: string[];
   commentCount: number;
   canDelete: boolean;
 };
+
+type PickedMedia = {
+  uri: string;
+  mediaType: "photo" | "video";
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  durationMs: number | null;
+};
+
+const MAX_VIDEO_MS = 60 * 1000;
 
 type FeedComment = {
   id: string;
@@ -78,6 +95,9 @@ export default function FeedScreen() {
   const [draft, setDraft] = useState("");
   const [audience, setAudience] = useState<string>("friends");
   const [posting, setPosting] = useState(false);
+  const [picked, setPicked] = useState<PickedMedia | null>(null);
+
+  const mediaSrc = useCallback((path: string) => `${API_BASE}/api/storage${path}`, []);
 
   // comments
   const [openComments, setOpenComments] = useState<string | null>(null);
@@ -244,16 +264,122 @@ export default function FeedScreen() {
     setRefreshing(false);
   }, [fetchFeed]);
 
+  const runPicker = useCallback(
+    async (source: "camera" | "library", kind: "photo" | "video") => {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      let result: ImagePicker.ImagePickerResult;
+      if (source === "camera") {
+        const perm = await ImagePicker.requestCameraPermissionsAsync();
+        if (!perm.granted) {
+          Alert.alert("Permission needed", "Allow camera access to capture a photo or clip.");
+          return;
+        }
+        result = await ImagePicker.launchCameraAsync({
+          mediaTypes: kind === "video" ? ["videos"] : ["images"],
+          quality: 0.8,
+          videoMaxDuration: 60,
+        });
+      } else {
+        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!perm.granted) {
+          Alert.alert("Permission needed", "Allow photo library access to share media.");
+          return;
+        }
+        result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ["images", "videos"],
+          allowsMultipleSelection: false,
+          quality: 0.8,
+          videoMaxDuration: 60,
+        });
+      }
+      if (result.canceled || !result.assets.length) return;
+      const asset = result.assets[0];
+      const isVideo = kind === "video" || asset.type === "video";
+      const durationMs = asset.duration ?? null;
+      if (isVideo && durationMs && durationMs > MAX_VIDEO_MS) {
+        Alert.alert("Too long", "Clips can be up to 60 seconds.");
+        return;
+      }
+      setPicked({
+        uri: asset.uri,
+        mediaType: isVideo ? "video" : "photo",
+        fileName: asset.fileName ?? (isVideo ? "vibe.mp4" : "vibe.jpg"),
+        mimeType: asset.mimeType ?? (isVideo ? "video/mp4" : "image/jpeg"),
+        fileSize: asset.fileSize ?? 0,
+        durationMs: isVideo ? durationMs : null,
+      });
+    },
+    [],
+  );
+
+  const handleAddMedia = useCallback(() => {
+    if (Platform.OS === "web") {
+      void runPicker("library", "photo");
+      return;
+    }
+    Alert.alert("Add to your vibe", undefined, [
+      { text: "Take Photo", onPress: () => void runPicker("camera", "photo") },
+      { text: "Record Clip", onPress: () => void runPicker("camera", "video") },
+      { text: "Choose from Library", onPress: () => void runPicker("library", "photo") },
+      { text: "Cancel", style: "cancel" },
+    ]);
+  }, [runPicker]);
+
   const handlePost = useCallback(async () => {
     const text = draft.trim();
-    if (!text || posting) return;
+    if ((!text && !picked) || posting) return;
     setPosting(true);
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
+      let media: { mediaUrl: string; mediaType: "photo" | "video"; durationMs?: number } | null =
+        null;
+
+      if (picked) {
+        // 1. Request a signed upload URL.
+        const urlRes = await fetch(`${API_BASE}/api/storage/uploads/request-url`, {
+          method: "POST",
+          headers: { ...buildAuthHeaders(authToken), "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: picked.fileName,
+            size: picked.fileSize,
+            contentType: picked.mimeType,
+          }),
+        });
+        if (!urlRes.ok) {
+          Alert.alert("Couldn't upload", "Please try again.");
+          return;
+        }
+        const { uploadURL, objectPath } = (await urlRes.json()) as {
+          uploadURL: string;
+          objectPath: string;
+        };
+
+        // 2. PUT the media bytes.
+        const fileRes = await fetch(picked.uri);
+        const blob = await fileRes.blob();
+        const putRes = await fetch(uploadURL, {
+          method: "PUT",
+          body: blob,
+          headers: { "Content-Type": picked.mimeType },
+        });
+        if (!putRes.ok) {
+          Alert.alert("Couldn't upload", "Please try again.");
+          return;
+        }
+        media = {
+          mediaUrl: objectPath,
+          mediaType: picked.mediaType,
+          ...(picked.mediaType === "video" && picked.durationMs
+            ? { durationMs: Math.round(picked.durationMs) }
+            : {}),
+        };
+      }
+
+      // 3. Create the post.
       const res = await fetch(`${API_BASE}/api/feed/posts`, {
         method: "POST",
         headers: { ...buildAuthHeaders(authToken), "Content-Type": "application/json" },
-        body: JSON.stringify({ text, audience }),
+        body: JSON.stringify({ text, audience, ...(media ?? {}) }),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
@@ -261,13 +387,14 @@ export default function FeedScreen() {
         return;
       }
       setDraft("");
+      setPicked(null);
       await fetchFeed();
     } catch {
       Alert.alert("Couldn't post", "Please check your connection and try again.");
     } finally {
       setPosting(false);
     }
-  }, [draft, posting, audience, authToken, fetchFeed]);
+  }, [draft, picked, posting, audience, authToken, fetchFeed]);
 
   const handleToggleReaction = useCallback(
     async (post: FeedPost, emoji: string) => {
@@ -488,16 +615,52 @@ export default function FeedScreen() {
             })}
           </ScrollView>
 
+          {picked && (
+            <View style={[styles.mediaPreview, { borderColor: colors.border }]}>
+              {picked.mediaType === "video" ? (
+                <AttachmentVideo uri={picked.uri} style={StyleSheet.absoluteFillObject} />
+              ) : (
+                <Image
+                  source={{ uri: picked.uri }}
+                  style={StyleSheet.absoluteFill}
+                  contentFit="cover"
+                />
+              )}
+              <TouchableOpacity
+                style={styles.mediaClearBtn}
+                onPress={() => {
+                  void Haptics.selectionAsync();
+                  setPicked(null);
+                }}
+                hitSlop={8}
+              >
+                <Ionicons name="close" size={16} color="#fff" />
+              </TouchableOpacity>
+            </View>
+          )}
+
           <View style={styles.composerActions}>
+            <TouchableOpacity
+              onPress={handleAddMedia}
+              disabled={posting}
+              style={[styles.attachBtn, { borderColor: colors.border }]}
+              activeOpacity={0.7}
+              hitSlop={6}
+            >
+              <Ionicons name="image-outline" size={20} color={colors.primary} />
+            </TouchableOpacity>
             <Text style={[styles.composerHint, { color: colors.textDim }]}>
               Sharing to {audienceLabel(audience)}
             </Text>
             <TouchableOpacity
               onPress={() => void handlePost()}
-              disabled={!draft.trim() || posting}
+              disabled={(!draft.trim() && !picked) || posting}
               style={[
                 styles.postBtn,
-                { backgroundColor: colors.primary, opacity: !draft.trim() || posting ? 0.5 : 1 },
+                {
+                  backgroundColor: colors.primary,
+                  opacity: (!draft.trim() && !picked) || posting ? 0.5 : 1,
+                },
               ]}
               activeOpacity={0.85}
             >
@@ -558,7 +721,30 @@ export default function FeedScreen() {
                   )}
                 </View>
 
-                <Text style={[styles.postText, { color: colors.foreground }]}>{post.text}</Text>
+                {post.text.length > 0 && (
+                  <Text style={[styles.postText, { color: colors.foreground }]}>{post.text}</Text>
+                )}
+
+                {post.mediaUrl && (
+                  <View style={[styles.postMedia, { borderColor: colors.border }]}>
+                    {post.mediaType === "video" ? (
+                      <AttachmentVideo
+                        uri={mediaSrc(post.mediaUrl)}
+                        headers={buildAuthHeaders(authToken) as Record<string, string>}
+                        style={StyleSheet.absoluteFillObject}
+                      />
+                    ) : (
+                      <Image
+                        source={{
+                          uri: mediaSrc(post.mediaUrl),
+                          headers: buildAuthHeaders(authToken) as Record<string, string>,
+                        }}
+                        style={StyleSheet.absoluteFill}
+                        contentFit="cover"
+                      />
+                    )}
+                  </View>
+                )}
 
                 {/* reactions */}
                 <View style={styles.reactionRow}>
@@ -714,8 +900,36 @@ const styles = StyleSheet.create({
     maxWidth: 160,
   },
   audienceChipText: { fontSize: 13, fontWeight: "700" },
-  composerActions: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  composerActions: { flexDirection: "row", alignItems: "center", gap: 10 },
   composerHint: { fontSize: 12, fontWeight: "600", flex: 1 },
+  attachBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  mediaPreview: {
+    width: "100%",
+    aspectRatio: 4 / 3,
+    borderRadius: 14,
+    borderWidth: 1,
+    overflow: "hidden",
+    marginBottom: 12,
+    backgroundColor: "#000",
+  },
+  mediaClearBtn: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   postBtn: {
     borderRadius: 12,
     paddingHorizontal: 20,
@@ -743,6 +957,14 @@ const styles = StyleSheet.create({
   postAuthor: { fontSize: 15, fontWeight: "700" },
   postMeta: { fontSize: 12, fontWeight: "500", marginTop: 1 },
   postText: { fontSize: 15.5, lineHeight: 22 },
+  postMedia: {
+    width: "100%",
+    aspectRatio: 4 / 3,
+    borderRadius: 14,
+    borderWidth: 1,
+    overflow: "hidden",
+    backgroundColor: "#000",
+  },
 
   reactionRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   reactionChip: {
