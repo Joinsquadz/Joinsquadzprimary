@@ -23,7 +23,8 @@ All services degrade gracefully when their env vars are absent (Supabase Auth fa
 | -------- | ------- |
 | `SUPABASE_URL` | Supabase project URL (`https://<ref>.supabase.co`) |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service-role key (admin, never expose to clients) |
-| `SUPABASE_STORAGE_BUCKET` | Bucket name for photo/attachment uploads (default: `squadz-media`) |
+| `SUPABASE_STORAGE_BUCKET` | **Private** bucket for vault photos / message attachments / feed media (default: `squadz-media`). Served only via auth-gated signed-URL redirect. |
+| `SUPABASE_PUBLIC_BUCKET` | **Public** bucket for profile avatars (default: `squadz-avatars`). Must have its `public` flag = true so a plain `<Image>` (no auth header) can load the permanent public URL. Auto-created on first avatar upload if missing. |
 | `SENDGRID_API_KEY` | SendGrid API key — primary email delivery |
 | `SENDGRID_FROM` | Sender address for transactional email |
 | `TWILIO_ACCOUNT_SID` | Twilio account SID for SMS OTP |
@@ -139,6 +140,7 @@ Squadz is a mobile app for friend groups: create squads, find the time everyone 
 
 ## Gotchas
 
+- **Profile avatars need a PUBLIC bucket.** Avatars render via a plain `<Image>` with no Authorization header (`components/UserAvatar.tsx`), so they must be served from a permanent, publicly-readable URL. A private Supabase bucket's `getPublicUrl()` returns a link that 400s — the photo uploads fine but never displays. Public uploads (`isPublicAccess: true`) go to `SUPABASE_PUBLIC_BUCKET`; private assets (vault/attachments/feed) stay in `SUPABASE_STORAGE_BUCKET` and load via auth-gated signed-URL redirect (they pass auth headers through `expo-image`).
 - Verify web changes with `pnpm --filter @workspace/squadz run typecheck` (NOT `build`, which needs workflow-provided `PORT`/`BASE_PATH`).
 - After changing `lib/db` schema, run `pnpm --filter @workspace/db run push` and restart the api-server workflow.
 

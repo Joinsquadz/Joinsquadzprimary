@@ -31,3 +31,26 @@ silently falls back to initials, looking like "the upload didn't save."
 **How to apply:** use `resolveUploadedUrl()` in `lib/api.ts` (branches on `^https?://`)
 for any uploaded-path → URL conversion; unit-tested in `lib/__tests__/api.test.ts`.
 Avatars are shown via plain `<Image>` (no auth headers), so they MUST be public URLs.
+
+# Avatars must come from a PUBLIC bucket; two-bucket split is by design
+
+Rule: serve avatars (anything loaded by a no-auth `<Image>`) from a bucket whose
+`public` flag is true; keep all private media (vault/attachments/feed) in a separate
+PRIVATE bucket behind the auth-gated signed-URL redirect. Never make the private
+bucket public, and never serve avatars from it.
+
+**Why:** a private Supabase bucket's `getPublicUrl()` returns a link that 400s, so an
+avatar uploads fine (PUT 200, signed download 200) but never displays — it looks
+exactly like "the upload didn't save," but the bytes are there. The split is the
+containment boundary (private media stays auth-gated, only avatars are public).
+
+**How to apply:**
+- Two buckets: private (`SUPABASE_STORAGE_BUCKET`) + public (`SUPABASE_PUBLIC_BUCKET`,
+  default `squadz-avatars`). Branch on the `isPublicAccess` upload flag.
+- Fail closed, never fall back: a public-upload request must not degrade to the
+  private/auth-gated path on error (that re-creates the broken-avatar bug). Verify the
+  public bucket is actually `public===true` before trusting it, don't just assume it
+  exists.
+**Watch:** a one-off `StorageApiError: new row violates row-level security policy` on
+`createSignedUploadUrl` was seen in-server but was NOT reproducible with the same
+service-role client — treat as a transient Supabase hiccup, not the root cause.

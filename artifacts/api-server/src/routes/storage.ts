@@ -51,7 +51,16 @@ router.post("/storage/uploads/request-url", requireAuth, async (req: Request, re
       return;
     }
 
-    // Fall back to Replit Object Storage
+    // Avatars REQUIRE a publicly-loadable URL. If Supabase public-upload creation
+    // failed for a public request, do NOT fall back to the auth-gated Replit path —
+    // that persists a URL the no-auth <Image> can never load (the original bug).
+    // Fail loudly so the client surfaces "couldn't upload" instead of a broken avatar.
+    if (isPublicAccess) {
+      res.status(502).json({ error: "Could not generate a public upload URL" });
+      return;
+    }
+
+    // Fall back to Replit Object Storage (private assets only)
     const uploadURL = await objectStorageService.getObjectEntityUploadURL();
     const objectPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
     await storage.recordUpload(req.user!.id, objectPath);
