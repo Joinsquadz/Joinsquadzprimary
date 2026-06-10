@@ -76,6 +76,18 @@ router.post("/moments", requireAuth, async (req: Request, res: Response): Promis
       return;
     }
 
+    // Provenance: only attach media you uploaded. The moment-media ACL always
+    // authorizes the author, so without this a user could point a moment at
+    // someone else's private object path and self-authorize access to it.
+    // Public uploads (full https URLs) carry no private object path to forge.
+    if (!/^https?:\/\//i.test(mediaUrl)) {
+      const owner = await storage.getUploadOwner(mediaUrl);
+      if (owner !== userId) {
+        res.status(403).json({ error: "You can only attach media you uploaded." });
+        return;
+      }
+    }
+
     let recipientIds: string[] = [];
     if (audience === "friends") {
       recipientIds = await getFriendIds(userId);

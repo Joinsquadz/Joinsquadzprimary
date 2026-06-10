@@ -137,7 +137,8 @@ router.get("/storage/objects/*path", requireAuth, async (req: Request, res: Resp
       const canAccess =
         (await storage.canUserViewPhotoByUrl(objectPath, userId)) ||
         (await storage.canUserViewMessageAttachment(objectPath, userId)) ||
-        (await storage.canUserViewFeedMedia(objectPath, userId));
+        (await storage.canUserViewFeedMedia(objectPath, userId)) ||
+        (await storage.canUserViewMomentMedia(objectPath, userId));
       if (!canAccess) {
         res.status(403).json({ error: "Forbidden" });
         return;
@@ -157,7 +158,8 @@ router.get("/storage/objects/*path", requireAuth, async (req: Request, res: Resp
     const canAccess =
       (await storage.canUserViewPhotoByUrl(objectPath, userId)) ||
       (await storage.canUserViewMessageAttachment(objectPath, userId)) ||
-      (await storage.canUserViewFeedMedia(objectPath, userId));
+      (await storage.canUserViewFeedMedia(objectPath, userId)) ||
+      (await storage.canUserViewMomentMedia(objectPath, userId));
     if (!canAccess) {
       res.status(403).json({ error: "Forbidden" });
       return;

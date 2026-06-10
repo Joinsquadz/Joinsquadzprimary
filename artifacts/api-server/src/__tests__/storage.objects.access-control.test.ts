@@ -2,12 +2,14 @@ import { describe, it, expect, vi } from "vitest";
 import request from "supertest";
 
 const canView = vi.hoisted(() => ({ value: false }));
+const canViewMoment = vi.hoisted(() => ({ value: false }));
 
 vi.mock("../storage", () => ({
   storage: {
     canUserViewPhotoByUrl: () => Promise.resolve(canView.value),
     canUserViewMessageAttachment: () => Promise.resolve(false),
     canUserViewFeedMedia: () => Promise.resolve(false),
+    canUserViewMomentMedia: () => Promise.resolve(canViewMoment.value),
   },
 }));
 
@@ -58,5 +60,14 @@ describe("GET /api/storage/objects/*", () => {
     const app = await makeApp({ id: "member" });
     const res = await request(app).get(OBJECT_PATH);
     expect(res.status).toBe(200);
+  });
+
+  it("returns 200 when authorized only via moment-media access", async () => {
+    canView.value = false;
+    canViewMoment.value = true;
+    const app = await makeApp({ id: "moment-author" });
+    const res = await request(app).get(OBJECT_PATH);
+    expect(res.status).toBe(200);
+    canViewMoment.value = false;
   });
 });

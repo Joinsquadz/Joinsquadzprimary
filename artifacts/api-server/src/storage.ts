@@ -13,6 +13,7 @@ import {
   conversationMessagesTable,
   pushTicketsTable,
   feedPostsTable,
+  momentsTable,
   friendshipsTable,
   objectUploadsTable,
   type Photo,
@@ -1079,6 +1080,40 @@ export class Storage {
           );
         if (row) return true;
       } else if (await this.isSquadMember(post.audience, userId)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Whether `userId` may load the media behind a moment's stored objectPath.
+   * Mirrors the moment audience rules: the author always can; a "friends"
+   * moment is visible to the author's friends; a squad moment is visible to
+   * current squad members. Without this, the /storage/objects/* route 403s
+   * moment media for everyone (author included) → black screen / video error.
+   */
+  async canUserViewMomentMedia(objectPath: string, userId: string): Promise<boolean> {
+    const moments = await db
+      .select({ authorId: momentsTable.authorId, audience: momentsTable.audience })
+      .from(momentsTable)
+      .where(and(eq(momentsTable.mediaUrl, objectPath), isNull(momentsTable.deletedAt)));
+    if (moments.length === 0) return false;
+
+    for (const moment of moments) {
+      if (moment.authorId === userId) return true;
+      if (moment.audience === "friends") {
+        const [row] = await db
+          .select({ ownerId: friendshipsTable.ownerId })
+          .from(friendshipsTable)
+          .where(
+            and(
+              eq(friendshipsTable.ownerId, moment.authorId),
+              eq(friendshipsTable.friendId, userId),
+            ),
+          );
+        if (row) return true;
+      } else if (await this.isSquadMember(moment.audience, userId)) {
         return true;
       }
     }
