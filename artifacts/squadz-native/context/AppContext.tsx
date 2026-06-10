@@ -1294,9 +1294,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               },
         ),
       );
+      const currentVersion = events.find((e) => e.id === eventId)?.version;
+      const body: Record<string, unknown> = { paid };
+      if (currentVersion !== undefined) body.version = currentVersion;
       void apiFetch(`/api/events/${eventId}/costs/${costId}/mark-paid`, {
         method: "POST",
-        body: JSON.stringify({ paid }),
+        body: JSON.stringify(body),
       })
         .then((res) => (res.ok ? (res.json() as Promise<Record<string, unknown>>) : Promise.reject()))
         .then(applyEventUpdate)
@@ -1304,7 +1307,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           void refreshEvents();
         });
     },
-    [apiFetch, applyEventUpdate, apiUser, refreshEvents],
+    [apiFetch, applyEventUpdate, apiUser, events, refreshEvents],
   );
 
   const confirmShare = useCallback(
@@ -1334,9 +1337,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               },
         ),
       );
+      const currentVersion = events.find((e) => e.id === eventId)?.version;
+      const body: Record<string, unknown> = { confirmed };
+      if (currentVersion !== undefined) body.version = currentVersion;
       void apiFetch(`/api/events/${eventId}/costs/${costId}/shares/${encodeURIComponent(debtorId)}/confirm`, {
         method: "POST",
-        body: JSON.stringify({ confirmed }),
+        body: JSON.stringify(body),
       })
         .then((res) => (res.ok ? (res.json() as Promise<Record<string, unknown>>) : Promise.reject()))
         .then(applyEventUpdate)
@@ -1344,7 +1350,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           void refreshEvents();
         });
     },
-    [apiFetch, applyEventUpdate, refreshEvents],
+    [apiFetch, applyEventUpdate, events, refreshEvents],
   );
 
   const fetchPaymentHandles = useCallback(

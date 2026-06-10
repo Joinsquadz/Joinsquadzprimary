@@ -226,6 +226,16 @@ describe("POST /api/events/:id/costs/:costId/mark-paid", () => {
     const res = await request(app).post("/api/events/evt-1/costs/c1/mark-paid").send({ paid: false });
     expect(res.status).toBe(409);
   });
+
+  it("returns 409 when the client version is stale (concurrent write)", async () => {
+    dbState.selectRows = [eventWith([cost])];
+    // Version-guarded update matches no row → empty result → conflict.
+    dbState.updateRows = [];
+    const app = await makeApp({ id: ALICE });
+    const res = await request(app).post("/api/events/evt-1/costs/c1/mark-paid").send({ paid: true, version: 1 });
+    expect(res.status).toBe(409);
+    expect(res.body.conflict).toBe(true);
+  });
 });
 
 describe("POST /api/events/:id/costs/:costId/shares/:shareUserId/confirm", () => {
@@ -267,6 +277,18 @@ describe("POST /api/events/:id/costs/:costId/shares/:shareUserId/confirm", () =>
     const app = await makeApp({ id: HOST });
     const res = await request(app).post("/api/events/evt-1/costs/c1/shares/alice-id/confirm").send({ confirmed: true });
     expect(res.status).toBe(409);
+  });
+
+  it("returns 409 when the client version is stale (concurrent write)", async () => {
+    dbState.selectRows = [eventWith([paidCost])];
+    // Version-guarded update matches no row → empty result → conflict.
+    dbState.updateRows = [];
+    const app = await makeApp({ id: HOST });
+    const res = await request(app)
+      .post("/api/events/evt-1/costs/c1/shares/alice-id/confirm")
+      .send({ confirmed: true, version: 1 });
+    expect(res.status).toBe(409);
+    expect(res.body.conflict).toBe(true);
   });
 });
 

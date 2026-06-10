@@ -680,8 +680,8 @@ router.post("/events/:id/costs", requireAuth, async (req: Request, res: Response
 type StoredShare = { userId: string; amount: number; paidAt?: string | null; confirmedAt?: string | null };
 type StoredCost = { id: string; description: string; amount: number; paidById: string; shares: StoredShare[] };
 
-const MarkPaidBody = z.object({ paid: z.boolean() });
-const ConfirmShareBody = z.object({ confirmed: z.boolean() });
+const MarkPaidBody = z.object({ paid: z.boolean(), version: z.number().int().optional() });
+const ConfirmShareBody = z.object({ confirmed: z.boolean(), version: z.number().int().optional() });
 
 // A debtor marks (or un-marks) their OWN share of a cost as paid. Records who/when.
 // Cannot change a share the creditor has already confirmed.
@@ -720,7 +720,18 @@ router.post("/events/:id/costs/:costId/mark-paid", requireAuth, async (req: Requ
   const nextCosts = costs.map((c) =>
     c.id !== costId ? c : { ...c, shares: cost.shares.map((s) => (s.userId === userId ? share : s)) },
   );
-  const [event] = await db.update(eventsTable).set({ costs: nextCosts }).where(eq(eventsTable.id, id)).returning();
+  const clientVersion = parsed.data.version;
+  const updateWhere = clientVersion !== undefined
+    ? and(eq(eventsTable.id, id), eq(eventsTable.version, clientVersion))
+    : eq(eventsTable.id, id);
+  const [event] = await db.update(eventsTable)
+    .set({ costs: nextCosts, version: sql`${eventsTable.version} + 1` })
+    .where(updateWhere)
+    .returning();
+  if (!event) {
+    res.status(409).json({ error: "Someone else just updated this — refresh to see the latest", conflict: true });
+    return;
+  }
   res.json(event);
   emitEventUpdate(id);
 
@@ -790,7 +801,18 @@ router.post("/events/:id/costs/:costId/shares/:shareUserId/confirm", requireAuth
   const nextCosts = costs.map((c) =>
     c.id !== costId ? c : { ...c, shares: cost.shares.map((s) => (s.userId === shareUserId ? share : s)) },
   );
-  const [event] = await db.update(eventsTable).set({ costs: nextCosts }).where(eq(eventsTable.id, id)).returning();
+  const clientVersion = parsed.data.version;
+  const updateWhere = clientVersion !== undefined
+    ? and(eq(eventsTable.id, id), eq(eventsTable.version, clientVersion))
+    : eq(eventsTable.id, id);
+  const [event] = await db.update(eventsTable)
+    .set({ costs: nextCosts, version: sql`${eventsTable.version} + 1` })
+    .where(updateWhere)
+    .returning();
+  if (!event) {
+    res.status(409).json({ error: "Someone else just updated this — refresh to see the latest", conflict: true });
+    return;
+  }
   res.json(event);
   emitEventUpdate(id);
 });
