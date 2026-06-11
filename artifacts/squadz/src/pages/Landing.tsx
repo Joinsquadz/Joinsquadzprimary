@@ -24,22 +24,22 @@ const features = [
     body: "Create a hangout in seconds. Track who's in, who's out, and who's a maybe — with reminders that actually get people to show up.",
   },
   {
-    emoji: "💬",
-    color: T.blue,
-    title: "Group chat that does stuff",
-    body: "Chat tied to the plan: vote on times, claim what to bring, drop the address. Decisions happen in the thread, not lost above it.",
-  },
-  {
     emoji: "📸",
     color: T.pink,
-    title: "Photo vault",
-    body: "Every hangout's photos in one shared album, auto-sorted by event. Relive the night without begging everyone to AirDrop.",
+    title: "Photo vault & moments",
+    body: "Every hangout's photos in one shared album, auto-sorted by event. Share moments to the Vibe feed — let the whole squad relive the highlights.",
   },
   {
     emoji: "💸",
     color: T.green,
     title: "Split the costs",
-    body: "Keep the BBQ, the cabin, the bar tab fair. Track who paid for what and settle up without the awkward math.",
+    body: "Keep the BBQ, the cabin, the bar tab fair. Track who paid for what, settle up with Venmo, Cash App, or Zelle — without the awkward math.",
+  },
+  {
+    emoji: "✨",
+    color: T.blue,
+    title: "Pro features, zero ads",
+    body: "Subscribe to Squadz Pro for unlimited events, priority support, and more squads — no ads, no selling your data, ever.",
   },
 ];
 
@@ -321,7 +321,7 @@ export default function Landing() {
         <div className="lz-hero">
           <div>
             <div style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "7px 14px", borderRadius: 22, background: T.surfaceUp, border: `1px solid ${T.border}`, fontSize: 13, color: T.gold, fontWeight: 700, marginBottom: 22 }}>
-              📱 Coming soon to iOS &amp; Android
+              📱 Download on iOS &amp; Android
             </div>
             <h1 className="lz-h1" style={{ fontWeight: 800, margin: 0 }}>
               Stop texting.<br />
@@ -329,7 +329,7 @@ export default function Landing() {
               <span style={{ background: ACCENT_GRADIENT, WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}>actually hanging.</span>
             </h1>
             <p style={{ fontSize: 18.5, color: T.textSub, lineHeight: 1.55, margin: "20px 0 28px", maxWidth: 480 }}>
-              Squadz is the app for your friend group — find the time everyone's free, plan the hangout, and keep the memories. All in one place, none of the chaos.
+              Squadz is the app for your friend group — find the time everyone's free, plan the hangout, split the bill, and keep the memories. All in one place, none of the chaos.
             </p>
             <div id="waitlist-hero">
               <WaitlistForm />
