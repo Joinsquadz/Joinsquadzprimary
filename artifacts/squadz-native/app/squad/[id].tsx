@@ -32,7 +32,6 @@ import { useMessages } from "@/context/MessagesContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { UserAvatar } from "@/components/UserAvatar";
 import { ProAvatar } from "@/components/ProAvatar";
-import { MomentsRingRow } from "@/components/MomentsRingRow";
 import { ContactSheet } from "@/components/ContactSheet";
 import { EventCard } from "@/components/EventCard";
 import { goingCount } from "@/lib/eventUtils";
@@ -710,12 +709,6 @@ export default function SquadDetailScreen() {
             )}
           </LinearGradient>
         </TouchableOpacity>
-        </View>
-
-        {/* Moments */}
-        <Text style={[styles.sectionTitle, { color: colors.foreground, marginTop: 24 }]}>Moments</Text>
-        <View style={{ marginHorizontal: -20 }}>
-          <MomentsRingRow mode="squad" squadId={squad.id} />
         </View>
 
         {/* Members */}
