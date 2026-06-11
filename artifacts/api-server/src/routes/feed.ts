@@ -355,7 +355,7 @@ router.delete("/feed/posts/:id", requireAuth, async (req: Request, res: Response
     res.json({ ok: true });
     emitFeedUpdate(userId);
     void (async () => {
-      const recipientIds = await notifyFeedAudience(userId, post.audience, "");
+      const recipientIds = await feedPostReaders(userId, post.audience);
       recipientIds.forEach((rid) => emitFeedUpdate(rid));
     })();
   } catch (err) {

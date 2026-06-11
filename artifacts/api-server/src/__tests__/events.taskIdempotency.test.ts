@@ -70,6 +70,11 @@ const doneEvent = makeBaseEvent({
   tasks: [{ id: "t1", title: "Buy drinks", assigneeId: null, done: true }],
 });
 
+// Read the captured task from inside its own scope so the in-test
+// `lastSetArgs.value = null` resets don't leave the property control-flow
+// narrowed to `null` when it's read again after an awaited request.
+const writtenTask = (id: string) => lastSetArgs.value?.tasks?.find((t) => t.id === id);
+
 beforeEach(() => {
   lastSetArgs.value = null;
   mockRows.value = [baseEvent];
@@ -84,7 +89,7 @@ describe("PATCH /api/events/:id/tasks/:taskId — idempotency", () => {
       .send({ done: true });
 
     expect(res.status).toBe(200);
-    const written = lastSetArgs.value?.tasks?.find((t) => t.id === "t1");
+    const written = writtenTask("t1");
     expect(written?.done).toBe(true);
   });
 
@@ -96,7 +101,7 @@ describe("PATCH /api/events/:id/tasks/:taskId — idempotency", () => {
       .send({ done: true });
 
     expect(first.status).toBe(200);
-    const firstWritten = lastSetArgs.value?.tasks?.find((t) => t.id === "t1");
+    const firstWritten = writtenTask("t1");
     expect(firstWritten?.done).toBe(true);
 
     // Simulate the event already having done: true when the duplicate arrives.
@@ -108,7 +113,7 @@ describe("PATCH /api/events/:id/tasks/:taskId — idempotency", () => {
       .send({ done: true });
 
     expect(second.status).toBe(200);
-    const secondWritten = lastSetArgs.value?.tasks?.find((t) => t.id === "t1");
+    const secondWritten = writtenTask("t1");
     // The server wrote the explicit value from the request body, not a toggle of
     // the current DB state — so done remains true after the duplicate request.
     expect(secondWritten?.done).toBe(true);
@@ -126,7 +131,7 @@ describe("PATCH /api/events/:id/tasks/:taskId — idempotency", () => {
       .patch("/api/events/evt-1/tasks/t1")
       .send({ done: false });
     expect(first.status).toBe(200);
-    expect(lastSetArgs.value?.tasks?.find((t) => t.id === "t1")?.done).toBe(false);
+    expect(writtenTask("t1")?.done).toBe(false);
 
     lastSetArgs.value = null;
 
@@ -134,7 +139,7 @@ describe("PATCH /api/events/:id/tasks/:taskId — idempotency", () => {
       .patch("/api/events/evt-1/tasks/t1")
       .send({ done: false });
     expect(second.status).toBe(200);
-    expect(lastSetArgs.value?.tasks?.find((t) => t.id === "t1")?.done).toBe(false);
+    expect(writtenTask("t1")?.done).toBe(false);
   });
 
   it("rejects a non-boolean done value with 400", async () => {
@@ -168,6 +173,6 @@ describe("PATCH /api/events/:id/tasks/:taskId — idempotency", () => {
       .patch("/api/events/evt-1/tasks/t1")
       .send({ done: true });
     expect(second.status).toBe(200);
-    expect(lastSetArgs.value?.tasks?.find((t) => t.id === "t1")?.done).toBe(true);
+    expect(writtenTask("t1")?.done).toBe(true);
   });
 });

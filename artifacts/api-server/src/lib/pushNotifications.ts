@@ -144,9 +144,13 @@ export async function sendPushNotifications(
  * succeeded, errored, or were not found in the receipt response) and deleted
  * from the DB.
  */
+/** Receipt checking only resolves stale tokens; it sends nothing, so it has no
+ * send-side counters (okCount/hadSendError) like {@link SendPushResult}. */
+export type ReceiptCheckResult = { staleTokens: string[] };
+
 export async function checkPushReceipts(
   options?: SendPushOptions,
-): Promise<SendPushResult> {
+): Promise<ReceiptCheckResult> {
   const staleTokens: string[] = [];
   const ticketIds = [..._pendingTickets.keys()];
   if (ticketIds.length === 0) return { staleTokens };
