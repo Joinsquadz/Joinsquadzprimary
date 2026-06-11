@@ -7,6 +7,8 @@ import request from "supertest";
 const mockSelectCallIdx = vi.hoisted(() => ({ value: 0 }));
 const mockSelectResults = vi.hoisted(() => ({ value: [] as unknown[][] }));
 const mockUpdateRows = vi.hoisted(() => ({ value: [] as unknown[] }));
+const mockSetArgs = vi.hoisted(() => ({ value: null as Record<string, unknown> | null }));
+const mockTransactionCalled = vi.hoisted(() => ({ value: false }));
 
 vi.mock("@workspace/db", () => ({
   db: {
@@ -19,11 +21,14 @@ vi.mock("@workspace/db", () => ({
       };
     },
     update: () => ({
-      set: () => ({
-        where: () => ({
-          returning: () => Promise.resolve(mockUpdateRows.value),
-        }),
-      }),
+      set: (args: Record<string, unknown>) => {
+        mockSetArgs.value = args;
+        return {
+          where: () => ({
+            returning: () => Promise.resolve(mockUpdateRows.value),
+          }),
+        };
+      },
     }),
     insert: () => ({
       values: () => ({
@@ -33,6 +38,11 @@ vi.mock("@workspace/db", () => ({
     delete: () => ({
       where: () => Promise.resolve(),
     }),
+    transaction: async (fn: (tx: unknown) => Promise<unknown>) => {
+      mockTransactionCalled.value = true;
+      const tx = { delete: () => ({ where: () => Promise.resolve() }) };
+      return fn(tx);
+    },
   },
   squadsTable: {
     id: "id",
@@ -107,6 +117,8 @@ beforeEach(() => {
   mockSelectCallIdx.value = 0;
   mockSelectResults.value = [];
   mockUpdateRows.value = [];
+  mockSetArgs.value = null;
+  mockTransactionCalled.value = false;
 });
 
 describe("POST /api/squads/:id/members", () => {
@@ -280,5 +292,40 @@ describe("DELETE /api/squads/:id/members/:userId", () => {
     );
     expect(res.status).toBe(404);
     expect(res.body.error).toMatch(/not in this squad/i);
+  });
+
+  it("transfers ownership to the longest-standing member when the creator leaves", async () => {
+    // memberIds are in join order: [CREATOR_ID, NON_CREATOR_MEMBER_ID]. The
+    // creator self-leaves, so ownership should pass to NON_CREATOR_MEMBER_ID.
+    const squad = {
+      ...baseSquad,
+      memberIds: [CREATOR_ID, NON_CREATOR_MEMBER_ID],
+    };
+    mockSelectResults.value = [[squad]];
+    mockUpdateRows.value = [
+      { ...squad, creatorId: NON_CREATOR_MEMBER_ID, memberIds: [NON_CREATOR_MEMBER_ID] },
+    ];
+    const app = makeApp({ id: CREATOR_ID });
+    const res = await request(app).delete(
+      `/api/squads/squad-1/members/${CREATOR_ID}`,
+    );
+    expect(res.status).toBe(200);
+    expect(mockSetArgs.value).toMatchObject({
+      creatorId: NON_CREATOR_MEMBER_ID,
+      memberIds: [NON_CREATOR_MEMBER_ID],
+    });
+    expect(mockTransactionCalled.value).toBe(false);
+  });
+
+  it("deletes the squad when the last member leaves", async () => {
+    const squad = { ...baseSquad, memberIds: [CREATOR_ID] };
+    mockSelectResults.value = [[squad]];
+    const app = makeApp({ id: CREATOR_ID });
+    const res = await request(app).delete(
+      `/api/squads/squad-1/members/${CREATOR_ID}`,
+    );
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ deleted: true });
+    expect(mockTransactionCalled.value).toBe(true);
   });
 });

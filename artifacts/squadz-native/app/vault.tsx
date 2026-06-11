@@ -25,6 +25,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { useColors } from "@/hooks/useColors";
+import { useSquadStream } from "@/hooks/useSquadStream";
 import { useAuth, useData } from "@/context/AppContext";
 import { useToast } from "@/context/ToastContext";
 import { startProCheckout } from "@/lib/checkout";
@@ -448,6 +449,15 @@ export default function VaultScreen() {
   useEffect(() => {
     if (squadId) fetchSquadVault();
   }, [squadId, fetchSquadVault]);
+
+  // Live updates: when any member shares or removes a vault photo, the server
+  // broadcasts a squad update over SSE so the gallery reflects it immediately
+  // instead of waiting for the next focus/AppState refetch.
+  useSquadStream({
+    squadId: squadId ?? null,
+    authToken,
+    onUpdate: () => { void fetchSquadVault(); },
+  });
 
   const openPicker = useCallback(async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);

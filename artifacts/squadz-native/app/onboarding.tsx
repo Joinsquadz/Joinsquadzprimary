@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -52,6 +52,22 @@ export default function OnboardingScreen() {
   const [squadName, setSquadName] = useState("");
   const [creating, setCreating] = useState(false);
   const [createdSquadId, setCreatedSquadId] = useState<string | null>(null);
+
+  // Resume an abandoned onboarding: if a squad already exists (created in a
+  // previous session before the app was closed), skip the create step and drop
+  // the user on the invite step pointed at that squad. Runs once, and never
+  // fights an in-session create (createdSquadId/creating set) or the invited
+  // fast-path (handled separately below).
+  const resumeApplied = useRef(false);
+  useEffect(() => {
+    if (resumeApplied.current || isJoining) return;
+    if (createdSquadId || creating) return;
+    if (squads.length > 0) {
+      resumeApplied.current = true;
+      setCreatedSquadId(squads[0]!.id);
+      setStep(1);
+    }
+  }, [squads, createdSquadId, creating, isJoining]);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);

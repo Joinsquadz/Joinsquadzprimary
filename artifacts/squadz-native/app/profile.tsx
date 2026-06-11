@@ -121,6 +121,7 @@ export default function ProfileScreen() {
   const [showSuccessBanner, setShowSuccessBanner] = useState(didCheckoutSuccess);
   const [eventCount, setEventCount] = useState<number | null>(null);
   const [eventLimit] = useState(3);
+  const [streaks, setStreaks] = useState<{ monthlyPlan: number; stayInTouch: number } | null>(null);
   const [calSync, setCalSync] = useState(false);
   const [calSyncLoading, setCalSyncLoading] = useState(false);
   const [highlightCalSync, setHighlightCalSync] = useState(false);
@@ -187,6 +188,23 @@ export default function ProfileScreen() {
       }
     }
     void fetchEventCount();
+  }, [authHeaders]);
+
+  useEffect(() => {
+    async function fetchStreaks() {
+      try {
+        const res = await fetch(`${API_BASE}/api/streaks`, {
+          headers: authHeaders(),
+        });
+        if (res.ok) {
+          const data = await res.json() as { monthlyPlan: number; stayInTouch: number };
+          setStreaks(data);
+        }
+      } catch {
+        // silently ignore — streaks are best-effort
+      }
+    }
+    void fetchStreaks();
   }, [authHeaders]);
 
   // Fetch push token in development builds so testers can copy it
@@ -798,6 +816,35 @@ export default function ProfileScreen() {
           )}
         </View>
 
+        {streaks !== null && (streaks.monthlyPlan > 0 || streaks.stayInTouch > 0) && (
+          <View style={[styles.section, { flexDirection: "row", gap: 12 }]}>
+            <View style={[styles.streakCard, { backgroundColor: colors.card, borderColor: "#FFB54740", flex: 1 }]}>
+              <View style={styles.streakCardTop}>
+                <Text style={styles.streakEmoji}>🔥</Text>
+                <Text style={[styles.streakCount, { color: "#FFB547" }]}>
+                  {streaks.monthlyPlan > 0 ? streaks.monthlyPlan : "—"}
+                </Text>
+              </View>
+              <Text style={[styles.streakLabel, { color: colors.foreground }]}>
+                {streaks.monthlyPlan === 1 ? "month" : "months"}
+              </Text>
+              <Text style={[styles.streakSub, { color: colors.mutedForeground }]}>Monthly plan streak</Text>
+            </View>
+            <View style={[styles.streakCard, { backgroundColor: colors.card, borderColor: "#4A9EFF40", flex: 1 }]}>
+              <View style={styles.streakCardTop}>
+                <Text style={styles.streakEmoji}>💬</Text>
+                <Text style={[styles.streakCount, { color: "#4A9EFF" }]}>
+                  {streaks.stayInTouch > 0 ? streaks.stayInTouch : "—"}
+                </Text>
+              </View>
+              <Text style={[styles.streakLabel, { color: colors.foreground }]}>
+                {streaks.stayInTouch === 1 ? "week" : "weeks"}
+              </Text>
+              <Text style={[styles.streakSub, { color: colors.mutedForeground }]}>Stay-in-touch streak</Text>
+            </View>
+          </View>
+        )}
+
         {mySquads.length > 0 && (
           <TouchableOpacity
             onPress={() => { void handleShareSquadInvite(); }}
@@ -1136,6 +1183,12 @@ const styles = StyleSheet.create({
   statLabel: { fontSize: 12 },
   section: { paddingHorizontal: 20, paddingTop: 24 },
   sectionTitle: { fontSize: 18, fontWeight: "800", marginBottom: 12 },
+  streakCard: { borderRadius: 16, borderWidth: 1.5, padding: 16, gap: 4 },
+  streakCardTop: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 2 },
+  streakEmoji: { fontSize: 22 },
+  streakCount: { fontSize: 28, fontWeight: "900" },
+  streakLabel: { fontSize: 13, fontWeight: "700" },
+  streakSub: { fontSize: 11, marginTop: 1 },
   eventsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   eventMini: { width: "48%", borderRadius: 14, borderWidth: 1, padding: 14, gap: 4 },
   eventEmoji: { fontSize: 22 },

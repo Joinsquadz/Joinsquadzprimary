@@ -483,7 +483,13 @@ export default function SquadDetailScreen() {
 
   const handleLeaveSquad = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    Alert.alert("Leave squad", `Leave "${squad.name}"? You'll need a new invite to rejoin.`, [
+    const isLastMember = squad.memberIds.length <= 1;
+    const leaveMessage = isCreator
+      ? isLastMember
+        ? `You're the organizer and the only member. Leaving "${squad.name}" will delete it permanently.`
+        : `You're the organizer of "${squad.name}". Leaving will transfer ownership to the longest-standing member, and you'll need a new invite to rejoin.`
+      : `Leave "${squad.name}"? You'll need a new invite to rejoin.`;
+    Alert.alert("Leave squad", leaveMessage, [
       { text: "Stay", style: "cancel" },
       {
         text: "Leave",

@@ -273,10 +273,20 @@ export default function ConversationScreen() {
         Alert.alert("Permission needed", "Allow camera access to capture media.");
         return;
       }
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: mode === "video" ? ["videos"] : ["images"],
-        quality: 0.8,
-      });
+      let result: ImagePicker.ImagePickerResult;
+      try {
+        result = await ImagePicker.launchCameraAsync({
+          mediaTypes: mode === "video" ? ["videos"] : ["images"],
+          quality: 0.8,
+        });
+      } catch {
+        // Some devices/simulators have no usable camera — fall back to the
+        // photo library silently instead of surfacing an error.
+        result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: mode === "video" ? ["videos"] : ["images"],
+          quality: 0.8,
+        });
+      }
       if (result.canceled || !result.assets.length) return;
       setUploading(true);
       const a = await uploadAsset(result.assets[0]);

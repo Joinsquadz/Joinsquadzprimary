@@ -274,11 +274,22 @@ export default function FeedScreen() {
           Alert.alert("Permission needed", "Allow camera access to capture a photo or clip.");
           return;
         }
-        result = await ImagePicker.launchCameraAsync({
-          mediaTypes: kind === "video" ? ["videos"] : ["images"],
-          quality: 0.8,
-          videoMaxDuration: 60,
-        });
+        try {
+          result = await ImagePicker.launchCameraAsync({
+            mediaTypes: kind === "video" ? ["videos"] : ["images"],
+            quality: 0.8,
+            videoMaxDuration: 60,
+          });
+        } catch {
+          // Some devices/simulators have no usable camera — fall back to the
+          // photo library silently instead of surfacing an error.
+          result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: kind === "video" ? ["videos"] : ["images"],
+            allowsMultipleSelection: false,
+            quality: 0.8,
+            videoMaxDuration: 60,
+          });
+        }
       } else {
         const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (!perm.granted) {

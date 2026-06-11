@@ -38,7 +38,7 @@ async function resolveProStatus(user: NonNullable<Awaited<ReturnType<typeof stor
  *
  * Query params:
  *   squadId  — filter to photos from events belonging to this squad (user must be a member)
- *   eventId  — filter to photos from a single event (user must be host)
+ *   eventId  — filter to photos from a single event (squad members for squad events; host for personal events)
  *
  * When neither param is provided, returns all photos uploaded by the user.
  *
@@ -71,7 +71,12 @@ router.get("/vault/photos", requireAuth, async (req: Request, res: Response): Pr
         res.status(404).json({ error: "Event not found" });
         return;
       }
-      if (event.hostId !== userId) {
+      // Event photos belong to the whole squad — any *current* member may view
+      // them, not just the host. Personal events (no squad) stay host-only.
+      const canView = event.squadId
+        ? await storage.isSquadMemberPublic(event.squadId, userId)
+        : event.hostId === userId;
+      if (!canView) {
         res.status(403).json({ error: "Access denied" });
         return;
       }

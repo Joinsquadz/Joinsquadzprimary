@@ -39,7 +39,7 @@ const queryClient = new QueryClient();
 const AUTH_SCREENS = ["login", "signup", "onboarding", "invite", "add"];
 
 function AuthGuard() {
-  const { isLoggedIn } = useAuth();
+  const { isLoggedIn, pendingOnboarding } = useAuth();
   const segments = useSegments();
 
   useEffect(() => {
@@ -57,12 +57,20 @@ function AuthGuard() {
       ((segments[0] as string) === "squad" && (segments[1] as string) === "join") ||
       (segments[0] as string) === "join";
 
-    if (!isLoggedIn && !isOnAuthScreen && !isOnPublicSquad && !isOnInviteJoin) {
+    if (pendingOnboarding && !isLoggedIn) {
+      // The account exists but onboarding was never finished (registered, then
+      // closed the app). Keep the user in onboarding so they resume where they
+      // left off — but don't yank them out of an in-progress invite/public-join
+      // deep link or the auth screens themselves.
+      if (!isOnAuthScreen && !isOnPublicSquad && !isOnInviteJoin) {
+        router.replace("/onboarding" as never);
+      }
+    } else if (!isLoggedIn && !isOnAuthScreen && !isOnPublicSquad && !isOnInviteJoin) {
       router.replace("/login" as never);
     } else if (isLoggedIn && (segments[0] === "login" || segments[0] === "signup")) {
       router.replace("/(tabs)" as never);
     }
-  }, [isLoggedIn, segments]);
+  }, [isLoggedIn, pendingOnboarding, segments]);
 
   return null;
 }

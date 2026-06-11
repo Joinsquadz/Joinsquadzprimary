@@ -10,6 +10,11 @@ import { track, identify, reset as analyticsReset } from "@/lib/analytics";
 
 const AUTH_TOKEN_KEY = "@squadz/authToken";
 const REFRESH_TOKEN_KEY = "@squadz/refreshToken";
+// Set at register time (token persisted, but onboarding not yet finished) and
+// removed once onboarding's login() completes. Lets a relaunch distinguish a
+// registered-but-abandoned-onboarding session from a fully onboarded one, so we
+// can resume onboarding instead of dropping the user into the app or login.
+const ONBOARDING_PENDING_KEY = "@squadz/onboardingPending";
 
 /**
  * Thrown by addSquad when the server rejects a create because the free user is
@@ -28,6 +33,7 @@ export class SquadLimitError extends Error {
 const ALL_APP_STORAGE_KEYS: string[] = [
   AUTH_TOKEN_KEY,
   REFRESH_TOKEN_KEY,
+  ONBOARDING_PENDING_KEY,
 ];
 
 type ApiUser = {
@@ -118,6 +124,7 @@ type AuthResult = { ok: boolean; error?: string };
 
 type AppContextType = {
   isLoggedIn: boolean;
+  pendingOnboarding: boolean;
   currentUser: typeof ME;
   inviteCtx: InviteCtx | null;
   authToken: string | null;
@@ -199,6 +206,7 @@ const INITIAL_FRIENDS: string[] = [];
 
 const AppContext = createContext<AppContextType>({
   isLoggedIn: false,
+  pendingOnboarding: false,
   currentUser: ME,
   inviteCtx: null,
   authToken: null,
@@ -302,6 +310,9 @@ function dbSquadToSquad(s: Record<string, unknown>): Squad {
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const { showToast } = useToast();
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  // True when a token exists but onboarding was never finished (registered then
+  // closed the app). AuthGuard routes these users back into onboarding.
+  const [pendingOnboarding, setPendingOnboarding] = useState(false);
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [apiUser, setApiUser] = useState<ApiUser | null>(null);
   const [emailVerified, setEmailVerified] = useState(false);
@@ -712,11 +723,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [isLoggedIn, authToken]);
 
   useEffect(() => {
-    AsyncStorage.getItem(AUTH_TOKEN_KEY).then(token => {
+    AsyncStorage.multiGet([AUTH_TOKEN_KEY, ONBOARDING_PENDING_KEY]).then(entries => {
+      const map = Object.fromEntries(entries) as Record<string, string | null>;
+      const token = map[AUTH_TOKEN_KEY];
       if (token) {
         authTokenRef.current = token;
         setAuthToken(token);
-        setIsLoggedIn(true);
+        if (map[ONBOARDING_PENDING_KEY] === "1") {
+          // Account exists server-side but onboarding was never finished —
+          // resume onboarding rather than dropping the user into the app or login.
+          setPendingOnboarding(true);
+        } else {
+          setIsLoggedIn(true);
+        }
         void fetchApiUser(token);
         // Load the refresh token if present
         AsyncStorage.getItem(REFRESH_TOKEN_KEY).then(rt => {
@@ -736,6 +755,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setAuthToken(token);
       void fetchApiUser(token);
     }
+    // Onboarding is finished — clear the pending marker so a future relaunch
+    // sends the user straight into the app, not back through onboarding.
+    AsyncStorage.removeItem(ONBOARDING_PENDING_KEY).catch(() => {});
+    setPendingOnboarding(false);
     setIsLoggedIn(true);
   }, [fetchApiUser]);
 
@@ -762,7 +785,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setEmailVerified(Boolean(payload.emailVerified));
       setPhone(payload.phone ?? null);
       currentUserIdRef.current = payload.user.id;
-      if (markLoggedIn) setIsLoggedIn(true);
+      if (markLoggedIn) {
+        AsyncStorage.removeItem(ONBOARDING_PENDING_KEY).catch(() => {});
+        setPendingOnboarding(false);
+        setIsLoggedIn(true);
+      } else {
+        // Register path: token is live but onboarding hasn't been completed.
+        // Mark it so a relaunch before finishing resumes onboarding.
+        AsyncStorage.setItem(ONBOARDING_PENDING_KEY, "1").catch(() => {});
+        setPendingOnboarding(true);
+      }
     },
     [],
   );
@@ -896,6 +928,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setEvents([]);
     setSquads([]);
     setIsLoggedIn(false);
+    setPendingOnboarding(false);
     setOwnPaymentHandles({ venmo: null, cashapp: null, zelle: null });
     currentUserIdRef.current = ME.id;
   }, [authToken]);
@@ -1651,8 +1684,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     async (squadId: string, targetUserId: string): Promise<{ error?: string }> => {
       try {
         const res = await apiFetch(`/api/squads/${squadId}/members/${targetUserId}`, { method: "DELETE" });
-        const data = (await res.json().catch(() => ({}))) as { memberIds?: string[]; error?: string } & Record<string, unknown>;
+        const data = (await res.json().catch(() => ({}))) as { memberIds?: string[]; deleted?: boolean; error?: string } & Record<string, unknown>;
         if (!res.ok) return { error: data.error ?? "Something went wrong. Please try again." };
+        // The squad was deleted server-side (the last member left) — drop it locally.
+        if (data.deleted) {
+          setSquads((prev) => prev.filter((s) => s.id !== squadId));
+          return {};
+        }
         setSquads((prev) =>
           prev.map((s) => {
             if (s.id !== squadId) return s;
@@ -1770,6 +1808,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     <AppContext.Provider
       value={{
         isLoggedIn,
+        pendingOnboarding,
         currentUser,
         inviteCtx,
         authToken,

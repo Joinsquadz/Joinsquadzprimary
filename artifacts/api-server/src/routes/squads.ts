@@ -668,6 +668,9 @@ router.delete("/squads/:id/vault/:photoId", requireAuth, async (req: Request, re
       return;
     }
     res.sendStatus(204);
+    // Nudge every member's squad stream so the photo disappears immediately,
+    // matching how sharing a photo to the vault already broadcasts an update.
+    emitSquadUpdate(id);
   } catch (err) {
     logger.error({ err }, "Error removing photo from squad vault");
     res.status(500).json({ error: "Failed to remove photo" });
@@ -831,9 +834,34 @@ router.delete("/squads/:id/members/:userId", requireAuth, async (req: Request, r
     return;
   }
   const updatedMemberIds = memberIds.filter((uid) => uid !== targetUserId);
+
+  // Last member is leaving — delete the squad outright. Otherwise it would
+  // become an orphan: only the creatorId may delete a squad, so a creator who
+  // leaves as the final member would strand an empty, undeletable shell.
+  if (updatedMemberIds.length === 0) {
+    await db.transaction(async (tx) => {
+      await tx.delete(squadsTable).where(eq(squadsTable.id, id));
+      await tx.delete(squadMutesTable).where(eq(squadMutesTable.squadId, id));
+    });
+    res.json({ deleted: true });
+    emitSquadUpdate(id);
+    return;
+  }
+
+  // Ownership transfer: when the (effective) creator leaves but members remain,
+  // hand the squad to the longest-standing remaining member. memberIds are kept
+  // in join order, so the first remaining entry is the earliest joiner. This
+  // also backfills creatorId on legacy squads where it was never set (mirrors
+  // the client's `creatorId ?? memberIds[0]` fallback).
+  const effectiveCreatorId = squad.creatorId ?? memberIds[0] ?? null;
+  const nextCreatorId =
+    effectiveCreatorId != null && targetUserId === effectiveCreatorId
+      ? updatedMemberIds[0]
+      : squad.creatorId;
+
   const [updatedSquad] = await db
     .update(squadsTable)
-    .set({ memberIds: updatedMemberIds })
+    .set({ memberIds: updatedMemberIds, creatorId: nextCreatorId })
     .where(eq(squadsTable.id, id))
     .returning();
 

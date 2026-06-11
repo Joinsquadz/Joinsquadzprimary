@@ -24,6 +24,7 @@ import * as Haptics from "expo-haptics";
 import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { LinearGradient } from "expo-linear-gradient";
 import { useColors } from "@/hooks/useColors";
+import { useAvailabilityStream } from "@/hooks/useAvailabilityStream";
 import { useInteractionGuard, useModalGuard } from "@/hooks/useInteractionGuard";
 import { useAuth } from "@/context/AppContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
@@ -592,8 +593,14 @@ export default function AvailabilityScreen() {
     if (!hasPollRef.current) return;
     if (interactionActive(INTERACTION_QUIET_MS)) return;
     try {
-      const qs = new URLSearchParams(squadId ? { squadId } : { eventId: eventId ?? "" });
-      const res = await fetch(`${API_BASE}/api/availability/polls/find?${qs.toString()}`, {
+      // Invite-link flow opens the poll directly by id (no squadId/eventId), so
+      // refresh via the by-id endpoint there; otherwise resolve via /find.
+      const url = pollId
+        ? `${API_BASE}/api/availability/polls/${pollId}`
+        : `${API_BASE}/api/availability/polls/find?${new URLSearchParams(
+            squadId ? { squadId } : { eventId: eventId ?? "" },
+          ).toString()}`;
+      const res = await fetch(url, {
         headers: authHeaders(),
       });
       if (!res.ok) return;
@@ -625,7 +632,16 @@ export default function AvailabilityScreen() {
     } catch {
       // Ignore network errors during background refresh — never surface them
     }
-  }, [authHeaders, squadId, eventId, showUpdateIndicator, currentUser]);
+  }, [authHeaders, squadId, eventId, pollId, showUpdateIndicator, currentUser]);
+
+  // Live updates: subscribe to the poll's SSE stream so changes (a member
+  // submits, the host edits the range, or a nudge) reflect immediately. The
+  // 20-second polling interval below stays as a fallback if the stream drops.
+  useAvailabilityStream({
+    pollId: data?.poll.id ?? pollId ?? null,
+    authToken,
+    onUpdate: () => { void refreshInBackground(); },
+  });
 
   // Set up a 20-second polling interval while the screen is mounted, and also
   // trigger an immediate refresh when the app returns to the foreground.

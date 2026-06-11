@@ -4,6 +4,7 @@ import { requireAuth } from "../middleware/currentUser";
 import { storage } from "../storage";
 import { logger } from "../lib/logger";
 import { sendPushNotifications } from "../lib/pushNotifications";
+import { emitPollUpdate, onPollUpdate } from "../lib/availabilityEvents";
 import type { AvailabilityPoll } from "@workspace/db/schema";
 
 type MemberInfo = {
@@ -384,6 +385,52 @@ router.get("/availability/polls/:id", requireAuth, async (req: Request, res: Res
   }
 });
 
+// GET /api/availability/polls/:id/stream — SSE endpoint for real-time poll
+// updates. Participants connect while the availability screen is focused. Any
+// mutation (member submits, host updates the range, host nudges) calls
+// emitPollUpdate(id) which pushes an "update" event to all watchers immediately.
+router.get("/availability/polls/:id/stream", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const id = parseId(req.params.id);
+  const userId = (req.user as { id: string }).id;
+
+  // Verify access before opening the stream.
+  const poll = await storage.getAvailabilityPoll(id);
+  if (!poll) {
+    res.status(404).json({ error: "Poll not found" });
+    return;
+  }
+  if (!(await storage.canAccessAvailabilityPoll(poll, userId))) {
+    res.status(403).json({ error: "Access denied" });
+    return;
+  }
+
+  // SSE response headers.
+  // no-transform stops the compression middleware from buffering the stream.
+  // X-Accel-Buffering: no disables nginx / Replit proxy buffering.
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  // Confirm connection to the client.
+  res.write("event: connected\ndata: {}\n\n");
+
+  const unsubscribe = onPollUpdate(id, () => {
+    res.write(`event: update\ndata: {"pollId":"${id}"}\n\n`);
+  });
+
+  // Keep-alive heartbeat every 25 s to prevent proxy/mobile connection timeouts.
+  const heartbeat = setInterval(() => {
+    res.write(": heartbeat\n\n");
+  }, 25000);
+
+  req.on("close", () => {
+    clearInterval(heartbeat);
+    unsubscribe();
+  });
+});
+
 /**
  * PATCH /api/availability/polls/:id
  * Update a poll's date range (days and/or slots). Only the poll creator may
@@ -418,6 +465,9 @@ router.patch("/availability/polls/:id", requireAuth, async (req: Request, res: R
       resolveUpdatedByName(updatedPoll),
     ]);
     res.json({ ...buildPollPayload(updatedPoll, responses, userId, updatedByName), members });
+
+    // Live update: notify connected watchers the poll's range changed.
+    emitPollUpdate(updatedPoll.id);
 
     // Only fire push notifications when the date range (days or slots) actually
     // changed — title-only patches don't require members to re-enter their times.
@@ -590,6 +640,9 @@ router.post("/availability/polls/:id/nudge", requireAuth, async (req: Request, r
 
     res.json({ ok: true, debounced: false, message: `${senderName} nudged the member successfully` });
 
+    // Live update: a nudge changes member nudge state watchers should reflect.
+    emitPollUpdate(poll.id);
+
     // Fire-and-forget: send the push notification after responding to the host.
     void (async () => {
       try {
@@ -665,6 +718,9 @@ router.put("/availability/polls/:id/me", requireAuth, async (req: Request, res: 
       poll.id, userId, isCreator, members, respondentIds,
     );
     res.json({ ...buildPollPayload(poll, responses, userId, updatedByName), members: enrichedMembers, nudgedAt, droppedCount });
+
+    // Live update: a member submitted/updated their availability.
+    emitPollUpdate(poll.id);
 
     // Fire-and-forget: push notification to the poll creator when a member
     // re-submits their availability after the host updated the date range.
