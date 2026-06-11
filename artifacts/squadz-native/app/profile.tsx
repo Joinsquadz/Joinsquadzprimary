@@ -636,8 +636,8 @@ export default function ProfileScreen() {
     : [
         {
           icon: "flash",
-          label: upgradeLoading ? "Opening checkout…" : "Upgrade to Pro",
-          value: "$20/yr",
+          label: upgradeLoading ? "Opening checkout…" : "Upgrade to Squadz+",
+          value: "$20/year",
           color: colors.gold,
           onPress: upgradeLoading ? undefined : () => { void handleUpgrade(); },
         },

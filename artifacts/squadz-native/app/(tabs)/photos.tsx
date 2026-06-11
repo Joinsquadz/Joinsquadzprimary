@@ -16,6 +16,7 @@ import { router } from "expo-router";
 
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AppContext";
+import { UpgradeModal } from "@/components/UpgradeModal";
 import { useToast } from "@/context/ToastContext";
 import { downloadPhoto } from "@/lib/downloadPhoto";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
@@ -48,6 +49,7 @@ export default function PhotosTab() {
   const insets = useSafeAreaInsets();
   const { authToken } = useAuth();
   const [isPro, setIsPro] = useState<boolean | null>(null);
+  const [upgradeVisible, setUpgradeVisible] = useState(false);
   const [photos, setPhotos] = useState<LivePhoto[] | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [activeFilter, setActiveFilter] = useState("All");
@@ -64,29 +66,28 @@ export default function PhotosTab() {
 
   const imageUrl = useCallback((objectPath: string) => `${API_BASE}/api/storage${objectPath}`, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    fetch(`${API_BASE}/api/vault/photos`, { headers: authHeaders() })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: { photos?: LivePhoto[]; isPro?: boolean } | null) => {
-        if (cancelled) return;
-        if (!data) {
-          setIsPro(false);
-          setPhotos([]);
-          return;
-        }
-        setIsPro(!!data.isPro);
-        setPhotos(data.photos ?? []);
-      })
-      .catch(() => {
-        if (cancelled) return;
+  const loadPhotos = useCallback(async () => {
+    try {
+      const r = await fetch(`${API_BASE}/api/vault/photos`, { headers: authHeaders() });
+      const data = (r.ok ? await r.json() : null) as
+        | { photos?: LivePhoto[]; isPro?: boolean }
+        | null;
+      if (!data) {
         setIsPro(false);
         setPhotos([]);
-      });
-    return () => {
-      cancelled = true;
-    };
+        return;
+      }
+      setIsPro(!!data.isPro);
+      setPhotos(data.photos ?? []);
+    } catch {
+      setIsPro(false);
+      setPhotos([]);
+    }
   }, [authHeaders]);
+
+  useEffect(() => {
+    void loadPhotos();
+  }, [loadPhotos]);
 
   // Only photos that have an accessible image (unlocked + url present) can be shown/downloaded.
   const viewablePhotos = (photos ?? []).filter((p) => !p.locked && !!p.url);
@@ -210,13 +211,20 @@ export default function PhotosTab() {
           <TouchableOpacity
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              router.push("/profile" as never);
+              setUpgradeVisible(true);
             }}
             style={[styles.upgradeBtn, { backgroundColor: colors.primary }]}
             activeOpacity={0.85}
           >
-            <Text style={styles.upgradeBtnText}>⚡ Upgrade to Pro — $20/year</Text>
+            <Text style={styles.upgradeBtnText}>⚡ Upgrade to Squadz+ — $20/year</Text>
           </TouchableOpacity>
+
+          <UpgradeModal
+            visible={upgradeVisible}
+            trigger="photos"
+            onClose={() => setUpgradeVisible(false)}
+            onUpgradeSuccess={() => { setIsPro(true); void loadPhotos(); }}
+          />
         </ScrollView>
       ) : viewablePhotos.length === 0 ? (
         <View style={styles.center}>

@@ -29,7 +29,7 @@ import { useColors } from "@/hooks/useColors";
 import { useSquadStream } from "@/hooks/useSquadStream";
 import { useAuth, useData } from "@/context/AppContext";
 import { useToast } from "@/context/ToastContext";
-import { startProCheckout } from "@/lib/checkout";
+import { UpgradeModal } from "@/components/UpgradeModal";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
 const VAULT_SELECTED_KEY = "vault:selectedPhoto";
@@ -262,11 +262,7 @@ export default function VaultScreen() {
     }, 300);
   }, [isContextual]);
 
-  const [upgradeLoading, setUpgradeLoading] = useState(false);
   const [upgradeModalVisible, setUpgradeModalVisible] = useState(false);
-  const [confirmingUpgrade, setConfirmingUpgrade] = useState(false);
-  const [confirmFailed, setConfirmFailed] = useState(false);
-  const awaitingUpgrade = useRef(false);
 
   const authHeaders = useCallback((): HeadersInit => {
     return buildAuthHeaders(authToken);
@@ -315,59 +311,19 @@ export default function VaultScreen() {
     if (isPro !== null) fetchPhotos();
   }, [isPro, fetchPhotos]);
 
-  // After returning from the Stripe checkout browser, the webhook that flips the
-  // subscription to active may not have landed yet. Poll a few times with backoff
-  // until isPro turns true, then refetch photos so newly-unlocked older photos
-  // appear without a manual reload. Give up gracefully after a few attempts.
-  const confirmUpgrade = useCallback(async () => {
-    setConfirmingUpgrade(true);
-    setConfirmFailed(false);
-    const delays = [0, 1000, 2000, 3000, 4000];
-    for (const delay of delays) {
-      if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay));
-      const pro = await checkSubscription();
-      if (pro) {
-        setConfirmingUpgrade(false);
-        await fetchPhotos();
-        showToast("Welcome to Pro! Your full vault is unlocked.", { durationMs: 4000 });
-        return;
-      }
-    }
-    setConfirmingUpgrade(false);
-    setConfirmFailed(true);
-  }, [checkSubscription, fetchPhotos]);
-
+  // Keep Pro status and photos fresh whenever the app returns to the foreground
+  // (e.g. after completing the Stripe checkout the shared UpgradeModal launches).
+  // The UpgradeModal owns the post-checkout confirmation polling now.
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
       if (state !== "active") return;
-      if (awaitingUpgrade.current) {
-        // Returning from a checkout we initiated — confirm the upgrade landed.
-        awaitingUpgrade.current = false;
-        void confirmUpgrade();
-      } else {
-        // Ordinary foreground — keep status fresh without the polling UI.
-        void (async () => {
-          await checkSubscription();
-          await fetchPhotos();
-        })();
-      }
+      void (async () => {
+        await checkSubscription();
+        await fetchPhotos();
+      })();
     });
     return () => sub.remove();
-  }, [checkSubscription, fetchPhotos, confirmUpgrade]);
-
-  const handleUpgrade = useCallback(async () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setUpgradeLoading(true);
-    // Mark that the next foreground is a checkout return so we poll for the
-    // upgrade instead of doing a plain refetch.
-    awaitingUpgrade.current = true;
-    const result = await startProCheckout(authToken);
-    if (!result.ok) {
-      awaitingUpgrade.current = false;
-      Alert.alert("Checkout Error", result.error);
-    }
-    setUpgradeLoading(false);
-  }, [authToken]);
+  }, [checkSubscription, fetchPhotos]);
 
   const imageUrl = (objectPath: string) => `${API_BASE}/api/storage${objectPath}`;
 
@@ -717,28 +673,6 @@ export default function VaultScreen() {
                 {visiblePhotos.length} {visiblePhotos.length === 1 ? "photo" : "photos"} · tap to view
               </Text>
 
-              {confirmingUpgrade && (
-                <View style={[styles.confirmBanner, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                  <ActivityIndicator color={colors.primary} size="small" />
-                  <Text style={[styles.confirmText, { color: colors.foreground }]}>Confirming your upgrade…</Text>
-                </View>
-              )}
-
-              {confirmFailed && (
-                <TouchableOpacity
-                  onPress={() => { if (!confirmingUpgrade) void confirmUpgrade(); }}
-                  style={[styles.lockBanner, { backgroundColor: colors.card, borderColor: colors.border }]}
-                  activeOpacity={0.85}
-                >
-                  <Text style={styles.lockBannerIcon}>⏳</Text>
-                  <View style={styles.lockBannerText}>
-                    <Text style={[styles.lockBannerTitle, { color: colors.foreground }]}>Still finalizing your upgrade</Text>
-                    <Text style={[styles.lockBannerBody, { color: colors.mutedForeground }]}>This can take a moment. Tap to refresh.</Text>
-                  </View>
-                  <Ionicons name="refresh" size={20} color={colors.primary} />
-                </TouchableOpacity>
-              )}
-
               {!isPro && lockedCount > 0 && (
                 <TouchableOpacity
                   onPress={() => setUpgradeModalVisible(true)}
@@ -911,14 +845,11 @@ export default function VaultScreen() {
                 </>
               ) : (
                 <TouchableOpacity
-                  onPress={() => { if (!upgradeLoading) void handleUpgrade(); }}
-                  disabled={upgradeLoading}
-                  style={[styles.upgradeBtn, { backgroundColor: colors.primary, opacity: upgradeLoading ? 0.7 : 1 }]}
+                  onPress={() => setUpgradeModalVisible(true)}
+                  style={[styles.upgradeBtn, { backgroundColor: colors.primary }]}
                   activeOpacity={0.85}
                 >
-                  {upgradeLoading
-                    ? <ActivityIndicator color="#fff" size="small" />
-                    : <Text style={styles.upgradeBtnText}>⚡ Upgrade to Pro — $20/year</Text>}
+                  <Text style={styles.upgradeBtnText}>⚡ Upgrade to Squadz+ — $20/year</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -927,53 +858,16 @@ export default function VaultScreen() {
         )
       )}
 
-      <Modal
+      <UpgradeModal
         visible={upgradeModalVisible}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setUpgradeModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setUpgradeModalVisible(false)} activeOpacity={1} />
-          <View style={[styles.upgradeModalSheet, { backgroundColor: colors.card, borderColor: colors.border, paddingBottom: botPad + 16 }]}>
-            <View style={[styles.sheetHandle, { backgroundColor: colors.border }]} />
-            <Text style={styles.upgradeModalEmoji}>🔒</Text>
-            <Text style={[styles.upgradeModalTitle, { color: colors.foreground }]}>Unlock older memories</Text>
-            <Text style={[styles.upgradeModalBody, { color: colors.mutedForeground }]}>
-              Your photos are safe — we never delete them. Upgrade to Pro to keep viewing photos older than 30 days.
-            </Text>
-            <View style={styles.upgradeModalBullets}>
-              {[
-                "View all photos, no time limit",
-                "Roll up photos to squad vaults",
-                "Unlimited vault storage",
-              ].map(b => (
-                <View key={b} style={styles.upgradeModalBulletRow}>
-                  <Ionicons name="checkmark-circle" size={18} color={colors.green ?? "#22c55e"} />
-                  <Text style={[styles.upgradeModalBulletText, { color: colors.foreground }]}>{b}</Text>
-                </View>
-              ))}
-            </View>
-            <TouchableOpacity
-              onPress={() => { setUpgradeModalVisible(false); void handleUpgrade(); }}
-              disabled={upgradeLoading}
-              style={[styles.upgradeBtn, { backgroundColor: colors.primary, opacity: upgradeLoading ? 0.7 : 1 }]}
-              activeOpacity={0.85}
-            >
-              {upgradeLoading
-                ? <ActivityIndicator color="#fff" size="small" />
-                : <Text style={styles.upgradeBtnText}>⚡ Upgrade to Pro — $20/year</Text>}
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => setUpgradeModalVisible(false)}
-              style={styles.upgradeModalDismiss}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.upgradeModalDismissText, { color: colors.mutedForeground }]}>Not now</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+        trigger="photos"
+        onClose={() => setUpgradeModalVisible(false)}
+        onUpgradeSuccess={() => {
+          setIsPro(true);
+          void fetchPhotos();
+          showToast("Welcome to Squadz+! Your full vault is unlocked.", { durationMs: 4000 });
+        }}
+      />
 
       <Modal
         visible={pickerOpen}
@@ -1004,17 +898,14 @@ export default function VaultScreen() {
               <View style={styles.modalCenter}>
                 <View style={[styles.proHint, { backgroundColor: colors.gold + "18", borderColor: colors.gold + "40" }]}>
                   <Text style={styles.proHintIcon}>⚡</Text>
-                  <Text style={[styles.proHintText, { color: colors.gold }]}>Upgrade to Pro to roll up photos</Text>
+                  <Text style={[styles.proHintText, { color: colors.gold }]}>Upgrade to Squadz+ to roll up photos</Text>
                 </View>
                 <TouchableOpacity
-                  onPress={() => { setPickerOpen(false); if (!upgradeLoading) void handleUpgrade(); }}
-                  disabled={upgradeLoading}
-                  style={[styles.upgradeBtn, { backgroundColor: colors.primary, opacity: upgradeLoading ? 0.7 : 1, marginTop: 16 }]}
+                  onPress={() => { setPickerOpen(false); setUpgradeModalVisible(true); }}
+                  style={[styles.upgradeBtn, { backgroundColor: colors.primary, marginTop: 16 }]}
                   activeOpacity={0.85}
                 >
-                  {upgradeLoading
-                    ? <ActivityIndicator color="#fff" size="small" />
-                    : <Text style={styles.upgradeBtnText}>⚡ Upgrade to Pro — $20/year</Text>}
+                  <Text style={styles.upgradeBtnText}>⚡ Upgrade to Squadz+ — $20/year</Text>
                 </TouchableOpacity>
               </View>
             ) : pickerPhotos.length > 0 ? (

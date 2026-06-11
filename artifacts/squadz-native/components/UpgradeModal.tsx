@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Modal,
   View,
@@ -6,20 +6,22 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
-  Platform,
+  AppState,
 } from "react-native";
-import * as WebBrowser from "expo-web-browser";
 import * as Haptics from "expo-haptics";
+import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AppContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
+import { startProCheckout } from "@/lib/checkout";
 
 export type UpgradeTrigger =
   | "squad_limit"
   | "dm_gate"
   | "photos"
+  | "events"
   | "moments"
   | "feed"
   | "general";
@@ -30,6 +32,14 @@ interface Props {
   onClose: () => void;
   onUpgradeSuccess?: () => void;
 }
+
+// Canonical price shown on every upgrade CTA across the app.
+const PRICE_LABEL = "$20/year";
+const CTA_LABEL = `Upgrade to Squadz+ — ${PRICE_LABEL}`;
+// Orange gradient used by all primary upgrade CTAs.
+const CTA_GRADIENT = ["#FF5C3A", "#FF8050"] as const;
+// Backoff delays (ms) for polling the subscription after returning from checkout.
+const POLL_DELAYS = [0, 1000, 2000, 3000, 4000];
 
 const TRIGGER_COPY: Record<UpgradeTrigger, { headline: string; sub: string; icon: string }> = {
   squad_limit: {
@@ -46,6 +56,11 @@ const TRIGGER_COPY: Record<UpgradeTrigger, { headline: string; sub: string; icon
     icon: "images",
     headline: "Keep your memories forever",
     sub: "Free photo vault expires after 30 days. Squadz+ stores your squad photos permanently.",
+  },
+  events: {
+    icon: "calendar",
+    headline: "Plan without limits",
+    sub: "Free accounts can only plan a few events. Squadz+ unlocks unlimited events so you can keep the momentum going.",
   },
   moments: {
     icon: "aperture",
@@ -73,61 +88,101 @@ const PRO_BULLETS = [
   { icon: "star", label: "Pro gold ring badge" },
 ];
 
+type Phase = "idle" | "checkout" | "confirming" | "failed";
+
 export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess }: Props) {
   const colors = useColors();
   const { authToken } = useAuth();
   const insets = useSafeAreaInsets();
-  const [loading, setLoading] = useState(false);
+  const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
+  // True between launching checkout and the next app-foreground, so we know the
+  // foreground event is a checkout return and should confirm the upgrade.
+  const awaitingUpgrade = useRef(false);
   const copy = TRIGGER_COPY[trigger];
 
-  const handleUpgrade = async () => {
-    if (loading) return;
-    setLoading(true);
+  const checkPro = useCallback(async (): Promise<boolean> => {
+    try {
+      const r = await fetch(`${API_BASE}/api/subscription`, {
+        headers: buildAuthHeaders(authToken),
+        credentials: "include",
+      });
+      if (!r.ok) return false;
+      const d = (await r.json()) as { isPro?: boolean };
+      return !!d.isPro;
+    } catch {
+      return false;
+    }
+  }, [authToken]);
+
+  // The Stripe webhook that flips the subscription to active can lag the browser
+  // return by a moment, so poll a few times with backoff before giving up.
+  const confirmLoop = useCallback(async () => {
+    setPhase("confirming");
+    setError(null);
+    for (const delay of POLL_DELAYS) {
+      if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+      if (await checkPro()) {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        setPhase("idle");
+        onUpgradeSuccess?.();
+        onClose();
+        return;
+      }
+    }
+    setPhase("failed");
+    setError("Almost there — if you finished checkout, tap Refresh status.");
+  }, [checkPro, onUpgradeSuccess, onClose]);
+
+  // Reset transient state whenever the parent closes the modal.
+  useEffect(() => {
+    if (!visible) {
+      setPhase("idle");
+      setError(null);
+      awaitingUpgrade.current = false;
+    }
+  }, [visible]);
+
+  // On return from the external checkout browser, confirm the upgrade landed.
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active" && awaitingUpgrade.current) {
+        awaitingUpgrade.current = false;
+        void confirmLoop();
+      }
+    });
+    return () => sub.remove();
+  }, [confirmLoop]);
+
+  const handleUpgrade = useCallback(async () => {
+    if (phase === "checkout" || phase === "confirming") return;
+    setPhase("checkout");
     setError(null);
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    try {
-      const headers = buildAuthHeaders(authToken);
-
-      const productsRes = await fetch(`${API_BASE}/api/stripe/products-with-prices`, { headers });
-      if (!productsRes.ok) throw new Error("Failed to load plans");
-      const products = (await productsRes.json()) as Array<{
-        prices: Array<{ id: string }>;
-      }>;
-      const priceId = products[0]?.prices[0]?.id;
-      if (!priceId) throw new Error("No plan available");
-
-      const checkoutRes = await fetch(`${API_BASE}/api/stripe/checkout`, {
-        method: "POST",
-        headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ priceId }),
-      });
-      if (!checkoutRes.ok) {
-        const body = (await checkoutRes.json().catch(() => ({}))) as { error?: string };
-        throw new Error(body.error ?? "Failed to start checkout");
-      }
-      const { checkoutUrl } = (await checkoutRes.json()) as { checkoutUrl: string };
-      onClose();
-      const result = await WebBrowser.openBrowserAsync(checkoutUrl, {
-        dismissButtonStyle: "cancel",
-        presentationStyle: WebBrowser.WebBrowserPresentationStyle.FORM_SHEET,
-      });
-      if (result.type === "cancel" || result.type === "dismiss") {
-        onUpgradeSuccess?.();
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
-    } finally {
-      setLoading(false);
+    awaitingUpgrade.current = true;
+    const result = await startProCheckout(authToken);
+    if (!result.ok) {
+      awaitingUpgrade.current = false;
+      setError(result.error);
     }
-  };
+    // On success the browser is now open; the AppState listener confirms on
+    // return. Drop back to idle so the CTA isn't stuck spinning underneath it.
+    setPhase("idle");
+  }, [authToken, phase]);
+
+  const busy = phase === "checkout" || phase === "confirming";
+  // While a checkout is starting or being confirmed, block dismissal so the
+  // `!visible` reset can't clear `awaitingUpgrade` before the app returns.
+  const handleDismiss = useCallback(() => {
+    if (!busy) onClose();
+  }, [busy, onClose]);
 
   return (
     <Modal
       visible={visible}
       transparent
       animationType="slide"
-      onRequestClose={onClose}
+      onRequestClose={handleDismiss}
       statusBarTranslucent
     >
       <View style={styles.backdrop}>
@@ -143,7 +198,7 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess }: Pr
         >
           <View style={styles.handle} />
 
-          <TouchableOpacity style={styles.closeBtn} onPress={onClose} hitSlop={12}>
+          <TouchableOpacity style={styles.closeBtn} onPress={handleDismiss} disabled={busy} hitSlop={12}>
             <Ionicons name="close" size={20} color={colors.mutedForeground} />
           </TouchableOpacity>
 
@@ -165,26 +220,36 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess }: Pr
             ))}
           </View>
 
-          {error ? (
-            <Text style={styles.errorText}>{error}</Text>
-          ) : null}
+          {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
           <TouchableOpacity
-            style={[styles.cta, loading && styles.ctaDisabled]}
-            onPress={handleUpgrade}
-            disabled={loading}
+            style={styles.ctaWrap}
+            onPress={phase === "failed" ? confirmLoop : handleUpgrade}
+            disabled={busy}
             activeOpacity={0.85}
           >
-            {loading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.ctaLabel}>
-                {Platform.OS === "ios" ? "Upgrade to Squadz+" : "Upgrade — $4.99/mo"}
-              </Text>
-            )}
+            <LinearGradient
+              colors={CTA_GRADIENT}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={[styles.cta, busy && styles.ctaDisabled]}
+            >
+              {phase === "checkout" ? (
+                <ActivityIndicator color="#fff" />
+              ) : phase === "confirming" ? (
+                <View style={styles.ctaRow}>
+                  <ActivityIndicator color="#fff" />
+                  <Text style={styles.ctaLabel}>Confirming your upgrade…</Text>
+                </View>
+              ) : (
+                <Text style={styles.ctaLabel}>
+                  {phase === "failed" ? "Refresh status" : CTA_LABEL}
+                </Text>
+              )}
+            </LinearGradient>
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={onClose} style={styles.notNow}>
+          <TouchableOpacity onPress={handleDismiss} style={styles.notNow} disabled={busy}>
             <Text style={[styles.notNowLabel, { color: colors.mutedForeground }]}>Not now</Text>
           </TouchableOpacity>
         </View>
@@ -260,21 +325,29 @@ const styles = StyleSheet.create({
     fontSize: 14.5,
     fontWeight: "600",
   },
-  cta: {
+  ctaWrap: {
     width: "100%",
-    height: 54,
-    borderRadius: 16,
-    backgroundColor: "#FF5C3A",
-    alignItems: "center",
-    justifyContent: "center",
     marginBottom: 12,
+    borderRadius: 16,
     shadowColor: "#FF5C3A",
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.4,
     shadowRadius: 16,
     elevation: 8,
   },
-  ctaDisabled: { opacity: 0.6 },
+  cta: {
+    width: "100%",
+    height: 54,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  ctaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  ctaDisabled: { opacity: 0.7 },
   ctaLabel: {
     color: "#fff",
     fontSize: 16,

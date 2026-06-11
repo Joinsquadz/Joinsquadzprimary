@@ -196,7 +196,7 @@ export default function MessagesScreen() {
                       {preview}
                     </Text>
                     <BlurView
-                      intensity={14}
+                      intensity={18}
                       tint="dark"
                       style={StyleSheet.absoluteFill}
                       pointerEvents="none"

@@ -19,7 +19,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useData, useAuth } from "@/context/AppContext";
-import { startProCheckout } from "@/lib/checkout";
+import { UpgradeModal } from "@/components/UpgradeModal";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
 const EMOJIS = ["🔥", "🎉", "🎮", "🏖️", "🍕", "🎸", "⚽", "🎬", "🍻", "🎊"];
@@ -82,7 +82,6 @@ export default function CreateEventScreen() {
   const [isPublic, setIsPublic] = useState(false);
   const [isPro, setIsPro] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
-  const [upgradeLoading, setUpgradeLoading] = useState(false);
   const [myEventCount, setMyEventCount] = useState(0);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -191,18 +190,6 @@ export default function CreateEventScreen() {
     setDate("");
     setPickerDate(new Date());
   };
-
-  async function handleUpgrade() {
-    setUpgradeLoading(true);
-    const result = await startProCheckout(authToken);
-    if (result.ok) {
-      setShowUpgradeModal(false);
-    } else {
-      Alert.alert("Checkout Error", result.error);
-    }
-    setUpgradeLoading(false);
-  }
-
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -452,61 +439,12 @@ export default function CreateEventScreen() {
         />
       )}
 
-      <Modal visible={showUpgradeModal} animationType="slide" transparent onRequestClose={() => setShowUpgradeModal(false)}>
-        <View style={styles.upgradeOverlay}>
-          <View style={[styles.upgradeSheet, { backgroundColor: colors.card }]}>
-            <View style={[styles.upgradeIconWrap, { backgroundColor: colors.primary + "22" }]}>
-              <Text style={styles.upgradeIcon}>🎉</Text>
-            </View>
-            <Text style={[styles.upgradeTitle, { color: colors.foreground }]}>You're on a roll!</Text>
-            <Text style={[styles.upgradeBody, { color: colors.mutedForeground }]}>
-              You've planned {myEventCount} events this year — the free plan limit. Upgrade to keep the momentum going with unlimited events.
-            </Text>
-
-            <View style={[styles.upgradePriceBadge, { borderColor: colors.primary + "40", backgroundColor: colors.primary + "12" }]}>
-              <Text style={[styles.upgradePriceAmount, { color: colors.foreground }]}>$20</Text>
-              <Text style={[styles.upgradePriceSub, { color: colors.mutedForeground }]}>per year · less than $2/month · cancel anytime</Text>
-            </View>
-
-            {[
-              "Unlimited events per year",
-              "Permanent photo vault",
-              "Calendar sync & AI best-time finder",
-              "Custom invite codes",
-              "Priority support",
-            ].map(f => (
-              <View key={f} style={styles.upgradeFeatureRow}>
-                <View style={[styles.upgradeCheck, { backgroundColor: "#2ECC8A" }]}>
-                  <Text style={styles.upgradeCheckText}>✓</Text>
-                </View>
-                <Text style={[styles.upgradeFeatureText, { color: colors.foreground }]}>{f}</Text>
-              </View>
-            ))}
-
-            <TouchableOpacity
-              onPress={handleUpgrade}
-              disabled={upgradeLoading}
-              activeOpacity={0.9}
-              style={styles.upgradeCtaWrap}
-            >
-              <LinearGradient colors={["#FF5C3A", "#FF8050"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.upgradeCta}>
-                <Text style={styles.upgradeCtaText}>
-                  {upgradeLoading ? "Opening checkout…" : "Upgrade to Pro — $20/year →"}
-                </Text>
-              </LinearGradient>
-            </TouchableOpacity>
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 10 }}>
-              <Ionicons name="lock-closed" size={13} color="#2ECC8A" />
-              <Text style={{ fontSize: 12, color: colors.mutedForeground, fontWeight: "600" }}>
-                Secure checkout via Stripe · Cancel anytime
-              </Text>
-            </View>
-            <TouchableOpacity onPress={() => setShowUpgradeModal(false)} style={styles.upgradeDismiss}>
-              <Text style={[styles.upgradeDismissText, { color: colors.textDim }]}>Maybe later</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+      <UpgradeModal
+        visible={showUpgradeModal}
+        trigger="events"
+        onClose={() => setShowUpgradeModal(false)}
+        onUpgradeSuccess={() => setIsPro(true)}
+      />
     </View>
   );
 }

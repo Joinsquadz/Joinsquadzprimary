@@ -5,6 +5,7 @@ import { router } from "expo-router";
 import { useColors } from "@/hooks/useColors";
 import { useData } from "@/context/AppContext";
 import { useUserCache } from "@/context/UserCacheContext";
+import { ProAvatar } from "./ProAvatar";
 
 interface EventCardProps {
   id: string;
@@ -71,9 +72,14 @@ function EventCardBase({
           {location}
         </Text>
         <View style={styles.footer}>
-          <View style={[styles.hostAvatar, { backgroundColor: host.color }]}>
-            <Text style={styles.hostInitials}>{host.initials}</Text>
-          </View>
+          <ProAvatar
+            initials={host.initials}
+            color={host.color}
+            imageUrl={host.profileImageUrl}
+            size={20}
+            fontSize={9}
+            isPro={host.isPro}
+          />
           <Text style={[styles.attendees, { color: colors.mutedForeground }]}>
             {attendeeCount} going
           </Text>
