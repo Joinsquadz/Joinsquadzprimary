@@ -99,8 +99,11 @@ beforeEach(() => {
 
 // ─── POST /events/:id/rsvp ────────────────────────────────────────────────────
 
-describe("POST /api/events/:id/rsvp — version-based conflict protection", () => {
-  it("returns 200 when the client version matches the stored version", async () => {
+describe("POST /api/events/:id/rsvp — atomic per-user merge (no version conflict)", () => {
+  // RSVP no longer uses the whole-row version gate: each user writes only their
+  // OWN key in the rsvps JSON map (server-side `||` merge), so concurrent RSVPs
+  // from different users are disjoint and must never report a 409 "conflict".
+  it("returns 200 when a version is supplied (the version is ignored, not gated)", async () => {
     const app = makeApp({ id: HOST_ID });
     const res = await request(app)
       .post("/api/events/evt-1/rsvp")
@@ -108,36 +111,35 @@ describe("POST /api/events/:id/rsvp — version-based conflict protection", () =
     expect(res.status).toBe(200);
   });
 
-  it("returns 409 when the stored version has advanced past the client version", async () => {
-    // Simulate the DB returning no rows — the version WHERE clause matched
-    // nothing, meaning another write already bumped the version.
+  it("a stale version still succeeds — RSVPs merge per-user and never 409", async () => {
+    const app = makeApp({ id: HOST_ID });
+    const res = await request(app)
+      .post("/api/events/evt-1/rsvp")
+      .send({ status: "going", version: 0 });
+    expect(res.status).toBe(200);
+    expect(res.body.conflict).toBeUndefined();
+  });
+
+  it("two concurrent RSVPs from different users both succeed (no lost-update 409)", async () => {
+    const appA = makeApp({ id: HOST_ID });
+    const appB = makeApp({ id: RSVP_USER_ID });
+    const [a, b] = await Promise.all([
+      request(appA).post("/api/events/evt-1/rsvp").send({ status: "going", version: 0 }),
+      request(appB).post("/api/events/evt-1/rsvp").send({ status: "maybe", version: 0 }),
+    ]);
+    expect(a.status).toBe(200);
+    expect(b.status).toBe(200);
+    expect(a.body.conflict).toBeUndefined();
+    expect(b.body.conflict).toBeUndefined();
+  });
+
+  it("returns 404 only when the event row no longer exists", async () => {
     mockUpdateRows.value = [];
     const app = makeApp({ id: HOST_ID });
     const res = await request(app)
       .post("/api/events/evt-1/rsvp")
       .send({ status: "going", version: 0 });
-    expect(res.status).toBe(409);
-    expect(res.body.conflict).toBe(true);
-  });
-
-  it("second of two concurrent requests with the same version gets 409", async () => {
-    const app = makeApp({ id: HOST_ID });
-
-    // First write: version 0 matches → succeeds, server bumps version to 1.
-    mockUpdateRows.value = [baseEvent];
-    const first = await request(app)
-      .post("/api/events/evt-1/rsvp")
-      .send({ status: "going", version: 0 });
-    expect(first.status).toBe(200);
-
-    // Second write with the same stale version 0: the DB row is now at version
-    // 1, so the version-gated WHERE finds no row and returns nothing → 409.
-    mockUpdateRows.value = [];
-    const second = await request(app)
-      .post("/api/events/evt-1/rsvp")
-      .send({ status: "maybe", version: 0 });
-    expect(second.status).toBe(409);
-    expect(second.body.conflict).toBe(true);
+    expect(res.status).toBe(404);
   });
 });
 

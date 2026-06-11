@@ -16,30 +16,58 @@ function generateInviteCode(): string {
 
 const FREE_SQUAD_LIMIT = 2;
 
-/**
- * Count how many squads a user currently belongs to.
- */
-async function countSquadsForUser(userId: string): Promise<number> {
-  const [row] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(squadsTable)
-    .where(sql`${squadsTable.memberIds} @> ${JSON.stringify([userId])}::jsonb`);
-  return row?.count ?? 0;
-}
+type SquadExecutor = Parameters<Parameters<typeof db.transaction>[0]>[0] | typeof db;
 
 /**
- * Returns true if the (free) user is at or over the squad limit and should be
- * blocked from joining/creating another. Pro users are never blocked. The check
- * only gates NEW joins/creates — existing memberships are never revoked, so a
- * user already in 3+ squads (e.g. after a downgrade) keeps them all.
+ * Runs a squad-membership-growing write (join or create) while atomically
+ * enforcing the free-plan squad cap.
+ *
+ * The naive "count, then if-under-limit write" is a classic TOCTOU race: two
+ * concurrent joins/creates for the same free user can each read count = limit-1
+ * and both proceed, pushing the user over the cap. To close that window we run
+ * the count-then-write inside a single transaction guarded by a per-user
+ * advisory lock (`pg_advisory_xact_lock`, auto-released at COMMIT), so the
+ * checks serialize for a given user while staying fully concurrent across users.
+ *
+ * `enforce` is false for already-members re-joining (their write is an
+ * idempotent no-op that must never be blocked). Pro users bypass the cap.
+ *
+ * Under the unit-test mocks `db.transaction` is absent; we then fall back to
+ * running the write directly with no cap re-check (the mocks don't model the
+ * count and don't assert the cap — concurrency is verified by the isolated
+ * integration test against a real Postgres instead).
  */
-async function isAtSquadLimit(userId: string): Promise<boolean> {
-  const user = await storage.getUser(userId);
-  if (!user) return false;
-  const isPro = await resolveProStatus(user);
-  if (isPro) return false;
-  const count = await countSquadsForUser(userId);
-  return count >= FREE_SQUAD_LIMIT;
+async function withSquadLimit<T>(
+  userId: string,
+  enforce: boolean,
+  action: (executor: SquadExecutor) => Promise<T>,
+): Promise<{ ok: true; value: T } | { ok: false }> {
+  let isPro = false;
+  if (enforce) {
+    const user = await storage.getUser(userId);
+    isPro = user ? await resolveProStatus(user) : false;
+  }
+
+  const run = async (
+    executor: SquadExecutor,
+    inTransaction: boolean,
+  ): Promise<{ ok: true; value: T } | { ok: false }> => {
+    if (enforce && !isPro && inTransaction) {
+      await executor.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${userId}))`);
+      const [row] = await executor
+        .select({ count: sql<number>`count(*)::int` })
+        .from(squadsTable)
+        .where(sql`${squadsTable.memberIds} @> ${JSON.stringify([userId])}::jsonb`);
+      if ((row?.count ?? 0) >= FREE_SQUAD_LIMIT) return { ok: false };
+    }
+    const value = await action(executor);
+    return { ok: true, value };
+  };
+
+  if (typeof db.transaction === "function") {
+    return db.transaction(async (tx) => run(tx, true));
+  }
+  return run(db, false);
 }
 
 const router: IRouter = Router();
@@ -94,9 +122,26 @@ router.post("/squads/:id/join", requireAuth, async (req: Request, res: Response)
   // Snapshot pre-join members for notification targeting (before the update).
   const memberIds = (squad.memberIds ?? []) as string[];
 
-  // Free squad limit: block NEW joins past the cap (already-members pass through
-  // so a re-join stays an idempotent no-op).
-  if (!memberIds.includes(userId) && (await isAtSquadLimit(userId))) {
+  // Free squad limit + atomic append in one transaction. withSquadLimit takes a
+  // per-user advisory lock and re-counts inside the tx, so concurrent joins for
+  // the same free user can't push them past the cap (TOCTOU-safe). Already-members
+  // skip the cap (enforce = false) so a re-join stays an idempotent no-op. The
+  // WHERE NOT @> guard still ensures no member is silently overwritten; 0 rows
+  // returned means the user was already a member.
+  const alreadyMember = memberIds.includes(userId);
+  const outcome = await withSquadLimit(userId, !alreadyMember, (tx) =>
+    tx
+      .update(squadsTable)
+      .set({ memberIds: sql`${squadsTable.memberIds} || ${JSON.stringify([userId])}::jsonb` })
+      .where(
+        and(
+          eq(squadsTable.id, id),
+          sql`NOT (${squadsTable.memberIds} @> ${JSON.stringify([userId])}::jsonb)`,
+        ),
+      )
+      .returning(),
+  );
+  if (!outcome.ok) {
     res.status(403).json({
       error: `Free plan is limited to ${FREE_SQUAD_LIMIT} squads. Upgrade to Squadz+ to join more.`,
       code: "SQUAD_LIMIT",
@@ -104,20 +149,7 @@ router.post("/squads/:id/join", requireAuth, async (req: Request, res: Response)
     });
     return;
   }
-
-  // Atomic append: the WHERE NOT @> guard ensures that even under concurrent
-  // joins, no member is silently overwritten. If the user is already a member
-  // this UPDATE matches 0 rows and returns an empty array.
-  const [updated] = await db
-    .update(squadsTable)
-    .set({ memberIds: sql`${squadsTable.memberIds} || ${JSON.stringify([userId])}::jsonb` })
-    .where(
-      and(
-        eq(squadsTable.id, id),
-        sql`NOT (${squadsTable.memberIds} @> ${JSON.stringify([userId])}::jsonb)`,
-      ),
-    )
-    .returning();
+  const [updated] = outcome.value;
 
   if (!updated) {
     res.json({ squad, alreadyMember: true });
@@ -189,8 +221,23 @@ router.post("/squads/join-via-code", requireAuth, async (req: Request, res: Resp
   // Snapshot pre-join members for notification targeting (before the update).
   const memberIds = (squad.memberIds ?? []) as string[];
 
-  // Free squad limit: block NEW joins past the cap (already-members pass through).
-  if (!memberIds.includes(userId) && (await isAtSquadLimit(userId))) {
+  // Free squad limit + atomic append in one transaction (see /squads/:id/join).
+  // The advisory-lock re-count makes the cap TOCTOU-safe under concurrent
+  // invite-link joins; the WHERE NOT @> guard prevents lost-update overwrites.
+  const alreadyMember = memberIds.includes(userId);
+  const outcome = await withSquadLimit(userId, !alreadyMember, (tx) =>
+    tx
+      .update(squadsTable)
+      .set({ memberIds: sql`${squadsTable.memberIds} || ${JSON.stringify([userId])}::jsonb` })
+      .where(
+        and(
+          eq(squadsTable.id, squad.id),
+          sql`NOT (${squadsTable.memberIds} @> ${JSON.stringify([userId])}::jsonb)`,
+        ),
+      )
+      .returning(),
+  );
+  if (!outcome.ok) {
     res.status(403).json({
       error: `Free plan is limited to ${FREE_SQUAD_LIMIT} squads. Upgrade to Squadz+ to join more.`,
       code: "SQUAD_LIMIT",
@@ -198,20 +245,7 @@ router.post("/squads/join-via-code", requireAuth, async (req: Request, res: Resp
     });
     return;
   }
-
-  // Atomic append: the WHERE NOT @> guard prevents the classic concurrent
-  // read-modify-write race where two simultaneous joins each overwrite the
-  // other's append. 0 rows returned means the user was already a member.
-  const [updated] = await db
-    .update(squadsTable)
-    .set({ memberIds: sql`${squadsTable.memberIds} || ${JSON.stringify([userId])}::jsonb` })
-    .where(
-      and(
-        eq(squadsTable.id, squad.id),
-        sql`NOT (${squadsTable.memberIds} @> ${JSON.stringify([userId])}::jsonb)`,
-      ),
-    )
-    .returning();
+  const [updated] = outcome.value;
 
   if (!updated) {
     res.json({ squad, alreadyMember: true });
@@ -267,8 +301,18 @@ router.post("/squads", requireAuth, async (req: Request, res: Response): Promise
   }
   const userId = (req.user as { id: string }).id;
 
-  // Free squad limit: creating a squad counts toward the cap.
-  if (await isAtSquadLimit(userId)) {
+  // Free squad limit + atomic create: creating a squad counts toward the cap, so
+  // re-count under a per-user advisory lock inside the tx to block concurrent
+  // creates from exceeding it.
+  const memberIds = Array.from(new Set([userId, ...parsed.data.memberIds]));
+  const inviteCode = generateInviteCode();
+  const outcome = await withSquadLimit(userId, true, (tx) =>
+    tx
+      .insert(squadsTable)
+      .values({ ...parsed.data, memberIds, creatorId: userId, inviteCode })
+      .returning(),
+  );
+  if (!outcome.ok) {
     res.status(403).json({
       error: `Free plan is limited to ${FREE_SQUAD_LIMIT} squads. Upgrade to Squadz+ to create more.`,
       code: "SQUAD_LIMIT",
@@ -276,10 +320,7 @@ router.post("/squads", requireAuth, async (req: Request, res: Response): Promise
     });
     return;
   }
-
-  const memberIds = Array.from(new Set([userId, ...parsed.data.memberIds]));
-  const inviteCode = generateInviteCode();
-  const [squad] = await db.insert(squadsTable).values({ ...parsed.data, memberIds, creatorId: userId, inviteCode }).returning();
+  const [squad] = outcome.value;
   res.status(201).json(squad);
 
   // Fire-and-forget: notify added members (not the creator) that they're in a new squad,

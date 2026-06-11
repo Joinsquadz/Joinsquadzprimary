@@ -30,6 +30,21 @@ vi.mock("@workspace/db", () => ({
     }),
     transaction: (fn: (tx: unknown) => Promise<unknown>) =>
       fn({
+        execute: () => Promise.resolve(),
+        select: () => ({
+          from: () => ({
+            where: () => Promise.resolve(mockSelectRows.value),
+            orderBy: () => Promise.resolve(mockSelectRows.value),
+          }),
+        }),
+        insert: () => ({
+          values: () => ({ returning: () => Promise.resolve(mockInsertRows.value) }),
+        }),
+        update: () => ({
+          set: () => ({
+            where: () => ({ returning: () => Promise.resolve(mockUpdateRows.value) }),
+          }),
+        }),
         delete: () => ({ where: () => Promise.resolve() }),
       }),
   },

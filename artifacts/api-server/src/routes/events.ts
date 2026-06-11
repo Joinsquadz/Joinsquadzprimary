@@ -340,10 +340,14 @@ router.post("/events/join", requireAuth, async (req: Request, res: Response): Pr
     return;
   }
 
-  const updatedRsvps = { ...rsvps, [userId]: "going" };
+  // Atomic per-user merge (see /events/:id/rsvp): write only this user's key so
+  // concurrent invite-link joins can't clobber each other's RSVP.
   const [event] = await db
     .update(eventsTable)
-    .set({ rsvps: updatedRsvps })
+    .set({
+      rsvps: sql`COALESCE(${eventsTable.rsvps}, '{}'::jsonb) || ${JSON.stringify({ [userId]: "going" })}::jsonb`,
+      version: sql`${eventsTable.version} + 1`,
+    })
     .where(eq(eventsTable.id, existing.id))
     .returning();
 
@@ -494,17 +498,21 @@ router.post("/events/:id/rsvp", requireAuth, async (req: Request, res: Response)
   }
   const existing = await getEventAsMember(id, userId, res);
   if (!existing) return;
-  const { version: clientVersion, status } = parsed.data;
-  const rsvps = { ...(existing.rsvps as Record<string, string>), [userId]: status };
-  const updateWhere = clientVersion !== undefined
-    ? and(eq(eventsTable.id, id), eq(eventsTable.version, clientVersion))
-    : eq(eventsTable.id, id);
+  const { status } = parsed.data;
+  // Atomic per-user RSVP merge: each user only ever writes their OWN key in the
+  // rsvps JSON map, so we merge that single key server-side (`||`) instead of a
+  // read-modify-write of the whole object. This removes the whole-row version
+  // gate that made concurrent RSVPs from different users spuriously 409 (a
+  // disjoint-key "conflict") and also closes the lost-update window.
   const [event] = await db.update(eventsTable)
-    .set({ rsvps, version: sql`${eventsTable.version} + 1` })
-    .where(updateWhere)
+    .set({
+      rsvps: sql`COALESCE(${eventsTable.rsvps}, '{}'::jsonb) || ${JSON.stringify({ [userId]: status })}::jsonb`,
+      version: sql`${eventsTable.version} + 1`,
+    })
+    .where(eq(eventsTable.id, id))
     .returning();
   if (!event) {
-    res.status(409).json({ error: "Someone else just updated this — refresh to see the latest", conflict: true });
+    res.status(404).json({ error: "Event not found" });
     return;
   }
   res.json(event);
