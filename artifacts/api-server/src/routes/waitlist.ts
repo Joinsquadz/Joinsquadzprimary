@@ -11,15 +11,11 @@ const JoinWaitlistBody = z.object({
   source: z.string().max(40).optional(),
 });
 
-function buildWaitlistThankYouText(email: string): string {
+function buildWaitlistThankYouText(_email: string): string {
   return [
     "Thanks for joining the Squadz waitlist!",
     "",
     "You're on the list. We'll email you the moment Squadz drops on the App Store and Google Play.",
-    "",
-    "In the meantime, follow us for updates and sneak peeks:",
-    "  • Instagram: https://instagram.com/squadz.app",
-    "  • TikTok: https://tiktok.com/@squadz.app",
     "",
     "Thanks for being early — we can't wait to get your squad hanging.",
     "",
@@ -28,7 +24,7 @@ function buildWaitlistThankYouText(email: string): string {
   ].join("\n");
 }
 
-function buildWaitlistThankYouHtml(email: string): string {
+function buildWaitlistThankYouHtml(_email: string): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -38,24 +34,29 @@ function buildWaitlistThankYouHtml(email: string): string {
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0A0A0F; color: #fff; margin: 0; padding: 0; }
     .container { max-width: 480px; margin: 0 auto; padding: 40px 24px; }
-    .logo { width: 48px; height: 48px; border-radius: 12px; background: linear-gradient(135deg, #FF5C3A 0%, #FFB84D 100%); margin-bottom: 24px; }
     h1 { font-size: 24px; font-weight: 800; margin: 0 0 16px; }
     p { font-size: 16px; line-height: 1.6; color: #E2E2E8; margin: 0 0 12px; }
-    .social { margin-top: 24px; padding-top: 24px; border-top: 1px solid #2A2A3A; }
-    .social a { display: inline-block; margin-right: 16px; color: #FF5C3A; text-decoration: none; font-weight: 600; }
     .footer { margin-top: 32px; font-size: 13px; color: #8B8B9E; }
   </style>
 </head>
 <body>
   <div class="container">
-    <div class="logo"></div>
+    <svg width="52" height="52" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" style="display:block;border-radius:12px;margin-bottom:24px">
+      <defs>
+        <linearGradient id="sq-zg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#FF5C3A"/>
+          <stop offset="100%" stop-color="#FFB547"/>
+        </linearGradient>
+        <linearGradient id="sq-bg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#1E1E2E"/>
+          <stop offset="100%" stop-color="#0A0A14"/>
+        </linearGradient>
+      </defs>
+      <rect x="0" y="0" width="512" height="512" rx="114" fill="url(#sq-bg)"/>
+      <path d="M 81,81 L 431,81 L 431,151 L 151,361 L 431,361 L 431,431 L 81,431 L 81,361 L 361,151 L 81,151 Z" fill="url(#sq-zg)"/>
+    </svg>
     <h1>Thanks for joining the Squadz waitlist!</h1>
     <p>You're on the list. We'll email you the moment Squadz drops on the App Store and Google Play.</p>
-    <div class="social">
-      <p style="font-weight: 600; margin-bottom: 8px;">Follow us for updates:</p>
-      <a href="https://instagram.com/squadz.app">Instagram</a>
-      <a href="https://tiktok.com/@squadz.app">TikTok</a>
-    </div>
     <div class="footer">
       <p>Thanks for being early — we can't wait to get your squad hanging.</p>
       <p>— The Squadz team<br><a href="https://joinsquadz.com" style="color: #8B8B9E;">joinsquadz.com</a></p>
