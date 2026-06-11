@@ -20,6 +20,10 @@
     },
     "android": {
       "package": "com.squadz.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/icon.png",
+        "backgroundColor": "#0A0A0F"
+      },
       "intentFilters": [
         {
           "action": "VIEW",

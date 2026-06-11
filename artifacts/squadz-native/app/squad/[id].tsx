@@ -137,19 +137,29 @@ export default function SquadDetailScreen() {
     setSearchLoading(true);
     setSearchError(null);
     setSearchResults([]);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15_000);
     try {
       const headers: Record<string, string> = { "Content-Type": "application/json", ...buildAuthHeaders(authToken) };
-      const res = await fetch(`${API_BASE}/api/users/search?q=${encodeURIComponent(q)}`, { headers });
-      const data = (await res.json().catch(() => [])) as FoundUser[] | { error?: string };
+      const res = await fetch(`${API_BASE}/api/users/search?q=${encodeURIComponent(q)}`, { headers, signal: controller.signal });
+      const data = (await res.json().catch(() => null)) as unknown;
       if (!res.ok) {
-        setSearchError((data as { error?: string }).error ?? "Search failed. Please try again.");
-      } else {
+        const errMsg = data && typeof data === "object" && "error" in data ? String((data as { error?: unknown }).error ?? "") : "";
+        setSearchError(errMsg || "Search failed. Please try again.");
+      } else if (Array.isArray(data)) {
         setSearchResults(data as FoundUser[]);
-        if ((data as FoundUser[]).length === 0) setSearchError("No users found. Try a different name.");
+        if (data.length === 0) setSearchError("No users found. Try a different name.");
+      } else {
+        setSearchError("Search failed. Please try again.");
       }
-    } catch {
-      setSearchError("Network error. Please try again.");
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        setSearchError("Search timed out. Check your connection and try again.");
+      } else {
+        setSearchError("Network error. Please try again.");
+      }
     } finally {
+      clearTimeout(timeoutId);
       setSearchLoading(false);
     }
   };

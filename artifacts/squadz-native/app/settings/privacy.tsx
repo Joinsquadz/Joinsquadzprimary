@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   TouchableOpacity,
   Linking,
+  Modal,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -31,10 +32,13 @@ const ROWS: { key: keyof Prefs; icon: keyof typeof Ionicons.glyphMap; label: str
 export default function PrivacyScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { authToken } = useAuth();
+  const { authToken, deleteAccount } = useAuth();
 
   const [prefs, setPrefs] = useState<Prefs | null>(null);
   const [loading, setLoading] = useState(true);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
 
@@ -76,6 +80,21 @@ export default function PrivacyScreen() {
     } catch {
       setPrefs(prev);
     }
+  }
+
+  async function handleDelete() {
+    if (deleting) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    setDeleting(true);
+    setDeleteError(null);
+    const result = await deleteAccount();
+    if (result.ok) {
+      setConfirmOpen(false);
+      router.replace("/login" as never);
+      return;
+    }
+    setDeleting(false);
+    setDeleteError(result.error ?? "Couldn't delete your account. Please try again.");
   }
 
   const links: { icon: keyof typeof Ionicons.glyphMap; label: string; url: string }[] = [
@@ -151,8 +170,63 @@ export default function PrivacyScreen() {
               </TouchableOpacity>
             ))}
           </View>
+
+          <Text style={[styles.groupLabel, { color: "#E5484D" }]}>DANGER ZONE</Text>
+          <View style={[styles.group, { backgroundColor: colors.card, borderColor: "#E5484D55" }]}>
+            <TouchableOpacity
+              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setDeleteError(null); setConfirmOpen(true); }}
+              style={styles.row}
+            >
+              <View style={[styles.iconWrap, { backgroundColor: "#E5484D18" }]}>
+                <Ionicons name="trash-outline" size={18} color="#E5484D" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.rowLabel, { color: "#E5484D" }]}>Delete Account</Text>
+                <Text style={[styles.rowSub, { color: colors.mutedForeground }]}>Permanently erase your account and all data</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#E5484D" />
+            </TouchableOpacity>
+          </View>
         </ScrollView>
       )}
+
+      <Modal visible={confirmOpen} transparent animationType="fade" onRequestClose={() => { if (!deleting) setConfirmOpen(false); }}>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={[styles.modalIcon, { backgroundColor: "#E5484D18" }]}>
+              <Ionicons name="warning-outline" size={28} color="#E5484D" />
+            </View>
+            <Text style={[styles.modalTitle, { color: colors.foreground }]}>Delete your account?</Text>
+            <Text style={[styles.modalBody, { color: colors.mutedForeground }]}>
+              This permanently erases your profile, squads you solely own, photos, messages, events, and friends. Squads you created with others will transfer to another member. This can't be undone.
+            </Text>
+
+            {deleteError ? (
+              <Text style={styles.modalError}>{deleteError}</Text>
+            ) : null}
+
+            <TouchableOpacity
+              onPress={() => void handleDelete()}
+              disabled={deleting}
+              style={[styles.deleteBtn, deleting && { opacity: 0.7 }]}
+            >
+              {deleting ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.deleteBtnText}>Delete my account</Text>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => { if (!deleting) setConfirmOpen(false); }}
+              disabled={deleting}
+              style={styles.cancelBtn}
+            >
+              <Text style={[styles.cancelBtnText, { color: colors.foreground }]}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -169,4 +243,14 @@ const styles = StyleSheet.create({
   iconWrap: { width: 36, height: 36, borderRadius: 11, alignItems: "center", justifyContent: "center" },
   rowLabel: { fontSize: 15, fontWeight: "600" },
   rowSub: { fontSize: 12, marginTop: 2 },
+  modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", alignItems: "center", justifyContent: "center", padding: 24 },
+  modalCard: { width: "100%", maxWidth: 380, borderWidth: 1, borderRadius: 20, padding: 24, alignItems: "center" },
+  modalIcon: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center", marginBottom: 14 },
+  modalTitle: { fontSize: 19, fontWeight: "800", marginBottom: 10, textAlign: "center" },
+  modalBody: { fontSize: 14, lineHeight: 21, textAlign: "center", marginBottom: 18 },
+  modalError: { color: "#E5484D", fontSize: 13, textAlign: "center", marginBottom: 14 },
+  deleteBtn: { width: "100%", backgroundColor: "#E5484D", borderRadius: 14, paddingVertical: 15, alignItems: "center", justifyContent: "center", minHeight: 50 },
+  deleteBtnText: { color: "#fff", fontSize: 16, fontWeight: "700" },
+  cancelBtn: { width: "100%", paddingVertical: 14, alignItems: "center", marginTop: 4 },
+  cancelBtnText: { fontSize: 15, fontWeight: "600" },
 });

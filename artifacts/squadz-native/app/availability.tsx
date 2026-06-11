@@ -508,9 +508,14 @@ export default function AvailabilityScreen() {
         setError(body.error ?? "Could not load availability.");
         return;
       }
-      const payload = (await res.json()) as PollPayload;
+      const raw = (await res.json().catch(() => null)) as unknown;
+      if (!raw || typeof raw !== "object" || !("poll" in raw) || !(raw as PollPayload).poll?.id) {
+        setError("Could not load availability.");
+        return;
+      }
+      const payload = raw as PollPayload;
       setData(payload);
-      setMySet(new Set(payload.myCells));
+      setMySet(new Set(payload.myCells ?? []));
       setDirty(false);
       // Show the "range updated" banner for non-creators when the host has
       // updated the date range more recently than the member last responded.

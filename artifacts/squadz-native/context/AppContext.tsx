@@ -142,6 +142,7 @@ type AppContextType = {
   forgotPassword: (email: string) => Promise<AuthResult>;
   resendVerification: () => Promise<AuthResult>;
   logout: () => void;
+  deleteAccount: () => Promise<AuthResult>;
   refreshUser: () => Promise<void>;
   setInviteCtx: (ctx: InviteCtx | null) => void;
 
@@ -218,6 +219,7 @@ const AppContext = createContext<AppContextType>({
   forgotPassword: async () => ({ ok: false }),
   resendVerification: async () => ({ ok: false }),
   logout: noop,
+  deleteAccount: async () => ({ ok: false }),
   refreshUser: async () => {},
   setInviteCtx: noop,
   eventsLoading: true,
@@ -931,6 +933,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setPendingOnboarding(false);
     setOwnPaymentHandles({ venmo: null, cashapp: null, zelle: null });
     currentUserIdRef.current = ME.id;
+  }, [authToken]);
+
+  // Permanently delete the account server-side, then tear down the local session
+  // exactly like logout (minus the server logout call, whose session is already
+  // gone). Returns an AuthResult so the caller can surface a precise error.
+  const deleteAccount = useCallback(async (): Promise<AuthResult> => {
+    const token = authToken;
+    if (!token) return { ok: false, error: "You're not signed in." };
+    try {
+      const res = await fetch(`${API_BASE}/api/account`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        return { ok: false, error: data.error ?? "Couldn't delete your account. Please try again." };
+      }
+    } catch {
+      return { ok: false, error: "Network error. Please check your connection and try again." };
+    }
+    track("account_deleted");
+    analyticsReset();
+    AsyncStorage.multiRemove(ALL_APP_STORAGE_KEYS).catch(() => {});
+    clearProfileCache();
+    authTokenRef.current = null;
+    refreshTokenRef.current = null;
+    setAuthToken(null);
+    setApiUser(null);
+    setEmailVerified(false);
+    setPhone(null);
+    setEvents([]);
+    setSquads([]);
+    setIsLoggedIn(false);
+    setPendingOnboarding(false);
+    setOwnPaymentHandles({ venmo: null, cashapp: null, zelle: null });
+    currentUserIdRef.current = ME.id;
+    return { ok: true };
   }, [authToken]);
 
   const applyEventUpdate = useCallback((updated: Record<string, unknown>) => {
@@ -1819,6 +1858,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       forgotPassword,
       resendVerification,
       logout,
+      deleteAccount,
       refreshUser,
       setInviteCtx,
       eventsLoading,
@@ -1880,6 +1920,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       forgotPassword,
       resendVerification,
       logout,
+      deleteAccount,
       refreshUser,
       setInviteCtx,
       eventsLoading,
