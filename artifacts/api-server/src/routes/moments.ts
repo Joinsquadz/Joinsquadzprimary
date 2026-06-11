@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { and, eq, gt, inArray, isNull, sql, desc } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, or, sql, desc } from "drizzle-orm";
 import { z } from "zod";
 import {
   db,
@@ -211,6 +211,51 @@ router.get("/moments/friends", requireAuth, async (req: Request, res: Response):
     res.json({ rings });
   } catch (err) {
     logger.error({ err }, "Error fetching friends moments");
+    res.status(500).json({ error: "Failed to fetch moments" });
+  }
+});
+
+// GET /api/moments/feed — the single feed surface: union of the viewer's
+// friends-audience moments (own + friends) and squad moments from every squad
+// the viewer currently belongs to, grouped as per-author rings.
+//
+// Audience scoping is enforced entirely server-side: the squad set is derived
+// from the DB (squads whose member_ids contains the viewer), never from the
+// request, so a non-member can never receive another squad's moments regardless
+// of how the request is formed.
+router.get("/moments/feed", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req.user as { id: string }).id;
+    const friendIds = await getFriendIds(userId);
+    const authors = Array.from(new Set([userId, ...friendIds]));
+    const squadRows = await db
+      .select({ id: squadsTable.id })
+      .from(squadsTable)
+      .where(sql`${squadsTable.memberIds} @> ${JSON.stringify([userId])}::jsonb`);
+    const squadIds = squadRows.map((s) => s.id);
+
+    const friendsAudience = and(
+      eq(momentsTable.audience, "friends"),
+      inArray(momentsTable.authorId, authors),
+    );
+    const audienceCondition = squadIds.length
+      ? or(friendsAudience, inArray(momentsTable.audience, squadIds))
+      : friendsAudience;
+
+    const moments = await db
+      .select()
+      .from(momentsTable)
+      .where(and(liveCondition(), audienceCondition))
+      .orderBy(desc(momentsTable.createdAt));
+    const rings = await buildRings(moments, userId);
+    rings.sort((a, b) => {
+      if (a.isSelf !== b.isSelf) return a.isSelf ? -1 : 1;
+      if (a.hasUnseen !== b.hasUnseen) return a.hasUnseen ? -1 : 1;
+      return 0;
+    });
+    res.json({ rings });
+  } catch (err) {
+    logger.error({ err }, "Error fetching feed moments");
     res.status(500).json({ error: "Failed to fetch moments" });
   }
 });

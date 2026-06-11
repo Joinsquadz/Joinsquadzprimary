@@ -554,8 +554,8 @@ export default function FeedScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.primary} />
         }
       >
-        {/* Moments ring row (friends) */}
-        <MomentsRingRow mode="friends" reloadKey={momentsReload} />
+        {/* Moments ring row (friends + squad — the single Moments surface) */}
+        <MomentsRingRow mode="feed" reloadKey={momentsReload} />
 
         {/* Composer */}
         <View style={[styles.composer, { backgroundColor: colors.card, borderColor: colors.border }]}>

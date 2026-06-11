@@ -12,7 +12,7 @@ import { MomentViewer, type MomentRing } from "./MomentViewer";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
 type Props = {
-  mode: "friends" | "squad";
+  mode: "friends" | "squad" | "feed";
   squadId?: string;
   /** Bump to force a refetch (e.g. on SSE feed update). */
   reloadKey?: number;
@@ -63,7 +63,9 @@ export function MomentsRingRow({ mode, squadId, reloadKey }: Props) {
       const url =
         mode === "squad" && squadId
           ? `${API_BASE}/api/moments/squad/${squadId}`
-          : `${API_BASE}/api/moments/friends`;
+          : mode === "feed"
+            ? `${API_BASE}/api/moments/feed`
+            : `${API_BASE}/api/moments/friends`;
       const res = await fetch(url, { headers: buildAuthHeaders(authToken) });
       if (!res.ok) return;
       const data = (await res.json()) as { rings: MomentRing[] };
