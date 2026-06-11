@@ -18,6 +18,7 @@ import {
   KeyboardAvoidingView,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import { useTips } from "@/context/TipsContext";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -363,6 +364,52 @@ export default function SquadDetailScreen() {
 
   const { mutedSquadIds, setSquadMuted } = useMutedSquads();
 
+  // First-run welcome tips tour (anchored coach marks).
+  const { activeIndex, tips, setSquadAnchor, clearSquadAnchors, maybeStartTour } = useTips();
+  const scrollRef = useRef<ScrollView>(null);
+  const eventsAnchorRef = useRef<View>(null);
+  const pollAnchorRef = useRef<View>(null);
+  const chatAnchorRef = useRef<View>(null);
+  const eventsContentY = useRef(0);
+  const pollContentY = useRef(0);
+  const chatContentY = useRef(0);
+
+  // Start the tour once the squad has loaded (no-op unless armed at onboarding
+  // and not yet seen by this user).
+  useEffect(() => {
+    if (squad) maybeStartTour();
+  }, [squad, maybeStartTour]);
+
+  // When a squad-screen tip activates, scroll its target into view and measure
+  // it so the floating card can anchor against it.
+  useEffect(() => {
+    if (activeIndex === null) return;
+    const tip = tips[activeIndex];
+    if (!tip || tip.place !== "squad" || !tip.target) return;
+    const target = tip.target;
+    const contentY =
+      target === "events"
+        ? eventsContentY.current
+        : target === "poll"
+          ? pollContentY.current
+          : chatContentY.current;
+    const anchorRef =
+      target === "events" ? eventsAnchorRef : target === "poll" ? pollAnchorRef : chatAnchorRef;
+    scrollRef.current?.scrollTo({ y: Math.max(0, contentY - 140), animated: true });
+    const t = setTimeout(() => {
+      anchorRef.current?.measureInWindow((x, y, width, height) => {
+        setSquadAnchor(target, { x, y, width, height });
+      });
+    }, 380);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeIndex]);
+
+  // Drop stale anchors when leaving the screen.
+  useEffect(() => {
+    return () => clearSquadAnchors();
+  }, [clearSquadAnchors]);
+
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
@@ -589,6 +636,7 @@ export default function SquadDetailScreen() {
       </Animated.View>
 
       <ScrollView
+        ref={scrollRef}
         contentContainerStyle={{ padding: 20, paddingBottom: botPad + 24 }}
         showsVerticalScrollIndicator={false}
       >
@@ -625,13 +673,20 @@ export default function SquadDetailScreen() {
         )}
 
         {/* Find the best time — primary action, surfaced near the top */}
+        <View
+          ref={pollAnchorRef}
+          collapsable={false}
+          onLayout={(e) => {
+            pollContentY.current = e.nativeEvent.layout.y;
+          }}
+          style={{ marginTop: 12 }}
+        >
         <TouchableOpacity
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
             router.push({ pathname: "/availability", params: { squadId: squad.id } } as never);
           }}
           activeOpacity={0.9}
-          style={{ marginTop: 12 }}
         >
           <LinearGradient
             colors={[squad.color, squad.color + "CC"]}
@@ -655,6 +710,7 @@ export default function SquadDetailScreen() {
             )}
           </LinearGradient>
         </TouchableOpacity>
+        </View>
 
         {/* Moments */}
         <Text style={[styles.sectionTitle, { color: colors.foreground, marginTop: 24 }]}>Moments</Text>
@@ -723,6 +779,13 @@ export default function SquadDetailScreen() {
         </View>
 
         {/* Group chat */}
+        <View
+          ref={chatAnchorRef}
+          collapsable={false}
+          onLayout={(e) => {
+            chatContentY.current = e.nativeEvent.layout.y;
+          }}
+        >
         <TouchableOpacity
           onPress={() => handleOpenChat(squad.id)}
           disabled={openingChat}
@@ -741,6 +804,7 @@ export default function SquadDetailScreen() {
             <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
           )}
         </TouchableOpacity>
+        </View>
 
         {/* Photos */}
         <TouchableOpacity
@@ -761,7 +825,16 @@ export default function SquadDetailScreen() {
         </TouchableOpacity>
 
         {/* Events */}
-        <Text style={[styles.sectionTitle, { color: colors.foreground, marginTop: 24 }]}>Events</Text>
+        <View
+          ref={eventsAnchorRef}
+          collapsable={false}
+          onLayout={(e) => {
+            eventsContentY.current = e.nativeEvent.layout.y;
+          }}
+          style={{ marginTop: 24 }}
+        >
+          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Events</Text>
+        </View>
         {squadEvents.length === 0 ? (
           <View style={styles.emptyEvents}>
             <Ionicons name="calendar-outline" size={36} color={colors.textDim} />

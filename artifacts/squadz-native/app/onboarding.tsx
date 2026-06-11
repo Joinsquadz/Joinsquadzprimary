@@ -16,6 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import { useAuth, useData } from "@/context/AppContext";
 import { GradientButton } from "@/components/GradientButton";
+import { useTips } from "@/context/TipsContext";
 
 const SQUAD_EMOJIS = ["🔥", "💼", "🎓", "🏡", "✈️", "🎮", "🍕", "🎉", "💪", "🌊", "🎵", "🦄"];
 const SQUAD_COLORS = ["#FF5C3A", "#A855F7", "#2ECC8A", "#4A9EFF", "#FFB547", "#FF5C3A"];
@@ -35,6 +36,7 @@ export default function OnboardingScreen() {
   const insets = useSafeAreaInsets();
   const { login } = useAuth();
   const { friendCode, currentUser, addSquad, squads } = useData();
+  const { armTour } = useTips();
   const params = useLocalSearchParams<{ inviteEventId?: string; inviteTitle?: string; publicSquadId?: string; joinEventCode?: string; squadCode?: string; inviteCode?: string }>();
 
   // Users arriving from a shared invite link should NOT be asked to build their
@@ -75,9 +77,14 @@ export default function OnboardingScreen() {
     } else if (params.joinEventCode) {
       router.replace({ pathname: "/join/[inviteCode]", params: { inviteCode: params.joinEventCode } } as never);
     } else if (params.squadCode) {
+      armTour();
       router.replace({ pathname: "/squad/join", params: { code: params.squadCode } } as never);
     } else if (params.publicSquadId) {
+      armTour();
       router.replace({ pathname: "/squad/join-public", params: { id: params.publicSquadId } } as never);
+    } else if (createdSquadId) {
+      armTour();
+      router.replace({ pathname: "/squad/[id]", params: { id: createdSquadId } } as never);
     } else {
       router.replace("/(tabs)" as never);
     }

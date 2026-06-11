@@ -54,7 +54,6 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { currentUser, authToken } = useAuth();
   const { events, squads, eventsLoading, squadsLoading, joinEvent, joinSquad, friendCode } = useData();
-  const [coachDismissed, setCoachDismissed] = useState(false);
   const [discoverEvents, setDiscoverEvents] = useState<DiscoverEvent[]>([]);
   const [discoverSquads, setDiscoverSquads] = useState<DiscoverSquad[]>([]);
   const [streaks, setStreaks] = useState<{ monthlyPlan: number; stayInTouch: number } | null>(null);
@@ -223,21 +222,6 @@ export default function HomeScreen() {
         contentContainerStyle={{ paddingBottom: insets.bottom + (Platform.OS === "web" ? 84 : 100) }}
         showsVerticalScrollIndicator={false}
       >
-        {/* First-run coach mark */}
-        {squads.length === 0 && !coachDismissed && (
-          <View style={styles.section}>
-            <View style={[styles.coach, { backgroundColor: colors.primary + "12", borderColor: colors.primary + "30" }]}>
-              <Text style={styles.coachEmoji}>💡</Text>
-              <Text style={[styles.coachText, { color: colors.foreground }]}>
-                New here? Create a squad, invite your crew, and SquadZ finds the time everyone's free.
-              </Text>
-              <TouchableOpacity onPress={() => setCoachDismissed(true)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                <Ionicons name="close" size={16} color={colors.mutedForeground} />
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-
         {/* Quick actions — always-present primary actions */}
         <View style={[styles.section, { flexDirection: "row", gap: 12 }]}>
           <TouchableOpacity

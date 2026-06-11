@@ -21,6 +21,8 @@ import { ToastProvider } from "@/context/ToastContext";
 import { MessagesProvider } from "@/context/MessagesContext";
 import { UserCacheProvider } from "@/context/UserCacheContext";
 import { MutedSquadsProvider } from "@/context/MutedSquadsContext";
+import { TipsProvider } from "@/context/TipsContext";
+import { TipCoachMark } from "@/components/TipCoachMark";
 import { installWebAlert } from "@/lib/webAlert";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { initMonitoring } from "@/lib/monitoring";
@@ -320,6 +322,7 @@ function RootLayoutNav() {
         <Stack.Screen name="add/friend/[code]" />
         <Stack.Screen name="user/[id]" />
       </Stack>
+      <TipCoachMark />
     </>
   );
 }
@@ -351,7 +354,9 @@ export default function RootLayout() {
                 <MutedSquadsConnector>
                   <UserCacheProvider>
                     <MessagesProvider>
-                      <RootLayoutNav />
+                      <TipsProvider>
+                        <RootLayoutNav />
+                      </TipsProvider>
                     </MessagesProvider>
                   </UserCacheProvider>
                 </MutedSquadsConnector>
