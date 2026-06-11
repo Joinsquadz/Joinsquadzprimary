@@ -82,27 +82,32 @@ router.post("/waitlist", async (req: Request, res: Response): Promise<void> => {
   try {
     await storage.addToWaitlist(parsed.data.email, parsed.data.source ?? "web-landing");
 
-    // Fire-and-forget: thank-you email to subscriber
-    sendEmail({
-      from: FROM_ADDRESS,
-      to: parsed.data.email,
-      subject: "You're on the Squadz waitlist!",
-      text: buildWaitlistThankYouText(parsed.data.email),
-      html: buildWaitlistThankYouHtml(parsed.data.email),
-    }).catch((err) => {
-      logger.error({ err, email: parsed.data.email }, "Failed to send waitlist thank-you email");
-    });
+    // Await both emails before responding so they complete before the process
+    // can be frozen/scaled-down (autoscale deployments may suspend the process
+    // immediately after the response is sent, abandoning fire-and-forget promises).
+    const [thankYouResult, notifyResult] = await Promise.allSettled([
+      sendEmail({
+        from: FROM_ADDRESS,
+        to: parsed.data.email,
+        subject: "You're on the Squadz waitlist!",
+        text: buildWaitlistThankYouText(parsed.data.email),
+        html: buildWaitlistThankYouHtml(parsed.data.email),
+      }),
+      sendEmail({
+        from: FROM_ADDRESS,
+        to: NOTIFY_ADDRESS,
+        subject: "New Squadz waitlist signup",
+        text: `New waitlist signup: ${parsed.data.email}\nSource: ${parsed.data.source ?? "web-landing"}`,
+        html: `<p>New waitlist signup: <strong>${parsed.data.email}</strong></p><p>Source: ${parsed.data.source ?? "web-landing"}</p>`,
+      }),
+    ]);
 
-    // Fire-and-forget: notify javier@joinsquadz.com
-    sendEmail({
-      from: FROM_ADDRESS,
-      to: NOTIFY_ADDRESS,
-      subject: "New Squadz waitlist signup",
-      text: `New waitlist signup: ${parsed.data.email}\nSource: ${parsed.data.source ?? "web-landing"}`,
-      html: `<p>New waitlist signup: <strong>${parsed.data.email}</strong></p><p>Source: ${parsed.data.source ?? "web-landing"}</p>`,
-    }).catch((err) => {
-      logger.error({ err, email: parsed.data.email }, "Failed to send waitlist notification email");
-    });
+    if (thankYouResult.status === "rejected") {
+      logger.error({ err: thankYouResult.reason, email: parsed.data.email }, "Failed to send waitlist thank-you email");
+    }
+    if (notifyResult.status === "rejected") {
+      logger.error({ err: notifyResult.reason, email: parsed.data.email }, "Failed to send waitlist notification email");
+    }
 
     res.status(200).json({ ok: true });
   } catch (err) {
