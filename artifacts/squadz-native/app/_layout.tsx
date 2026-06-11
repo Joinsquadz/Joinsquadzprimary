@@ -76,20 +76,18 @@ function AuthGuard() {
 }
 
 /**
- * Handles push notification registration and stale-token detection in a single
- * sequential flow — no race between a drift check and auto-registration.
+ * Handles push notification registration in a single sequential flow.
  *
  * On each login:
- *   1. Request / confirm permission.
- *   2. Fetch the device's current Expo push token.
- *   3. Fetch the server's stored token (GET /api/push-token).
- *   4a. If they match → silent idempotent re-registration, no banner.
- *   4b. If they differ (server has null or an old token) → show banner;
- *       do NOT auto-register so the server stays accurately "stale" until
- *       the user explicitly re-enables.
+ *   1. Request / confirm OS permission.
+ *   2a. Permission granted → fetch the device's Expo push token and register it
+ *       silently (POST /api/push-token is idempotent). No banner — once the user
+ *       has granted OS permission we maximize reach by registering automatically.
+ *   2b. Permission denied → show the banner so the user can enable notifications
+ *       (its "Fix" button re-requests permission and registers on grant).
  *
- * The banner's "Fix" button re-fetches a fresh device token, POSTs it, and
- * only dismisses the banner when the server returns a 2xx response.
+ * The banner's "Fix" button re-requests permission, fetches a fresh device
+ * token, POSTs it, and only dismisses when the server returns a 2xx response.
  *
  * Native-only — the whole component is a no-op on web.
  */
@@ -99,7 +97,7 @@ function PushNotificationHandler() {
   const [showBanner, setShowBanner] = useState(false);
   const [registering, setRegistering] = useState(false);
 
-  // Sequential startup check: permission → device token → server token → decision
+  // Sequential startup flow: permission → device token → silent registration
   useEffect(() => {
     if (Platform.OS === "web") return;
     if (!isLoggedIn || !authToken) {
@@ -135,45 +133,41 @@ function PushNotificationHandler() {
           const req = await Notifications.requestPermissionsAsync();
           granted = req.granted || req.status === "granted";
         }
-        if (!granted || cancelled) return;
+        if (cancelled) return;
 
-        // Step 2: get device token
+        if (!granted) {
+          // No OS permission — surface the banner so the user can enable it.
+          if (!cancelled) setShowBanner(true);
+          return;
+        }
+
+        // Step 2: permission granted — get the device token and register it
+        // silently. POST /api/push-token is idempotent, so registering on every
+        // launch is safe and keeps the server token fresh (covers first-run,
+        // reinstall, and token drift) without making the user tap a banner.
         const tokenData = await Notifications.getExpoPushTokenAsync();
         const deviceToken = tokenData.data;
         if (cancelled) return;
 
-        // Step 3: get server token — sequential, no race
-        const serverRes = await fetch(`${API_BASE}/api/push-token`, {
-          headers: buildAuthHeaders(authToken),
+        const res = await fetch(`${API_BASE}/api/push-token`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...buildAuthHeaders(authToken) },
+          body: JSON.stringify({ token: deviceToken }),
         });
-
         if (cancelled) return;
 
-        if (!serverRes.ok) {
-          // Can't check — fall back to normal silent registration
-          await fetch(`${API_BASE}/api/push-token`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", ...buildAuthHeaders(authToken) },
-            body: JSON.stringify({ token: deviceToken }),
-          });
-          return;
-        }
-
-        const { token: serverToken } = (await serverRes.json()) as { token: string | null };
-
-        // Step 4: decide
-        if (serverToken === deviceToken) {
-          // Tokens already match — silent idempotent registration
-          await fetch(`${API_BASE}/api/push-token`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", ...buildAuthHeaders(authToken) },
-            body: JSON.stringify({ token: deviceToken }),
-          });
+        if (res.ok) {
+          setShowBanner(false);
         } else {
-          // Stale or missing — show banner, do NOT auto-register
-          if (!cancelled) setShowBanner(true);
+          // Transient backend/network failure — allow a retry on the next
+          // login cycle and surface the banner so the user has a manual path.
+          checkedRef.current = false;
+          setShowBanner(true);
         }
       } catch {
+        // Network/permission error during registration — allow a retry next
+        // login cycle so a transient blip doesn't silently drop push reach.
+        if (!cancelled) checkedRef.current = false;
         // Never crash the app because of push token handling
       }
     })();
