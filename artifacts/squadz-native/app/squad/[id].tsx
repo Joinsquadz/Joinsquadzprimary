@@ -63,7 +63,7 @@ export default function SquadDetailScreen() {
   // Per-screen SSE for live status feedback (reconnecting indicator).
   // The global AppContext stream already handles data refreshes; this connection
   // adds the status value so the UI can tell the user when the feed is down.
-  const { status: streamStatus } = useSquadStream({
+  const { status: streamStatus, retry: retryStream } = useSquadStream({
     squadId: id ?? null,
     authToken,
     onUpdate: refreshSquads,
@@ -557,18 +557,21 @@ export default function SquadDetailScreen() {
       </View>
 
       {/* Stream reconnecting indicator */}
-      {streamStatus !== "connected" && (
+      {streamStatus === "reconnecting" && (
         <View style={styles.reconnectBanner} pointerEvents="none">
-          {streamStatus === "reconnecting" && (
-            <ActivityIndicator size="small" color="#6B7280" style={{ marginRight: 6 }} />
-          )}
-          {streamStatus === "error" && (
-            <Ionicons name="cloud-offline-outline" size={14} color="#6B7280" style={{ marginRight: 6 }} />
-          )}
-          <Text style={styles.reconnectBannerText}>
-            {streamStatus === "error" ? "Live updates unavailable" : "Reconnecting…"}
-          </Text>
+          <ActivityIndicator size="small" color="#6B7280" style={{ marginRight: 6 }} />
+          <Text style={styles.reconnectBannerText}>Reconnecting…</Text>
         </View>
+      )}
+      {streamStatus === "error" && (
+        <TouchableOpacity
+          style={styles.reconnectBanner}
+          onPress={retryStream}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="cloud-offline-outline" size={14} color="#6B7280" style={{ marginRight: 6 }} />
+          <Text style={styles.reconnectBannerText}>Live updates unavailable · Tap to retry</Text>
+        </TouchableOpacity>
       )}
 
       {/* Conflict refresh banner */}

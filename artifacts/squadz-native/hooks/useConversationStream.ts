@@ -32,7 +32,7 @@ export function useConversationStream({
   conversationId,
   authToken,
   onUpdate,
-}: Options): { status: ConversationStreamStatus } {
+}: Options): { status: ConversationStreamStatus; retry: () => void } {
   const onUpdateRef = useRef(onUpdate);
   onUpdateRef.current = onUpdate;
 
@@ -160,5 +160,14 @@ export function useConversationStream({
     return () => sub.remove();
   }, [connect]);
 
-  return { status };
+  // Manual retry: reset the failure counter and reconnect immediately. Used by
+  // the "Live updates unavailable" banner so the user can recover after the
+  // automatic retries are exhausted.
+  const retry = useCallback(() => {
+    if (!focusedRef.current) focusedRef.current = true;
+    retryCountRef.current = 0;
+    connect();
+  }, [connect]);
+
+  return { status, retry };
 }

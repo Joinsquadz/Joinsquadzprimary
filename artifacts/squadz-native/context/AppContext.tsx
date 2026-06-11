@@ -180,7 +180,7 @@ type AppContextType = {
   regenerateInviteCode: (squadId: string) => Promise<{ error?: string; inviteCode?: string }>;
   leaveSquad: (id: string) => void;
   joinSquad: (squadId: string) => Promise<{ error?: string }>;
-  joinSquadByCode: (code: string) => Promise<{ error?: string; revoked?: boolean; squad?: Squad; alreadyMember?: boolean }>;
+  joinSquadByCode: (code: string) => Promise<{ error?: string; revoked?: boolean; limit?: boolean; squad?: Squad; alreadyMember?: boolean }>;
   addMemberByFriendCode: (squadId: string, friendCode: string) => Promise<{ error?: string; user?: FoundUser }>;
   removeMember: (squadId: string, userId: string) => Promise<{ error?: string }>;
 
@@ -1624,20 +1624,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [apiFetch, refreshSquads]);
 
   const joinSquad = useCallback(async (squadId: string): Promise<{ error?: string }> => {
+    let res: Awaited<ReturnType<typeof apiFetch>>;
     try {
-      const res = await apiFetch(`/api/squads/${squadId}/join`, { method: "POST" });
-      if (res.status === 403) return { error: "This squad is not open to new members." };
-      if (!res.ok) return { error: "Something went wrong. Please try again." };
-      const squad = await res.json() as Record<string, unknown>;
-      const mapped = dbSquadToSquad(squad);
-      setSquads((prev) => {
-        if (prev.some((s) => s.id === mapped.id)) return prev.map((s) => s.id === mapped.id ? mapped : s);
-        return [...prev, mapped];
-      });
-      return {};
+      res = await apiFetch(`/api/squads/${squadId}/join`, { method: "POST" });
     } catch {
       return { error: "Network error. Please try again." };
     }
+    // Free squad limit reached — throw so callers can prompt an upgrade (matches
+    // createSquad). Other 403s are the squad simply not being open to new members.
+    if (res.status === 403) {
+      const body = (await res.json().catch(() => ({}))) as { code?: string };
+      if (body.code === "SQUAD_LIMIT") throw new SquadLimitError();
+      return { error: "This squad is not open to new members." };
+    }
+    if (!res.ok) return { error: "Something went wrong. Please try again." };
+    const squad = await res.json() as Record<string, unknown>;
+    const mapped = dbSquadToSquad(squad);
+    setSquads((prev) => {
+      if (prev.some((s) => s.id === mapped.id)) return prev.map((s) => s.id === mapped.id ? mapped : s);
+      return [...prev, mapped];
+    });
+    return {};
   }, [apiFetch]);
 
   const removeMember = useCallback(
@@ -1661,7 +1668,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   const joinSquadByCode = useCallback(
-    async (code: string): Promise<{ error?: string; revoked?: boolean; squad?: Squad; alreadyMember?: boolean }> => {
+    async (code: string): Promise<{ error?: string; revoked?: boolean; limit?: boolean; squad?: Squad; alreadyMember?: boolean }> => {
       try {
         const res = await apiFetch("/api/squads/join-via-code", {
           method: "POST",
@@ -1671,9 +1678,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           squad?: Record<string, unknown>;
           alreadyMember?: boolean;
           error?: string;
+          code?: string;
         };
         if (!res.ok) {
           if (res.status === 404) return { error: data.error ?? "This invite link has been revoked.", revoked: true };
+          if (res.status === 403 && data.code === "SQUAD_LIMIT") return { limit: true };
           return { error: data.error ?? "Something went wrong. Please try again." };
         }
         const mapped = data.squad ? dbSquadToSquad(data.squad) : undefined;

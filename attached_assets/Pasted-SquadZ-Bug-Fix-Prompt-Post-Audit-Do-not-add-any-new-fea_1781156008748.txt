@@ -1,0 +1,64 @@
+SquadZ — Bug Fix Prompt (Post-Audit)
+Do not add any new features. Fix only what is listed below, in the exact order listed. After each fix, confirm it is resolved before moving to the next one.
+
+Fix 1 — DM push notification leaks full message text to free recipients (CRITICAL)
+In conversations.ts, before assembling the push notification payload, check whether each recipient has an active Pro subscription.
+For free recipients, replace the notification body with a generic string — "You have a new message in SquadZ" — and omit the message preview entirely. The sender's name can remain in the notification title but the message content must never appear in the push body for free users.
+This is a security and product issue. A free user should not be able to read DM content via their lock screen notification when the app gates that same content behind a blur and an upgrade prompt.
+Verify the fix by: sending a DM to a free user account and confirming the push notification body shows the generic string, not the message content.
+
+Fix 2 — Discover squad join silently fails at squad limit
+In app/(tabs)/index.tsx, the Discover section calls joinSquad(sq.id) with no error handling. When the API returns a 403 SQUAD_LIMIT the error is swallowed and the router pushes the user to /squad/[id] anyway, landing them on a squad they were never admitted to.
+Fix this by:
+
+Wrapping joinSquad() in a try/catch
+Checking for SQUAD_LIMIT in the error response
+Showing the UpgradeModal when the limit is hit
+Only navigating to /squad/[id] if the join call succeeds
+
+Verify the fix by: as a free user already in 2 squads, tapping join on a squad in Discover. The UpgradeModal should appear. The user should not be navigated to the squad.
+
+Fix 3 — Invite link join shows text banner instead of UpgradeModal
+In app/squad/join.tsx, when the API returns SQUAD_LIMIT the screen currently shows only a red text error banner with no path to upgrade.
+Fix this by:
+
+Importing UpgradeModal into join.tsx
+Adding an upgradeVisible state boolean
+Setting upgradeVisible to true when the API returns SQUAD_LIMIT
+Removing the red text error banner for this specific error — the modal is the correct treatment
+
+Verify the fix by: as a free user already in 2 squads, opening a squad invite link. The UpgradeModal should appear, not a text error.
+
+Fix 4 — SSE permanent error state with no recovery
+In both useConversationStream and useSquadStream, after MAX_RETRIES is exhausted the stream enters a permanent error state with no way to recover short of navigating away and back.
+Fix this by:
+
+Exposing a retry() callback that resets retryCountRef to 0 and re-triggers the connection
+When status === "error" after max retries, showing a sticky banner on the relevant screen that reads "Connection lost — tap to reconnect"
+The banner tap calls retry() and dismisses the banner
+If retry succeeds the stream resumes normally
+
+Verify the fix by: simulating a network drop after 10 retries and confirming the reconnect banner appears and functions correctly.
+
+Fix 5 — Tapping a ProAvatar does not navigate to friend profile
+ProAvatar is a pure display component with no onPress behavior. Tapping a gold-ringed avatar anywhere in the app does nothing.
+Fix this by:
+
+Adding an optional onPress prop to the ProAvatar component
+At every call site where a ProAvatar appears — Vibe Feed post headers, squad member lists, comment threads, chat messages, event attendee lists — wrap with a TouchableOpacity that navigates to that user's friend profile screen
+The friend profile screen should display the SquadZ Pro label for Pro members as it already does on the user's own profile
+
+Verify the fix by: tapping a gold-ringed avatar in the feed, in a squad member list, and in a chat thread. All three should open the correct friend profile. The profile should show the SquadZ Pro label for Pro accounts.
+
+Fix 6 — Onboarding re-asks for first name (minor)
+Onboarding Step 0 collects First Name again despite the user having entered it on the signup screen two screens earlier. This feels like a bug to new users.
+Fix this by pre-filling the First Name field in onboarding Step 0 with the name collected during signup. If the field serves no additional purpose beyond what signup already captured, remove it from the onboarding step entirely and skip straight to Step 1.
+Verify the fix by: completing signup and confirming the onboarding flow does not ask for a name again.
+
+Fix 7 — Third party reactions don't notify other viewers (minor)
+When a user reacts to a Vibe Feed post, the SSE nudge only fires to the post author and the reactor. Other users viewing the same post in real time do not see the reaction update until they refresh.
+Fix this by: on reaction create and delete, emitting the SSE update to all users who have read access to that post, not just the author and reactor.
+Verify the fix by: having three test accounts viewing the same post simultaneously. When account A reacts, accounts B and C should see the reaction update in real time without refreshing.
+
+Delivery standard
+Confirm each fix with a brief note on how you tested it before moving to the next one. Do not bundle fixes. Do not introduce new features or refactor anything outside the scope of each fix. If fixing one item reveals a deeper issue, surface it before proceeding.

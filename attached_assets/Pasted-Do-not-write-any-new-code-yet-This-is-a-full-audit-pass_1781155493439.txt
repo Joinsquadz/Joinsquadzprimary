@@ -1,0 +1,110 @@
+Do not write any new code yet. This is a full audit pass only. Your job is to simulate being a real user and walk through every critical flow in the app. For each flow, test it completely and report back with one of three statuses:
+
+PASS — works correctly end to end
+BROKEN — does not work or throws an error
+INCOMPLETE — works partially but has missing steps, dead ends, or disconnected logic
+
+Report every finding before touching a single line of code. Do not fix as you go. I want the full picture first.
+
+Flow 1 — Brand new user signup
+
+Open the app as a completely new user with no account
+Go through every onboarding screen in order
+Note every field that is collected and whether it is actually used anywhere in the app
+Complete signup and note exactly what screen the user lands on
+Is there a clear next action on that screen or does it feel empty and directionless?
+
+Flow 2 — Squad invite conversion
+
+Generate a squad invite link from an existing squad
+Open that link as a new user who has never signed up
+Complete signup via the invite link
+Does the user land in the correct squad after signup or on the home screen?
+Can they immediately see squad members and content?
+
+Flow 3 — Vibe Feed end to end
+
+As a free user, compose and post a Vibe
+Confirm the audience picker appears and defaults to Friends only
+Confirm the post appears in the feed for the correct audience
+React to a post with an emoji — does it update in real time?
+Delete the post — does it disappear from all feeds immediately?
+Open the feed as a brand new user with no friends and no posts — what does the empty state look like?
+
+Flow 4 — Moments end to end
+
+Post a Moment to a squad from the squad view
+Confirm the avatar ring appears at the top of the squad
+Post a Moment to Friends from the Vibe Feed
+Confirm the avatar ring appears at the top of the feed
+View the Moment as another user — does the seen/unseen ring state update?
+Check the viewer list — is it visible to the poster only?
+Wait or simulate 24 hours — does the Moment expire correctly server-side?
+
+Flow 5 — DM gate
+
+As a free user, open the DM inbox
+Is message content blurred correctly?
+Is the blur applied at the API level or only in the UI? Check whether the raw API response exposes message content to free users
+Tap a blurred message — does the UpgradeModal appear?
+Complete an upgrade — does the blur disappear without a logout or restart?
+Does a DM notification still deliver to a free user even though content is blurred?
+
+Flow 6 — 2-squad free limit
+
+As a free user, attempt to create a 3rd squad
+As a free user, attempt to join a 3rd squad via the UI
+As a free user, attempt to join via a direct invite link
+As a free user, attempt to join via a direct API call
+Does the UpgradeModal appear correctly at every entry point?
+Do existing free users with more than 2 squads get grandfathered correctly?
+
+Flow 7 — Pro gold ring badge
+
+Upgrade a test account to Squadz+
+Confirm the gold ring appears on that account's avatar in: squad member lists, Vibe Feed, comment threads, chat, Moments ring rows, and event attendee lists
+Confirm no gold ring appears on a free account anywhere
+Tap a gold-ringed avatar — does it open the friend profile correctly?
+Does the profile show the SquadZ Pro label?
+Downgrade the account — does the ring disappear on next session load?
+
+Flow 8 — Stripe and subscription
+
+Complete a full Squadz+ purchase via Stripe Checkout
+Confirm the webhook fires and Pro status is applied instantly
+Confirm all Pro features unlock without a logout or restart
+Cancel the subscription via the Stripe Customer Portal
+Confirm the downgrade is handled gracefully
+
+Flow 9 — Core existing features regression
+For each of the following confirm PASS, BROKEN, or INCOMPLETE:
+
+Event creation and RSVP
+Availability polling and heatmap
+Group chat and event chat via SSE
+Photo vault upload and display
+Cost splitting and balance tracking
+Friend add via code and invite link
+Push notification delivery
+Streaks
+Squad discovery via /discover
+Profile editing
+
+Flow 10 — Empty and edge states
+
+New user, no friends, no squads — every screen they can reach, what do they see?
+Free user hitting every gate — squad limit, DM blur, upgrade modal — do all three feel intentional or broken?
+SSE connection drops mid-session — does the app recover gracefully or freeze?
+A user with a lapsed Pro subscription — are they downgraded gracefully?
+
+
+Deliverable
+Return a structured report in this format for every flow:
+Flow name:
+Status: PASS / BROKEN / INCOMPLETE
+What works:
+What doesn't:
+What's missing:
+Recommended fix:
+Do not skip any flow. Do not mark anything as PASS unless you have fully tested it. Surface everything, including things that technically work but feel broken from a user experience perspective.
+Only after I have reviewed the full report will I ask you to begin fixing. Do not start fixing until I say so.

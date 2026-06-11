@@ -79,6 +79,24 @@ async function notifyFeedAudience(authorId: string, audience: string): Promise<s
   return recipientIds;
 }
 
+/**
+ * Everyone who can SEE a post (friends or current squad members), excluding the
+ * author. Unlike notifyFeedAudience, this does NOT apply the squad mute filter:
+ * mute only silences push notifications, while the feed itself still shows the
+ * post (see the feed list visibility query). Used to drive live SSE refetch
+ * nudges so reactions update for all viewers, muted or not.
+ */
+async function feedPostReaders(authorId: string, audience: string): Promise<string[]> {
+  let recipientIds: string[];
+  if (audience === "friends") {
+    recipientIds = await getFriendIds(authorId);
+  } else {
+    const [squad] = await db.select().from(squadsTable).where(eq(squadsTable.id, audience));
+    recipientIds = ((squad?.memberIds ?? []) as string[]).filter((id) => id !== authorId);
+  }
+  return recipientIds.filter((id) => id !== authorId);
+}
+
 // GET /api/feed/stream — SSE stream of feed/moment updates for the user.
 // The user receives an "update" whenever anyone in their audience (friends or
 // squads) posts/reacts/comments, or posts a moment. Reuses one channel for
@@ -377,6 +395,12 @@ router.post(
       res.status(201).json({ ok: true });
       emitFeedUpdate(post.authorId);
       emitFeedUpdate(userId);
+      // Also nudge everyone else who can see this post so the reaction shows up
+      // live for other viewers, not just the author and the reactor.
+      void (async () => {
+        const recipientIds = await feedPostReaders(post.authorId, post.audience);
+        recipientIds.forEach((rid) => emitFeedUpdate(rid));
+      })();
     } catch (err) {
       logger.error({ err }, "Error adding reaction");
       res.status(500).json({ error: "Failed to add reaction" });
@@ -404,7 +428,14 @@ router.delete(
         );
       res.json({ ok: true });
       const [post] = await db.select().from(feedPostsTable).where(eq(feedPostsTable.id, id));
-      if (post) emitFeedUpdate(post.authorId);
+      if (post) {
+        emitFeedUpdate(post.authorId);
+        // Nudge all other viewers too so the removed reaction updates live.
+        void (async () => {
+          const recipientIds = await feedPostReaders(post.authorId, post.audience);
+          recipientIds.forEach((rid) => emitFeedUpdate(rid));
+        })();
+      }
       emitFeedUpdate(userId);
     } catch (err) {
       logger.error({ err }, "Error removing reaction");

@@ -14,6 +14,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useData, useAuth } from "@/context/AppContext";
+import { UpgradeModal } from "@/components/UpgradeModal";
 import type { Squad } from "@/types";
 
 export default function SquadJoinScreen() {
@@ -31,6 +32,7 @@ export default function SquadJoinScreen() {
   const [revoked, setRevoked] = useState(false);
   const [joinedSquad, setJoinedSquad] = useState<Squad | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showUpgrade, setShowUpgrade] = useState(false);
 
   const code = params.code?.trim().toUpperCase() ?? null;
 
@@ -51,6 +53,9 @@ export default function SquadJoinScreen() {
       const result = await joinSquadByCode(code);
       if (result.revoked) {
         setRevoked(true);
+      } else if (result.limit) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        setShowUpgrade(true);
       } else if (result.error) {
         setError(result.error);
       } else {
@@ -204,6 +209,12 @@ export default function SquadJoinScreen() {
           </View>
         )}
       </View>
+
+      <UpgradeModal
+        visible={showUpgrade}
+        trigger="squad_limit"
+        onClose={() => setShowUpgrade(false)}
+      />
     </View>
   );
 }

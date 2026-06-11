@@ -16,7 +16,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
-import { useAuth, useData } from "@/context/AppContext";
+import { useAuth, useData, SquadLimitError } from "@/context/AppContext";
+import { UpgradeModal } from "@/components/UpgradeModal";
 import { EventCard } from "@/components/EventCard";
 import { SkeletonBox } from "@/components/SkeletonBox";
 import { goingCount } from "@/lib/eventUtils";
@@ -60,6 +61,7 @@ export default function HomeScreen() {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [fabOpen, setFabOpen] = useState(false);
   const [pickerMode, setPickerMode] = useState<"find-time" | "invite" | null>(null);
+  const [upgradeVisible, setUpgradeVisible] = useState(false);
 
   useEffect(() => {
     if (!authToken) return;
@@ -594,8 +596,21 @@ export default function HomeScreen() {
                   style={[styles.discoverCard, { backgroundColor: colors.card, borderColor: colors.border }]}
                   onPress={async () => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                    await joinSquad(sq.id);
-                    router.push(`/squad/${sq.id}` as never);
+                    try {
+                      const result = await joinSquad(sq.id);
+                      if (result.error) {
+                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                        return;
+                      }
+                      router.push(`/squad/${sq.id}` as never);
+                    } catch (err) {
+                      if (err instanceof SquadLimitError) {
+                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+                        setUpgradeVisible(true);
+                        return;
+                      }
+                      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                    }
                   }}
                   activeOpacity={0.85}
                 >
@@ -724,6 +739,12 @@ export default function HomeScreen() {
           ))}
         </View>
       </Modal>
+
+      <UpgradeModal
+        visible={upgradeVisible}
+        trigger="squad_limit"
+        onClose={() => setUpgradeVisible(false)}
+      />
     </View>
   );
 }

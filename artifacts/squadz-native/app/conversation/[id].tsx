@@ -137,7 +137,7 @@ export default function ConversationScreen() {
 
   // SSE stream: instantly delivers new messages from other participants.
   // When a teammate sends a message, we re-fetch and mark the thread read.
-  const { status: streamStatus } = useConversationStream({
+  const { status: streamStatus, retry: retryStream } = useConversationStream({
     conversationId,
     authToken,
     onUpdate: useCallback(() => {
@@ -408,18 +408,21 @@ export default function ConversationScreen() {
       )}
 
       {/* Stream reconnecting indicator */}
-      {streamStatus !== "connected" && (
+      {streamStatus === "reconnecting" && (
         <View style={styles.reconnectBanner} pointerEvents="none">
-          {streamStatus === "reconnecting" && (
-            <ActivityIndicator size="small" color="#6B7280" style={{ marginRight: 6 }} />
-          )}
-          {streamStatus === "error" && (
-            <Ionicons name="cloud-offline-outline" size={14} color="#6B7280" style={{ marginRight: 6 }} />
-          )}
-          <Text style={styles.reconnectBannerText}>
-            {streamStatus === "error" ? "Live updates unavailable" : "Reconnecting…"}
-          </Text>
+          <ActivityIndicator size="small" color="#6B7280" style={{ marginRight: 6 }} />
+          <Text style={styles.reconnectBannerText}>Reconnecting…</Text>
         </View>
+      )}
+      {streamStatus === "error" && (
+        <TouchableOpacity
+          style={styles.reconnectBanner}
+          onPress={retryStream}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="cloud-offline-outline" size={14} color="#6B7280" style={{ marginRight: 6 }} />
+          <Text style={styles.reconnectBannerText}>Live updates unavailable · Tap to retry</Text>
+        </TouchableOpacity>
       )}
 
       <KeyboardAvoidingView
@@ -465,6 +468,10 @@ export default function ConversationScreen() {
                           size={30}
                           fontSize={12}
                           isPro={resolveUser(m.senderId).isPro}
+                          onPress={() => {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            router.push(`/user/${m.senderId}` as never);
+                          }}
                         />
                       )}
                       <View style={{ maxWidth: "76%" }}>

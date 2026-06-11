@@ -21,15 +21,14 @@ const SQUAD_EMOJIS = ["🔥", "💼", "🎓", "🏡", "✈️", "🎮", "🍕", 
 const SQUAD_COLORS = ["#FF5C3A", "#A855F7", "#2ECC8A", "#4A9EFF", "#FFB547", "#FF5C3A"];
 const SQUAD_CHIPS = ["Friend Group", "Coworkers", "Family", "College", "Roommates", "Sports"];
 
-const GLOW_COLORS = ["#FF5C3A", "#2ECC8A", "#A855F7"];
-const STEP_ICONS = ["👋", "🔥", "📲"];
-const STEP_TITLES = ["What should we call you?", "Create your first squad", "Invite your crew"];
+const GLOW_COLORS = ["#2ECC8A", "#A855F7"];
+const STEP_ICONS = ["🔥", "📲"];
+const STEP_TITLES = ["Create your first squad", "Invite your crew"];
 const STEP_DESCS = [
-  "This is how your crew will know you. No spam, no credit card — ever.",
   "A squad is your group. Your crew joins next so SquadZ can find when everyone's actually free.",
   "SquadZ only works its magic once your people are in. Get 2+ friends in to unlock your first overlap.",
 ];
-const TOTAL_STEPS = 3;
+const TOTAL_STEPS = 2;
 
 export default function OnboardingScreen() {
   const colors = useColors();
@@ -44,8 +43,9 @@ export default function OnboardingScreen() {
   const isJoining = !!(params.squadCode || params.publicSquadId || params.joinEventCode || params.inviteEventId || params.inviteCode);
 
   const hasRealName = currentUser.id !== "me";
+  // The name is collected during signup, so onboarding no longer asks for it.
+  const firstName = hasRealName ? currentUser.name.split(" ")[0] : "";
   const [step, setStep] = useState(0);
-  const [name, setName] = useState(hasRealName ? currentUser.name.split(" ")[0] : "");
   const [squadEmoji, setSquadEmoji] = useState("🔥");
   const [squadName, setSquadName] = useState("");
   const [creating, setCreating] = useState(false);
@@ -93,7 +93,7 @@ export default function OnboardingScreen() {
       setCreatedSquadId(id);
     } finally {
       setCreating(false);
-      setStep(2);
+      setStep(1);
     }
   }
 
@@ -117,7 +117,7 @@ export default function OnboardingScreen() {
             <Text style={{ fontSize: 40 }}>🎉</Text>
           </View>
           <Text style={[styles.h1, { color: colors.foreground, fontSize: 28, textAlign: "center" }]}>
-            {hasRealName ? `You're in, ${name}!` : "You're in!"}
+            {hasRealName ? `You're in, ${firstName}!` : "You're in!"}
           </Text>
           <Text style={[styles.desc, { color: colors.mutedForeground, textAlign: "center", fontSize: 15, marginBottom: 28 }]}>
             {params.inviteTitle
@@ -175,28 +175,8 @@ export default function OnboardingScreen() {
         <Text style={[styles.h1, { color: colors.foreground }]}>{STEP_TITLES[step]}</Text>
         <Text style={[styles.desc, { color: colors.mutedForeground }]}>{STEP_DESCS[step]}</Text>
 
-        {/* Step 0 — Name */}
+        {/* Step 0 — Squad */}
         {step === 0 && (
-          <View style={{ gap: 10 }}>
-            <TextInput
-              placeholder="First name"
-              placeholderTextColor={colors.mutedForeground}
-              value={name}
-              onChangeText={setName}
-              autoFocus
-              style={[styles.input, { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
-            />
-            <View style={[styles.trustRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <Ionicons name="happy-outline" size={16} color={colors.mutedForeground} />
-              <Text style={[styles.trustText, { color: colors.mutedForeground }]}>
-                You can add a profile photo and more anytime from your profile.
-              </Text>
-            </View>
-          </View>
-        )}
-
-        {/* Step 1 — Squad */}
-        {step === 1 && (
           <View style={{ gap: 12 }}>
             <View style={styles.emojiGridSmall}>
               {SQUAD_EMOJIS.map((e) => (
@@ -237,8 +217,8 @@ export default function OnboardingScreen() {
           </View>
         )}
 
-        {/* Step 2 — Invite crew (the climax) */}
-        {step === 2 && (
+        {/* Step 1 — Invite crew (the climax) */}
+        {step === 1 && (
           <View style={{ gap: 14 }}>
             {/* Why inviting unlocks value */}
             <View style={[styles.whyCard, { backgroundColor: "#FF5C3A12", borderColor: "#FF5C3A35" }]}>
@@ -277,25 +257,18 @@ export default function OnboardingScreen() {
       {/* Footer CTA */}
       <View style={[styles.footer, { paddingBottom: botPad + 16, borderTopColor: colors.border + "80" }]}>
         {step === 0 && (
-          <GradientButton
-            label={name.trim() ? `Nice to meet you, ${name.trim().split(" ")[0]}! →` : "Enter your name to continue"}
-            onPress={() => setStep(1)}
-            disabled={!name.trim()}
-          />
-        )}
-        {step === 1 && (
           <View style={{ gap: 8 }}>
             <GradientButton
               label={creating ? "Creating squad…" : squadName.trim() ? "Create Squad → Invite Crew" : "Name your squad first"}
               onPress={() => { void handleCreateSquad(); }}
               disabled={!squadName.trim() || creating}
             />
-            <TouchableOpacity onPress={() => setStep(2)} style={{ alignItems: "center", padding: 4 }}>
+            <TouchableOpacity onPress={() => setStep(1)} style={{ alignItems: "center", padding: 4 }}>
               <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>Skip — I'll make a squad later</Text>
             </TouchableOpacity>
           </View>
         )}
-        {step === 2 && (
+        {step === 1 && (
           <View style={{ gap: 8 }}>
             <GradientButton
               label="Share invite link →"

@@ -705,6 +705,14 @@ export default function FeedScreen() {
                     size={40}
                     fontSize={14}
                     isPro={author.isPro}
+                    onPress={
+                      post.authorId !== currentUser.id
+                        ? () => {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            router.push(`/user/${post.authorId}` as never);
+                          }
+                        : undefined
+                    }
                   />
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.postAuthor, { color: colors.foreground }]} numberOfLines={1}>
@@ -812,6 +820,14 @@ export default function FeedScreen() {
                             size={28}
                             fontSize={11}
                             isPro={cu.isPro}
+                            onPress={
+                              c.authorId !== currentUser.id
+                                ? () => {
+                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                    router.push(`/user/${c.authorId}` as never);
+                                  }
+                                : undefined
+                            }
                           />
                           <View style={[styles.commentBubble, { backgroundColor: colors.background }]}>
                             <Text style={[styles.commentAuthor, { color: colors.foreground }]}>

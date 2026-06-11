@@ -1,4 +1,4 @@
-import { View, StyleSheet } from "react-native";
+import { View, StyleSheet, TouchableOpacity } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { UserAvatar } from "./UserAvatar";
 
@@ -9,6 +9,8 @@ interface ProAvatarProps {
   size?: number;
   fontSize?: number;
   isPro?: boolean;
+  /** When provided, the avatar becomes tappable (e.g. to open the user's profile). */
+  onPress?: () => void;
 }
 
 /**
@@ -27,28 +29,38 @@ export function ProAvatar({
   size = 40,
   fontSize = 14,
   isPro = false,
+  onPress,
 }: ProAvatarProps) {
-  if (!isPro) {
+  const avatar = !isPro ? (
+    <UserAvatar initials={initials} color={color} imageUrl={imageUrl} size={size} fontSize={fontSize} />
+  ) : (
+    (() => {
+      const ringWidth = Math.max(2, Math.round(size * 0.06));
+      const outer = size + ringWidth * 2 + 2;
+      return (
+        <LinearGradient
+          colors={["#FFE08A", "#F5C242", "#C8941A"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[styles.ring, { width: outer, height: outer, borderRadius: outer / 2 }]}
+        >
+          <View style={[styles.inner, { borderRadius: (size + 4) / 2, padding: 2, backgroundColor: "transparent" }]}>
+            <UserAvatar initials={initials} color={color} imageUrl={imageUrl} size={size} fontSize={fontSize} />
+          </View>
+        </LinearGradient>
+      );
+    })()
+  );
+
+  if (onPress) {
     return (
-      <UserAvatar initials={initials} color={color} imageUrl={imageUrl} size={size} fontSize={fontSize} />
+      <TouchableOpacity onPress={onPress} activeOpacity={0.7} accessibilityRole="button">
+        {avatar}
+      </TouchableOpacity>
     );
   }
 
-  const ringWidth = Math.max(2, Math.round(size * 0.06));
-  const outer = size + ringWidth * 2 + 2;
-
-  return (
-    <LinearGradient
-      colors={["#FFE08A", "#F5C242", "#C8941A"]}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={[styles.ring, { width: outer, height: outer, borderRadius: outer / 2 }]}
-    >
-      <View style={[styles.inner, { borderRadius: (size + 4) / 2, padding: 2, backgroundColor: "transparent" }]}>
-        <UserAvatar initials={initials} color={color} imageUrl={imageUrl} size={size} fontSize={fontSize} />
-      </View>
-    </LinearGradient>
-  );
+  return avatar;
 }
 
 const styles = StyleSheet.create({

@@ -34,7 +34,7 @@ const MAX_RETRIES = 10;
  * "reconnecting" while establishing or retrying, "error" after too many
  * failed attempts (user should see a persistent indicator).
  */
-export function useSquadStream({ squadId, authToken, onUpdate }: Options): { status: SquadStreamStatus } {
+export function useSquadStream({ squadId, authToken, onUpdate }: Options): { status: SquadStreamStatus; retry: () => void } {
   const onUpdateRef = useRef(onUpdate);
   onUpdateRef.current = onUpdate;
 
@@ -188,5 +188,15 @@ export function useSquadStream({ squadId, authToken, onUpdate }: Options): { sta
     return () => sub.remove();
   }, [connect, cancelRetry]);
 
-  return { status };
+  // Manual retry: reset the failure counter/back-off and reconnect immediately.
+  // Used by the "Live updates unavailable" banner so the user can recover after
+  // the automatic retries are exhausted.
+  const retry = useCallback(() => {
+    if (!focusedRef.current) focusedRef.current = true;
+    retryCountRef.current = 0;
+    retryDelayRef.current = INITIAL_BACKOFF_MS;
+    connect();
+  }, [connect]);
+
+  return { status, retry };
 }

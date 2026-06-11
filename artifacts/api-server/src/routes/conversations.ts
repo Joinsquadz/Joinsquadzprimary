@@ -5,7 +5,7 @@ import { requireAuth } from "../middleware/currentUser";
 import { logger } from "../lib/logger";
 import { sendPushNotifications } from "../lib/pushNotifications";
 import { emitConversationUpdate, onConversationUpdate } from "../lib/conversationUpdates";
-import { resolveProStatus } from "../lib/proStatus";
+import { resolveProStatus, resolveProStatusForIds } from "../lib/proStatus";
 
 function displayName(user: { firstName?: string | null; lastName?: string | null; email?: string | null } | null | undefined): string {
   if (!user) return "Someone";
@@ -219,11 +219,6 @@ router.post(
           }
           if (recipientIds.length === 0) return;
 
-          const tokens = await storage.getPushTokensForUsers(recipientIds, {
-            requireNotifyMessages: true,
-          });
-          if (tokens.length === 0) return;
-
           const sender = await storage.getUser(userId);
           const senderName = displayName(sender);
           const preview = parsed.data.text.trim()
@@ -232,14 +227,62 @@ router.post(
               ? "📹 Video"
               : "📷 Photo";
 
+          const onStaleToken = (token: string) => storage.clearPushToken(token);
+          const data = { screen: "conversation", conversationId: id };
+
+          // DM gate parity for push: message bodies in a direct conversation are
+          // a Squadz+ feature and are redacted in-app for free users. The push
+          // body must honor the same gate — otherwise a free recipient could read
+          // DM content straight from their lock screen, bypassing the blur and
+          // upgrade prompt. Split recipients by Pro status and send free users a
+          // generic, content-free body. Squad threads are not gated, so every
+          // recipient gets the normal preview.
+          if (convo.type === "direct") {
+            const proMap = await resolveProStatusForIds(recipientIds);
+            const proRecipientIds = recipientIds.filter((uid) => proMap[uid]);
+            const freeRecipientIds = recipientIds.filter((uid) => !proMap[uid]);
+
+            const [proTokens, freeTokens] = await Promise.all([
+              proRecipientIds.length
+                ? storage.getPushTokensForUsers(proRecipientIds, { requireNotifyMessages: true })
+                : Promise.resolve<string[]>([]),
+              freeRecipientIds.length
+                ? storage.getPushTokensForUsers(freeRecipientIds, { requireNotifyMessages: true })
+                : Promise.resolve<string[]>([]),
+            ]);
+
+            await Promise.all([
+              proTokens.length
+                ? sendPushNotifications(
+                    proTokens,
+                    { title: senderName, body: preview.slice(0, 140), data },
+                    { onStaleToken },
+                  )
+                : Promise.resolve(),
+              freeTokens.length
+                ? sendPushNotifications(
+                    freeTokens,
+                    { title: senderName, body: "You have a new message in SquadZ", data },
+                    { onStaleToken },
+                  )
+                : Promise.resolve(),
+            ]);
+            return;
+          }
+
+          const tokens = await storage.getPushTokensForUsers(recipientIds, {
+            requireNotifyMessages: true,
+          });
+          if (tokens.length === 0) return;
+
           await sendPushNotifications(
             tokens,
             {
               title: senderName,
               body: preview.slice(0, 140),
-              data: { screen: "conversation", conversationId: id },
+              data,
             },
-            { onStaleToken: (token) => storage.clearPushToken(token) },
+            { onStaleToken },
           );
         } catch (err) {
           logger.error({ err }, "Error sending message push notifications");
