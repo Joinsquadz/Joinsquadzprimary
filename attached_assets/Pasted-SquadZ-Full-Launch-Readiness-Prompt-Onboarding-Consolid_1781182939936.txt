@@ -1,0 +1,289 @@
+SquadZ — Full Launch Readiness Prompt: Onboarding, Consolidation, Audit, Optimization & Multi-User Simulation
+Do not add new features outside of what is specified below. Work through every section in order. Report findings before fixing where instructed. Confirm each fix before moving to the next.
+
+SECTION 1 — Onboarding Overhaul
+The goal is to get every new user into a squad with at least one real friend before they see anything else in the app. The home screen is not a destination — a squad is.
+Post-onboarding destination:
+After completing onboarding — whether the user created a squad or joined one via invite — navigate them directly into that squad's detail screen, not the home tab. The squad screen is their first real experience of the app.
+Welcome tips system:
+Once inside the squad for the first time, surface a sequential tooltip system — a small floating card anchored to the relevant UI element that the user can dismiss by tapping the X or tapping Next. Tips should only appear once per user, ever. Store a hasSeenTips flag per user locally. The tip sequence is:
+
+Tip 1 — anchored to the Events section: "Create your first event. Pick a date, add a location, and invite your crew."
+Tip 2 — anchored to the availability poll: "Find a time everyone's free. Drop a poll and let your squad respond."
+Tip 3 — anchored to the chat: "Talk it out. Every squad has its own group chat — no more lost plans in a group text."
+Tip 4 — anchored to the cost split: "Split costs without the awkwardness. Log expenses and track who owes what."
+Tip 5 — anchored to the Feed tab in the bottom nav: "Catch Moments here too. Squad Moments and Friends Moments both live in your feed ring row at the top."
+Tip 6 — anchored to the bottom nav Feed tab: "See what your crew is up to. Post a Vibe to let your friends know you're free."
+
+Each tip card should have: a short bold headline, one sentence of body copy, a Next button, and an X to dismiss the entire sequence early. The card should be small — maximum 220px wide, dark card surface (#1A1A1A), orange accent on the Next button. It should never block the element it is describing — anchor it above or below with an arrow indicator pointing to the relevant UI.
+Onboarding flow cleanup:
+
+If the user arrived via a squad invite link, skip the squad creation step entirely and take them directly into the invited squad after account creation, then begin the tip sequence
+If the user created a new squad during onboarding, take them into that squad and begin the tip sequence
+The first-run coach mark on the home screen ("New here? Create a squad…") should no longer appear — the onboarding now handles this context
+Remove any remaining references to hobbies, interests, or any data collection that is not name, email, phone, or avatar
+
+
+SECTION 2 — Moments and Vibe Feed Consolidation
+Remove Moments from the squad detail screen entirely. Squad-scoped Moments ring rows should no longer appear at the top of any squad view. The squad screen returns to its original layout — chat, events, members, and tasks — with no Moments UI.
+Moments live exclusively in the Vibe Feed tab going forward. The feed ring row at the top of the Vibe Feed is the only surface where Moments appear. This ring row already handles both Friends Moments and Squad Moments correctly — no changes needed to the ring row itself.
+Changes required:
+
+Remove MomentsRingRow mode="squad" from every squad detail screen
+Remove any Moments composer entry point that is anchored to the squad view
+The Moments composer should only be accessible from the Vibe Feed tab
+When a user composes a Moment and selects a squad as the audience, the resulting Moment appears in the feed ring row — not in the squad screen. The audience scoping remains correct — only squad members see it — but the display surface is the feed ring row only
+Verify no orphaned Moments UI remains in the squad tab after removal — no empty ring rows, no placeholder space, no broken imports
+
+Verify:
+
+Squad detail screen has no Moments UI on any squad, for any user type
+Feed ring row correctly shows both Friends and Squad Moments
+Composing a Moment from the feed correctly offers the audience picker (Friends or a specific squad)
+A Squad Moment posted from the feed appears in the feed ring row and is visible only to that squad's members — not to non-members
+No console errors related to removed Moments components in the squad view
+
+
+SECTION 3 — Full App Audit Beyond Previous Flows
+The following flows have already been audited and fixed: signup, squad invite conversion, Vibe Feed, Moments, DM gate, 2-squad limit, Pro gold ring, Stripe, core regression, and empty/edge states.
+Audit everything below that has not yet been tested. For each, report PASS, BROKEN, or INCOMPLETE with the same structured format as the previous audit before touching any code.
+Onboarding edge cases:
+
+User abandons onboarding halfway — what happens when they reopen the app?
+User is invited to a squad but the invite code has expired — what do they see?
+User signs up on a device with no camera — does the avatar upload step handle this gracefully?
+User skips every optional step — do they still land in a functional state?
+
+Profile:
+
+Edit name, bio, hometown, and payment handles — do all changes persist and propagate immediately everywhere the user's name or avatar appears?
+Upload a new avatar — does it update across all surfaces (feed, squad, chat, events) without requiring a restart?
+Payment handles (Venmo, CashApp, Zelle) — do they display correctly on the cost split screen when settling up?
+
+Events — full flow:
+
+Create an event with title, date, emoji, and location
+Invite specific squad members vs the whole squad
+RSVP as going, maybe, and no from a different account — do counts update in real time?
+Edit an event after creation — do changes propagate to all attendees?
+Delete an event — does it disappear for all members immediately?
+Event tasks — add a task, assign it to a member, mark it complete — does state sync across accounts?
+Past events — do they move to a past section or disappear entirely?
+
+Availability polling — full flow:
+
+Create a poll with multiple date options
+Submit availability from 3 different accounts
+Does the heatmap update in real time as responses come in?
+Nudge a non-responder — does the nudge notification deliver?
+Close a poll — does the best time surface correctly?
+
+Cost splitting — full flow:
+
+Log an expense with multiple participants
+Split evenly and split manually with custom amounts — do both calculate correctly?
+Settle a balance — does it mark as settled for both parties?
+View net balances on the home screen — are they accurate after multiple transactions?
+Does the expense history persist correctly across sessions?
+
+Photo vault — full flow:
+
+Upload multiple photos from different accounts to the same squad vault
+Do photos appear in the correct squad context and sorted by event?
+As a free user, attempt to view a photo older than 30 days — does the paywall appear correctly?
+Delete a photo — does it remove for all squad members immediately?
+Download a photo — does it save correctly to the device camera roll?
+
+Friend system — full flow:
+
+Add a friend via friend code
+Add a friend via invite link
+View the friend list — does it show correctly?
+Remove a friend — do they disappear from the friend list and lose access to friends-only Vibe posts?
+Does removing a friend affect existing squad membership? It should not.
+
+Squad management:
+
+Rename a squad — does the name update everywhere immediately?
+Change a squad's emoji and color — does it update on all surfaces?
+Remove a member from a squad — do they lose access immediately?
+Leave a squad as a non-organizer — does the squad still function for remaining members?
+Leave a squad as the organizer — is organizer status transferred or is the squad deleted?
+Make a squad public vs private — does discovery reflect this correctly?
+
+Streaks:
+
+Monthly plan streak — does it increment correctly when a plan is made?
+Stay in touch streak — does it increment correctly based on squad activity?
+Do streak counts display correctly on profiles?
+What happens to a streak when it breaks — does it reset gracefully?
+
+Notifications — full flow:
+
+RSVP notification — does the event organizer receive it when a member RSVPs?
+New message notification — does it deliver for squad chat and event chat?
+Availability poll nudge — does it deliver to non-responders?
+Event reminder — does it fire at the correct time before the event?
+New friend request — does it notify the recipient?
+Notification preferences — do per-squad mute settings correctly suppress notifications?
+Deep link from notification — does tapping a notification take the user to the correct screen?
+
+Navigation and routing:
+
+Test every tab in the bottom nav — do all route correctly with no dead ends?
+Test the back button and gesture navigation on both iOS and Android — do any screens trap the user?
+Test deep links from outside the app — invite links, squad links, event links — do they all resolve correctly when the app is closed, backgrounded, and open?
+Does the app handle the keyboard correctly on every input screen — does content shift up appropriately and dismiss correctly?
+
+Discover:
+
+Browse public squads — do they load correctly?
+Join a public squad as a free user with 1 squad — does it work?
+Join as a free user with 2 squads — does the UpgradeModal appear?
+Filter or search squads — does it return correct results?
+
+
+SECTION 4 — Multi-User Simulation (8 Concurrent Users)
+Create 8 test accounts with the following profiles and simulate all of them using the app simultaneously. The goal is to surface race conditions, SSE conflicts, notification failures, and data consistency issues that only appear under real multi-user load.
+Test accounts:
+
+User 1: Squad organizer, Squadz+ subscriber
+User 2: Squad member, free user
+User 3: Squad member, free user
+User 4: Squad member, free user
+User 5: Member of a different squad, free user
+User 6: Friend of User 1 only, not in any shared squad
+User 7: New user, just completed onboarding
+User 8: Free user at the 2-squad limit
+
+Simulate the following scenarios simultaneously:
+Scenario A — Event coordination:
+User 1 creates an event. Users 2, 3, and 4 RSVP simultaneously — going, maybe, no respectively. User 1 adds an event task and assigns it to User 2. User 2 marks it complete. Verify: RSVP counts are accurate for all users, task state syncs correctly, and User 1 receives all RSVP notifications without duplicates.
+Scenario B — Live chat under load:
+Users 1, 2, 3, and 4 send messages in the squad chat simultaneously. Verify: messages appear in the correct order for all users, no messages are dropped, SSE does not break under concurrent senders, and read receipts or indicators update correctly.
+Scenario C — Vibe Feed concurrent posts and reactions:
+User 1 posts a Vibe to Friends. User 6 reacts. User 2 posts a Vibe to the squad. Users 3 and 4 react simultaneously. Verify: reactions update in real time for all viewers of each post, audience scoping is correct (User 6 does not see the squad Vibe, User 5 does not see User 1's friends Vibe), and no reaction counts are lost due to race conditions.
+Scenario D — Moments concurrent posts:
+User 1 posts a Friends Moment. User 2 posts a Squad Moment to the shared squad from the Vibe Feed. User 7 (new user) views both ring rows in the feed. Verify: Friends Moment appears only in the feed ring row for friends of User 1, Squad Moment appears only in the feed ring row for squad members, ring seen/unseen state updates correctly per user, and expiry is tracked independently for each Moment. Confirm no Moments appear in any squad detail screen.
+Scenario E — Upgrade and gate enforcement under load:
+User 8 attempts to join a 3rd squad via three simultaneous methods — UI join, invite link, and direct API call. Verify: all three are blocked and the UpgradeModal appears for UI attempts, the API returns 403 for the direct call, and no race condition allows a momentary join before the limit check fires.
+Scenario F — DM gate under concurrent messaging:
+User 1 (Pro) sends a DM to User 2 (free) and User 3 (free) simultaneously. Verify: both free users receive a generic push notification with no message preview, both see blurred content in the inbox, and upgrading User 2 mid-session unlocks their inbox without affecting User 3's gated state.
+Scenario G — SSE resilience:
+While Scenarios A through F are running, simulate a network drop for User 3 and User 4 by killing their SSE connections. Verify: the reconnect banner appears for both users, tapping retry restores the stream, and they receive any messages or updates they missed during the drop once reconnected.
+For every scenario report: what worked, what failed, any data inconsistencies, any duplicate notifications, and any race conditions observed.
+
+SECTION 5 — Performance and Device Optimization
+Network performance:
+
+Simulate a slow 3G connection (throttle to approximately 1Mbps) and test: app load time, feed load time, photo vault load time, Moments upload, and chat message delivery. Note anything that feels unacceptably slow
+Implement lazy loading on the Vibe Feed and photo vault if not already in place — images should not all load at once on scroll
+Moments video upload should show a progress indicator — if it does not, add one
+Any screen that loads data should show a skeleton loader, not a blank white or black screen, while content is fetching
+
+Image optimization:
+
+All user-uploaded photos in the feed and photo vault should be compressed and resized server-side before storage — original resolution uploads should not be served directly to clients
+Avatars should be served at a maximum of 200x200px — larger avatars waste bandwidth on every screen they appear
+Moments thumbnails in the ring row should be pre-generated at a small size — do not load full-resolution images for the ring row
+
+Memory and performance:
+
+Test the app after 15 minutes of continuous use — does memory usage grow unbounded or stabilize?
+The Vibe Feed and squad chat should implement virtualized list rendering if not already — FlatList with proper keyExtractor and getItemLayout
+SSE connections should be properly cleaned up when navigating away from a screen — verify there are no dangling connections accumulating in the background
+
+Tablet and large screen:
+
+Test every screen on an iPad or Android tablet equivalent at 768px width minimum
+Navigation, cards, modals, and the feed should all respond correctly at larger sizes
+The bottom nav should not stretch awkwardly on tablet — consider a sidebar nav layout on screens wider than 768px
+Modals should be width-constrained on tablet — max 500px centered, not full-width
+
+
+SECTION 6 — Push Notification End-to-End Verification
+Using the 8 test accounts from Section 4, verify every notification type on real devices where possible, simulator where not.
+For each notification type below, confirm: it delivers, the content is correct, tapping it deep links to the correct screen, and it respects per-squad mute preferences.
+
+New RSVP on your event
+New message in squad chat
+New message in event chat
+Someone reacted to your Vibe post
+New Moment posted in your squad — delivered to feed, not squad screen
+Availability poll nudge
+Event reminder (30 minutes before)
+New friend added
+New DM received — free user gets generic body, Pro user gets preview
+Squad invite received
+Squadz+ upgrade confirmation
+Squadz+ payment failed
+
+For any notification that fails to deliver or deep links incorrectly, fix it before moving to Section 7.
+
+SECTION 7 — Conversion and Upsell Optimization
+Review every upgrade touchpoint in the app and verify the following:
+UpgradeModal consistency:
+
+The modal design, copy, and CTA are identical across all trigger points: DM gate, squad limit (create), squad limit (join via UI), squad limit (join via invite link), squad limit (join via Discover), photo vault paywall
+The modal clearly communicates what Squadz+ unlocks — not just what the user is blocked from right now
+The CTA button uses the orange gradient and reads "Upgrade to Squadz+ — $20/year"
+After a successful upgrade the modal dismisses and the user is immediately in the upgraded experience with no extra steps
+
+Pro gold ring visibility:
+
+Confirm the gold ring is visible and rendering correctly at every avatar size across all surfaces
+On small avatars (chat messages, reaction lists) the ring should still be visible — adjust ring width proportionally if it is not
+
+DM blur quality:
+
+The blur should be strong enough that content is not legible but light enough that the user can tell it is text — intensity 18 was specified, verify this feels right visually and adjust if needed
+The "Tap to unlock" badge should be clearly visible on top of the blur
+
+Upsell copy audit:
+
+Read every piece of copy on every upgrade-related screen and modal
+Replace any generic copy ("Upgrade to access this feature") with specific benefit-led copy tied to what the user was trying to do
+Examples:
+
+"DMs are a Squadz+ feature. Upgrade to message your crew directly — $20/year."
+"You're in 2 squads. Upgrade to Squadz+ for unlimited squads and keep growing your crew."
+"This photo is over 30 days old. Upgrade to Squadz+ for permanent photo storage — $20/year."
+
+
+
+
+SECTION 8 — Final Pre-Launch Checklist
+After all sections above are complete, run through the following and confirm each item before marking the build ready for launch.
+App store readiness:
+
+ App icon renders correctly at all required sizes (1024px, 512px, 192px, 60px, 29px)
+ Splash screen displays correctly on all tested devices
+ No console errors or warnings in production build
+ No hardcoded test data, placeholder copy, or lorem ipsum anywhere in the app
+ No test accounts, debug flags, or development-only features accessible in production
+
+Data and privacy:
+
+ All API endpoints require authentication — no unauthenticated routes return user data
+ Free user API responses never expose gated content regardless of how the request is formed
+ User deletion flow exists and actually removes user data
+ Privacy policy and terms of service are linked somewhere accessible in the app (settings or onboarding)
+
+Stability:
+
+ App does not crash on any tested flow across any tested device
+ All loading states have a timeout — no screen can hang indefinitely waiting for a network response
+ All forms validate input before submission — no raw API errors are ever shown to users
+ The app handles being backgrounded and foregrounded correctly — no stale data or broken SSE on return
+
+Launch configuration:
+
+ Stripe is configured for live mode, not test mode
+ All environment variables are set for production — Twilio, Stripe, push notification keys
+ Error logging (Sentry or equivalent) is configured and receiving events
+ The joinsquadz.com domain resolves correctly and invite links open the app via universal links on iOS and Android
+
+
+Delivery Standard
+Do not mark any section complete until every item in it is verified. Surface every finding as a structured report before fixing anything. Do not paper over issues with workarounds that create technical debt. If any finding in any section reveals a deeper architectural issue, flag it explicitly before proceeding.
+After all eight sections are complete, provide a final summary report covering: what was fixed, what was optimized, what was deferred, and the overall launch readiness assessment with a clear go or no-go recommendation.
