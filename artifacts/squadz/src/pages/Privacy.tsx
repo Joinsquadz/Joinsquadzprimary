@@ -1,3 +1,4 @@
+import { Helmet } from "react-helmet-async";
 import { T, font } from "@/lib/data";
 import { SquadzIcon } from "@/components/SquadzIcon";
 
@@ -13,6 +14,19 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
 export default function Privacy() {
   return (
     <div style={{ background: T.bg, color: T.text, fontFamily: font, minHeight: "100dvh" }}>
+      <Helmet>
+        <title>Privacy Policy · Squadz</title>
+        <meta name="description" content="Read the Squadz Privacy Policy. Learn how we collect, use, and protect your personal information when you use the Squadz app." />
+        <meta name="robots" content="index, follow" />
+        <link rel="canonical" href="https://joinsquadz.com/privacy" />
+        <meta property="og:title" content="Privacy Policy · Squadz" />
+        <meta property="og:description" content="Read the Squadz Privacy Policy. Learn how we collect, use, and protect your personal information when you use the Squadz app." />
+        <meta property="og:type" content="website" />
+        <meta property="og:url" content="https://joinsquadz.com/privacy" />
+        <meta name="twitter:card" content="summary" />
+        <meta name="twitter:title" content="Privacy Policy · Squadz" />
+        <meta name="twitter:description" content="Read the Squadz Privacy Policy. Learn how we collect, use, and protect your personal information when you use the Squadz app." />
+      </Helmet>
       <style>{`
         .lz-wrap { max-width: 1160px; margin: 0 auto; padding: 0 24px; }
         .lz-prose { max-width: 720px; margin: 0 auto; padding: 56px 24px 100px; }

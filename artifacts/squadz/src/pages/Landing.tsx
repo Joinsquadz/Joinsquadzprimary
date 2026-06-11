@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useState } from "react";
+import { Helmet } from "react-helmet-async";
 import { T, font } from "@/lib/data";
 import { SquadzIcon } from "@/components/SquadzIcon";
 
@@ -264,6 +265,19 @@ export default function Landing() {
 
   return (
     <div style={{ background: T.bg, color: T.text, fontFamily: font, minHeight: "100dvh", overflowX: "hidden" }}>
+      <Helmet>
+        <title>Squadz — Stop texting. Start actually hanging.</title>
+        <meta name="description" content="Squadz is the app for your friend group. Find the time everyone's free, plan the hangout, split the bill, and keep the memories. All in one place." />
+        <meta name="robots" content="index, follow" />
+        <link rel="canonical" href="https://joinsquadz.com/" />
+        <meta property="og:title" content="Squadz — Stop texting. Start actually hanging." />
+        <meta property="og:description" content="Squadz is the app for your friend group. Find the time everyone's free, plan the hangout, split the bill, and keep the memories." />
+        <meta property="og:type" content="website" />
+        <meta property="og:url" content="https://joinsquadz.com/" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content="Squadz — Stop texting. Start actually hanging." />
+        <meta name="twitter:description" content="Squadz is the app for your friend group. Find the time everyone's free, plan the hangout, split the bill, and keep the memories." />
+      </Helmet>
       <style>{`
         .lz-wrap { max-width: 1160px; margin: 0 auto; padding: 0 24px; }
         .lz-hero { display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 40px; align-items: center; padding: 64px 0 40px; }
@@ -435,6 +449,7 @@ export default function Landing() {
             <span style={{ fontFamily: "'Georgia', serif", fontSize: 21, fontWeight: 700, letterSpacing: "-0.04em" }}>squadz</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 22, flexWrap: "wrap" }}>
+            <a href="/terms" style={{ fontSize: 13.5, color: T.textDim, textDecoration: "none" }}>Terms of Service</a>
             <a href="/privacy" style={{ fontSize: 13.5, color: T.textDim, textDecoration: "none" }}>Privacy Policy</a>
             <div style={{ fontSize: 13.5, color: T.textDim }}>© {new Date().getFullYear()} Squadz · Stop texting. Start actually hanging.</div>
           </div>
