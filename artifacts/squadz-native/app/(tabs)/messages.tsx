@@ -3,7 +3,7 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
+  FlatList,
   TouchableOpacity,
   Platform,
   RefreshControl,
@@ -139,18 +139,133 @@ export default function MessagesScreen() {
 
   const isLoading = conversationsLoading && eventsLoading && unifiedList.length === 0;
 
-  const openItem = (item: UnifiedItem) => {
+  const openItem = useCallback((item: UnifiedItem) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     if (item.kind === "conversation") {
       router.push(`/conversation/${item.data.id}` as never);
     } else {
       router.push(`/event/${item.event.id}` as never);
     }
-  };
+  }, []);
 
   const handleRefresh = useCallback(() => {
     void refreshConversations();
   }, [refreshConversations]);
+
+  const renderItem = useCallback(
+    ({ item }: { item: UnifiedItem }) => {
+      if (item.kind === "conversation") {
+        const c = item.data;
+        const unread = c.unreadCount > 0;
+        const youSent = c.lastMessageSenderId === currentUser?.id;
+        const preview = c.lastMessagePreview
+          ? `${youSent ? "You: " : ""}${c.lastMessagePreview}`
+          : "No messages yet";
+        const type = c.type; // "direct" | "squad"
+        const previewLocked = type === "direct" && !isPro && !!c.lastMessagePreview;
+
+        return (
+          <TouchableOpacity
+            onPress={() => openItem(item)}
+            style={[styles.row, { borderBottomColor: colors.border }]}
+            activeOpacity={0.7}
+          >
+            <Avatar
+              type={type}
+              emoji={c.emoji}
+              color={c.color}
+              initial={(c.title || "?").charAt(0)}
+            />
+            <View style={styles.rowBody}>
+              <View style={styles.rowTop}>
+                <TypePill kind={type} />
+                <Text style={[styles.rowName, { color: colors.foreground }]} numberOfLines={1}>
+                  {c.title}
+                </Text>
+                <Text style={[styles.rowTime, { color: unread ? colors.primary : colors.textDim }]}>
+                  {timeAgo(c.lastMessageAt)}
+                </Text>
+              </View>
+              <View style={styles.rowBottom}>
+                {previewLocked ? (
+                  <View style={styles.lockedPreview}>
+                    <Text
+                      style={[styles.rowPreview, { color: colors.mutedForeground }]}
+                      numberOfLines={1}
+                    >
+                      {preview}
+                    </Text>
+                    <BlurView
+                      intensity={14}
+                      tint="dark"
+                      style={StyleSheet.absoluteFill}
+                      pointerEvents="none"
+                    />
+                    <View style={styles.lockedPreviewBadge} pointerEvents="none">
+                      <Ionicons name="lock-closed" size={11} color={colors.primary} />
+                      <Text style={[styles.lockedPreviewText, { color: colors.primary }]}>
+                        Squadz+ to read
+                      </Text>
+                    </View>
+                  </View>
+                ) : (
+                  <Text
+                    style={[
+                      styles.rowPreview,
+                      { color: unread ? colors.foreground : colors.mutedForeground, fontWeight: unread ? "700" : "400" },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {preview}
+                  </Text>
+                )}
+                {unread && (
+                  <View style={[styles.badge, { backgroundColor: colors.primary }]}>
+                    <Text style={styles.badgeText}>{c.unreadCount > 99 ? "99+" : c.unreadCount}</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+          </TouchableOpacity>
+        );
+      }
+
+      // ── event chat item ───────────────────────────────────────────────
+      const { event, lastAt, lastText } = item;
+      const youSent = event.messages[event.messages.length - 1]?.senderId === currentUser?.id;
+      const preview = `${youSent ? "You: " : ""}${lastText}`;
+
+      return (
+        <TouchableOpacity
+          onPress={() => openItem(item)}
+          style={[styles.row, { borderBottomColor: colors.border }]}
+          activeOpacity={0.7}
+        >
+          <Avatar type="event" emoji={event.emoji} initial={event.title.charAt(0)} />
+          <View style={styles.rowBody}>
+            <View style={styles.rowTop}>
+              <TypePill kind="event" />
+              <Text style={[styles.rowName, { color: colors.foreground }]} numberOfLines={1}>
+                {event.title}
+              </Text>
+              <Text style={[styles.rowTime, { color: colors.textDim }]}>
+                {timeAgo(lastAt)}
+              </Text>
+            </View>
+            <View style={styles.rowBottom}>
+              <Text
+                style={[styles.rowPreview, { color: colors.mutedForeground }]}
+                numberOfLines={1}
+              >
+                {preview}
+              </Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+      );
+    },
+    [colors, currentUser?.id, isPro, openItem],
+  );
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -167,151 +282,47 @@ export default function MessagesScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView
-        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: botPad }}
+      <FlatList
+        data={isLoading ? [] : unifiedList}
+        keyExtractor={(item) =>
+          item.kind === "conversation" ? `conv-${item.data.id}` : `event-${item.event.id}`
+        }
+        renderItem={renderItem}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: botPad, flexGrow: 1 }}
         showsVerticalScrollIndicator={false}
+        initialNumToRender={10}
+        maxToRenderPerBatch={10}
+        windowSize={11}
+        removeClippedSubviews={Platform.OS !== "web"}
         refreshControl={
           <RefreshControl refreshing={false} onRefresh={handleRefresh} tintColor={colors.primary} />
         }
-      >
-        {isLoading ? (
-          <View style={styles.loading}>
-            <ActivityIndicator color={colors.primary} />
-          </View>
-        ) : unifiedList.length === 0 ? (
-          <View style={styles.empty}>
-            <Text style={{ fontSize: 52, marginBottom: 14 }}>💬</Text>
-            <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No messages yet</Text>
-            <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>
-              Start a chat with a friend or your squad
-            </Text>
-            <TouchableOpacity
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                router.push("/friends");
-              }}
-              style={[styles.emptyBtn, { borderColor: colors.primary + "40" }]}
-            >
-              <Ionicons name="person-add-outline" size={18} color={colors.primary} />
-              <Text style={[styles.emptyBtnText, { color: colors.primary }]}>Message a friend</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          unifiedList.map((item) => {
-            if (item.kind === "conversation") {
-              const c = item.data;
-              const unread = c.unreadCount > 0;
-              const youSent = c.lastMessageSenderId === currentUser?.id;
-              const preview = c.lastMessagePreview
-                ? `${youSent ? "You: " : ""}${c.lastMessagePreview}`
-                : "No messages yet";
-              const type = c.type; // "direct" | "squad"
-              const previewLocked = type === "direct" && !isPro && !!c.lastMessagePreview;
-
-              return (
-                <TouchableOpacity
-                  key={`conv-${c.id}`}
-                  onPress={() => openItem(item)}
-                  style={[styles.row, { borderBottomColor: colors.border }]}
-                  activeOpacity={0.7}
-                >
-                  <Avatar
-                    type={type}
-                    emoji={c.emoji}
-                    color={c.color}
-                    initial={(c.title || "?").charAt(0)}
-                  />
-                  <View style={styles.rowBody}>
-                    <View style={styles.rowTop}>
-                      <TypePill kind={type} />
-                      <Text style={[styles.rowName, { color: colors.foreground }]} numberOfLines={1}>
-                        {c.title}
-                      </Text>
-                      <Text style={[styles.rowTime, { color: unread ? colors.primary : colors.textDim }]}>
-                        {timeAgo(c.lastMessageAt)}
-                      </Text>
-                    </View>
-                    <View style={styles.rowBottom}>
-                      {previewLocked ? (
-                        <View style={styles.lockedPreview}>
-                          <Text
-                            style={[styles.rowPreview, { color: colors.mutedForeground }]}
-                            numberOfLines={1}
-                          >
-                            {preview}
-                          </Text>
-                          <BlurView
-                            intensity={14}
-                            tint="dark"
-                            style={StyleSheet.absoluteFill}
-                            pointerEvents="none"
-                          />
-                          <View style={styles.lockedPreviewBadge} pointerEvents="none">
-                            <Ionicons name="lock-closed" size={11} color={colors.primary} />
-                            <Text style={[styles.lockedPreviewText, { color: colors.primary }]}>
-                              Squadz+ to read
-                            </Text>
-                          </View>
-                        </View>
-                      ) : (
-                        <Text
-                          style={[
-                            styles.rowPreview,
-                            { color: unread ? colors.foreground : colors.mutedForeground, fontWeight: unread ? "700" : "400" },
-                          ]}
-                          numberOfLines={1}
-                        >
-                          {preview}
-                        </Text>
-                      )}
-                      {unread && (
-                        <View style={[styles.badge, { backgroundColor: colors.primary }]}>
-                          <Text style={styles.badgeText}>{c.unreadCount > 99 ? "99+" : c.unreadCount}</Text>
-                        </View>
-                      )}
-                    </View>
-                  </View>
-                </TouchableOpacity>
-              );
-            }
-
-            // ── event chat item ───────────────────────────────────────────────
-            const { event, lastAt, lastText } = item;
-            const youSent = event.messages[event.messages.length - 1]?.senderId === currentUser?.id;
-            const preview = `${youSent ? "You: " : ""}${lastText}`;
-
-            return (
+        ListEmptyComponent={
+          isLoading ? (
+            <View style={styles.loading}>
+              <ActivityIndicator color={colors.primary} />
+            </View>
+          ) : (
+            <View style={styles.empty}>
+              <Text style={{ fontSize: 52, marginBottom: 14 }}>💬</Text>
+              <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No messages yet</Text>
+              <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>
+                Start a chat with a friend or your squad
+              </Text>
               <TouchableOpacity
-                key={`event-${event.id}`}
-                onPress={() => openItem(item)}
-                style={[styles.row, { borderBottomColor: colors.border }]}
-                activeOpacity={0.7}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  router.push("/friends");
+                }}
+                style={[styles.emptyBtn, { borderColor: colors.primary + "40" }]}
               >
-                <Avatar type="event" emoji={event.emoji} initial={event.title.charAt(0)} />
-                <View style={styles.rowBody}>
-                  <View style={styles.rowTop}>
-                    <TypePill kind="event" />
-                    <Text style={[styles.rowName, { color: colors.foreground }]} numberOfLines={1}>
-                      {event.title}
-                    </Text>
-                    <Text style={[styles.rowTime, { color: colors.textDim }]}>
-                      {timeAgo(lastAt)}
-                    </Text>
-                  </View>
-                  <View style={styles.rowBottom}>
-                    <Text
-                      style={[styles.rowPreview, { color: colors.mutedForeground }]}
-                      numberOfLines={1}
-                    >
-                      {preview}
-                    </Text>
-                  </View>
-                </View>
+                <Ionicons name="person-add-outline" size={18} color={colors.primary} />
+                <Text style={[styles.emptyBtnText, { color: colors.primary }]}>Message a friend</Text>
               </TouchableOpacity>
-            );
-          })
-        )}
-      </ScrollView>
+            </View>
+          )
+        }
+      />
     </View>
   );
 }

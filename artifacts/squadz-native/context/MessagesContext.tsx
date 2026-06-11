@@ -4,6 +4,7 @@ import React, {
   useState,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
 } from "react";
 import { AppState } from "react-native";
@@ -241,21 +242,35 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
     };
   }, [authToken, refreshConversations]);
 
+  const value = useMemo(
+    () => ({
+      conversations,
+      conversationsLoading,
+      unreadCount,
+      refreshConversations,
+      refreshUnread,
+      fetchThread,
+      sendMessage,
+      markRead,
+      startDirectConversation,
+      getSquadConversation,
+    }),
+    [
+      conversations,
+      conversationsLoading,
+      unreadCount,
+      refreshConversations,
+      refreshUnread,
+      fetchThread,
+      sendMessage,
+      markRead,
+      startDirectConversation,
+      getSquadConversation,
+    ],
+  );
+
   return (
-    <MessagesContext.Provider
-      value={{
-        conversations,
-        conversationsLoading,
-        unreadCount,
-        refreshConversations,
-        refreshUnread,
-        fetchThread,
-        sendMessage,
-        markRead,
-        startDirectConversation,
-        getSquadConversation,
-      }}
-    >
+    <MessagesContext.Provider value={value}>
       {children}
     </MessagesContext.Provider>
   );

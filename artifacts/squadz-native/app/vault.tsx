@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   ScrollView,
+  FlatList,
   TouchableOpacity,
   Platform,
   ActivityIndicator,
@@ -64,6 +65,10 @@ function VaultImage({ uri, style, headers }: { uri: string; style: object; heade
   const shimmer = useRef(new Animated.Value(0.4)).current;
 
   useEffect(() => {
+    setStatus("loading");
+  }, [uri]);
+
+  useEffect(() => {
     if (status !== "loading") return;
     const anim = Animated.loop(
       Animated.sequence([
@@ -82,6 +87,8 @@ function VaultImage({ uri, style, headers }: { uri: string; style: object; heade
           source={{ uri, headers }}
           style={StyleSheet.absoluteFill}
           contentFit="cover"
+          cachePolicy="memory-disk"
+          recyclingKey={uri}
           transition={200}
           onLoad={() => setStatus("loaded")}
           onError={() => setStatus("error")}
@@ -172,7 +179,7 @@ export default function VaultScreen() {
   }, [photos]);
 
   const initialized = useRef(false);
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<FlatList<VaultPhoto>>(null);
   const scrollYRef = useRef(0);
   const saveScrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -229,7 +236,7 @@ export default function VaultScreen() {
         const y = parseFloat(savedScroll);
         if (!isNaN(y) && y > 0) {
           setTimeout(() => {
-            scrollRef.current?.scrollTo({ y, animated: false });
+            scrollRef.current?.scrollToOffset({ offset: y, animated: false });
           }, 100);
         }
       }
@@ -580,101 +587,122 @@ export default function VaultScreen() {
       </View>
 
       {isSquadVault ? (
-        <ScrollView
+        <FlatList
+          data={squadLoading && squadPhotos.length === 0 ? [] : squadPhotos}
+          keyExtractor={(p) => String(p.id)}
+          numColumns={3}
+          columnWrapperStyle={{ gap: 4 }}
+          ItemSeparatorComponent={() => <View style={{ height: 4 }} />}
+          extraData={selected}
           contentContainerStyle={[styles.scroll, { paddingBottom: botPad + 24 }]}
           showsVerticalScrollIndicator={false}
-        >
-          <Text style={[styles.countLabel, { color: colors.mutedForeground }]}>
-            {squadPhotos.length} {squadPhotos.length === 1 ? "photo" : "photos"} · curated by your squad
-          </Text>
-
-          {squadLoading && squadPhotos.length === 0 ? (
-            <View style={styles.center}>
-              <ActivityIndicator color={colors.primary} size="large" />
-            </View>
-          ) : squadPhotos.length > 0 ? (
-            <View style={styles.grid}>
-              {squadPhotos.map(p => (
-                <TouchableOpacity
-                  key={p.id}
-                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSelected(selected === p.id ? null : p.id); }}
-                  style={[styles.gridCell, { borderWidth: 2, borderColor: selected === p.id ? colors.primary : "transparent" }]}
-                  activeOpacity={0.8}
-                >
-                  <VaultImage uri={imageUrl(p.url)} style={styles.gridImage} headers={authHeaders() as Record<string, string>} />
-                  <View style={styles.attrOverlay}>
-                    <View style={[styles.attrAvatar, { backgroundColor: colors.primary }]}>
-                      <Text style={styles.attrAvatarText}>{uploaderInitial(p)}</Text>
-                    </View>
-                    <Text style={styles.attrText} numberOfLines={1}>
-                      {(p.uploaderFirstName || uploaderName(p)).split(" ")[0]} · {shortDate(p.uploadedAt)}
-                    </Text>
-                  </View>
-                  {selected === p.id && (
-                    <View style={[styles.checkBadge, { backgroundColor: colors.primary }]}>
-                      <Ionicons name="checkmark" size={10} color="#fff" />
-                    </View>
-                  )}
-                </TouchableOpacity>
-              ))}
-            </View>
-          ) : (
-            <View style={[styles.emptyState, { borderColor: colors.border }]}>
-              <Text style={styles.emptyIcon}>📸</Text>
-              <Text style={[styles.emptyTitle, { color: colors.mutedForeground }]}>No photos rolled up yet</Text>
-              <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>Roll up your best photos to start the squad vault</Text>
-            </View>
-          )}
-
-          {selectedSquadPhoto && (
-            <View style={[styles.detailCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <Text style={[styles.detailTitle, { color: colors.foreground }]}>
-                {uploaderName(selectedSquadPhoto)}
-              </Text>
-              <Text style={[styles.detailMeta, { color: colors.mutedForeground }]}>
-                {new Date(selectedSquadPhoto.uploadedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                {selectedSquadPhoto.eventId ? ` · Event ${selectedSquadPhoto.eventId}` : ""}
-              </Text>
-              {currentUserId && selectedSquadPhoto.uploaderId === currentUserId && (
-                <TouchableOpacity
-                  style={[styles.removeBtn, { borderColor: colors.destructive + "60" }]}
-                  activeOpacity={0.7}
-                  onPress={() => handleRemoveShared(selectedSquadPhoto.id)}
-                >
-                  <Ionicons name="trash-outline" size={15} color={colors.destructive} />
-                  <Text style={[styles.removeBtnText, { color: colors.destructive }]}>Remove from squad vault</Text>
-                </TouchableOpacity>
+          initialNumToRender={12}
+          maxToRenderPerBatch={12}
+          windowSize={11}
+          removeClippedSubviews={Platform.OS !== "web"}
+          ListHeaderComponent={
+            <Text style={[styles.countLabel, { color: colors.mutedForeground }]}>
+              {squadPhotos.length} {squadPhotos.length === 1 ? "photo" : "photos"} · curated by your squad
+            </Text>
+          }
+          ListEmptyComponent={
+            squadLoading ? (
+              <View style={styles.center}>
+                <ActivityIndicator color={colors.primary} size="large" />
+              </View>
+            ) : (
+              <View style={[styles.emptyState, { borderColor: colors.border }]}>
+                <Text style={styles.emptyIcon}>📸</Text>
+                <Text style={[styles.emptyTitle, { color: colors.mutedForeground }]}>No photos rolled up yet</Text>
+                <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>Roll up your best photos to start the squad vault</Text>
+              </View>
+            )
+          }
+          renderItem={({ item: p }) => (
+            <TouchableOpacity
+              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSelected(selected === p.id ? null : p.id); }}
+              style={[styles.gridCell, { borderWidth: 2, borderColor: selected === p.id ? colors.primary : "transparent" }]}
+              activeOpacity={0.8}
+            >
+              <VaultImage uri={imageUrl(p.url)} style={styles.gridImage} headers={authHeaders() as Record<string, string>} />
+              <View style={styles.attrOverlay}>
+                <View style={[styles.attrAvatar, { backgroundColor: colors.primary }]}>
+                  <Text style={styles.attrAvatarText}>{uploaderInitial(p)}</Text>
+                </View>
+                <Text style={styles.attrText} numberOfLines={1}>
+                  {(p.uploaderFirstName || uploaderName(p)).split(" ")[0]} · {shortDate(p.uploadedAt)}
+                </Text>
+              </View>
+              {selected === p.id && (
+                <View style={[styles.checkBadge, { backgroundColor: colors.primary }]}>
+                  <Ionicons name="checkmark" size={10} color="#fff" />
+                </View>
               )}
-            </View>
+            </TouchableOpacity>
           )}
+          ListFooterComponent={
+            <View style={{ marginTop: 16 }}>
+              {selectedSquadPhoto && (
+                <View style={[styles.detailCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                  <Text style={[styles.detailTitle, { color: colors.foreground }]}>
+                    {uploaderName(selectedSquadPhoto)}
+                  </Text>
+                  <Text style={[styles.detailMeta, { color: colors.mutedForeground }]}>
+                    {new Date(selectedSquadPhoto.uploadedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                    {selectedSquadPhoto.eventId ? ` · Event ${selectedSquadPhoto.eventId}` : ""}
+                  </Text>
+                  {currentUserId && selectedSquadPhoto.uploaderId === currentUserId && (
+                    <TouchableOpacity
+                      style={[styles.removeBtn, { borderColor: colors.destructive + "60" }]}
+                      activeOpacity={0.7}
+                      onPress={() => handleRemoveShared(selectedSquadPhoto.id)}
+                    >
+                      <Ionicons name="trash-outline" size={15} color={colors.destructive} />
+                      <Text style={[styles.removeBtnText, { color: colors.destructive }]}>Remove from squad vault</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
 
-          <TouchableOpacity
-            style={[styles.rollUpBtn, { backgroundColor: colors.primary }]}
-            activeOpacity={0.85}
-            onPress={openPicker}
-          >
-            <Ionicons name="sparkles" size={18} color="#fff" />
-            <Text style={styles.rollUpBtnText}>Roll up your best photos</Text>
-          </TouchableOpacity>
-        </ScrollView>
+              <TouchableOpacity
+                style={[styles.rollUpBtn, { backgroundColor: colors.primary }]}
+                activeOpacity={0.85}
+                onPress={openPicker}
+              >
+                <Ionicons name="sparkles" size={18} color="#fff" />
+                <Text style={styles.rollUpBtnText}>Roll up your best photos</Text>
+              </TouchableOpacity>
+            </View>
+          }
+        />
       ) : isPro === null ? (
         <View style={styles.center}>
           <ActivityIndicator color={colors.primary} size="large" />
         </View>
       ) : (
-        <ScrollView
-          ref={scrollRef}
-          contentContainerStyle={[styles.scroll, { paddingBottom: botPad + 24 }]}
-          showsVerticalScrollIndicator={false}
-          onScroll={handleScroll}
-          scrollEventThrottle={100}
-        >
-          {photosLoading ? (
-            <View style={styles.center}>
-              <ActivityIndicator color={colors.primary} size="large" />
-            </View>
-          ) : (
-            <>
+        photosLoading ? (
+          <View style={styles.center}>
+            <ActivityIndicator color={colors.primary} size="large" />
+          </View>
+        ) : (
+          <FlatList
+            ref={scrollRef}
+            data={visiblePhotos}
+            keyExtractor={(p) => String(p.id)}
+            numColumns={3}
+            columnWrapperStyle={{ gap: 4 }}
+            ItemSeparatorComponent={() => <View style={{ height: 4 }} />}
+            extraData={selected}
+            contentContainerStyle={[styles.scroll, { paddingBottom: botPad + 24 }]}
+            showsVerticalScrollIndicator={false}
+            onScroll={handleScroll}
+            scrollEventThrottle={100}
+            initialNumToRender={12}
+            maxToRenderPerBatch={12}
+            windowSize={11}
+            removeClippedSubviews={Platform.OS !== "web"}
+            ListHeaderComponent={
+              <>
               {filterLabel && (
                 <View style={[styles.filterBadge, { backgroundColor: colors.primary + "18", borderColor: colors.primary + "40" }]}>
                   <Ionicons name={eventId ? "calendar-outline" : "people-outline"} size={14} color={colors.primary} />
@@ -753,61 +781,58 @@ export default function VaultScreen() {
                   })}
                 </ScrollView>
               )}
-
-              {visiblePhotos.length > 0 ? (
-                <View style={styles.grid}>
-                  {visiblePhotos.map(p => (
-                    p.locked ? (
-                      <TouchableOpacity
-                        key={p.id}
-                        onPress={() => setUpgradeModalVisible(true)}
-                        style={styles.gridCell}
-                        activeOpacity={0.8}
-                      >
-                        <LockedThumb id={p.id} style={styles.gridImage} />
-                        <View style={styles.lockedCellLabel}>
-                          <Text style={[styles.lockedCellText, { color: "rgba(255,255,255,0.92)" }]}>Pro only</Text>
-                        </View>
-                      </TouchableOpacity>
-                    ) : (
-                      <TouchableOpacity
-                        key={p.id}
-                        onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSelected(selected === p.id ? null : p.id); }}
-                        style={[styles.gridCell, { borderWidth: 2, borderColor: selected === p.id ? colors.primary : "transparent" }]}
-                        activeOpacity={0.8}
-                      >
-                        <VaultImage
-                          uri={imageUrl((p as Extract<VaultPhoto, { locked: false }>).url)}
-                          style={styles.gridImage}
-                          headers={authHeaders() as Record<string, string>}
-                        />
-                        {selected === p.id && (
-                          <View style={[styles.checkBadge, { backgroundColor: colors.primary }]}>
-                            <Ionicons name="checkmark" size={10} color="#fff" />
-                          </View>
-                        )}
-                      </TouchableOpacity>
-                    )
-                  ))}
-                </View>
+            </>
+            }
+            ListEmptyComponent={
+              <View style={[styles.emptyState, { borderColor: colors.border }]}>
+                <Text style={styles.emptyIcon}>📷</Text>
+                <Text style={[styles.emptyTitle, { color: colors.mutedForeground }]}>
+                  {activeSquad === "all" ? "No photos yet" : `No photos for ${activeSquad}`}
+                </Text>
+                <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>
+                  {activeSquad !== "all"
+                    ? "Try another squad or upload below"
+                    : filterLabel
+                      ? `No photos uploaded to ${filterLabel} yet.`
+                      : isPro
+                        ? "Upload your first squad memory below"
+                        : "Photos from your squadz will show up here"}
+                </Text>
+              </View>
+            }
+            renderItem={({ item: p }) => (
+              p.locked ? (
+                <TouchableOpacity
+                  onPress={() => setUpgradeModalVisible(true)}
+                  style={styles.gridCell}
+                  activeOpacity={0.8}
+                >
+                  <LockedThumb id={p.id} style={styles.gridImage} />
+                  <View style={styles.lockedCellLabel}>
+                    <Text style={[styles.lockedCellText, { color: "rgba(255,255,255,0.92)" }]}>Pro only</Text>
+                  </View>
+                </TouchableOpacity>
               ) : (
-                <View style={[styles.emptyState, { borderColor: colors.border }]}>
-                  <Text style={styles.emptyIcon}>📷</Text>
-                  <Text style={[styles.emptyTitle, { color: colors.mutedForeground }]}>
-                    {activeSquad === "all" ? "No photos yet" : `No photos for ${activeSquad}`}
-                  </Text>
-                  <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>
-                    {activeSquad !== "all"
-                      ? "Try another squad or upload below"
-                      : filterLabel
-                        ? `No photos uploaded to ${filterLabel} yet.`
-                        : isPro
-                          ? "Upload your first squad memory below"
-                          : "Photos from your squadz will show up here"}
-                  </Text>
-                </View>
-              )}
-
+                <TouchableOpacity
+                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSelected(selected === p.id ? null : p.id); }}
+                  style={[styles.gridCell, { borderWidth: 2, borderColor: selected === p.id ? colors.primary : "transparent" }]}
+                  activeOpacity={0.8}
+                >
+                  <VaultImage
+                    uri={imageUrl((p as Extract<VaultPhoto, { locked: false }>).url)}
+                    style={styles.gridImage}
+                    headers={authHeaders() as Record<string, string>}
+                  />
+                  {selected === p.id && (
+                    <View style={[styles.checkBadge, { backgroundColor: colors.primary }]}>
+                      <Ionicons name="checkmark" size={10} color="#fff" />
+                    </View>
+                  )}
+                </TouchableOpacity>
+              )
+            )}
+            ListFooterComponent={
+              <View style={{ marginTop: 16 }}>
               {selectedPhoto && !selectedPhoto.locked && (
                 <View style={[styles.detailCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
                   <Text style={[styles.detailTitle, { color: colors.foreground }]}>
@@ -896,9 +921,10 @@ export default function VaultScreen() {
                     : <Text style={styles.upgradeBtnText}>⚡ Upgrade to Pro — $20/year</Text>}
                 </TouchableOpacity>
               )}
-            </>
-          )}
-        </ScrollView>
+            </View>
+          }
+        />
+        )
       )}
 
       <Modal

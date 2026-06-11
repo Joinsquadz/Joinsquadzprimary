@@ -3,6 +3,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -188,17 +189,20 @@ export function TipsProvider({ children }: { children: React.ReactNode }) {
     setAnchors(EMPTY_ANCHORS);
   }, []);
 
-  const value: TipsContextValue = {
-    activeIndex,
-    tips: TIPS,
-    anchors,
-    armTour,
-    maybeStartTour,
-    next,
-    dismiss,
-    setSquadAnchor,
-    clearSquadAnchors,
-  };
+  const value: TipsContextValue = useMemo(
+    () => ({
+      activeIndex,
+      tips: TIPS,
+      anchors,
+      armTour,
+      maybeStartTour,
+      next,
+      dismiss,
+      setSquadAnchor,
+      clearSquadAnchors,
+    }),
+    [activeIndex, anchors, armTour, maybeStartTour, next, dismiss, setSquadAnchor, clearSquadAnchors],
+  );
 
   return <TipsContext.Provider value={value}>{children}</TipsContext.Provider>;
 }

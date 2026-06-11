@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { memo, useEffect } from "react";
 import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -17,7 +17,7 @@ interface EventCardProps {
   horizontal?: boolean;
 }
 
-export function EventCard({
+function EventCardBase({
   id,
   emoji,
   title,
@@ -83,6 +83,8 @@ export function EventCard({
     </TouchableOpacity>
   );
 }
+
+export const EventCard = memo(EventCardBase);
 
 const styles = StyleSheet.create({
   card: {

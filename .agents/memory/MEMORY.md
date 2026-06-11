@@ -30,6 +30,7 @@
 - [Availability poll caps](availability-poll-caps.md) — mobile DAY_COUNT_OPTIONS must match server days cap (BOTH Create+Update schemas) and cells cap (=maxDays×48); grid is windowed (DAY_WINDOW) with arrow pager, not all-on-screen.
 - [Availability live updates](availability-live-updates.md) — poll SSE stream reuses GET-poll authz; any refresh MUST branch pollId→/:id vs squad/event→/find or invite-link screens silently never refresh; keep 20s poll fallback.
 - [Squadz activation UX](squadz-activation-ux.md) — onboarding has NO paywall (value before payment); invite-crew is the climax; Find-the-Best-Time stays prominent; no fake social proof.
+- [FlatList ref generic](flatlist-ref-generic.md) — `useRef<FlatList>` = FlatList<any> and pins renderItem item to any (TS7006 only on nested .map); type the ref as `FlatList<ItemT>`.
 - [Squadz welcome tips tour](squadz-onboarding-tips.md) — once-per-user coach tour; `tips_seen_<userId>` kept OUT of ALL_APP_STORAGE_KEYS so it survives logout; cost split is event-scoped (Tip 4 anchors to Events, no squad-screen cost UI).
 - [Moments single feed surface](squadz-moments-feed-surface.md) — Moments show ONLY in Vibe Feed ring row (mode="feed" → /api/moments/feed unions friends+member-squad moments); no squad-screen Moments UI.
 - [Profile identity & upload URLs](profile-identity-and-upload-url.md) — mock ME fallback must be neutral (not a fake person); use resolveUploadedUrl() (lib/api.ts) — public uploads return full https URL, protected return /objects path for /api/storage proxy.

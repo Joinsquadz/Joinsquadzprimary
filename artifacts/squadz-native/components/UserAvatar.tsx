@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
-import { View, Text, Image, StyleSheet } from "react-native";
+import { memo, useState, useEffect } from "react";
+import { View, Text, StyleSheet } from "react-native";
+import { Image } from "expo-image";
 
 interface UserAvatarProps {
   initials: string;
@@ -9,7 +10,7 @@ interface UserAvatarProps {
   fontSize?: number;
 }
 
-export function UserAvatar({ initials, color, imageUrl, size = 40, fontSize = 14 }: UserAvatarProps) {
+function UserAvatarBase({ initials, color, imageUrl, size = 40, fontSize = 14 }: UserAvatarProps) {
   const [failed, setFailed] = useState(false);
 
   // Reset the failure flag whenever the source changes so a new url gets a fresh try.
@@ -35,6 +36,10 @@ export function UserAvatar({ initials, color, imageUrl, size = 40, fontSize = 14
         <Image
           source={{ uri: imageUrl as string }}
           style={{ width: size, height: size, borderRadius: size / 2 }}
+          contentFit="cover"
+          cachePolicy="memory-disk"
+          transition={120}
+          recyclingKey={imageUrl as string}
           onError={() => setFailed(true)}
         />
       ) : (
@@ -43,6 +48,8 @@ export function UserAvatar({ initials, color, imageUrl, size = 40, fontSize = 14
     </View>
   );
 }
+
+export const UserAvatar = memo(UserAvatarBase);
 
 const styles = StyleSheet.create({
   avatar: {

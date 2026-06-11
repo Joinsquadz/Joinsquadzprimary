@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   ScrollView,
+  FlatList,
   TouchableOpacity,
   TextInput,
   Platform,
@@ -557,19 +558,26 @@ export default function FeedScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView
+      <FlatList
+        data={loading ? [] : posts}
+        keyExtractor={(post) => post.id}
         contentContainerStyle={{ paddingBottom: botPad }}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        initialNumToRender={6}
+        maxToRenderPerBatch={6}
+        windowSize={11}
+        removeClippedSubviews={false}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.primary} />
         }
-      >
-        {/* Moments ring row (friends + squad — the single Moments surface) */}
-        <MomentsRingRow mode="feed" reloadKey={momentsReload} />
+        ListHeaderComponent={
+          <>
+            {/* Moments ring row (friends + squad — the single Moments surface) */}
+            <MomentsRingRow mode="feed" reloadKey={momentsReload} />
 
-        {/* Composer */}
-        <View style={[styles.composer, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            {/* Composer */}
+            <View style={[styles.composer, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.composerTop}>
             <ProAvatar
               initials={currentUser.initials}
@@ -682,29 +690,30 @@ export default function FeedScreen() {
               )}
             </TouchableOpacity>
           </View>
-        </View>
-
-        {/* Feed list */}
-        {loading ? (
-          <View style={styles.loading}>
-            <ActivityIndicator color={colors.primary} />
-          </View>
-        ) : posts.length === 0 ? (
-          <View style={styles.empty}>
-            <Text style={{ fontSize: 52, marginBottom: 14 }}>✨</Text>
-            <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No vibes yet</Text>
-            <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>
-              Be the first to post. Share what's going on with your friends and squads.
-            </Text>
-          </View>
-        ) : (
-          posts.map((post) => {
-            const author = resolveUser(post.authorId);
-            const commentsOpen = openComments === post.id;
-            const comments = commentsByPost[post.id] ?? [];
-            return (
+            </View>
+          </>
+        }
+        ListEmptyComponent={
+          loading ? (
+            <View style={styles.loading}>
+              <ActivityIndicator color={colors.primary} />
+            </View>
+          ) : (
+            <View style={styles.empty}>
+              <Text style={{ fontSize: 52, marginBottom: 14 }}>✨</Text>
+              <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No vibes yet</Text>
+              <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>
+                Be the first to post. Share what's going on with your friends and squads.
+              </Text>
+            </View>
+          )
+        }
+        renderItem={({ item: post }) => {
+          const author = resolveUser(post.authorId);
+          const commentsOpen = openComments === post.id;
+          const comments = commentsByPost[post.id] ?? [];
+          return (
               <View
-                key={post.id}
                 style={[styles.post, { backgroundColor: colors.card, borderColor: colors.border }]}
               >
                 {/* author row */}
@@ -880,9 +889,8 @@ export default function FeedScreen() {
                 )}
               </View>
             );
-          })
-        )}
-      </ScrollView>
+          }}
+        />
     </View>
   );
 }

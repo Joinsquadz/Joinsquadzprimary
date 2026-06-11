@@ -308,6 +308,10 @@ export default function EventsScreen() {
           paddingBottom: insets.bottom + (Platform.OS === "web" ? 84 : 100),
         }}
         showsVerticalScrollIndicator={false}
+        initialNumToRender={8}
+        maxToRenderPerBatch={8}
+        windowSize={11}
+        removeClippedSubviews={Platform.OS !== "web"}
         ListEmptyComponent={
           eventsLoading ? (
             <View style={styles.empty}>

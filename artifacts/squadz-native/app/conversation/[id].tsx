@@ -3,7 +3,7 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
+  FlatList,
   TouchableOpacity,
   TextInput,
   Platform,
@@ -78,7 +78,7 @@ export default function ConversationScreen() {
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState("");
   const [uploading, setUploading] = useState(false);
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<FlatList<ChatMessage>>(null);
 
   const listItem = conversations.find((c) => c.id === conversationId);
 
@@ -445,12 +445,18 @@ export default function ConversationScreen() {
             <ActivityIndicator color={colors.primary} />
           </View>
         ) : (
-          <ScrollView
+          <FlatList
             ref={scrollRef}
+            data={messages}
+            keyExtractor={(m) => m.id}
             contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 24 }}
             showsVerticalScrollIndicator={false}
-          >
-            {messages.length === 0 ? (
+            onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
+            initialNumToRender={12}
+            maxToRenderPerBatch={12}
+            windowSize={11}
+            removeClippedSubviews={Platform.OS !== "web"}
+            ListEmptyComponent={
               <View style={styles.empty}>
                 <Ionicons name="chatbubbles-outline" size={40} color={colors.textDim} />
                 <Text style={[styles.emptyTitle, { color: colors.foreground }]}>
@@ -460,15 +466,15 @@ export default function ConversationScreen() {
                   Send the first message below
                 </Text>
               </View>
-            ) : (
-              messages.map((m, idx) => {
+            }
+            renderItem={({ item: m, index: idx }) => {
                 const mine = m.senderId === currentUser.id;
                 const sender = participantMap.get(m.senderId);
                 const senderName = participantName(sender);
                 const showName = !mine && convType === "squad";
                 const receipt = mine && idx === lastMineIndex ? readReceipt(m) : null;
                 return (
-                  <View key={m.id}>
+                  <View>
                     <View style={[styles.msgRow, mine && { flexDirection: "row-reverse" }]}>
                       {!mine && (
                         <ProAvatar
@@ -596,9 +602,8 @@ export default function ConversationScreen() {
                     </View>
                   </View>
                 );
-              })
-            )}
-          </ScrollView>
+            }}
+          />
         )}
 
         <View
