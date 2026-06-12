@@ -1,0 +1,120 @@
+SquadZ — Pre-Launch Bug Fix Prompt
+Fix all findings from the multi-account UI/UX audit in the order listed. Confirm approach before coding each fix. Do not add new features. Run the full test suite after all fixes are complete and provide a final go/no-go summary.
+
+FIX 1 — C1: Cold-start notification deep links ignored (Critical)
+In app/_layout.tsx, add a getLastNotificationResponseAsync() call on mount alongside the existing addNotificationResponseReceivedListener. When the app launches from a killed state via a notification tap, read the launch notification and route to its target using the same deep-link logic already in the listener.
+This must handle every notification type correctly:
+
+RSVP notification → correct event screen
+DM notification → correct conversation screen
+Event notification → correct event screen
+Squad notification → correct squad screen
+Vault comment notification → correct VaultMediaDetail screen with the specific photo
+
+Verify: kill the app, send a push notification of each type, tap it, confirm the user lands on the correct screen every time.
+
+FIX 2 — H1: Event limit mismatch — client says 3, server says 5 (High)
+Remove the hardcoded FREE_EVENT_LIMIT = 3 constant from create.tsx. The correct limit is 5 per rolling 12-month window as set on the server.
+Create a single source of truth: expose the event limit from the API so the client reads it dynamically rather than hardcoding it. This prevents client/server drift from ever happening again. Update all UI copy, UpgradeModal trigger copy, and counter displays that reference the event limit to consistently reflect 5.
+Verify: free user creates 5 events — no block. Attempts 6th — UpgradeModal appears. UI shows "5/5 events used" not "3/3".
+
+FIX 3 — H3: Vault comment notification doesn't open the specific photo (High)
+In app/_layout.tsx, update the vault case in the notification router to read photoId from the push payload. Navigate directly to VaultMediaDetail with that photoId rather than the generic vault screen.
+If squadId is not included in the push payload for vault comment notifications, add it to the push payload at send time in the server notification handler so the router has everything it needs.
+Verify: user receives a vault comment notification, taps it from both killed state and backgrounded state, lands directly on the correct VaultMediaDetail screen showing the specific photo with comments visible.
+
+FIX 4 — M1: Creator leaves squad, creatorId not reassigned (Medium)
+This was supposed to be fixed in the B1 fix earlier in this build but the audit confirms creatorId is still not being reassigned when the creator leaves. Investigate why the fix did not take and correct it.
+Intended behavior: when the creator leaves a squad, creatorId transfers immediately to the first entry in the remaining memberIds array (the longest-standing member). If no members remain after the creator leaves, delete the squad entirely.
+The UI already shows a warning that ownership will transfer — the server must actually execute the transfer.
+Add or update tests confirming:
+
+Creator leaves with remaining members → creatorId is the new longest-standing member
+Creator leaves as last member → squad is deleted
+New creator can delete the squad and manage invite permissions
+
+Verify: User 1 (creator) leaves a squad with Users 2 and 3 present. Confirm creatorId in the database is now User 2. Confirm User 2 can delete the squad and manage invites. Confirm User 1 no longer has creator permissions.
+
+FIX 5 — M4: Gold ring doesn't appear immediately after upgrade (Medium)
+After a successful Stripe checkout, the celebration screen tells the user their gold ring is live. But UserCacheContext is not busted for the current user on checkout success, so surfaces that cached the free state still show no gold ring until the user navigates away or the cache expires.
+On successful checkout completion, immediately bust the UserCacheContext for the current user so the gold ring appears across all surfaces — Feed, squad member lists, chat, Moments ring rows, event attendee lists — without requiring any navigation or restart.
+The gold ring must be visually present on every surface by the time the celebration screen's "Let's go" button is tapped.
+Verify: complete upgrade flow on a test account. Tap "Let's go" on the celebration screen. Immediately check the Feed, a squad member list, and a chat thread. Gold ring must be visible on all three without navigating away first.
+
+FIX 6 — H2: Squad Moments audience picker is dead code — remove squad option (High)
+The Moments composer audience picker currently shows a Friends and Squad option but the Squad option is dead code — it always posts with audience: "friends" regardless of selection, and the feed union does not include squad-audience moments. This is misleading and broken.
+For launch, Moments are friends-only. Remove the squad audience option from the Moments composer UI entirely. The composer should no longer show an audience picker at all — Moments always post to Friends. Remove the dead picker code cleanly.
+Do not remove the backend squad-moments infrastructure — it will be used in a future release. Only remove the UI affordance that offers an option that doesn't work.
+Update any copy in the app that implies squad Moments are available. The Moments experience should be presented as friends-only consistently everywhere.
+Verify: Moments composer shows no audience picker. Posting a Moment always creates a friends-audience moment. No squad audience option exists anywhere in the UI. Backend squad-moment routes still exist but are not accessible from the client.
+
+FIX 7 — L1: Remove dead dm_gate copy from UpgradeModal (Low)
+UpgradeModal.tsx still defines a dm_gate trigger and copy ("Direct messages are a Squadz+ feature… unlock your full inbox") even though DMs are now fully free and no screen triggers this. Remove the dead dm_gate case and its associated copy from UpgradeModal entirely.
+Verify: no dm_gate trigger exists anywhere in the codebase after removal. UpgradeModal has no dead copy referencing DM gating.
+
+FIX 8 — M2: Moment reactions cannot be undone (Medium)
+POST /moments/:id/reactions exists but there is no DELETE endpoint. Once a user reacts to a Moment they cannot undo it. Feed reactions support undo — Moments should be consistent.
+Add DELETE /moments/:id/reactions to remove the current user's reaction from a Moment. Wire the client-side reaction toggle on Moments to call DELETE when the user taps a reaction they have already made, consistent with how feed reactions work.
+Verify: User reacts to a Moment — reaction appears. User taps reaction again — reaction is removed. Reaction count updates correctly in real time for all viewers.
+
+FIX 9 — M3: Orphaned Vibe shares after vault photo deletion (Medium)
+When a vault photo is shared to the Vibe Feed and then the original photo is deleted from the vault, the feed post references a missing media URL. The shared post shows broken media.
+Fix this by storing a copy of the media URL in the feed post at share time rather than referencing the vault photo directly. The Vibe post becomes independent of the vault item — deleting the vault photo does not affect the shared Vibe post.
+Verify: share a vault photo to Vibe. Delete the original vault photo. The Vibe post still shows the photo correctly with no broken media.
+
+FIX 10 — M5: Global SSE disconnect invisible on Home and Feed (Medium)
+The reconnect banner and tap-to-retry exist on squad detail and conversation screens but the background AppContext stream powering Home and Feed has no disconnect indicator. A user can sit on stale data with no signal.
+Add a global connection status indicator that appears on the Home screen and Feed when the AppContext SSE stream enters an error state. It should match the existing reconnect banner pattern already used on detail screens — a sticky banner with "Connection lost — tap to reconnect" that calls retry() on tap and dismisses on successful reconnection.
+Verify: simulate a network drop. Confirm the reconnect banner appears on both the Home screen and Feed. Tapping it reconnects successfully. Banner dismisses on reconnection.
+
+FIX 11 — M6: Photos vs Vault naming confusion (Medium)
+There are two surfaces with overlapping names — a Photos tab and a Vault screen — that serve different purposes (personal uploads vs shared squad media). This creates ambiguity about where a user should go to find their personal memories.
+Standardize the naming throughout the app:
+
+The shared per-squad media surface is the Squad Vault — always referred to as Vault in squad context
+The personal profile tab is the My Vault tab — rename any "Photos" tab references to "Vault" on the profile
+The profile entry point should read "Vault" consistently
+
+Update all labels, navigation titles, tab names, and any copy that references either surface to use this consistent naming. No user should be confused about which vault is theirs versus their squad's.
+Verify: every reference to "Photos" in the context of personal media is updated to "Vault." Squad vault and personal vault are clearly differentiated by context (squad screen vs profile screen) not by inconsistent naming.
+
+FIX 12 — M7: Cold empty states on Messages, Events, and Discover (Medium)
+Messages, Events, and Discover empty states are text-only with no actionable CTA. By contrast the Home screen empty states are excellent — adaptive, branded, and directive. Bring the other three up to the same standard.
+Messages empty state: "No messages yet. Start a conversation with a friend." with a CTA button that opens the new DM composer.
+Events empty state: "No events yet. Create one and get your squad together." with a CTA button that opens the event creation flow.
+Discover empty state: "No squads to discover yet. Invite your friends and start one." with a CTA button that opens the invite flow.
+All three should match the visual treatment of the Home empty states — branded, warm, with clear next actions. Never a dead end.
+Verify: view each screen with no content. Each shows the correct empty state with a functional CTA button that navigates to the correct next action.
+
+FIX 13 — L2: Feed empty state lacks a direct Post button (Low)
+The Feed empty state says "be the first to post" but the composer is elsewhere. Add a direct "Post a Vibe" CTA button to the feed empty state that opens the Vibe composer immediately.
+Verify: open the Feed with no posts. The empty state shows a "Post a Vibe" button. Tapping it opens the composer.
+
+FIX 14 — L4: Vault grid heart count lags the detail view (Low)
+The VaultMediaDetail view shows real-time heart counts via SSE. The vault grid only updates on refetch, so the count in the grid can lag behind what the detail view shows.
+When a heart is added or removed in VaultMediaDetail, also update the heart count in the parent grid view optimistically so they stay in sync without a full refetch.
+Verify: heart a photo in VaultMediaDetail. Return to the grid. The heart count in the grid matches the count in the detail view without requiring a pull-to-refresh.
+
+FIX 15 — L5: Favorites gate is leaky — free users can call POST /vault/favorites (Low)
+Free users cannot view their favorites list but can still successfully call POST /vault/favorites. Add a requiresPro check to POST /vault/favorites on the server to match the gate already on the favorites list endpoint.
+Verify: free user calls POST /vault/favorites directly — returns 403. Squadz+ user calls it — succeeds.
+
+FIX 16 — L8: Squads empty state feels cold (Low)
+The Squads empty state shows a plain emoji and dashed box. The rest of the app uses branded gradient hero treatments for empty states. Update the Squads empty state to match the visual warmth of the Home screen — branded, with an orange accent, a clear headline, and a CTA to create or join a squad.
+Verify: view the Squads tab with no squads. The empty state is visually consistent with the brand and has a functional CTA.
+
+FIX 17 — L9: Coach tour may not fire on resumed onboarding (Low)
+If onboarding is resumed after a crash post-squad-create, armTour() may not fire, meaning the new user never sees the welcome tip sequence.
+Ensure armTour() is called whenever a user lands in a squad for the first time regardless of whether they arrived via a fresh onboarding completion or a resumed onboarding flow. The hasSeenTips flag check already prevents duplicate tours — armTour() just needs to be called on both paths.
+Verify: simulate an interrupted onboarding that resumes. User lands in squad. Welcome tip sequence fires correctly. Completing or dismissing the tour sets hasSeenTips so it never fires again.
+
+Global Notes:
+
+Fix in the order listed — Critical first, then High, then Medium, then Low
+Confirm approach before coding each fix
+Do not add any new features
+Do not change anything outside the scope of each fix
+Run the full test suite after all fixes are complete
+Architect code review required before final sign-off
+Provide a final launch readiness summary with go/no-go after all fixes are verified
+
