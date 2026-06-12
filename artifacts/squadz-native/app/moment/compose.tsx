@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -16,6 +16,7 @@ import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import AttachmentVideo from "@/components/AttachmentVideo";
+import { SnapConfirm, type SnapConfirmHandle } from "@/components/SnapConfirm";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AppContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
@@ -38,6 +39,7 @@ export default function MomentComposeScreen() {
 
   const [picked, setPicked] = useState<Picked | null>(null);
   const [posting, setPosting] = useState(false);
+  const snapRef = useRef<SnapConfirmHandle>(null);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + 16;
@@ -126,7 +128,8 @@ export default function MomentComposeScreen() {
         return;
       }
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.back();
+      snapRef.current?.snap("Shared!");
+      setTimeout(() => router.back(), 850);
     } catch {
       Alert.alert("Couldn't share", "Please check your connection and try again.");
     } finally {
@@ -136,6 +139,7 @@ export default function MomentComposeScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
+      <SnapConfirm ref={snapRef} />
       <View style={[styles.header, { paddingTop: topPad + 8, borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => router.back()} hitSlop={8} style={styles.headerBtn}>
           <Ionicons name="chevron-back" size={24} color={colors.foreground} />

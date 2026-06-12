@@ -7,6 +7,7 @@ import { logger } from "../lib/logger";
 import { storage } from "../storage";
 import { sendPushNotifications } from "../lib/pushNotifications";
 import { resolveProStatus } from "../lib/proStatus";
+import { recordActivitySafe } from "../lib/activity";
 
 const router: IRouter = Router();
 
@@ -192,6 +193,13 @@ router.post("/users/friends", requireAuth, async (req: Request, res: Response): 
       ])
       .onConflictDoNothing();
     res.json({ ok: true });
+    recordActivitySafe({
+      recipientId: friendId,
+      actorId: userId,
+      type: "friend_added",
+      subjectType: "user",
+      subjectId: userId,
+    });
 
     // Fire-and-forget: tell the new friend they were added.
     void (async () => {

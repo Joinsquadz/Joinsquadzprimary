@@ -24,10 +24,13 @@ import { SkeletonBox } from "@/components/SkeletonBox";
 import { goingCount } from "@/lib/eventUtils";
 import { useUserCache } from "@/context/UserCacheContext";
 import type { ResolvedUser } from "@/context/UserCacheContext";
+import { useActivity } from "@/context/ActivityContext";
 import { ProAvatar } from "@/components/ProAvatar";
 import { UserAvatar } from "@/components/UserAvatar";
 import { GradientButton } from "@/components/GradientButton";
 import { LiveStatusBanner } from "@/components/LiveStatusBanner";
+import { CelebrationOverlay } from "@/components/CelebrationOverlay";
+import { claimOnce } from "@/lib/seenFlags";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
 type DiscoverEvent = { id: string; emoji: string; title: string; date: string; inviteCode: string };
@@ -58,10 +61,14 @@ export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { currentUser, authToken } = useAuth();
+  const { unreadCount: unreadActivity } = useActivity();
   const { events, squads, friends, eventsLoading, squadsLoading, joinEvent, joinSquad, friendCode } = useData();
   const [discoverEvents, setDiscoverEvents] = useState<DiscoverEvent[]>([]);
   const [discoverSquads, setDiscoverSquads] = useState<DiscoverSquad[]>([]);
   const [streaks, setStreaks] = useState<{ monthlyPlan: number; stayInTouch: number } | null>(null);
+  const [streakCelebration, setStreakCelebration] = useState<
+    { emoji: string; title: string; subtitle: string } | null
+  >(null);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [fabOpen, setFabOpen] = useState(false);
   const [pickerMode, setPickerMode] = useState<"find-time" | "invite" | "invite-choose" | null>(null);
@@ -75,10 +82,30 @@ export default function HomeScreen() {
     fetch(`${API_BASE}/api/streaks`, { headers: buildAuthHeaders(authToken) })
       .then((r) => (r.ok ? r.json() : null))
       .then((data: { monthlyPlan: number; stayInTouch: number } | null) => {
-        if (data) setStreaks(data);
+        if (!data) return;
+        setStreaks(data);
+        // B5: celebrate a streak milestone full-screen, once per value reached.
+        void (async () => {
+          if (data.monthlyPlan >= 2 && (await claimOnce(`streakmonthly_${data.monthlyPlan}`, currentUser.id))) {
+            setStreakCelebration({
+              emoji: "🔥",
+              title: `${data.monthlyPlan}-month streak!`,
+              subtitle: "You've planned something with your squad every month. Keep the fire going!",
+            });
+          } else if (
+            data.stayInTouch >= 2 &&
+            (await claimOnce(`streaktouch_${data.stayInTouch}`, currentUser.id))
+          ) {
+            setStreakCelebration({
+              emoji: "💬",
+              title: `${data.stayInTouch}-week streak!`,
+              subtitle: "You've stayed in touch with your crew week after week. Nice work!",
+            });
+          }
+        })();
       })
       .catch(() => {});
-  }, [authToken]);
+  }, [authToken, currentUser.id]);
 
   useEffect(() => {
     if (!authToken) return;
@@ -259,6 +286,11 @@ export default function HomeScreen() {
             style={[styles.bellBtn, { backgroundColor: colors.card }]}
           >
             <Ionicons name="notifications-outline" size={22} color={colors.foreground} />
+            {unreadActivity > 0 ? (
+              <View style={[styles.bellBadge, { backgroundColor: colors.primary, borderColor: colors.background }]}>
+                <Text style={styles.bellBadgeText}>{unreadActivity > 99 ? "99+" : unreadActivity}</Text>
+              </View>
+            ) : null}
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push("/profile"); }}
@@ -885,6 +917,14 @@ export default function HomeScreen() {
         trigger="squad_limit"
         onClose={() => setUpgradeVisible(false)}
       />
+      <CelebrationOverlay
+        visible={streakCelebration !== null}
+        emoji={streakCelebration?.emoji ?? "🔥"}
+        title={streakCelebration?.title ?? ""}
+        subtitle={streakCelebration?.subtitle}
+        ctaLabel="Keep it up"
+        onClose={() => setStreakCelebration(null)}
+      />
     </View>
   );
 }
@@ -977,6 +1017,12 @@ const styles = StyleSheet.create({
     width: 40, height: 40, borderRadius: 20,
     alignItems: "center", justifyContent: "center", position: "relative",
   },
+  bellBadge: {
+    position: "absolute", top: 2, right: 2,
+    minWidth: 18, height: 18, borderRadius: 9, borderWidth: 2,
+    alignItems: "center", justifyContent: "center", paddingHorizontal: 4,
+  },
+  bellBadgeText: { color: "#fff", fontSize: 10, fontWeight: "800" },
   body: { flex: 1 },
   section: { paddingHorizontal: 20, paddingTop: 20 },
   sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 14 },

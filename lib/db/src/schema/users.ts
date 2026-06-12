@@ -42,6 +42,7 @@ export const usersTable = pgTable("users", {
   hometown: text("hometown"),
   pushToken: text("push_token"),
   friendCode: text("friend_code").unique(),
+  activityLastReadAt: timestamp("activity_last_read_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().$onUpdate(() => new Date()),
 });

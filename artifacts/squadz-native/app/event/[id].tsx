@@ -30,6 +30,8 @@ import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { UserAvatar } from "@/components/UserAvatar";
 import { ProAvatar } from "@/components/ProAvatar";
 import { ContactSheet } from "@/components/ContactSheet";
+import { CelebrationOverlay } from "@/components/CelebrationOverlay";
+import { claimOnce } from "@/lib/seenFlags";
 import { goingCount } from "@/lib/eventUtils";
 import type { RsvpStatus } from "@/types";
 import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
@@ -102,7 +104,25 @@ export default function EventDetailScreen() {
   }, [event?.id]);
   const [availabilityTitle, setAvailabilityTitle] = useState<string | null>(null);
   const [newResponseCount, setNewResponseCount] = useState(0);
+  const [firstRsvpCelebration, setFirstRsvpCelebration] = useState(false);
   const { authToken } = useAuth();
+
+  // B6: the host's first "going" RSVP (from anyone but themselves) is a moment —
+  // celebrate it full-screen once per event.
+  useEffect(() => {
+    if (!event || !id) return;
+    if (event.hostId !== currentUser.id) return;
+    const goingOthers = Object.entries(event.rsvps).filter(
+      ([uid, s]) => s === "going" && uid !== event.hostId,
+    ).length;
+    if (goingOthers < 1) return;
+    void (async () => {
+      if (await claimOnce(`firstrsvp_${id}`, currentUser.id)) {
+        setFirstRsvpCelebration(true);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [event?.rsvps, id, currentUser.id]);
 
   const authHeaders = useCallback((): HeadersInit => {
     return buildAuthHeaders(authToken);
@@ -1726,6 +1746,14 @@ export default function EventDetailScreen() {
         visible={contactOpen}
         member={contactMember}
         onClose={() => setContactOpen(false)}
+      />
+      <CelebrationOverlay
+        visible={firstRsvpCelebration}
+        emoji="🎉"
+        title="Your first RSVP!"
+        subtitle="Someone's coming. The plan is officially happening!"
+        ctaLabel="Let's go"
+        onClose={() => setFirstRsvpCelebration(false)}
       />
     </View>
   );

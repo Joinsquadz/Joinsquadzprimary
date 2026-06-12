@@ -1,140 +1,388 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
+  FlatList,
   TouchableOpacity,
   Platform,
-  Alert,
+  Image,
+  ActivityIndicator,
+  Modal,
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
+import { API_BASE, buildAuthHeaders, resolveUploadedUrl } from "@/lib/api";
+import { useAuth } from "@/context/AppContext";
+import { useActivity } from "@/context/ActivityContext";
+import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
+import { ProAvatar } from "@/components/ProAvatar";
 
-type Tab = "reminders" | "feed";
+type ActivityMeta = {
+  commentPreview?: string;
+  emoji?: string;
+  rsvpStatus?: "going" | "maybe" | "notgoing";
+  subjectName?: string;
+  subjectEmoji?: string;
+  squadId?: string;
+  photoId?: number;
+  thumbUrl?: string;
+};
 
-const REMINDERS = [
-  { id: "r1", icon: "flame-outline" as const, color: "#FF5C3A", title: "Rooftop BBQ is tomorrow!", sub: "RSVP before 5 PM tonight", action: "RSVP", eventId: "e1" },
-  { id: "r2", icon: "list-outline" as const, color: "#FFB547", title: "2 tasks still open", sub: "Game Night · Jun 11", action: "View", eventId: "e2" },
-  { id: "r3", icon: "game-controller-outline" as const, color: "#4A9EFF", title: "Game Night in 3 days", sub: "Marcus's Place · 7:00 PM", action: "View", eventId: "e2" },
-  { id: "r4", icon: "person-add-outline" as const, color: "#A855F7", title: "Alex Chen wants to join", sub: "The Usual Suspects", action: "Review", eventId: null },
-];
+type ActivityItem = {
+  id: string;
+  type: string;
+  subjectType: string | null;
+  subjectId: string | null;
+  grouped: boolean;
+  actorIds: string[];
+  actorCount: number;
+  createdAt: string;
+  read: boolean;
+  meta: ActivityMeta | null;
+};
 
-const FEED = [
-  { id: "f1", time: "2h ago", text: "Marcus Chen added a new poll to Rooftop BBQ", emoji: "🗳️" },
-  { id: "f2", time: "4h ago", text: "Sarah Kim RSVP'd to Beach Day", emoji: "🏖️" },
-  { id: "f3", time: "Yesterday", text: "Jamie Lee created Birthday Bash in Work Crew", emoji: "🎉" },
-  { id: "f4", time: "2 days ago", text: "Alex Chen completed the task 'Set up TV'", emoji: "✅" },
-  { id: "f5", time: "3 days ago", text: "You joined The Usual Suspects", emoji: "🔥" },
-];
+const PAGE_LIMIT = 30;
+
+function relativeTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "";
+  const diff = Date.now() - then;
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "now";
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d}d`;
+  const w = Math.floor(d / 7);
+  if (w < 5) return `${w}w`;
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function actorsLabel(names: string[], total: number): string {
+  const first = names[0] ?? "Someone";
+  if (total <= 1) return first;
+  if (total === 2) return `${first} and ${names[1] ?? "1 other"}`;
+  return `${first} and ${total - 1} others`;
+}
 
 export default function ActivityScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const [tab, setTab] = useState<Tab>("reminders");
-  const [reminders, setReminders] = useState(REMINDERS);
+  const { authToken } = useAuth();
+  const { markAllRead, subscribe } = useActivity();
+  const { resolveUser, prefetchUsers } = useUserCache();
+
+  const [items, setItems] = useState<ActivityItem[]>([]);
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [sheetActors, setSheetActors] = useState<ResolvedUser[] | null>(null);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 84 : 100);
 
-  const dismissReminder = (id: string) =>
-    setReminders((prev) => prev.filter((r) => r.id !== id));
+  const fetchPage = useCallback(
+    async (pageNum: number): Promise<{ items: ActivityItem[]; hasMore: boolean } | null> => {
+      if (!authToken) return null;
+      try {
+        const res = await fetch(
+          `${API_BASE}/api/activity?page=${pageNum}&limit=${PAGE_LIMIT}`,
+          { headers: buildAuthHeaders(authToken) },
+        );
+        if (!res.ok) return null;
+        const data = (await res.json()) as { items: ActivityItem[]; hasMore: boolean };
+        const allIds = data.items.flatMap((i) => i.actorIds);
+        if (allIds.length) prefetchUsers(allIds);
+        return data;
+      } catch {
+        return null;
+      }
+    },
+    [authToken, prefetchUsers],
+  );
+
+  const loadFirst = useCallback(async () => {
+    const data = await fetchPage(0);
+    if (data) {
+      setItems(data.items);
+      setHasMore(data.hasMore);
+      setPage(0);
+    }
+    setLoading(false);
+    setRefreshing(false);
+  }, [fetchPage]);
+
+  // Initial load + mark read so the badge clears when the screen opens.
+  useEffect(() => {
+    void loadFirst();
+    markAllRead();
+  }, [loadFirst, markAllRead]);
+
+  // Live refresh when a new activity arrives while the screen is open.
+  useEffect(() => {
+    const unsub = subscribe(() => {
+      void (async () => {
+        const data = await fetchPage(0);
+        if (data) {
+          setItems(data.items);
+          setHasMore(data.hasMore);
+          setPage(0);
+        }
+        markAllRead();
+      })();
+    });
+    return unsub;
+  }, [subscribe, fetchPage, markAllRead]);
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    const next = page + 1;
+    const data = await fetchPage(next);
+    if (data) {
+      setItems((prev) => [...prev, ...data.items]);
+      setHasMore(data.hasMore);
+      setPage(next);
+    }
+    setLoadingMore(false);
+  }, [loadingMore, hasMore, page, fetchPage]);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    void loadFirst();
+  }, [loadFirst]);
+
+  const navigate = useCallback((item: ActivityItem) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const meta = item.meta ?? {};
+    switch (item.type) {
+      case "friend_added":
+        if (item.subjectId) {
+          router.push({ pathname: "/user/[id]", params: { id: item.subjectId } } as never);
+        }
+        break;
+      case "vibe_reaction":
+      case "vibe_comment":
+        router.navigate("/(tabs)/feed" as never);
+        break;
+      case "vault_reaction":
+      case "vault_comment":
+        if (meta.photoId) {
+          router.push({
+            pathname: "/vault",
+            params: {
+              photoId: String(meta.photoId),
+              ...(meta.squadId ? { squadId: meta.squadId } : {}),
+            },
+          } as never);
+        } else if (meta.squadId) {
+          router.push({ pathname: "/vault", params: { squadId: meta.squadId } } as never);
+        } else {
+          router.push("/vault" as never);
+        }
+        break;
+      case "rsvp":
+        if (item.subjectId) {
+          router.push({ pathname: "/event/[id]", params: { id: item.subjectId } } as never);
+        }
+        break;
+      case "squad_join": {
+        const sid = meta.squadId ?? item.subjectId;
+        if (sid) router.push({ pathname: "/squad/[id]", params: { id: sid } } as never);
+        break;
+      }
+    }
+  }, []);
+
+  const openActorSheet = useCallback(
+    (item: ActivityItem) => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      setSheetActors(item.actorIds.map((id) => resolveUser(id)));
+    },
+    [resolveUser],
+  );
+
+  const renderItem = useCallback(
+    ({ item }: { item: ActivityItem }) => {
+      const meta = item.meta ?? {};
+      const names = item.actorIds.map((id) => resolveUser(id).name);
+      const lead = actorsLabel(names, item.actorCount);
+      const primary = resolveUser(item.actorIds[0] ?? "");
+
+      let action = "";
+      let preview: string | null = null;
+      switch (item.type) {
+        case "friend_added":
+          action = "added you as a friend";
+          break;
+        case "vibe_reaction":
+          action = `reacted ${meta.emoji ?? "❤️"} to your post`;
+          break;
+        case "vibe_comment":
+          action = "commented on your post";
+          preview = meta.commentPreview ?? null;
+          break;
+        case "vault_reaction":
+          action = "hearted your photo";
+          break;
+        case "vault_comment":
+          action = "commented on your photo";
+          preview = meta.commentPreview ?? null;
+          break;
+        case "rsvp": {
+          const verb =
+            meta.rsvpStatus === "going"
+              ? "is going to"
+              : meta.rsvpStatus === "maybe"
+              ? "might go to"
+              : "RSVP'd to";
+          action = `${verb} ${meta.subjectEmoji ?? ""} ${meta.subjectName ?? "your event"}`.trim();
+          break;
+        }
+        case "squad_join":
+          action = `joined ${meta.subjectEmoji ?? ""} ${meta.subjectName ?? "your squad"}`.trim();
+          break;
+      }
+
+      const thumb = meta.thumbUrl ? resolveUploadedUrl(meta.thumbUrl) : null;
+
+      return (
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => navigate(item)}
+          style={[
+            styles.row,
+            { borderBottomColor: colors.border },
+            !item.read && { backgroundColor: colors.primary + "0D" },
+          ]}
+        >
+          <TouchableOpacity
+            disabled={!item.grouped || item.actorCount <= 1}
+            onPress={() => openActorSheet(item)}
+            style={styles.avatarWrap}
+          >
+            <ProAvatar
+              initials={primary.initials}
+              color={primary.color}
+              imageUrl={primary.profileImageUrl}
+              isPro={primary.isPro}
+              size={44}
+              fontSize={16}
+            />
+            {item.grouped && item.actorCount > 1 ? (
+              <View style={[styles.countBadge, { backgroundColor: colors.primary, borderColor: colors.background }]}>
+                <Text style={styles.countBadgeText}>+{item.actorCount - 1}</Text>
+              </View>
+            ) : null}
+          </TouchableOpacity>
+
+          <View style={styles.body}>
+            <Text style={[styles.text, { color: colors.foreground }]}>
+              <Text style={styles.bold}>{lead}</Text> {action}
+            </Text>
+            {preview ? (
+              <Text style={[styles.preview, { color: colors.mutedForeground }]} numberOfLines={1}>
+                “{preview}”
+              </Text>
+            ) : null}
+            <Text style={[styles.time, { color: colors.textDim }]}>{relativeTime(item.createdAt)}</Text>
+          </View>
+
+          {thumb ? (
+            <Image source={{ uri: thumb }} style={styles.thumb} />
+          ) : !item.read ? (
+            <View style={[styles.unreadDot, { backgroundColor: colors.primary }]} />
+          ) : null}
+        </TouchableOpacity>
+      );
+    },
+    [colors, navigate, openActorSheet, resolveUser],
+  );
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      {/* Header */}
       <View style={[styles.header, { paddingTop: topPad + 8, borderBottomColor: colors.border }]}>
         <Text style={[styles.title, { color: colors.foreground }]}>Activity</Text>
-        <View style={[styles.tabs, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          {(["reminders", "feed"] as Tab[]).map((t) => (
-            <TouchableOpacity
-              key={t}
-              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setTab(t); }}
-              style={[styles.tabBtn, tab === t && { backgroundColor: colors.primary }]}
-            >
-              <Text style={[styles.tabText, { color: tab === t ? "#fff" : colors.mutedForeground }]}>
-                {t === "reminders" ? "Reminders" : "Feed"}
-              </Text>
-              {t === "reminders" && reminders.length > 0 && (
-                <View style={[styles.tabBadge, { backgroundColor: tab === t ? "rgba(255,255,255,0.25)" : colors.primary }]}>
-                  <Text style={[styles.tabBadgeText, { color: tab === t ? "#fff" : "#fff" }]}>{reminders.length}</Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          ))}
-        </View>
       </View>
 
-      <ScrollView
-        contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: botPad }}
-        showsVerticalScrollIndicator={false}
+      {loading ? (
+        <View style={styles.center}>
+          <ActivityIndicator color={colors.primary} />
+        </View>
+      ) : (
+        <FlatList
+          data={items}
+          keyExtractor={(i) => i.id}
+          renderItem={renderItem}
+          contentContainerStyle={{ paddingBottom: botPad }}
+          showsVerticalScrollIndicator={false}
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.4}
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          ListEmptyComponent={
+            <View style={styles.emptyState}>
+              <Text style={{ fontSize: 40, marginBottom: 10 }}>🔔</Text>
+              <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No activity yet</Text>
+              <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>
+                When friends react, comment, RSVP, or join your squads, it shows up here.
+              </Text>
+            </View>
+          }
+          ListFooterComponent={
+            loadingMore ? (
+              <View style={styles.footer}>
+                <ActivityIndicator color={colors.primary} />
+              </View>
+            ) : null
+          }
+        />
+      )}
+
+      <Modal
+        visible={!!sheetActors}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSheetActors(null)}
       >
-        {tab === "reminders"
-          ? reminders.length === 0
-            ? (
-              <View style={styles.emptyState}>
-                <Text style={{ fontSize: 40, marginBottom: 10 }}>🎉</Text>
-                <Text style={[styles.emptyTitle, { color: colors.foreground }]}>You're all caught up</Text>
-                <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>
-                  No reminders right now. New nudges will show up here.
-                </Text>
-              </View>
-            )
-            : reminders.map((r) => (
-              <View key={r.id} style={[styles.reminderCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                <View style={[styles.reminderIcon, { backgroundColor: r.color + "20" }]}>
-                  <Ionicons name={r.icon} size={22} color={r.color} />
-                </View>
-                <View style={styles.reminderBody}>
-                  <Text style={[styles.reminderTitle, { color: colors.foreground }]}>{r.title}</Text>
-                  <Text style={[styles.reminderSub, { color: colors.mutedForeground }]}>{r.sub}</Text>
-                </View>
-                <TouchableOpacity
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    if (r.action === "Approve" || r.action === "Review") {
-                      Alert.alert("Join Request", "Alex Chen wants to join The Usual Suspects.", [
-                        {
-                          text: "Decline",
-                          style: "destructive",
-                          onPress: () => {
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                            dismissReminder(r.id);
-                          },
-                        },
-                        {
-                          text: "Approve",
-                          style: "default",
-                          onPress: () => {
-                            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                            dismissReminder(r.id);
-                            Alert.alert("Approved", "Alex Chen is now in The Usual Suspects. 🎉");
-                          },
-                        },
-                      ]);
-                    } else {
-                      dismissReminder(r.id);
-                    }
-                  }}
-                  style={[styles.reminderAction, { backgroundColor: r.color + "20", borderColor: r.color + "40" }]}
-                >
-                  <Text style={[styles.reminderActionText, { color: r.color }]}>{r.action}</Text>
-                </TouchableOpacity>
-              </View>
-            ))
-          : FEED.map((f) => (
-              <View key={f.id} style={[styles.feedItem, { borderBottomColor: colors.border }]}>
-                <Text style={styles.feedEmoji}>{f.emoji}</Text>
-                <View style={styles.feedBody}>
-                  <Text style={[styles.feedText, { color: colors.foreground }]}>{f.text}</Text>
-                  <Text style={[styles.feedTime, { color: colors.textDim }]}>{f.time}</Text>
-                </View>
-              </View>
+        <TouchableOpacity
+          style={styles.sheetBackdrop}
+          activeOpacity={1}
+          onPress={() => setSheetActors(null)}
+        >
+          <View style={[styles.sheet, { backgroundColor: colors.card, paddingBottom: insets.bottom + 16 }]}>
+            <View style={[styles.sheetHandle, { backgroundColor: colors.border }]} />
+            <Text style={[styles.sheetTitle, { color: colors.foreground }]}>People</Text>
+            {(sheetActors ?? []).map((u) => (
+              <TouchableOpacity
+                key={u.id}
+                style={styles.sheetRow}
+                onPress={() => {
+                  setSheetActors(null);
+                  router.push({ pathname: "/user/[id]", params: { id: u.id } } as never);
+                }}
+              >
+                <ProAvatar
+                  initials={u.initials}
+                  color={u.color}
+                  imageUrl={u.profileImageUrl}
+                  isPro={u.isPro}
+                  size={40}
+                  fontSize={15}
+                />
+                <Text style={[styles.sheetName, { color: colors.foreground }]}>{u.name}</Text>
+              </TouchableOpacity>
             ))}
-      </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -142,28 +390,45 @@ export default function ActivityScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   header: { paddingHorizontal: 20, paddingBottom: 12, borderBottomWidth: 1 },
-  title: { fontSize: 28, fontWeight: "900", marginBottom: 12 },
-  tabs: { flexDirection: "row", borderRadius: 12, borderWidth: 1, padding: 3, gap: 2 },
-  tabBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 10, paddingVertical: 8 },
-  tabText: { fontSize: 14, fontWeight: "700" },
-  tabBadge: { width: 18, height: 18, borderRadius: 9, alignItems: "center", justifyContent: "center" },
-  tabBadgeText: { fontSize: 10, fontWeight: "800" },
-  reminderCard: {
-    flexDirection: "row", alignItems: "center", gap: 12,
-    borderRadius: 16, borderWidth: 1, padding: 14, marginBottom: 10,
+  title: { fontSize: 28, fontWeight: "900" },
+  center: { flex: 1, alignItems: "center", justifyContent: "center" },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
   },
-  reminderIcon: { width: 44, height: 44, borderRadius: 13, alignItems: "center", justifyContent: "center", flexShrink: 0 },
-  reminderBody: { flex: 1 },
-  reminderTitle: { fontSize: 14, fontWeight: "700", marginBottom: 2 },
-  reminderSub: { fontSize: 12 },
-  reminderAction: { borderRadius: 20, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 6 },
-  reminderActionText: { fontSize: 12, fontWeight: "700" },
-  emptyState: { alignItems: "center", paddingVertical: 64, paddingHorizontal: 32 },
+  avatarWrap: { width: 44, height: 44 },
+  countBadge: {
+    position: "absolute",
+    bottom: -2,
+    right: -4,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+  },
+  countBadgeText: { color: "#fff", fontSize: 10, fontWeight: "800" },
+  body: { flex: 1 },
+  text: { fontSize: 14, lineHeight: 20 },
+  bold: { fontWeight: "800" },
+  preview: { fontSize: 13, marginTop: 2 },
+  time: { fontSize: 12, marginTop: 3 },
+  thumb: { width: 44, height: 44, borderRadius: 8, backgroundColor: "#0002" },
+  unreadDot: { width: 9, height: 9, borderRadius: 5 },
+  emptyState: { alignItems: "center", paddingVertical: 80, paddingHorizontal: 36 },
   emptyTitle: { fontSize: 17, fontWeight: "800", marginBottom: 6 },
   emptySub: { fontSize: 13, textAlign: "center", lineHeight: 18 },
-  feedItem: { flexDirection: "row", gap: 12, paddingVertical: 14, borderBottomWidth: 1 },
-  feedEmoji: { fontSize: 20, marginTop: 1 },
-  feedBody: { flex: 1 },
-  feedText: { fontSize: 14, lineHeight: 20, marginBottom: 4 },
-  feedTime: { fontSize: 12 },
+  footer: { paddingVertical: 20 },
+  sheetBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+  sheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingHorizontal: 20, paddingTop: 10 },
+  sheetHandle: { width: 40, height: 4, borderRadius: 2, alignSelf: "center", marginBottom: 14 },
+  sheetTitle: { fontSize: 16, fontWeight: "800", marginBottom: 12 },
+  sheetRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 8 },
+  sheetName: { fontSize: 15, fontWeight: "600" },
 });

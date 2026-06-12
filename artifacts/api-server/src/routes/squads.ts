@@ -8,6 +8,7 @@ import { storage } from "../storage";
 import { logger } from "../lib/logger";
 import { sendPushNotifications } from "../lib/pushNotifications";
 import { emitSquadUpdate, onSquadUpdate } from "../lib/squadEvents";
+import { recordActivitySafe } from "../lib/activity";
 import { resolveProStatus, resolveProStatusForIds } from "../lib/proStatus";
 
 function generateInviteCode(): string {
@@ -157,6 +158,16 @@ router.post("/squads/:id/join", requireAuth, async (req: Request, res: Response)
   }
   res.status(201).json({ squad: updated, alreadyMember: false });
   emitSquadUpdate(id);
+  if (squad.creatorId) {
+    recordActivitySafe({
+      recipientId: squad.creatorId,
+      actorId: userId,
+      type: "squad_join",
+      subjectType: "squad",
+      subjectId: id,
+      meta: { subjectName: squad.name, subjectEmoji: squad.emoji, squadId: id },
+    });
+  }
 
   // Fire-and-forget: notify existing members that someone joined, and send a
   // welcome push to the joiner themselves.

@@ -15,6 +15,7 @@ import { storage } from "../storage";
 import { logger } from "../lib/logger";
 import { sendPushNotifications } from "../lib/pushNotifications";
 import { emitFeedUpdate, onFeedUpdate } from "../lib/feedEvents";
+import { recordActivitySafe, removeActivity } from "../lib/activity";
 
 const router: IRouter = Router();
 
@@ -423,6 +424,15 @@ router.post(
       res.status(201).json({ ok: true });
       emitFeedUpdate(post.authorId);
       emitFeedUpdate(userId);
+      recordActivitySafe({
+        recipientId: post.authorId,
+        actorId: userId,
+        type: "vibe_reaction",
+        subjectType: "post",
+        subjectId: id,
+        meta: { emoji: parsed.data.emoji, thumbUrl: post.mediaUrl ?? undefined },
+        dedupe: true,
+      });
       // Also nudge everyone else who can see this post so the reaction shows up
       // live for other viewers, not just the author and the reactor.
       void (async () => {
@@ -458,6 +468,12 @@ router.delete(
       const [post] = await db.select().from(feedPostsTable).where(eq(feedPostsTable.id, id));
       if (post) {
         emitFeedUpdate(post.authorId);
+        removeActivity({
+          recipientId: post.authorId,
+          actorId: userId,
+          type: "vibe_reaction",
+          subjectId: id,
+        });
         // Nudge all other viewers too so the removed reaction updates live.
         void (async () => {
           const recipientIds = await feedPostReaders(post.authorId, post.audience);
@@ -543,6 +559,14 @@ router.post(
       });
       emitFeedUpdate(post.authorId);
       emitFeedUpdate(userId);
+      recordActivitySafe({
+        recipientId: post.authorId,
+        actorId: userId,
+        type: "vibe_comment",
+        subjectType: "post",
+        subjectId: id,
+        meta: { commentPreview: parsed.data.text.slice(0, 80), thumbUrl: post.mediaUrl ?? undefined },
+      });
 
       // Notify post author of the comment (unless commenting on own post).
       if (post.authorId !== userId) {

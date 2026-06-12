@@ -27,6 +27,8 @@ import { useColors } from "@/hooks/useColors";
 import { useAvailabilityStream } from "@/hooks/useAvailabilityStream";
 import { useInteractionGuard, useModalGuard } from "@/hooks/useInteractionGuard";
 import { useAuth } from "@/context/AppContext";
+import { useToastBanner } from "@/context/ToastBannerContext";
+import { claimOnce } from "@/lib/seenFlags";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { GradientButton } from "@/components/GradientButton";
 
@@ -211,6 +213,7 @@ export default function AvailabilityScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const { authToken, currentUser } = useAuth();
+  const { showBanner } = useToastBanner();
   const params = useLocalSearchParams<{ squadId?: string; eventId?: string; pollId?: string; from?: string; adhoc?: string; participantIds?: string }>();
   const squadId = params.squadId || undefined;
   const eventId = params.eventId || undefined;
@@ -581,6 +584,26 @@ export default function AvailabilityScreen() {
       setLoading(false);
     }
   }, [authToken, authHeaders, squadId, eventId, pollId, currentUser]);
+
+  // B7: poll-resolution nudge — when the creator's poll has a clear best time
+  // (2+ people free at the same slot), nudge them once to lock it in.
+  useEffect(() => {
+    if (!data?.poll || !data.best) return;
+    if (data.poll.createdBy !== currentUser?.id) return;
+    if (data.best.count < 2) return;
+    const best = data.best;
+    const thePollId = data.poll.id;
+    void (async () => {
+      if (await claimOnce(`pollnudge_${thePollId}`, currentUser?.id)) {
+        showBanner({
+          title: "You've got a winner! 🎯",
+          subtitle: `${prettyCell(best.cell)} works for ${best.count}/${best.total}. Tap to lock it in.`,
+          emoji: "🗓️",
+          durationMs: 6000,
+        });
+      }
+    })();
+  }, [data, currentUser?.id, showBanner]);
 
   const createPoll = useCallback(async () => {
     setCreating(true);

@@ -22,6 +22,9 @@ import { MessagesProvider } from "@/context/MessagesContext";
 import { UserCacheProvider } from "@/context/UserCacheContext";
 import { MutedSquadsProvider } from "@/context/MutedSquadsContext";
 import { TipsProvider } from "@/context/TipsContext";
+import { ActivityProvider } from "@/context/ActivityContext";
+import { ToastBannerProvider } from "@/context/ToastBannerContext";
+import { ActivityBannerSurfacer } from "@/components/ActivityBannerSurfacer";
 import { TipCoachMark } from "@/components/TipCoachMark";
 import { installWebAlert } from "@/lib/webAlert";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
@@ -398,7 +401,12 @@ export default function RootLayout() {
                   <UserCacheProvider>
                     <MessagesProvider>
                       <TipsProvider>
-                        <RootLayoutNav />
+                        <ActivityProvider>
+                          <ToastBannerProvider>
+                            <RootLayoutNav />
+                            <ActivityBannerSurfacer />
+                          </ToastBannerProvider>
+                        </ActivityProvider>
                       </TipsProvider>
                     </MessagesProvider>
                   </UserCacheProvider>

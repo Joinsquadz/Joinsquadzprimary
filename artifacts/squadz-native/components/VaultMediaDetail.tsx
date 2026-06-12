@@ -20,6 +20,8 @@ import { useToast } from "@/context/ToastContext";
 import { API_BASE, buildAuthHeaders, resolveUploadedUrl } from "@/lib/api";
 import { UserAvatar } from "@/components/UserAvatar";
 import AttachmentVideo from "@/components/AttachmentVideo";
+import { Bounceable } from "@/components/Bounceable";
+import { AnimatedCount } from "@/components/AnimatedCount";
 import { useVaultPhotoStream } from "@/hooks/useVaultPhotoStream";
 
 const CAPTION_MAX = 300;
@@ -390,13 +392,13 @@ export default function VaultMediaDetail({
 
             {/* Action bar */}
             <View style={styles.actionBar}>
-              <TouchableOpacity style={styles.action} onPress={toggleHeart} activeOpacity={0.7}>
+              <Bounceable style={styles.action} onPress={() => void toggleHeart()} peak={1.5}>
                 <Ionicons
                   name={hearted ? "heart" : "heart-outline"}
                   size={26}
                   color={hearted ? "#ff3b5c" : colors.foreground}
                 />
-              </TouchableOpacity>
+              </Bounceable>
               <TouchableOpacity
                 style={styles.action}
                 onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onToggleFavorite(photo.id); }}
@@ -424,8 +426,12 @@ export default function VaultMediaDetail({
                 style={styles.heartCountRow}
                 activeOpacity={0.7}
               >
+                <AnimatedCount
+                  value={heartCount}
+                  style={[styles.heartCountText, { color: colors.foreground }]}
+                />
                 <Text style={[styles.heartCountText, { color: colors.foreground }]}>
-                  {heartCount} {heartCount === 1 ? "like" : "likes"}
+                  {heartCount === 1 ? "like" : "likes"}
                 </Text>
                 <Ionicons
                   name={showHearts ? "chevron-up" : "chevron-down"}

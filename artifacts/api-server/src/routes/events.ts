@@ -7,6 +7,7 @@ import { requireAuth } from "../middleware/currentUser";
 import { logger } from "../lib/logger";
 import { sendPushNotifications } from "../lib/pushNotifications";
 import { emitEventUpdate, onEventUpdate } from "../lib/eventUpdates";
+import { recordActivitySafe, removeActivity } from "../lib/activity";
 
 const router: IRouter = Router();
 
@@ -414,6 +415,15 @@ router.post("/events/join", requireAuth, async (req: Request, res: Response): Pr
 
   res.json(event);
   emitEventUpdate(existing.id);
+  recordActivitySafe({
+    recipientId: event.hostId,
+    actorId: userId,
+    type: "rsvp",
+    subjectType: "event",
+    subjectId: event.id,
+    meta: { rsvpStatus: "going", subjectName: event.title, subjectEmoji: event.emoji },
+    dedupe: true,
+  });
 
   // Fire-and-forget: joining by invite code is an RSVP, so tell the host
   // someone is going (skip the self-host case).
@@ -581,6 +591,27 @@ router.post("/events/:id/rsvp", requireAuth, async (req: Request, res: Response)
   }
   res.json(event);
   emitEventUpdate(id);
+  // Activity feed only celebrates "going" RSVPs. If the user switches away from
+  // going (to maybe/notgoing), pull any existing row so the host's feed and the
+  // RSVP-momentum banner never show a stale "is going" for someone who backed out.
+  if (parsed.data.status === "going") {
+    recordActivitySafe({
+      recipientId: event.hostId,
+      actorId: userId,
+      type: "rsvp",
+      subjectType: "event",
+      subjectId: event.id,
+      meta: { rsvpStatus: "going", subjectName: event.title, subjectEmoji: event.emoji },
+      dedupe: true,
+    });
+  } else {
+    removeActivity({
+      recipientId: event.hostId,
+      actorId: userId,
+      type: "rsvp",
+      subjectId: event.id,
+    });
+  }
 
   // Fire-and-forget: tell the host who responded and how (skip self-RSVP).
   if (event.hostId !== userId) {

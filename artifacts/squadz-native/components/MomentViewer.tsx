@@ -18,9 +18,12 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import AttachmentVideo from "./AttachmentVideo";
 import { UserAvatar } from "./UserAvatar";
+import { Bounceable } from "./Bounceable";
+import { AnimatedCount } from "./AnimatedCount";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AppContext";
 import { useUserCache } from "@/context/UserCacheContext";
+import { useFeedStream } from "@/hooks/useFeedStream";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
 export type MomentItem = {
@@ -74,6 +77,7 @@ export function MomentViewer({ rings, initialRingIndex, onClose, onChanged }: Pr
   const [viewersLoading, setViewersLoading] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [reacted, setReacted] = useState<string | null>(null);
+  const [selfViewCount, setSelfViewCount] = useState(0);
 
   const progress = useRef(new Animated.Value(0)).current;
 
@@ -151,8 +155,9 @@ export function MomentViewer({ rings, initialRingIndex, onClose, onChanged }: Pr
     try {
       const res = await fetch(`${API_BASE}/api/moments/${moment.id}/viewers`, { headers });
       if (!res.ok) return;
-      const data = (await res.json()) as { viewers: Viewer[] };
+      const data = (await res.json()) as { viewers: Viewer[]; count?: number };
       setViewers(data.viewers ?? []);
+      setSelfViewCount(data.count ?? data.viewers?.length ?? 0);
     } catch {
       // ignore
     } finally {
@@ -160,6 +165,33 @@ export function MomentViewer({ rings, initialRingIndex, onClose, onChanged }: Pr
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [moment, authToken]);
+
+  // B8: live view count for the poster. Fetch on each own-moment change and
+  // refresh whenever the feed stream signals a new view/reaction.
+  const refreshSelfCount = useCallback(async () => {
+    if (!moment || !authToken || !ring?.isSelf) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/moments/${moment.id}/viewers`, { headers });
+      if (!res.ok) return;
+      const data = (await res.json()) as { viewers: Viewer[]; count?: number };
+      setSelfViewCount(data.count ?? data.viewers?.length ?? 0);
+    } catch {
+      // ignore
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [moment, authToken, ring]);
+
+  useEffect(() => {
+    setSelfViewCount(0);
+    if (ring?.isSelf) void refreshSelfCount();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ringIndex, momentIndex]);
+
+  useFeedStream({
+    authToken,
+    enabled: !!ring?.isSelf,
+    onUpdate: refreshSelfCount,
+  });
 
   const handleReact = useCallback(
     async (emoji: string) => {
@@ -332,22 +364,25 @@ export function MomentViewer({ rings, initialRingIndex, onClose, onChanged }: Pr
               activeOpacity={0.8}
             >
               <Ionicons name="eye-outline" size={18} color="#fff" />
-              <Text style={styles.viewerPillText}>See who viewed</Text>
+              <AnimatedCount value={selfViewCount} style={styles.viewerPillText} />
+              <Text style={styles.viewerPillText}>
+                {selfViewCount === 1 ? "view" : "views"}
+              </Text>
             </TouchableOpacity>
           ) : (
             <View style={styles.reactionRow}>
               {REACTIONS.map((emoji) => (
-                <TouchableOpacity
+                <Bounceable
                   key={emoji}
                   onPress={() => void handleReact(emoji)}
                   style={[
                     styles.reactionBtn,
                     reacted === emoji && { backgroundColor: "rgba(255,255,255,0.25)" },
                   ]}
-                  activeOpacity={0.7}
+                  peak={1.5}
                 >
                   <Text style={styles.reactionEmoji}>{emoji}</Text>
-                </TouchableOpacity>
+                </Bounceable>
               ))}
             </View>
           )}

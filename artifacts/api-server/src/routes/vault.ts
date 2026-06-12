@@ -9,6 +9,7 @@ import { sendPushNotifications } from "../lib/pushNotifications";
 import { db, feedPostsTable } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { copyStorageObject } from "../services/objectStorage";
+import { recordActivitySafe, removeActivity } from "../lib/activity";
 
 const router: IRouter = Router();
 
@@ -381,6 +382,34 @@ router.post("/vault/photos/:id/heart", requireAuth, async (req: Request, res: Re
     const result = await storage.toggleHeart(photoId, userId);
     emitVaultPhotoUpdate(photoId);
     res.json(result);
+
+    // Fire-and-forget: record/remove activity for the photo's uploader.
+    void (async () => {
+      const photo = await storage.getPhotoById(photoId);
+      if (!photo || photo.uploaderId === userId) return;
+      if (result.hearted) {
+        recordActivitySafe({
+          recipientId: photo.uploaderId,
+          actorId: userId,
+          type: "vault_reaction",
+          subjectType: "vault_photo",
+          subjectId: String(photoId),
+          meta: {
+            thumbUrl: photo.url,
+            photoId,
+            squadId: photo.squadId ? String(photo.squadId) : undefined,
+          },
+          dedupe: true,
+        });
+      } else {
+        removeActivity({
+          recipientId: photo.uploaderId,
+          actorId: userId,
+          type: "vault_reaction",
+          subjectId: String(photoId),
+        });
+      }
+    })();
   } catch (err) {
     logger.error({ err }, "Error toggling heart");
     res.status(500).json({ error: "Failed to toggle heart" });
@@ -467,6 +496,20 @@ router.post("/vault/photos/:id/comments", requireAuth, async (req: Request, res:
     const comment = await storage.addVaultComment(photoId, userId, parsed.data.text);
     emitVaultPhotoUpdate(photoId);
     res.status(201).json({ comment });
+
+    recordActivitySafe({
+      recipientId: photo.uploaderId,
+      actorId: userId,
+      type: "vault_comment",
+      subjectType: "vault_photo",
+      subjectId: String(photoId),
+      meta: {
+        commentPreview: parsed.data.text.slice(0, 80),
+        thumbUrl: photo.url,
+        photoId,
+        squadId: photo.squadId ? String(photo.squadId) : undefined,
+      },
+    });
 
     // Fire-and-forget: notify the uploader (never the commenter themselves),
     // gated on the friend-activity notification preference.

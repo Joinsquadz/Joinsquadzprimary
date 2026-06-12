@@ -20,6 +20,7 @@ import friendInviteRouter from "./friendInvite";
 import feedRouter from "./feed";
 import momentsRouter from "./moments";
 import accountRouter from "./account";
+import activityRouter from "./activity";
 
 const router: IRouter = Router();
 
@@ -44,5 +45,6 @@ router.use(friendInviteRouter);
 router.use(feedRouter);
 router.use(momentsRouter);
 router.use(accountRouter);
+router.use(activityRouter);
 
 export default router;

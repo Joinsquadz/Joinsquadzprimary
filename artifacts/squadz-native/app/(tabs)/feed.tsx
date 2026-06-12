@@ -24,6 +24,9 @@ import { useColors } from "@/hooks/useColors";
 import { useAuth, useData } from "@/context/AppContext";
 import { useUserCache } from "@/context/UserCacheContext";
 import { ProAvatar } from "@/components/ProAvatar";
+import { Bounceable } from "@/components/Bounceable";
+import { AnimatedCount } from "@/components/AnimatedCount";
+import { SnapConfirm, type SnapConfirmHandle } from "@/components/SnapConfirm";
 import { MomentsRingRow } from "@/components/MomentsRingRow";
 import { LiveStatusBanner } from "@/components/LiveStatusBanner";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
@@ -101,6 +104,7 @@ export default function FeedScreen() {
   const [picked, setPicked] = useState<PickedMedia | null>(null);
   const composerRef = useRef<TextInput>(null);
   const listRef = useRef<FlatList<FeedPost>>(null);
+  const snapRef = useRef<SnapConfirmHandle>(null);
 
   const focusComposer = useCallback(() => {
     listRef.current?.scrollToOffset({ offset: 0, animated: true });
@@ -421,6 +425,8 @@ export default function FeedScreen() {
       }
       setDraft("");
       setPicked(null);
+      snapRef.current?.snap("Posted!");
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       await fetchFeed();
     } catch {
       Alert.alert("Couldn't post", "Please check your connection and try again.");
@@ -612,6 +618,7 @@ export default function FeedScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
+      <SnapConfirm ref={snapRef} />
       {/* Header */}
       <View style={[styles.header, { paddingTop: topPad + 8, borderBottomColor: colors.border }]}>
         <Text style={[styles.title, { color: colors.foreground }]}>Vibe</Text>
@@ -881,7 +888,7 @@ export default function FeedScreen() {
                     const count = post.reactions[emoji] ?? 0;
                     const mine = post.myReactions.includes(emoji);
                     return (
-                      <TouchableOpacity
+                      <Bounceable
                         key={emoji}
                         onPress={() => void handleToggleReaction(post, emoji)}
                         style={[
@@ -891,20 +898,18 @@ export default function FeedScreen() {
                             borderColor: mine ? colors.primary : colors.border,
                           },
                         ]}
-                        activeOpacity={0.7}
                       >
                         <Text style={{ fontSize: 14 }}>{emoji}</Text>
                         {count > 0 && (
-                          <Text
+                          <AnimatedCount
+                            value={count}
                             style={[
                               styles.reactionCount,
                               { color: mine ? colors.primary : colors.mutedForeground },
                             ]}
-                          >
-                            {count}
-                          </Text>
+                          />
                         )}
-                      </TouchableOpacity>
+                      </Bounceable>
                     );
                   })}
                 </View>

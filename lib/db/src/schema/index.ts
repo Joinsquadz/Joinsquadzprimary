@@ -34,3 +34,4 @@ export * from "./feed";
 export * from "./moments";
 export * from "./uploads";
 export * from "./founding";
+export * from "./activity";
