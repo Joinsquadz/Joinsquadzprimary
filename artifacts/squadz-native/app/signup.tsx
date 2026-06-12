@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
   View,
   Text,
@@ -7,7 +7,6 @@ import {
   TextInput,
   Platform,
   StatusBar,
-  ScrollView,
   Alert,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
@@ -17,6 +16,7 @@ import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AppContext";
 import { SquadzIcon } from "@/components/SquadzIcon";
 import { GradientButton } from "@/components/GradientButton";
+import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 
 export default function SignupScreen() {
   const colors = useColors();
@@ -40,6 +40,10 @@ export default function SignupScreen() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const lastNameRef = useRef<TextInput>(null);
+  const emailRef = useRef<TextInput>(null);
+  const phoneRef = useRef<TextInput>(null);
+  const passwordRef = useRef<TextInput>(null);
 
   const hasInvite = !!params.inviteCode;
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
@@ -123,9 +127,8 @@ export default function SignupScreen() {
     <View style={[styles.screen, bg]}>
       <StatusBar barStyle="light-content" />
       <GlowBlobs />
-      <ScrollView
+      <KeyboardAwareScrollViewCompat
         contentContainerStyle={{ flexGrow: 1, paddingTop: topPad, paddingBottom: botPad + 16 }}
-        keyboardShouldPersistTaps="handled"
       >
         <TouchableOpacity onPress={() => router.back()} style={styles.back}>
           <Text style={[styles.backArrow, { color: colors.mutedForeground }]}>←</Text>
@@ -172,6 +175,8 @@ export default function SignupScreen() {
               <TextInput
                 placeholder="First name"
                 placeholderTextColor={colors.textDim}
+                returnKeyType="next"
+                onSubmitEditing={() => lastNameRef.current?.focus()}
                 value={firstName}
                 onChangeText={setFirstName}
                 style={[styles.input, { color: colors.foreground }]}
@@ -179,8 +184,11 @@ export default function SignupScreen() {
             </View>
             <View style={[styles.inputRow, cardBg, { flex: 1 }]}>
               <TextInput
+                ref={lastNameRef}
                 placeholder="Last name"
                 placeholderTextColor={colors.textDim}
+                returnKeyType="next"
+                onSubmitEditing={() => emailRef.current?.focus()}
                 value={lastName}
                 onChangeText={setLastName}
                 style={[styles.input, { color: colors.foreground }]}
@@ -191,11 +199,14 @@ export default function SignupScreen() {
           <View style={[styles.inputRow, cardBg]}>
             <Text style={styles.inputIcon}>✉️</Text>
             <TextInput
+              ref={emailRef}
               placeholder="Email address"
               placeholderTextColor={colors.textDim}
               keyboardType="email-address"
               autoCapitalize="none"
               autoComplete="email"
+              returnKeyType="next"
+              onSubmitEditing={() => phoneRef.current?.focus()}
               value={email}
               onChangeText={setEmail}
               style={[styles.input, { color: colors.foreground }]}
@@ -205,9 +216,12 @@ export default function SignupScreen() {
           <View style={[styles.inputRow, cardBg]}>
             <Text style={styles.inputIcon}>📱</Text>
             <TextInput
+              ref={phoneRef}
               placeholder="Phone number (optional)"
               placeholderTextColor={colors.textDim}
               keyboardType="phone-pad"
+              returnKeyType="next"
+              onSubmitEditing={() => passwordRef.current?.focus()}
               value={phone}
               onChangeText={setPhone}
               style={[styles.input, { color: colors.foreground }]}
@@ -217,10 +231,12 @@ export default function SignupScreen() {
           <View style={[styles.inputRow, cardBg]}>
             <Text style={styles.inputIcon}>🔒</Text>
             <TextInput
+              ref={passwordRef}
               placeholder="Password (8+ chars)"
               placeholderTextColor={colors.textDim}
               secureTextEntry
               autoComplete="password-new"
+              returnKeyType="done"
               value={password}
               onChangeText={setPassword}
               onSubmitEditing={handleCreateAccount}
@@ -264,7 +280,7 @@ export default function SignupScreen() {
         <Text style={[styles.terms, { color: colors.textDim }]}>
           By continuing you agree to our Terms & Privacy Policy
         </Text>
-      </ScrollView>
+      </KeyboardAwareScrollViewCompat>
     </View>
   );
 }

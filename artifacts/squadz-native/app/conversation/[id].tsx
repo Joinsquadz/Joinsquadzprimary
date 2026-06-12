@@ -7,10 +7,10 @@ import {
   TouchableOpacity,
   TextInput,
   Platform,
-  KeyboardAvoidingView,
   ActivityIndicator,
   Alert,
 } from "react-native";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -437,8 +437,7 @@ export default function ConversationScreen() {
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
+        behavior="padding"
       >
         {loading ? (
           <View style={styles.loading}>

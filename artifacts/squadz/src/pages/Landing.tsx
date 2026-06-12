@@ -16,31 +16,31 @@ const features = [
     emoji: "🗓️",
     color: T.purple,
     title: "Find the Best Time",
-    body: "Everyone taps when they're free. Squadz builds a live heatmap and picks the slot that works for the most people. No more 47-text scheduling threads.",
+    body: "Everyone marks when they're free. Squadz overlaps all your schedules, builds a live availability heatmap, and surfaces the slot that works for the most people.",
   },
   {
     emoji: "🎉",
     color: T.gold,
     title: "Events & RSVPs",
-    body: "Create a hangout in seconds. Track who's in, who's out, and who's a maybe — with reminders that actually get people to show up.",
+    body: "Create a hangout in seconds. Track who's in, who's out, and who's a maybe — with push notification reminders that actually get people to show up.",
   },
   {
     emoji: "📸",
     color: T.pink,
-    title: "Photo vault & moments",
-    body: "Every hangout's photos in one shared album, auto-sorted by event. Share moments to the Vibe feed — let the whole squad relive the highlights.",
+    title: "Photo vault & Vibe feed",
+    body: "Every hangout's photos in one private, shared album sorted by event. Post moments to the Vibe feed so the whole squad can relive the highlights.",
   },
   {
     emoji: "💸",
     color: T.green,
     title: "Split the costs",
-    body: "Keep the BBQ, the cabin, the bar tab fair. Track who paid for what, settle up with Venmo, Cash App, or Zelle — without the awkward math.",
+    body: "Keep the BBQ, the cabin, the bar tab fair. Track who paid for what, see who owes what, and settle up with Venmo, Cash App, or Zelle — no awkward math.",
   },
   {
-    emoji: "✨",
+    emoji: "🔗",
     color: T.blue,
-    title: "Pro features, zero ads",
-    body: "Subscribe to Squadz Pro for unlimited events, priority support, and more squads — no ads, no selling your data, ever.",
+    title: "Squad links & notifications",
+    body: "Share a link and your crew joins in one tap. Get notified the moment a plan drops, an RSVP comes in, or someone needs to split a tab — no app required to accept an invite.",
   },
 ];
 
@@ -143,7 +143,7 @@ function StoreBadge({ store }: { store: "ios" | "android" }) {
     >
       <span style={{ fontSize: 22 }}>{store === "ios" ? "" : "🤖"}</span>
       <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.2 }}>
-        <span style={{ fontSize: 10, color: T.textSub }}>Coming soon to</span>
+        <span style={{ fontSize: 10, color: T.textSub }}>Launching on</span>
         <span style={{ fontSize: 15, fontWeight: 700 }}>{store === "ios" ? "App Store" : "Google Play"}</span>
       </span>
     </a>
@@ -335,7 +335,7 @@ export default function Landing() {
         <div className="lz-hero">
           <div>
             <div style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "7px 14px", borderRadius: 22, background: T.surfaceUp, border: `1px solid ${T.border}`, fontSize: 13, color: T.gold, fontWeight: 700, marginBottom: 22 }}>
-              📱 Download on iOS &amp; Android
+              📱 iOS &amp; Android — Launching Soon
             </div>
             <h1 className="lz-h1" style={{ fontWeight: 800, margin: 0 }}>
               Stop texting.<br />
@@ -429,9 +429,9 @@ export default function Landing() {
             <div style={{ position: "absolute", top: -80, left: "50%", transform: "translateX(-50%)", width: 420, height: 420, borderRadius: "50%", background: T.accent, opacity: 0.16, filter: "blur(120px)", pointerEvents: "none" }} />
             <div style={{ position: "relative" }}>
               <SquadzIcon size={64} style={{ borderRadius: 18, margin: "0 auto 22px", boxShadow: `0 18px 50px ${T.accent}50` }} />
-              <h2 style={{ fontSize: 38, fontWeight: 800, letterSpacing: "-0.03em", margin: "0 0 14px" }}>Get your squad together.</h2>
+              <h2 style={{ fontSize: 38, fontWeight: 800, letterSpacing: "-0.03em", margin: "0 0 14px" }}>Squadz is ready. Are you?</h2>
               <p style={{ fontSize: 17, color: T.textSub, maxWidth: 480, margin: "0 auto 28px", lineHeight: 1.55 }}>
-                We're putting the finishing touches on Squadz. Join the waitlist and you'll be first in when we launch.
+                The app is feature-complete — squads, availability, events, group chat, photo vault, cost splitting, and more. Join the waitlist and be first in when we open the doors.
               </p>
               <div style={{ display: "flex", justifyContent: "center" }}>
                 <WaitlistForm compact />

@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
+import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { useData, useAuth } from "@/context/AppContext";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
@@ -226,10 +227,9 @@ export default function CreateEventScreen() {
         </View>
       )}
 
-      <ScrollView
+      <KeyboardAwareScrollViewCompat
         style={styles.body}
         contentContainerStyle={{ paddingBottom: botPad + 80 }}
-        keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.section}>
@@ -369,7 +369,7 @@ export default function CreateEventScreen() {
             ))}
           </View>
         </View>
-      </ScrollView>
+      </KeyboardAwareScrollViewCompat>
 
       <View style={[styles.bottomBar, { borderTopColor: colors.border, paddingBottom: botPad + 8, backgroundColor: colors.background }]}>
         <TouchableOpacity

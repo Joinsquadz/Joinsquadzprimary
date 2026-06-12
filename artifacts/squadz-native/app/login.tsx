@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
   View,
   Text,
@@ -7,7 +7,6 @@ import {
   TextInput,
   Platform,
   StatusBar,
-  ScrollView,
   Alert,
   ActivityIndicator,
 } from "react-native";
@@ -18,6 +17,7 @@ import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AppContext";
 import { SquadzIcon } from "@/components/SquadzIcon";
 import { GradientButton } from "@/components/GradientButton";
+import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 
 type Screen = "splash" | "signin";
 
@@ -52,6 +52,7 @@ export default function LoginScreen() {
   const [sendingReset, setSendingReset] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const passwordRef = useRef<TextInput>(null);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
@@ -122,9 +123,8 @@ export default function LoginScreen() {
       <View style={[styles.screen, bg]}>
         <StatusBar barStyle="light-content" />
         <GlowBlobs />
-        <ScrollView
+        <KeyboardAwareScrollViewCompat
           contentContainerStyle={{ flexGrow: 1, paddingTop: topPad, paddingBottom: botPad + 16 }}
-          keyboardShouldPersistTaps="handled"
         >
           <TouchableOpacity
             onPress={() => !hasInvite && setScreen("splash")}
@@ -174,6 +174,8 @@ export default function LoginScreen() {
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoComplete="email"
+                returnKeyType="next"
+                onSubmitEditing={() => passwordRef.current?.focus()}
                 value={email}
                 onChangeText={setEmail}
                 style={[styles.input, { color: colors.foreground }]}
@@ -182,10 +184,12 @@ export default function LoginScreen() {
             <View style={[styles.inputRow, cardBg]}>
               <Text style={styles.inputIcon}>🔒</Text>
               <TextInput
+                ref={passwordRef}
                 placeholder="Password"
                 placeholderTextColor={colors.textDim}
                 secureTextEntry
                 autoComplete="password"
+                returnKeyType="done"
                 value={password}
                 onChangeText={setPassword}
                 onSubmitEditing={handleSignIn}
@@ -239,7 +243,7 @@ export default function LoginScreen() {
           <Text style={[styles.terms, { color: colors.textDim }]}>
             By continuing you agree to our Terms & Privacy Policy
           </Text>
-        </ScrollView>
+        </KeyboardAwareScrollViewCompat>
       </View>
     );
   }
@@ -253,7 +257,7 @@ export default function LoginScreen() {
       <View style={[styles.blob, { top: 200, left: -80, width: 220, height: 220, backgroundColor: "#A855F7", opacity: 0.09 }]} />
       <View style={[styles.blob, { bottom: 160, right: -30, width: 180, height: 180, backgroundColor: "#FFB547", opacity: 0.08 }]} />
 
-      <ScrollView
+      <KeyboardAwareScrollViewCompat
         contentContainerStyle={{ flexGrow: 1, justifyContent: "center", paddingTop: topPad + 20, paddingBottom: botPad + 20 }}
         showsVerticalScrollIndicator={false}
       >
@@ -293,7 +297,7 @@ export default function LoginScreen() {
             Free forever · No credit card needed
           </Text>
         </View>
-      </ScrollView>
+      </KeyboardAwareScrollViewCompat>
     </View>
   );
 }

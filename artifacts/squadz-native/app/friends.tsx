@@ -21,6 +21,7 @@ import { useData, useAuth } from "@/context/AppContext";
 import { useMessages } from "@/context/MessagesContext";
 import { useUserCache } from "@/context/UserCacheContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
+import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 
 export default function FriendsScreen() {
   const colors = useColors();
@@ -186,10 +187,9 @@ export default function FriendsScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView
+      <KeyboardAwareScrollViewCompat
         contentContainerStyle={{ paddingBottom: botPad + 24, paddingHorizontal: 20, paddingTop: 20 }}
         showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
       >
         {/* My Code card */}
         <View style={[styles.codeCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -352,7 +352,7 @@ export default function FriendsScreen() {
           <Ionicons name="chatbubble-outline" size={20} color={colors.primary} />
           <Text style={[styles.inviteMoreText, { color: colors.primary }]}>Invite more people via text</Text>
         </TouchableOpacity>
-      </ScrollView>
+      </KeyboardAwareScrollViewCompat>
     </View>
   );
 }

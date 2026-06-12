@@ -17,6 +17,7 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useData, SquadLimitError } from "@/context/AppContext";
 import { UpgradeModal } from "@/components/UpgradeModal";
+import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 
 const EMOJIS = ["🔥", "🎉", "🎮", "🏖️", "🍕", "🎸", "⚽", "🎬", "🍻", "🎊", "🏀", "🎲", "🧗", "🎤"];
 const COLORS = ["#FF5C3A", "#4A9EFF", "#2ECC8A", "#A855F7", "#FFB547", "#FF6B9D"];
@@ -85,10 +86,9 @@ export default function CreateSquadScreen() {
         <Text style={[styles.title, { color: colors.foreground }]}>New Squad</Text>
       </View>
 
-      <ScrollView
+      <KeyboardAwareScrollViewCompat
         style={styles.body}
         contentContainerStyle={{ paddingBottom: botPad + 120 }}
-        keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
         {/* Preview */}
@@ -212,7 +212,7 @@ export default function CreateSquadScreen() {
             />
           </View>
         </View>
-      </ScrollView>
+      </KeyboardAwareScrollViewCompat>
 
       <View style={[styles.bottomBar, { borderTopColor: colors.border, paddingBottom: botPad + 12, backgroundColor: colors.background }]}>
         <TouchableOpacity

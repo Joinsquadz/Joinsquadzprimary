@@ -3,14 +3,12 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   TextInput,
   Platform,
   Alert,
   ActivityIndicator,
   Image,
-  KeyboardAvoidingView,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -22,6 +20,7 @@ import { useAuth } from "@/context/AppContext";
 import { useUserCache } from "@/context/UserCacheContext";
 import { UserAvatar } from "@/components/UserAvatar";
 import { GradientButton } from "@/components/GradientButton";
+import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { API_BASE, buildAuthHeaders, resolveUploadedUrl } from "@/lib/api";
 
 function splitName(name: string): { first: string; last: string } {
@@ -191,10 +190,7 @@ export default function EditProfileScreen() {
   }
 
   return (
-    <KeyboardAvoidingView
-      style={[styles.screen, { backgroundColor: colors.background }]}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
+    <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: topPad + 12, borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
           <Ionicons name="chevron-back" size={26} color={colors.foreground} />
@@ -203,7 +199,7 @@ export default function EditProfileScreen() {
         <View style={{ width: 26 }} />
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 40 }} keyboardShouldPersistTaps="handled">
+      <KeyboardAwareScrollViewCompat contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 40 }} style={{ flex: 1 }}>
         <View style={styles.avatarWrap}>
           <TouchableOpacity onPress={pickPhoto} activeOpacity={0.8}>
             {photoUri ? (
@@ -310,8 +306,8 @@ export default function EditProfileScreen() {
             <GradientButton label="Save Changes" onPress={handleSave} />
           )}
         </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+      </KeyboardAwareScrollViewCompat>
+    </View>
   );
 }
 

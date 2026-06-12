@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   TextInput,
   Platform,
-  ScrollView,
   Share,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
@@ -17,6 +16,7 @@ import { useColors } from "@/hooks/useColors";
 import { useAuth, useData } from "@/context/AppContext";
 import { GradientButton } from "@/components/GradientButton";
 import { useTips } from "@/context/TipsContext";
+import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 
 const SQUAD_EMOJIS = ["🔥", "💼", "🎓", "🏡", "✈️", "🎮", "🍕", "🎉", "💪", "🌊", "🎵", "🦄"];
 const SQUAD_COLORS = ["#FF5C3A", "#A855F7", "#2ECC8A", "#4A9EFF", "#FFB547", "#FF5C3A"];
@@ -190,7 +190,7 @@ export default function OnboardingScreen() {
       </View>
 
       {/* Content */}
-      <ScrollView style={styles.body} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+      <KeyboardAwareScrollViewCompat style={styles.body} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         <View style={[styles.iconBox, { backgroundColor: glow + "22", borderColor: glow + "40" }]}>
           <Text style={styles.iconEmoji}>{STEP_ICONS[step]}</Text>
         </View>
@@ -275,7 +275,7 @@ export default function OnboardingScreen() {
         )}
 
         <View style={{ height: 32 }} />
-      </ScrollView>
+      </KeyboardAwareScrollViewCompat>
 
       {/* Footer CTA */}
       <View style={[styles.footer, { paddingBottom: botPad + 16, borderTopColor: colors.border + "80" }]}>
