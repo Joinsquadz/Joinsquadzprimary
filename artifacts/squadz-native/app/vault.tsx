@@ -31,6 +31,8 @@ import { useAuth, useData } from "@/context/AppContext";
 import { useToast } from "@/context/ToastContext";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import AttachmentVideo from "@/components/AttachmentVideo";
+import VaultMediaDetail, { type VaultDetailPhoto } from "@/components/VaultMediaDetail";
+import VaultShareComposer, { type VaultShareTarget } from "@/components/VaultShareComposer";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
 const VAULT_SELECTED_KEY = "vault:selectedPhoto";
@@ -40,17 +42,26 @@ const VAULT_SCROLL_KEY = "vault:scrollY";
 // limit; the server enforces the same ceiling on the request-url route.
 const MAX_UPLOAD_BYTES = 150 * 1024 * 1024;
 
-// Sentinel thrown by uploadAsset when the server rejects the upload because it
-// needs a Pro subscription (e.g. uploading to an event past the free window).
-// The caller surfaces the upgrade sheet instead of a plain error alert.
-const PRO_REQUIRED_ERROR = "__PRO_REQUIRED__";
-
 type MediaType = "image" | "video";
 type MediaFilter = "all" | MediaType;
 
-type VaultPhoto =
-  | { id: number; eventId: string | null; squadId: string | null; uploadedAt: string; url: string; uploaderId: string; mediaType?: MediaType; eventTitle: string | null; eventEmoji: string | null; squadName: string | null; favorited?: boolean; locked: false }
-  | { id: number; eventId: string | null; squadId: string | null; uploadedAt: string; mediaType?: MediaType; eventTitle: string | null; eventEmoji: string | null; squadName: string | null; favorited?: boolean; locked: true };
+type VaultPhoto = {
+  id: number;
+  eventId: string | null;
+  squadId: string | null;
+  uploadedAt: string;
+  url: string;
+  uploaderId: string;
+  mediaType?: MediaType;
+  eventTitle: string | null;
+  eventEmoji: string | null;
+  squadName: string | null;
+  favorited?: boolean;
+  caption?: string | null;
+  heartCount?: number;
+  hearted?: boolean;
+  commentCount?: number;
+};
 
 interface SquadVaultPhoto {
   id: number;
@@ -63,6 +74,10 @@ interface SquadVaultPhoto {
   uploaderFirstName?: string | null;
   uploaderLastName?: string | null;
   uploaderImageUrl?: string | null;
+  caption?: string | null;
+  heartCount?: number;
+  hearted?: boolean;
+  commentCount?: number;
 }
 
 // Group a photo's upload date into a stable month bucket ("2026-05") and a human
@@ -77,15 +92,6 @@ const monthLabel = (iso: string): string => {
   if (isNaN(d.getTime())) return "";
   return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 };
-
-const LOCK_GRADIENTS: [string, string][] = [
-  ["#3A2E5C", "#1F1A2E"],
-  ["#2E3A5C", "#1A1F2E"],
-  ["#5C3A2E", "#2E1F1A"],
-  ["#2E5C4A", "#1A2E26"],
-  ["#5C2E4A", "#2E1A26"],
-  ["#4A5C2E", "#262E1A"],
-];
 
 function VaultImage({ uri, style, headers }: { uri: string; style: object; headers?: Record<string, string> }) {
   const colors = useColors();
@@ -140,24 +146,6 @@ function VaultImage({ uri, style, headers }: { uri: string; style: object; heade
           <Ionicons name="image-outline" size={22} color={colors.mutedForeground} />
         </View>
       )}
-    </View>
-  );
-}
-
-function LockedThumb({ id, style }: { id: number; style: object }) {
-  const pair = LOCK_GRADIENTS[id % LOCK_GRADIENTS.length];
-  return (
-    <View style={style}>
-      <LinearGradient
-        colors={pair}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={StyleSheet.absoluteFill}
-      />
-      <BlurView intensity={22} tint="dark" style={StyleSheet.absoluteFill} />
-      <View style={styles.lockOverlay}>
-        <Ionicons name="lock-closed" size={20} color="rgba(255,255,255,0.92)" />
-      </View>
     </View>
   );
 }
@@ -388,7 +376,8 @@ export default function VaultScreen() {
   }, [authToken, squadId, eventId, authHeaders, syncFavorites]);
 
   // Personal Favorites sub-section — everything the user bookmarked across all
-  // squads, with the same 14-day free-tier lock applied server-side.
+  // squads. Favorites are a Squadz+ feature; free users hit the entrance gate
+  // before this view renders, so this only runs for subscribers.
   const fetchFavorites = useCallback(async () => {
     setFavoritesLoading(true);
     try {
@@ -526,8 +515,7 @@ export default function VaultScreen() {
         body: JSON.stringify({ url: objectPath, mediaType, ...extra }),
       });
       if (!createRes.ok) {
-        const body = (await createRes.json().catch(() => ({}))) as { error?: string; requiresPro?: boolean };
-        if (body.requiresPro) throw new Error(PRO_REQUIRED_ERROR);
+        const body = (await createRes.json().catch(() => ({}))) as { error?: string };
         throw new Error(body.error ?? "Couldn't save to the vault. Please try again.");
       }
     },
@@ -542,7 +530,6 @@ export default function VaultScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     const failures: string[] = [];
-    let needsPro = false;
     for (const asset of assets) {
       try {
         await uploadAsset(
@@ -550,18 +537,12 @@ export default function VaultScreen() {
           uploadEventId || eventId ? { eventId: uploadEventId || eventId } : {},
         );
       } catch (e) {
-        const msg = e instanceof Error ? e.message : "Upload failed.";
-        if (msg === PRO_REQUIRED_ERROR) needsPro = true;
-        else failures.push(msg);
+        failures.push(e instanceof Error ? e.message : "Upload failed.");
       }
     }
 
     await fetchPhotos();
     setIsUploading(false);
-
-    // An event past the free window needs Pro — show the upgrade sheet (which
-    // explains what's included) rather than a dead-end error alert.
-    if (needsPro) setUpgradeModalVisible(true);
 
     if (failures.length > 0) {
       Alert.alert(
@@ -640,15 +621,15 @@ export default function VaultScreen() {
     setPickerLoading(true);
     try {
       const res = await fetch(`${API_BASE}/api/vault/photos`, { headers: authHeaders() });
-      if (res.status === 403) {
+      if (!res.ok) return;
+      const data = await res.json() as { photos: VaultPhoto[]; isPro?: boolean; requiresPro?: boolean };
+      // The personal roll-up is Squadz+ only — free users get an entrance gate
+      // here too (they can still upload directly to the squad vault for free).
+      if (data.requiresPro) {
         setPickerRequiresPro(true);
         return;
       }
-      if (!res.ok) return;
-      const data = await res.json() as { photos: VaultPhoto[]; isPro?: boolean };
-      // Show only unlocked photos — free users can still roll up recent photos;
-      // locking only hides photos older than 30 days.
-      setPickerPhotos((data.photos ?? []).filter(p => !p.locked && !!p.url));
+      setPickerPhotos((data.photos ?? []).filter(p => !!p.url));
     } catch {
       // silently fail
     } finally {
@@ -707,7 +688,55 @@ export default function VaultScreen() {
 
   const selectedPhoto = visiblePhotos.find(p => p.id === selected) ?? null;
   const selectedSquadPhoto = squadPhotos.find(p => p.id === selected) ?? null;
-  const lockedCount = personalSource.filter(p => p.locked).length;
+
+  const [shareTarget, setShareTarget] = useState<VaultShareTarget | null>(null);
+
+  // Normalize whichever photo is selected (personal or squad) into the shape the
+  // full-screen detail view renders.
+  const detailPhoto = useMemo<VaultDetailPhoto | null>(() => {
+    if (selectedSquadPhoto) {
+      const p = selectedSquadPhoto;
+      const name = [p.uploaderFirstName, p.uploaderLastName].filter(Boolean).join(" ").trim() || "Squad member";
+      return {
+        id: p.id,
+        url: p.url,
+        mediaType: p.mediaType,
+        uploaderId: p.uploaderId,
+        uploadedAt: p.uploadedAt,
+        caption: p.caption ?? null,
+        heartCount: p.heartCount,
+        hearted: p.hearted,
+        commentCount: p.commentCount,
+        title: name,
+        subtitle: new Date(p.uploadedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+      };
+    }
+    if (selectedPhoto) {
+      const p = selectedPhoto;
+      return {
+        id: p.id,
+        url: p.url,
+        mediaType: p.mediaType,
+        uploaderId: p.uploaderId,
+        uploadedAt: p.uploadedAt,
+        caption: p.caption ?? null,
+        heartCount: p.heartCount,
+        hearted: p.hearted,
+        commentCount: p.commentCount,
+        title: p.eventTitle ? `${p.eventEmoji ?? "🎉"} ${p.eventTitle}` : "Vault photo",
+        subtitle: `${p.squadName ? `${p.squadName} · ` : ""}${new Date(p.uploadedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`,
+      };
+    }
+    return null;
+  }, [selectedPhoto, selectedSquadPhoto]);
+
+  // Reflect a caption edit from the detail view back into the grid datasets so
+  // the change is visible without a full refetch.
+  const handleCaptionUpdated = useCallback((id: number, caption: string | null) => {
+    setPhotos(prev => prev.map(p => p.id === id ? { ...p, caption } : p));
+    setFavoritePhotos(prev => prev.map(p => p.id === id ? { ...p, caption } : p));
+    setSquadPhotos(prev => prev.map(p => p.id === id ? { ...p, caption } : p));
+  }, []);
 
   // FlatLists re-render their cells when this reference changes — favoriteIds is
   // a fresh Set on every toggle, so the bookmark icons stay in sync.
@@ -861,42 +890,6 @@ export default function VaultScreen() {
           )}
           ListFooterComponent={
             <View style={{ marginTop: 16 }}>
-              {selectedSquadPhoto && (
-                <View style={[styles.detailCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                  <Text style={[styles.detailTitle, { color: colors.foreground }]}>
-                    {uploaderName(selectedSquadPhoto)}
-                  </Text>
-                  <Text style={[styles.detailMeta, { color: colors.mutedForeground }]}>
-                    {new Date(selectedSquadPhoto.uploadedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                    {selectedSquadPhoto.eventId ? ` · Event ${selectedSquadPhoto.eventId}` : ""}
-                  </Text>
-                  <TouchableOpacity
-                    style={[styles.favRow, { borderColor: favoriteIds.has(selectedSquadPhoto.id) ? colors.gold + "60" : colors.border }]}
-                    activeOpacity={0.7}
-                    onPress={() => toggleFavorite(selectedSquadPhoto.id)}
-                  >
-                    <Ionicons
-                      name={favoriteIds.has(selectedSquadPhoto.id) ? "bookmark" : "bookmark-outline"}
-                      size={15}
-                      color={favoriteIds.has(selectedSquadPhoto.id) ? colors.gold : colors.mutedForeground}
-                    />
-                    <Text style={[styles.favRowText, { color: favoriteIds.has(selectedSquadPhoto.id) ? colors.gold : colors.mutedForeground }]}>
-                      {favoriteIds.has(selectedSquadPhoto.id) ? "Favorited" : "Add to favorites"}
-                    </Text>
-                  </TouchableOpacity>
-                  {currentUserId && selectedSquadPhoto.uploaderId === currentUserId && (
-                    <TouchableOpacity
-                      style={[styles.removeBtn, { borderColor: colors.destructive + "60" }]}
-                      activeOpacity={0.7}
-                      onPress={() => handleRemoveShared(selectedSquadPhoto.id)}
-                    >
-                      <Ionicons name="trash-outline" size={15} color={colors.destructive} />
-                      <Text style={[styles.removeBtnText, { color: colors.destructive }]}>Remove from squad vault</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              )}
-
               <TouchableOpacity
                 style={[styles.uploadBtn, { borderColor: colors.border, marginBottom: 12 }]}
                 activeOpacity={0.7}
@@ -930,6 +923,21 @@ export default function VaultScreen() {
       ) : isPro === null ? (
         <View style={styles.center}>
           <ActivityIndicator color={colors.primary} size="large" />
+        </View>
+      ) : (!isContextual && !isPro) ? (
+        <View style={[styles.center, { paddingHorizontal: 32 }]}>
+          <Text style={styles.gateEmoji}>🔒</Text>
+          <Text style={[styles.gateTitle, { color: colors.foreground }]}>Your personal vault</Text>
+          <Text style={[styles.gateBody, { color: colors.mutedForeground }]}>
+            Your personal vault is a Squadz+ feature. Upgrade to access all your uploads in one place, save favorites from any squad, and keep your memories forever.
+          </Text>
+          <TouchableOpacity
+            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setUpgradeModalVisible(true); }}
+            style={[styles.upgradeBtn, { backgroundColor: colors.primary, alignSelf: "stretch" }]}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.upgradeBtnText}>⚡ Upgrade to Squadz+ — $20/year</Text>
+          </TouchableOpacity>
         </View>
       ) : (
         (personalTab === "favorites" ? favoritesLoading : photosLoading) ? (
@@ -1043,25 +1051,6 @@ export default function VaultScreen() {
                 {visiblePhotos.length} {visiblePhotos.length === 1 ? "item" : "items"} · tap to view
               </Text>
 
-              {!isPro && lockedCount > 0 && (
-                <TouchableOpacity
-                  onPress={() => setUpgradeModalVisible(true)}
-                  style={[styles.lockBanner, { backgroundColor: colors.card, borderColor: colors.border }]}
-                  activeOpacity={0.85}
-                >
-                  <Text style={styles.lockBannerIcon}>🔒</Text>
-                  <View style={styles.lockBannerText}>
-                    <Text style={[styles.lockBannerTitle, { color: colors.foreground }]}>
-                      {lockedCount} older {lockedCount === 1 ? "photo is" : "photos are"} locked
-                    </Text>
-                    <Text style={[styles.lockBannerBody, { color: colors.mutedForeground }]}>
-                      Your photos are safe — upgrade to keep viewing them after 14 days.
-                    </Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={20} color={colors.primary} />
-                </TouchableOpacity>
-              )}
-
               {!isContextual && squadNames.length > 0 && (
                 <ScrollView
                   horizontal
@@ -1115,74 +1104,32 @@ export default function VaultScreen() {
               )
             }
             renderItem={({ item: p }) => (
-              p.locked ? (
-                <TouchableOpacity
-                  onPress={() => setUpgradeModalVisible(true)}
-                  style={styles.gridCell}
-                  activeOpacity={0.8}
-                >
-                  <LockedThumb id={p.id} style={styles.gridImage} />
-                  <View style={styles.lockedCellLabel}>
-                    <Text style={[styles.lockedCellText, { color: "rgba(255,255,255,0.92)" }]}>Pro only</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  // In the Favorites tab a photo belongs to a squad vault — tap
+                  // opens it in that squad's context; otherwise just select it.
+                  if (personalTab === "favorites" && p.squadId) {
+                    router.push({ pathname: "/vault", params: { squadId: p.squadId, squadName: p.squadName ?? "Squad" } } as never);
+                    return;
+                  }
+                  setSelected(selected === p.id ? null : p.id);
+                }}
+                style={[styles.gridCell, { borderWidth: 2, borderColor: selected === p.id ? colors.primary : "transparent" }]}
+                activeOpacity={0.8}
+              >
+                {renderCellMedia(p.url, p.mediaType === "video")}
+                {renderFavButton(p.id)}
+                {selected === p.id && (
+                  <View style={[styles.checkBadge, { backgroundColor: colors.primary }]}>
+                    <Ionicons name="checkmark" size={10} color="#fff" />
                   </View>
-                </TouchableOpacity>
-              ) : (
-                <TouchableOpacity
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    // In the Favorites tab a photo belongs to a squad vault — tap
-                    // opens it in that squad's context; otherwise just select it.
-                    if (personalTab === "favorites" && p.squadId) {
-                      router.push({ pathname: "/vault", params: { squadId: p.squadId, squadName: p.squadName ?? "Squad" } } as never);
-                      return;
-                    }
-                    setSelected(selected === p.id ? null : p.id);
-                  }}
-                  style={[styles.gridCell, { borderWidth: 2, borderColor: selected === p.id ? colors.primary : "transparent" }]}
-                  activeOpacity={0.8}
-                >
-                  {renderCellMedia(
-                    (p as Extract<VaultPhoto, { locked: false }>).url,
-                    p.mediaType === "video",
-                  )}
-                  {renderFavButton(p.id)}
-                  {selected === p.id && (
-                    <View style={[styles.checkBadge, { backgroundColor: colors.primary }]}>
-                      <Ionicons name="checkmark" size={10} color="#fff" />
-                    </View>
-                  )}
-                </TouchableOpacity>
-              )
+                )}
+              </TouchableOpacity>
             )}
             ListFooterComponent={
               <View style={{ marginTop: 16 }}>
-              {selectedPhoto && !selectedPhoto.locked && (
-                <View style={[styles.detailCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                  <Text style={[styles.detailTitle, { color: colors.foreground }]}>
-                    {selectedPhoto.eventTitle ? `${selectedPhoto.eventEmoji ?? "🎉"} ${selectedPhoto.eventTitle}` : "Vault photo"}
-                  </Text>
-                  <Text style={[styles.detailMeta, { color: colors.mutedForeground }]}>
-                    {selectedPhoto.squadName ? `${selectedPhoto.squadName} · ` : ""}
-                    {new Date(selectedPhoto.uploadedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                  </Text>
-                  <TouchableOpacity
-                    style={[styles.favRow, { borderColor: favoriteIds.has(selectedPhoto.id) ? colors.gold + "60" : colors.border }]}
-                    activeOpacity={0.7}
-                    onPress={() => toggleFavorite(selectedPhoto.id)}
-                  >
-                    <Ionicons
-                      name={favoriteIds.has(selectedPhoto.id) ? "bookmark" : "bookmark-outline"}
-                      size={15}
-                      color={favoriteIds.has(selectedPhoto.id) ? colors.gold : colors.mutedForeground}
-                    />
-                    <Text style={[styles.favRowText, { color: favoriteIds.has(selectedPhoto.id) ? colors.gold : colors.mutedForeground }]}>
-                      {favoriteIds.has(selectedPhoto.id) ? "Favorited" : "Add to favorites"}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-
-              {personalTab === "uploads" && ((isPro || !!eventId) ? (
+              {personalTab === "uploads" && (
                 <>
                   {isPro && recentEvents.length > 0 && (
                     <View style={styles.pickerWrap}>
@@ -1246,15 +1193,7 @@ export default function VaultScreen() {
                     </Text>
                   </TouchableOpacity>
                 </>
-              ) : (
-                <TouchableOpacity
-                  onPress={() => setUpgradeModalVisible(true)}
-                  style={[styles.upgradeBtn, { backgroundColor: colors.primary }]}
-                  activeOpacity={0.85}
-                >
-                  <Text style={styles.upgradeBtnText}>⚡ Upgrade to Squadz+ — $20/year</Text>
-                </TouchableOpacity>
-              ))}
+              )}
             </View>
           }
         />
@@ -1270,6 +1209,29 @@ export default function VaultScreen() {
           void fetchPhotos();
           showToast("Welcome to Squadz+! Your full vault is unlocked.", { durationMs: 4000 });
         }}
+      />
+
+      <VaultMediaDetail
+        visible={detailPhoto !== null}
+        photo={detailPhoto}
+        authToken={authToken}
+        currentUserId={currentUserId ?? null}
+        favorited={detailPhoto ? favoriteIds.has(detailPhoto.id) : false}
+        onClose={() => setSelected(null)}
+        onToggleFavorite={(id) => { void toggleFavorite(id); }}
+        onShare={(p) => setShareTarget({ id: p.id, url: p.url, mediaType: p.mediaType })}
+        onCaptionUpdated={handleCaptionUpdated}
+        onDelete={selectedSquadPhoto && currentUserId && selectedSquadPhoto.uploaderId === currentUserId
+          ? (id) => handleRemoveShared(id)
+          : undefined}
+        deleteLabel="Remove from squad vault"
+      />
+
+      <VaultShareComposer
+        visible={shareTarget !== null}
+        target={shareTarget}
+        authToken={authToken}
+        onClose={() => setShareTarget(null)}
       />
 
       <Modal
@@ -1318,7 +1280,6 @@ export default function VaultScreen() {
               >
                 <View style={styles.grid}>
                   {pickerPhotos.map(p => {
-                    if (p.locked) return null;
                     const picked = pickerSelected.has(p.id);
                     return (
                       <TouchableOpacity
@@ -1390,19 +1351,9 @@ const styles = StyleSheet.create({
   proBadgeText: { fontSize: 10, fontWeight: "900", fontFamily: "Inter_700Bold", letterSpacing: 0.8 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 48 },
   scroll: { padding: 20 },
-  lockBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    borderRadius: 14,
-    borderWidth: 1,
-    padding: 14,
-    marginBottom: 16,
-  },
-  lockBannerIcon: { fontSize: 26 },
-  lockBannerText: { flex: 1 },
-  lockBannerTitle: { fontSize: 14, fontWeight: "700", fontFamily: "Inter_700Bold", marginBottom: 2 },
-  lockBannerBody: { fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 17 },
+  gateEmoji: { fontSize: 44, marginBottom: 16 },
+  gateTitle: { fontSize: 20, fontWeight: "800", fontFamily: "Inter_700Bold", marginBottom: 10, textAlign: "center" },
+  gateBody: { fontSize: 14, fontFamily: "Inter_400Regular", lineHeight: 21, textAlign: "center", marginBottom: 24 },
   confirmBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -1413,8 +1364,6 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   confirmText: { fontSize: 14, fontWeight: "700", fontFamily: "Inter_700Bold" },
-  lockedCellText: { fontSize: 9, fontFamily: "Inter_600SemiBold", marginTop: 4 },
-  lockedCellLabel: { position: "absolute", bottom: 6, left: 0, right: 0, alignItems: "center" },
   upgradeBtn: {
     borderRadius: 14,
     padding: 16,
@@ -1520,7 +1469,6 @@ const styles = StyleSheet.create({
   },
   gridImage: { width: "100%", height: "100%", position: "relative", overflow: "hidden" },
   fallbackCell: { alignItems: "center", justifyContent: "center" },
-  lockOverlay: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
   blurGrid: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 16 },
   checkBadge: {
     position: "absolute",

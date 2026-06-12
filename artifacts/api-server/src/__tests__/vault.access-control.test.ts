@@ -12,6 +12,11 @@ vi.mock("../storage", () => ({
     getEvent: vi.fn().mockResolvedValue(null),
     getPhotosByEventId: vi.fn().mockResolvedValue([]),
     getUserFavoritePhotoIds: vi.fn().mockResolvedValue(new Set()),
+    getVaultInteractionStats: vi.fn().mockResolvedValue({
+      heartCounts: new Map(),
+      heartedIds: new Set(),
+      commentCounts: new Map(),
+    }),
   },
 }));
 
@@ -46,18 +51,6 @@ function recentPhoto() {
   };
 }
 
-function oldPhoto() {
-  return {
-    id: 2,
-    eventId: "evt-1",
-    uploaderId: FREE_USER_ID,
-    url: "/objects/uploads/old.jpg",
-    squadId: null,
-    sharedToSquad: false,
-    uploadedAt: new Date(Date.now() - 45 * DAY_MS),
-  };
-}
-
 const freeUserRow = {
   id: FREE_USER_ID,
   email: "free@example.com",
@@ -72,11 +65,12 @@ const proUserRow = {
   stripeSubscriptionId: "sub_123",
 };
 
-describe("GET /api/vault/photos retention rule", () => {
+describe("GET /api/vault/photos subscription gate", () => {
   beforeEach(() => {
     vi.mocked(storage.getSubscription).mockResolvedValue(null as never);
     vi.mocked(storage.getActiveSubscriptionByCustomerId).mockResolvedValue(null as never);
     vi.mocked(storage.getPhotosByUploaderId).mockResolvedValue([]);
+    vi.mocked(storage.getPhotosBySquadId).mockResolvedValue({ authorized: true, photos: [] } as never);
   });
 
   it("returns 401 when unauthenticated", async () => {
@@ -85,7 +79,7 @@ describe("GET /api/vault/photos retention rule", () => {
     expect(res.status).toBe(401);
   });
 
-  it("does NOT return 403 for a non-Pro user (endpoint is open to all authenticated users)", async () => {
+  it("free user hitting the personal roll-up gets the Squadz+ entrance gate (empty + requiresPro)", async () => {
     vi.mocked(storage.getUser).mockResolvedValue(freeUserRow as never);
     vi.mocked(storage.getPhotosByUploaderId).mockResolvedValue([recentPhoto()] as never);
 
@@ -93,50 +87,44 @@ describe("GET /api/vault/photos retention rule", () => {
     const res = await request(app).get("/api/vault/photos");
 
     expect(res.status).toBe(200);
-    expect(res.status).not.toBe(403);
+    expect(res.body.isPro).toBe(false);
+    expect(res.body.requiresPro).toBe(true);
+    expect(res.body.photos).toHaveLength(0);
+    // The gate short-circuits before any personal photo fetch.
+    expect(storage.getPhotosByUploaderId).not.toHaveBeenCalled();
   });
 
-  it("non-Pro user gets recent photos with URLs and older photos locked without a URL", async () => {
+  it("free squad member can read a squad-scoped vault (open to members, no gate)", async () => {
     vi.mocked(storage.getUser).mockResolvedValue(freeUserRow as never);
-    vi.mocked(storage.getPhotosByUploaderId).mockResolvedValue([
-      recentPhoto(),
-      oldPhoto(),
-    ] as never);
+    vi.mocked(storage.getPhotosBySquadId).mockResolvedValue({
+      authorized: true,
+      photos: [recentPhoto()],
+    } as never);
 
     const app = await makeApp({ id: FREE_USER_ID });
-    const res = await request(app).get("/api/vault/photos");
+    const res = await request(app).get("/api/vault/photos?squadId=sq-1");
 
     expect(res.status).toBe(200);
     expect(res.body.isPro).toBe(false);
-    expect(res.body.photos).toHaveLength(2);
-
-    const recent = res.body.photos.find((p: { id: number }) => p.id === 1);
-    expect(recent.locked).toBe(false);
-    expect(recent.url).toBe("/objects/uploads/recent.jpg");
-
-    const old = res.body.photos.find((p: { id: number }) => p.id === 2);
-    expect(old.locked).toBe(true);
-    expect(old.url).toBeUndefined();
+    expect(res.body.requiresPro).toBeUndefined();
+    expect(res.body.photos).toHaveLength(1);
+    expect(res.body.photos[0].url).toBe("/objects/uploads/recent.jpg");
+    expect(res.body.photos[0].locked).toBeUndefined();
   });
 
-  it("Pro user gets all photos with URLs and locked:false", async () => {
+  it("Pro user gets their personal roll-up with URLs and no lock field", async () => {
     vi.mocked(storage.getUser).mockResolvedValue(proUserRow as never);
     vi.mocked(storage.getSubscription).mockResolvedValue({ status: "active" } as never);
-    vi.mocked(storage.getPhotosByUploaderId).mockResolvedValue([
-      recentPhoto(),
-      oldPhoto(),
-    ] as never);
+    vi.mocked(storage.getPhotosByUploaderId).mockResolvedValue([recentPhoto()] as never);
 
     const app = await makeApp({ id: PRO_USER_ID });
     const res = await request(app).get("/api/vault/photos");
 
     expect(res.status).toBe(200);
     expect(res.body.isPro).toBe(true);
-    expect(res.body.photos).toHaveLength(2);
-
-    for (const photo of res.body.photos) {
-      expect(photo.locked).toBe(false);
-      expect(photo.url).toBeTruthy();
-    }
+    expect(res.body.requiresPro).toBeUndefined();
+    expect(res.body.photos).toHaveLength(1);
+    expect(res.body.photos[0].url).toBe("/objects/uploads/recent.jpg");
+    expect(res.body.photos[0].locked).toBeUndefined();
   });
 });

@@ -28,7 +28,6 @@ const FREE_EVENT_LIMIT = 5;
 // window. Enforced against the append-only event_creations ledger, so deleting
 // an event does not free a slot until its ledger row ages out of the window.
 const EVENT_WINDOW_MS = 365 * 24 * 60 * 60 * 1000;
-const PHOTO_VAULT_DAYS = 14;
 
 type EventExecutor = Parameters<Parameters<typeof db.transaction>[0]>[0] | typeof db;
 
@@ -1099,18 +1098,9 @@ router.get('/events/:id/photos', requireAuth, async (req, res): Promise<void> =>
       return;
     }
 
+    // Event vault photos are open to anyone with event access (no time lock).
     const photos = await storage.getPhotosByEventId(eventId);
-    const cutoff = new Date(Date.now() - PHOTO_VAULT_DAYS * 24 * 60 * 60 * 1000);
-
-    const result = photos.map(photo => {
-      const isExpired = photo.uploadedAt < cutoff;
-      const locked = !isPro && isExpired;
-      return locked
-        ? { id: photo.id, eventId: photo.eventId, uploadedAt: photo.uploadedAt, locked: true }
-        : { ...photo, locked: false };
-    });
-
-    res.json({ photos: result, isPro });
+    res.json({ photos, isPro });
   } catch (err) {
     logger.error({ err }, 'Error fetching event photos');
     res.status(500).json({ error: 'Failed to fetch photos' });

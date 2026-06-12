@@ -18,7 +18,10 @@ import {
   friendshipsTable,
   objectUploadsTable,
   favoritesTable,
+  vaultHeartsTable,
+  vaultCommentsTable,
   type Photo,
+  type VaultComment,
   type AvailabilityPoll,
   type AvailabilityResponse,
   type DbConversation,
@@ -83,6 +86,7 @@ const enrichedPhotoColumns = {
   squadId: photosTable.squadId,
   sharedToSquad: photosTable.sharedToSquad,
   mediaType: photosTable.mediaType,
+  caption: photosTable.caption,
   uploadedAt: photosTable.uploadedAt,
   eventTitle: eventsTable.title,
   eventEmoji: eventsTable.emoji,
@@ -251,7 +255,7 @@ export class Storage {
     uploaderId: string,
     url: string,
     eventId?: string,
-    opts?: { squadId?: string | null; sharedToSquad?: boolean; mediaType?: string },
+    opts?: { squadId?: string | null; sharedToSquad?: boolean; mediaType?: string; caption?: string | null },
   ): Promise<Photo> {
     // Enforce object-URL provenance: each object path maps to exactly one photo
     // row (DB-unique on url). If the URL is already recorded, only its original
@@ -276,6 +280,7 @@ export class Storage {
         squadId: opts?.squadId ?? null,
         sharedToSquad: opts?.sharedToSquad ?? false,
         mediaType: opts?.mediaType === "video" ? "video" : "image",
+        caption: opts?.caption ?? null,
       })
       .returning();
     return photo;
@@ -426,6 +431,179 @@ export class Storage {
     return photo ?? null;
   }
 
+  // ---- Vault media interactions (captions, hearts, comments) ----
+
+  /**
+   * Update a vault photo's caption. Only the original uploader may edit it.
+   * Returns the updated photo, or null if it doesn't exist / the caller isn't
+   * the uploader.
+   */
+  async updatePhotoCaption(
+    photoId: number,
+    uploaderId: string,
+    caption: string | null,
+  ): Promise<Photo | null> {
+    const [photo] = await db
+      .update(photosTable)
+      .set({ caption })
+      .where(and(eq(photosTable.id, photoId), eq(photosTable.uploaderId, uploaderId)))
+      .returning();
+    return photo ?? null;
+  }
+
+  /**
+   * Toggle a heart on a photo for a user. Idempotent per (photoId, userId):
+   * hearting an already-hearted photo removes it. Returns the new state and the
+   * total heart count.
+   */
+  async toggleHeart(photoId: number, userId: string): Promise<{ hearted: boolean; heartCount: number }> {
+    // Atomic flip: attempt the delete first and use RETURNING to learn whether a
+    // row actually existed. This avoids the read-then-write window where two
+    // concurrent toggles could both observe "not hearted" and net to the wrong
+    // state. If nothing was deleted, the photo was not hearted, so insert it
+    // (onConflictDoNothing covers the race where a parallel insert won).
+    const removed = await db
+      .delete(vaultHeartsTable)
+      .where(and(eq(vaultHeartsTable.photoId, photoId), eq(vaultHeartsTable.userId, userId)))
+      .returning({ id: vaultHeartsTable.id });
+
+    let hearted: boolean;
+    if (removed.length > 0) {
+      hearted = false;
+    } else {
+      await db
+        .insert(vaultHeartsTable)
+        .values({ photoId, userId })
+        .onConflictDoNothing({ target: [vaultHeartsTable.photoId, vaultHeartsTable.userId] });
+      hearted = true;
+    }
+
+    const [{ value }] = await db
+      .select({ value: count() })
+      .from(vaultHeartsTable)
+      .where(eq(vaultHeartsTable.photoId, photoId));
+    return { hearted, heartCount: Number(value) };
+  }
+
+  /**
+   * The users who have hearted a photo, most-recent first, with display fields
+   * for rendering a who-hearted list.
+   */
+  async getPhotoHearts(photoId: number) {
+    return db
+      .select({
+        userId: vaultHeartsTable.userId,
+        createdAt: vaultHeartsTable.createdAt,
+        firstName: usersTable.firstName,
+        lastName: usersTable.lastName,
+        profileImageUrl: usersTable.profileImageUrl,
+      })
+      .from(vaultHeartsTable)
+      .leftJoin(usersTable, eq(vaultHeartsTable.userId, usersTable.id))
+      .where(eq(vaultHeartsTable.photoId, photoId))
+      .orderBy(desc(vaultHeartsTable.createdAt));
+  }
+
+  /**
+   * Add a comment to a photo. The caller must already be authorized to view the
+   * photo (enforced by the route). Returns the new comment.
+   */
+  async addVaultComment(photoId: number, authorId: string, text: string): Promise<VaultComment> {
+    const [comment] = await db
+      .insert(vaultCommentsTable)
+      .values({ photoId, authorId, text })
+      .returning();
+    return comment;
+  }
+
+  /**
+   * Non-deleted comments on a photo, oldest-first (thread order), with author
+   * display fields.
+   */
+  async getVaultComments(photoId: number) {
+    return db
+      .select({
+        id: vaultCommentsTable.id,
+        photoId: vaultCommentsTable.photoId,
+        authorId: vaultCommentsTable.authorId,
+        text: vaultCommentsTable.text,
+        createdAt: vaultCommentsTable.createdAt,
+        firstName: usersTable.firstName,
+        lastName: usersTable.lastName,
+        profileImageUrl: usersTable.profileImageUrl,
+      })
+      .from(vaultCommentsTable)
+      .leftJoin(usersTable, eq(vaultCommentsTable.authorId, usersTable.id))
+      .where(and(eq(vaultCommentsTable.photoId, photoId), isNull(vaultCommentsTable.deletedAt)))
+      .orderBy(asc(vaultCommentsTable.createdAt));
+  }
+
+  /** Fetch a single non-deleted comment by id, or null. */
+  async getVaultComment(commentId: number): Promise<VaultComment | null> {
+    const [comment] = await db
+      .select()
+      .from(vaultCommentsTable)
+      .where(and(eq(vaultCommentsTable.id, commentId), isNull(vaultCommentsTable.deletedAt)));
+    return comment ?? null;
+  }
+
+  /**
+   * Soft-delete a comment. Allowed for the comment's author or the photo's
+   * uploader. Returns true if a row was updated.
+   */
+  async softDeleteVaultComment(commentId: number, userId: string): Promise<boolean> {
+    const comment = await this.getVaultComment(commentId);
+    if (!comment) return false;
+    const photo = await this.getPhotoById(comment.photoId);
+    const canDelete = comment.authorId === userId || photo?.uploaderId === userId;
+    if (!canDelete) return false;
+    await db
+      .update(vaultCommentsTable)
+      .set({ deletedAt: new Date() })
+      .where(eq(vaultCommentsTable.id, commentId));
+    return true;
+  }
+
+  /**
+   * Batch-load heart counts, the caller's hearted set, and comment counts for a
+   * page of photos, so list endpoints can enrich without N+1 queries.
+   */
+  async getVaultInteractionStats(
+    photoIds: number[],
+    userId: string,
+  ): Promise<{
+    heartCounts: Map<number, number>;
+    heartedIds: Set<number>;
+    commentCounts: Map<number, number>;
+  }> {
+    const heartCounts = new Map<number, number>();
+    const heartedIds = new Set<number>();
+    const commentCounts = new Map<number, number>();
+    if (photoIds.length === 0) return { heartCounts, heartedIds, commentCounts };
+
+    const [heartRows, mineRows, commentRows] = await Promise.all([
+      db
+        .select({ photoId: vaultHeartsTable.photoId, value: count() })
+        .from(vaultHeartsTable)
+        .where(inArray(vaultHeartsTable.photoId, photoIds))
+        .groupBy(vaultHeartsTable.photoId),
+      db
+        .select({ photoId: vaultHeartsTable.photoId })
+        .from(vaultHeartsTable)
+        .where(and(inArray(vaultHeartsTable.photoId, photoIds), eq(vaultHeartsTable.userId, userId))),
+      db
+        .select({ photoId: vaultCommentsTable.photoId, value: count() })
+        .from(vaultCommentsTable)
+        .where(and(inArray(vaultCommentsTable.photoId, photoIds), isNull(vaultCommentsTable.deletedAt)))
+        .groupBy(vaultCommentsTable.photoId),
+    ]);
+
+    for (const r of heartRows) heartCounts.set(r.photoId, Number(r.value));
+    for (const r of mineRows) heartedIds.add(r.photoId);
+    for (const r of commentRows) commentCounts.set(r.photoId, Number(r.value));
+    return { heartCounts, heartedIds, commentCounts };
+  }
+
   /** Whether `userId` may view photo `photoId` (see canUserViewPhoto). */
   async canUserViewPhotoById(photoId: number, userId: string): Promise<boolean> {
     const photo = await this.getPhotoById(photoId);
@@ -452,6 +630,15 @@ export class Storage {
     await db
       .delete(favoritesTable)
       .where(and(eq(favoritesTable.userId, userId), eq(favoritesTable.photoId, photoId)));
+  }
+
+  /** Mutual friend ids for a user (friendships are stored symmetrically). */
+  async getFriendIds(userId: string): Promise<string[]> {
+    const rows = await db
+      .select({ friendId: friendshipsTable.friendId })
+      .from(friendshipsTable)
+      .where(eq(friendshipsTable.ownerId, userId));
+    return rows.map((r) => r.friendId);
   }
 
   /** Set of photo ids the user has favorited, for flagging list responses. */

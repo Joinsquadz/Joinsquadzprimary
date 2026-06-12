@@ -14,6 +14,11 @@ vi.mock("../storage", () => ({
     addPhoto: vi.fn(),
     getUploadOwner: vi.fn(),
     getUserFavoritePhotoIds: vi.fn().mockResolvedValue(new Set()),
+    getVaultInteractionStats: vi.fn().mockResolvedValue({
+      heartCounts: new Map(),
+      heartedIds: new Set(),
+      commentCounts: new Map(),
+    }),
   },
 }));
 
@@ -68,7 +73,7 @@ describe("POST /api/vault/photos eventId handling", () => {
       PRO_USER_ID,
       "/objects/uploads/with-event.jpg",
       "evt-1",
-      { mediaType: undefined },
+      { mediaType: undefined, caption: null },
     );
     expect(res.body.photo.eventId).toBe("evt-1");
   });
@@ -94,7 +99,7 @@ describe("POST /api/vault/photos eventId handling", () => {
       PRO_USER_ID,
       "/objects/uploads/no-event.jpg",
       undefined,
-      { mediaType: undefined },
+      { mediaType: undefined, caption: null },
     );
     expect(res.body.photo.eventId).toBeNull();
   });

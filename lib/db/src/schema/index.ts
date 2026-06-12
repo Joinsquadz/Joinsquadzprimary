@@ -23,6 +23,7 @@ export * from "./events";
 export * from "./event-creations";
 export * from "./squads";
 export * from "./photos";
+export * from "./vault-interactions";
 export * from "./favorites";
 export * from "./availability";
 export * from "./waitlist";
