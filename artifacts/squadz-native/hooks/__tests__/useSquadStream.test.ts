@@ -103,7 +103,7 @@ describe("useSquadStream — auto-reconnect with exponential backoff", () => {
     setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
 
     fetchMock = vi.fn();
-    expoFetchState.fn = fetchMock;
+    expoFetchState.fn = fetchMock as unknown as (...args: unknown[]) => unknown;
     vi.stubGlobal("fetch", fetchMock);
   });
 

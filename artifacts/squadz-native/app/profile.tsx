@@ -609,10 +609,10 @@ export default function ProfileScreen() {
           onPress: () =>
             Alert.alert(
               "What's included in Pro",
-              "🗓️  Unlimited Events — Create as many events as you like\n\n📷  Photo Vault — Store & share squad photos\n\n📅  Calendar Sync — Add squad events to Apple / Google Calendar",
+              "🗓️  Unlimited Events — Create as many events as you like\n\n📷  Vault — Store, favorite & share squad photos\n\n📅  Calendar Sync — Add squad events to Apple / Google Calendar",
               [
                 { text: "View Events", onPress: () => router.navigate("/(tabs)/events" as never) },
-                { text: "View Photo Vault", onPress: () => router.push("/vault" as never) },
+                { text: "View Vault", onPress: () => router.push("/vault" as never) },
                 { text: "Calendar Sync", onPress: () => { setHighlightCalSync(true); setTimeout(() => setHighlightCalSync(false), 3000); } },
                 { text: "Done", style: "cancel" },
               ]
@@ -707,7 +707,7 @@ export default function ProfileScreen() {
               <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
                 {([
                   { key: "events", icon: "🗓️", label: "Unlimited Events", route: "/(tabs)/events" },
-                  { key: "vault", icon: "📷", label: "Photo Vault", route: "/vault" },
+                  { key: "vault", icon: "📷", label: "Vault", route: "/vault" },
                   { key: "calendar", icon: "📅", label: "Calendar Sync", route: "/profile" },
                 ] as const).map((f) => (
                   <TouchableOpacity

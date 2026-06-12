@@ -97,9 +97,11 @@ router.get("/vault/photos", requireAuth, async (req: Request, res: Response): Pr
       rawPhotos = await storage.getPhotosByUploaderId(userId);
     }
 
+    const favoriteIds = await storage.getUserFavoritePhotoIds(userId);
     const cutoff = new Date(Date.now() - PHOTO_VAULT_DAYS * 24 * 60 * 60 * 1000);
     const photos = rawPhotos.map(photo => {
       const locked = !isPro && photo.uploadedAt < cutoff;
+      const favorited = favoriteIds.has(photo.id);
       // Event labels are not sensitive, so keep them on locked photos too. This
       // lets clients label and squad-filter photos (incl. ones over 30 days)
       // without refetching events. Only the url is withheld when locked.
@@ -107,14 +109,16 @@ router.get("/vault/photos", requireAuth, async (req: Request, res: Response): Pr
         ? {
             id: photo.id,
             eventId: photo.eventId,
+            squadId: photo.squadId,
             mediaType: photo.mediaType,
             uploadedAt: photo.uploadedAt,
             eventTitle: photo.eventTitle,
             eventEmoji: photo.eventEmoji,
             squadName: photo.squadName,
+            favorited,
             locked: true as const,
           }
-        : { ...photo, locked: false as const };
+        : { ...photo, favorited, locked: false as const };
     });
 
     res.json({ photos, isPro });
@@ -212,6 +216,105 @@ router.post("/vault/photos", requireAuth, async (req: Request, res: Response): P
   } catch (err) {
     logger.error({ err }, "Error saving vault photo");
     res.status(500).json({ error: "Failed to save photo" });
+  }
+});
+
+const FavoriteBody = z.object({ photoId: z.number().int().positive() });
+
+/**
+ * GET /api/vault/favorites
+ *
+ * Every photo/video the user has bookmarked, across all squads. Reference-only:
+ * favorites point back at the original item (squadId/eventId preserved). The same
+ * 14-day free-tier lock applies — favorites older than 14 days are returned with
+ * locked:true and no url for non-Pro users; Squadz+ sees them all unlocked.
+ */
+router.get("/vault/favorites", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req.user as { id: string }).id;
+
+    let user = await storage.getUser(userId);
+    if (!user) {
+      user = await storage.upsertUser(userId, (req.user as { id: string; email?: string }).email ?? "");
+    }
+    const isPro = await resolveProStatus(user);
+
+    const rawPhotos = await storage.getUserFavorites(userId);
+    const cutoff = new Date(Date.now() - PHOTO_VAULT_DAYS * 24 * 60 * 60 * 1000);
+    const photos = rawPhotos.map(photo => {
+      const locked = !isPro && photo.uploadedAt < cutoff;
+      return locked
+        ? {
+            id: photo.id,
+            eventId: photo.eventId,
+            squadId: photo.squadId,
+            mediaType: photo.mediaType,
+            uploadedAt: photo.uploadedAt,
+            eventTitle: photo.eventTitle,
+            eventEmoji: photo.eventEmoji,
+            squadName: photo.squadName,
+            favorited: true as const,
+            locked: true as const,
+          }
+        : { ...photo, favorited: true as const, locked: false as const };
+    });
+
+    res.json({ photos, isPro });
+  } catch (err) {
+    logger.error({ err }, "Error fetching favorites");
+    res.status(500).json({ error: "Failed to fetch favorites" });
+  }
+});
+
+/**
+ * POST /api/vault/favorites  { photoId }
+ *
+ * Bookmark a photo/video. The user must be able to view it (member of its squad,
+ * host/member of its event, or its uploader). Idempotent — favoriting twice is a
+ * no-op. Favoriting is private and never notifies anyone.
+ */
+router.post("/vault/favorites", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req.user as { id: string }).id;
+    const parsed = FavoriteBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid photoId" });
+      return;
+    }
+    const { photoId } = parsed.data;
+
+    if (!(await storage.canUserViewPhotoById(photoId, userId))) {
+      res.status(403).json({ error: "You can only favorite media you have access to." });
+      return;
+    }
+
+    await storage.addFavorite(userId, photoId);
+    res.status(201).json({ ok: true });
+  } catch (err) {
+    logger.error({ err }, "Error adding favorite");
+    res.status(500).json({ error: "Failed to add favorite" });
+  }
+});
+
+/**
+ * DELETE /api/vault/favorites/:photoId
+ *
+ * Remove a bookmark. No-op (still 200) if it wasn't favorited.
+ */
+router.delete("/vault/favorites/:photoId", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req.user as { id: string }).id;
+    const photoId = Number(req.params.photoId);
+    if (!Number.isInteger(photoId) || photoId <= 0) {
+      res.status(400).json({ error: "Invalid photoId" });
+      return;
+    }
+
+    await storage.removeFavorite(userId, photoId);
+    res.json({ ok: true });
+  } catch (err) {
+    logger.error({ err }, "Error removing favorite");
+    res.status(500).json({ error: "Failed to remove favorite" });
   }
 });
 

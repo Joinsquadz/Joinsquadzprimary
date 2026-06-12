@@ -24,6 +24,7 @@ vi.mock("@workspace/db", () => ({
     delete: () => ({ where: () => Promise.resolve() }),
   },
   eventsTable: { id: "id", hostId: "host_id", rsvps: "rsvps", createdAt: "created_at", inviteCode: "invite_code" },
+  eventCreationsTable: { userId: "user_id", eventId: "event_id", createdAt: "created_at" },
   usersTable: {},
 }));
 

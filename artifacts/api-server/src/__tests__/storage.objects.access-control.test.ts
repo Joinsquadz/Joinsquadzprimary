@@ -6,6 +6,7 @@ const canViewMoment = vi.hoisted(() => ({ value: false }));
 
 vi.mock("../storage", () => ({
   storage: {
+    getPhotoByUrl: () => Promise.resolve(null),
     canUserViewPhotoByUrl: () => Promise.resolve(canView.value),
     canUserViewMessageAttachment: () => Promise.resolve(false),
     canUserViewFeedMedia: () => Promise.resolve(false),

@@ -13,6 +13,7 @@ vi.mock("../storage", () => ({
     getPhotosByEventId: vi.fn().mockResolvedValue([]),
     addPhoto: vi.fn(),
     getUploadOwner: vi.fn(),
+    getUserFavoritePhotoIds: vi.fn().mockResolvedValue(new Set()),
   },
 }));
 

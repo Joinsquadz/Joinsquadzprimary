@@ -11,6 +11,7 @@ vi.mock("../storage", () => ({
     getPhotosBySquadId: vi.fn().mockResolvedValue({ authorized: true, photos: [] }),
     getEvent: vi.fn().mockResolvedValue(null),
     getPhotosByEventId: vi.fn().mockResolvedValue([]),
+    getUserFavoritePhotoIds: vi.fn().mockResolvedValue(new Set()),
   },
 }));
 

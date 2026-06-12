@@ -17,6 +17,7 @@ import {
   momentsTable,
   friendshipsTable,
   objectUploadsTable,
+  favoritesTable,
   type Photo,
   type AvailabilityPoll,
   type AvailabilityResponse,
@@ -388,7 +389,15 @@ export class Storage {
       .from(photosTable)
       .where(eq(photosTable.url, objectPath));
     if (!photo) return false;
+    return this.canUserViewPhoto(photo, userId);
+  }
 
+  /**
+   * Shared visibility rule for a vault photo: the uploader, any current member
+   * of the squad it's shared into, or the host/squad-members of its linked
+   * event may view it. Fail-closed for everyone else.
+   */
+  private async canUserViewPhoto(photo: Photo, userId: string): Promise<boolean> {
     if (photo.uploaderId === userId) return true;
 
     if (photo.sharedToSquad && photo.squadId) {
@@ -409,6 +418,64 @@ export class Storage {
     }
 
     return false;
+  }
+
+  /** Fetch a vault photo row by id, or null. */
+  async getPhotoById(photoId: number): Promise<Photo | null> {
+    const [photo] = await db.select().from(photosTable).where(eq(photosTable.id, photoId));
+    return photo ?? null;
+  }
+
+  /** Whether `userId` may view photo `photoId` (see canUserViewPhoto). */
+  async canUserViewPhotoById(photoId: number, userId: string): Promise<boolean> {
+    const photo = await this.getPhotoById(photoId);
+    if (!photo) return false;
+    return this.canUserViewPhoto(photo, userId);
+  }
+
+  // ---- Favorites (personal, reference-only bookmarks) ----
+
+  /**
+   * Bookmark a photo for a user. Idempotent (unique userId+photoId) — re-favoriting
+   * is a no-op. Never copies or moves the underlying media. Authorization (the user
+   * can actually view the photo) is enforced by the caller.
+   */
+  async addFavorite(userId: string, photoId: number): Promise<void> {
+    await db
+      .insert(favoritesTable)
+      .values({ userId, photoId })
+      .onConflictDoNothing({ target: [favoritesTable.userId, favoritesTable.photoId] });
+  }
+
+  /** Remove a user's bookmark of a photo. No-op if it wasn't favorited. */
+  async removeFavorite(userId: string, photoId: number): Promise<void> {
+    await db
+      .delete(favoritesTable)
+      .where(and(eq(favoritesTable.userId, userId), eq(favoritesTable.photoId, photoId)));
+  }
+
+  /** Set of photo ids the user has favorited, for flagging list responses. */
+  async getUserFavoritePhotoIds(userId: string): Promise<Set<number>> {
+    const rows = await db
+      .select({ photoId: favoritesTable.photoId })
+      .from(favoritesTable)
+      .where(eq(favoritesTable.userId, userId));
+    return new Set(rows.map(r => r.photoId));
+  }
+
+  /**
+   * Every photo the user has favorited, across all squads, enriched with event
+   * labels and ordered most-recent-upload first. Each item keeps its squadId so
+   * the client can open it in its original squad context.
+   */
+  async getUserFavorites(userId: string): Promise<EnrichedPhoto[]> {
+    return db
+      .select(enrichedPhotoColumns)
+      .from(favoritesTable)
+      .innerJoin(photosTable, eq(favoritesTable.photoId, photosTable.id))
+      .leftJoin(eventsTable, eq(photosTable.eventId, eventsTable.id))
+      .where(eq(favoritesTable.userId, userId))
+      .orderBy(desc(photosTable.uploadedAt));
   }
 
   /**

@@ -620,7 +620,11 @@ router.get("/squads/:id/vault", requireAuth, async (req: Request, res: Response)
       res.status(403).json({ error: "Access denied" });
       return;
     }
-    const photos = await storage.getSquadVaultPhotos(id);
+    const rawPhotos = await storage.getSquadVaultPhotos(id);
+    const favoriteIds = await storage.getUserFavoritePhotoIds(userId);
+    // The squad vault is a shared, always-viewable surface; we only annotate each
+    // item with whether the caller has personally favorited it.
+    const photos = rawPhotos.map((p) => ({ ...p, favorited: favoriteIds.has(p.id) }));
     res.json({ photos });
   } catch (err) {
     logger.error({ err }, "Error fetching squad vault photos");

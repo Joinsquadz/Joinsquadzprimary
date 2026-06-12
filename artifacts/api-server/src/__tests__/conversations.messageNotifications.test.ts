@@ -112,9 +112,9 @@ describe("POST /api/conversations/:id/messages — push notifications", () => {
     expect(payload.body).toContain("Photo");
   });
 
-  it("redacts the DM push body for free recipients but keeps the preview for Pro (DM gate parity)", async () => {
+  it("sends the full DM body to every recipient regardless of plan (DM gate removed)", async () => {
     storageMock.getConversationForMember.mockResolvedValue({ id: "c1", type: "direct", squadId: null });
-    // ALICE is Pro (active subscription); BOB is free.
+    // ALICE is Pro (active subscription); BOB is free — both must get the full body.
     storageMock.getUser.mockImplementation(async (uid: string) => {
       if (uid === ALICE) return { id: ALICE, firstName: "Alice", lastName: null, email: "a@x.io", stripeSubscriptionId: "sub_alice" };
       if (uid === BOB) return { id: BOB, firstName: "Bob", lastName: null, email: "b@x.io" };
@@ -123,7 +123,7 @@ describe("POST /api/conversations/:id/messages — push notifications", () => {
     storageMock.getSubscription.mockImplementation(async (subId: string) =>
       subId === "sub_alice" ? { status: "active" } : null,
     );
-    // Token lookup returns a per-recipient token so we can tell the batches apart.
+    // Token lookup returns a per-recipient token so we can inspect the batch.
     storageMock.getPushTokensForUsers.mockImplementation(async (ids: string[]) => ids.map((id) => `tok-${id}`));
 
     const app = await makeApp({ id: SENDER });
@@ -131,20 +131,15 @@ describe("POST /api/conversations/:id/messages — push notifications", () => {
       .post("/api/conversations/c1/messages")
       .send({ text: "secret plans tonight" });
 
-    await vi.waitFor(() => expect(sendPushNotificationsMock).toHaveBeenCalledTimes(2));
+    // No per-plan batching anymore — everyone is notified in a single send.
+    await vi.waitFor(() => expect(sendPushNotificationsMock).toHaveBeenCalledTimes(1));
 
-    const calls = sendPushNotificationsMock.mock.calls as [string[], { title: string; body: string }][];
-    const proCall = calls.find((c) => c[0].includes(`tok-${ALICE}`));
-    const freeCall = calls.find((c) => c[0].includes(`tok-${BOB}`));
-
-    expect(proCall).toBeDefined();
-    expect(freeCall).toBeDefined();
-    // Pro recipient still sees the message content.
-    expect(proCall![1].body).toBe("secret plans tonight");
-    // Free recipient gets a generic, content-free body — the message text must NOT leak.
-    expect(freeCall![1].body).toBe("You have a new message in SquadZ");
-    expect(freeCall![1].body).not.toContain("secret");
-    // Sender name is allowed in the title for both.
-    expect(freeCall![1].title).toBe("Sam");
+    const [tokens, payload] = sendPushNotificationsMock.mock.calls[0] as [string[], { title: string; body: string }];
+    // Both the Pro and the free recipient are in the same batch.
+    expect(tokens).toContain(`tok-${ALICE}`);
+    expect(tokens).toContain(`tok-${BOB}`);
+    // The full message content is delivered to all recipients (no redaction).
+    expect(payload.body).toBe("secret plans tonight");
+    expect(payload.title).toBe("Sam");
   });
 });
