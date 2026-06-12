@@ -26,12 +26,12 @@ const TRIGGER_COPY: Record<UpgradeTrigger, { icon: string; title: string; body: 
   photos: {
     icon: "📸",
     title: "Keep your memories",
-    body: "Free accounts store photos for 30 days. Upgrade to Pro for a permanent, unlimited photo vault.",
+    body: "The personal photo vault is a Pro feature. Upgrade for a permanent, unlimited photo vault.",
   },
   general: {
     icon: "⚡",
     title: "Unlock the full experience",
-    body: "Unlimited events, photo vault, calendar sync, and custom invite codes — for just $20/year.",
+    body: "Unlimited events, photo vault, calendar sync, and custom invite codes — for just $29.99/year.",
   },
 };
 
@@ -132,10 +132,10 @@ export function UpgradeModal({
           }}
         >
           <div style={{ fontFamily: fontMono, fontWeight: 800, fontSize: 36, color: T.white, lineHeight: 1 }}>
-            $20
+            $29.99
           </div>
           <div style={{ fontSize: 13, color: T.textSub, fontFamily: font, marginTop: 3 }}>
-            per year · less than $2/month · cancel anytime
+            per year · less than $3/month · cancel anytime
           </div>
         </div>
 
@@ -190,7 +190,7 @@ export function UpgradeModal({
             marginBottom: 10,
           }}
         >
-          {loading ? "Opening checkout…" : "Upgrade to Pro — $20/year →"}
+          {loading ? "Opening checkout…" : "Upgrade to Pro — $29.99/year →"}
         </button>
         <button
           onClick={onClose}

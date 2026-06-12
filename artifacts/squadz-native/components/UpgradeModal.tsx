@@ -59,7 +59,7 @@ const TRIGGER_COPY: Record<UpgradeTrigger, { headline: string; sub: string }> = 
   },
   photos: {
     headline: "Keep your memories forever",
-    sub: "The free photo vault expires after 30 days. Squadz+ stores your squad photos permanently.",
+    sub: "Your personal vault and saved favorites are a Squadz+ feature. Keep all your uploads in one place and save photos from any squad forever.",
   },
   events: {
     headline: "Plan without limits",
