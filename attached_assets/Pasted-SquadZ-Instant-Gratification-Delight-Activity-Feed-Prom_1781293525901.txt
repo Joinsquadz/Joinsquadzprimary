@@ -1,0 +1,174 @@
+SquadZ — Instant Gratification, Delight & Activity Feed Prompt
+Two interconnected improvements: a reusable in-app delight system and a fully functional activity feed replacing the notification bell. The guiding principle across everything: rewarding without being annoying, informative without being noisy. Nothing loud, nothing repetitive, nothing that would irritate a user after seeing it twice.
+Do not add new features outside what is specified. Build the reusable ToastBanner component first before any individual delight feature — all nine delight features share it. Architect code review required before final sign-off.
+
+PART A — REUSABLE TOAST BANNER COMPONENT
+Before building any delight feature, create a single reusable ToastBanner component that every feature in Part B shares. Building nine separate banner implementations is not acceptable.
+ToastBanner props:
+
+message (string) — the display text
+duration (number, default 3000ms) — how long before auto-dismiss
+onPress (optional function) — navigation callback if tapped
+avatar (optional image URL) — small avatar shown left of message for person-triggered banners
+
+Behavior:
+
+Slides down from the top of the screen on appear, slides back up on dismiss
+Auto-dismisses after duration ms
+If tapped and onPress is provided, navigates and dismisses immediately
+If multiple banners are queued, show them sequentially with a 500ms gap — never stack two banners simultaneously
+Uses React Native Animated API — no new animation libraries
+Respects safe area insets — never overlaps the status bar
+Dark background (#1A1A1A), white text, orange accent on the left edge — consistent with app design language
+No sounds anywhere
+
+Verify: render ToastBanner with and without onPress. Confirm it appears, auto-dismisses, and navigates on tap. Confirm sequential queuing works correctly with two banners fired simultaneously.
+
+PART B — DELIGHT FEATURES
+All banners use the ToastBanner component from Part A. All seen flags are stored locally with a user ID suffix to prevent cross-account leakage. Nothing fires when the app is in the background — push notifications handle background state.
+B1 — Reaction micro-animations
+When a user taps a reaction on a Vibe post, vault photo, or Moment, animate the emoji with a quick scale bounce: scale 1.0 → 1.4 → 1.0 over 200ms ease-out. The reaction count increment animates with a subtle slide-up number transition rather than an instant swap.
+On the receiving end, when someone reacts to your content, the count updates via existing SSE with the same slide-up transition.
+No sounds. No full-screen moments. Just physical feedback that the tap registered.
+Verify: tap a reaction on a Vibe, vault photo, and Moment. Each bounces correctly. Count updates with slide-up transition. No jank.
+
+B2 — RSVP momentum banner
+When someone RSVPs to your event while you have the app open, show a ToastBanner to the organizer only.
+Copy:
+
+Going: "[Name] is going 🎉"
+Maybe: "[Name] might make it 👀"
+Not going: "[Name] can't make it"
+
+If multiple RSVPs arrive within 10 seconds, batch them: "Alex and 2 others just RSVPd 🎉"
+Rules: organizer only, foreground only, never for organizer's own RSVP, auto-dismiss 3 seconds, no tap navigation needed.
+
+B3 — Friend joined your squad banner
+When someone joins your squad via your invite link while you have the app open, show a ToastBanner to the inviter only.
+Copy: "[Name] just joined your squad 👋"
+onPress navigates to the squad screen. Auto-dismisses 3 seconds. Foreground only, never retroactive.
+
+B4 — Post sent confirmation animation
+When a Vibe post is submitted and the composer closes, the new post snaps into the top of the feed with a scale animation: 0.95 → 1.0 over 150ms ease-out.
+When a Moment is posted, the new avatar ring in the ring row animates in with the same 150ms ease-out scale.
+No sounds. No banners. Just physical confirmation the post landed.
+
+B5 — Streak milestone celebration
+When a squad streak hits 4 weeks, 8 weeks, 12 weeks, 6 months, or 1 year, show a full-screen celebration on the next app open after the milestone is reached.
+Content:
+
+Lightweight confetti animation, 2 seconds, auto-stops
+Headline: "X weeks strong 🔥" or "One year together 🎉"
+Subtext: "[Squad name] has been hanging for [duration]. Keep it going."
+Single CTA: "Let's go" — dismisses
+
+Rules: exactly once per milestone per squad via seenStreakMilestone_[squadId]_[milestone] flag. Only on app open, never mid-session. No sound.
+
+B6 — First RSVP magic moment
+The first time anyone RSVPs "going" to your event, show a ToastBanner to the organizer only.
+Copy: "Your first yes 🎉 — the crew is forming."
+Store seenFirstRsvp_[eventId] flag — fires once per event only. Subsequent RSVPs use B2. Foreground only.
+
+B7 — Availability poll resolution nudge
+When a poll reaches 50% or more respondents marking one slot as available, show a ToastBanner to the poll creator once.
+Copy: "Looks like [day] works for most people 🗓️ — time to make it official."
+onPress navigates to the poll screen. Store seenPollResolution_[pollId] flag. Fires once per poll, foreground only, only for open polls.
+
+B8 — Moment view count for poster
+In the Moment viewer, show a live view count visible only to the poster of that Moment. Updates in real time via existing SSE viewer infrastructure.
+Display: "👁 X views" — subtle label, poster-only. No animation on the count, just a live number. Nobody else sees other people's view counts.
+
+B9 — New vault photos banner
+When photos are uploaded to a squad vault while other squad members have the app open, show a ToastBanner to those members.
+Copy: "[Name] added X photo(s) to [squad name] 📸"
+onPress navigates to the squad vault. One banner per upload batch (6-hour window). Never shown to the uploader. Only when the user is NOT already viewing that squad vault. Foreground only.
+
+PART C — ACTIVITY FEED
+Replace the notification bell icon on the Home screen with an Activity tab that opens a dedicated activity feed screen. The bell icon becomes the entry point to this screen. Keep the bell icon placement exactly where it is — top right of the Home screen next to the profile icon. Add a badge count on the bell showing the number of unread activity items.
+What appears in the activity feed:
+Every item links directly to the relevant content. Tapping navigates to the exact screen, post, photo, or event referenced.
+Include:
+
+Friend request received — "[Name] wants to be friends" → tapping opens their profile with accept/decline
+Squad invite received — "[Name] invited you to [squad name]" → tapping opens the squad join screen
+Someone reacted to your Vibe post — grouped (see grouping rules below) → tapping opens the Vibe post
+Someone commented on your Vibe post — individual, not grouped → tapping opens the Vibe post with comments visible
+Someone reacted to your vault photo — grouped → tapping opens VaultMediaDetail for that photo
+Someone commented on your vault photo — individual → tapping opens VaultMediaDetail with comments visible
+Someone RSVPd to your event — grouped → tapping opens the event screen
+Someone joined your squad via your invite link — individual → tapping opens the squad screen
+
+Do not include: Moments reactions, streak milestones, availability poll activity, cost split activity, or any system notifications. Keep the feed focused on direct social interactions only.
+Grouping rules:
+Reactions and RSVPs are grouped by content item. Examples:
+
+"Alex, Jordan, and 3 others reacted to your Vibe post" — with a row of up to 3 avatars
+"Alex and 2 others are going to [event name]"
+
+When a user taps a grouped item, they see the full list of who performed that action — a bottom sheet or expanded view showing each person's name and avatar. This is the "see who liked it" detail view.
+Comments are never grouped — each comment is its own activity item showing the commenter's name and a preview of the comment text (truncated to 60 characters).
+Friend requests and squad invites are never grouped — always individual.
+Read/unread state:
+Unread items are visually distinct — slightly brighter background or a left accent bar in orange, consistent with app design language. Read items are standard card styling.
+All items in the feed are marked as read when the user opens the activity screen. The bell badge count resets to 0 on open.
+New unread items that arrive while the activity screen is open should appear at the top with a subtle slide-in animation — same 150ms ease-out pattern used elsewhere.
+Activity item design:
+Each item follows the same layout:
+
+Left: avatar(s) of the person(s) who performed the action — Pro users show gold ring
+Center: action text with the content name in orange (tappable)
+Right: timestamp (relative — "2m", "1h", "3d") and a small thumbnail of the content if applicable (Vibe post photo, vault photo)
+Full row is tappable and navigates to the correct destination
+
+Grouped items show up to 3 stacked avatars on the left with a "+X" overflow indicator if more than 3.
+Pagination:
+
+Load 30 items per page. Paginate on scroll. Do not fetch all activity at once.
+Empty state:
+
+"No activity yet. Invite friends and start planning 🎉" with a CTA that opens the invite flow.
+API:
+
+Add GET /api/activity endpoint supporting: page, limit query params. Returns activity items in reverse chronological order, grouped server-side. Server enforces that only activity relevant to the authenticated user is returned — never other users' activity regardless of how the request is formed.
+Add POST /api/activity/read to mark all items as read. Call this on activity screen open.
+Badge count is derived from a GET /api/activity/unread-count endpoint returning { count: number }. This is called on app foreground and on SSE updates so the badge stays current without polling.
+Real-time:
+
+When new activity arrives, increment the bell badge count in real time via the existing SSE infrastructure. The activity feed itself should refetch the top page when new activity arrives and the screen is open — not a full reload, just a prepend of new items.
+Verification for Part C:
+
+ Bell icon navigates to activity screen
+ Badge count shows correct unread count on app open
+ Badge resets to 0 on activity screen open
+ Friend request item appears, links to correct profile with accept/decline
+ Squad invite item appears, links to squad join screen
+ Vibe reaction items are grouped correctly with avatar stack
+ Vibe comment items are individual with comment preview
+ Vault photo reaction items are grouped, tap opens VaultMediaDetail
+ Vault photo comment items are individual, tap opens VaultMediaDetail with comments
+ RSVP items are grouped, tap opens event screen
+ Squad join items are individual, tap opens squad screen
+ Tapping a grouped item shows the full list of who performed the action
+ Unread items are visually distinct from read items
+ All items marked read on screen open
+ New items slide in at top while screen is open
+ Pagination loads correctly at 30 items per page
+ Empty state renders with functional CTA
+ Bell badge updates in real time via SSE when new activity arrives
+ API returns only the authenticated user's own activity at the API level
+ Pro users show gold ring on their avatars in the activity feed
+ Deep links from activity items work correctly from all app states
+
+
+Global Notes:
+
+ToastBanner is one shared component — not nine separate implementations
+No sounds anywhere in Part B or Part C
+No full-screen interruptions in Part B except B5 which only fires on app open
+Nothing in Part B fires when the app is in the background
+All seen flags include user ID suffix to prevent cross-account leakage
+Activity feed is the only place streak milestones and Moments notifications are excluded — they are intentionally not in scope for the activity feed
+All animations use React Native Animated API — no new animation libraries
+Mobile typecheck clean and full test suite passing before marking complete
+Architect code review required before final sign-off
+Provide a final summary confirming every verification item passed
