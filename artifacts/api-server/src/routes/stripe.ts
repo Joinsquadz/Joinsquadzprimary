@@ -6,7 +6,7 @@ import { logger } from '../lib/logger';
 import { buildProWelcomeHtml } from '../emailService';
 import { getBaseUrl } from '../lib/urls';
 import { trackEvent } from '../services/analytics';
-import { claimCheckoutTier, priceIdForTier, getFoundingStatus } from '../lib/founding';
+import { decideCheckoutTier, priceIdForTier, getFoundingStatus } from '../lib/founding';
 
 const router: IRouter = Router();
 
@@ -109,10 +109,13 @@ router.post('/checkout', requireAuth, async (req, res): Promise<void> => {
       return;
     }
 
-    // Server decides the tier atomically: claims a founding spot if any remain
-    // (incrementing the counter under an advisory lock), else falls back to
-    // standard. The matching price id comes from server env, never the client.
-    const tier = await claimCheckoutTier();
+    // Server decides the tier (founding while spots remain, else standard) from
+    // the live count — WITHOUT consuming a spot. The spot is only redeemed when
+    // Stripe confirms payment (checkout.session.completed webhook), so an
+    // abandoned checkout never burns a founding spot. The matching price id
+    // comes from server env, never the client. The tier is stamped onto the
+    // session metadata so the webhook knows whether to redeem a founding spot.
+    const tier = await decideCheckoutTier();
     const priceId = priceIdForTier(tier);
 
     const baseUrl = getBaseUrl();
@@ -121,6 +124,7 @@ router.post('/checkout', requireAuth, async (req, res): Promise<void> => {
       priceId,
       `${baseUrl}/home?checkout=success`,
       `${baseUrl}/home?checkout=cancel`,
+      { userId, tier },
     );
 
     trackEvent(userId, 'checkout_started', { priceId, tier });

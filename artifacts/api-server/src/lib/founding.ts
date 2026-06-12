@@ -1,5 +1,5 @@
 import { db } from '@workspace/db';
-import { foundingMemberCounterTable } from '@workspace/db/schema';
+import { foundingMemberCounterTable, foundingMemberRedemptionsTable } from '@workspace/db/schema';
 import { sql, eq } from 'drizzle-orm';
 
 // Total number of Founding Member spots. Lives here as a constant (not in the
@@ -51,30 +51,56 @@ export async function getFoundingStatus(): Promise<{
 }
 
 /**
- * Atomically claim a checkout tier. If founding spots remain, increments the
- * counter and returns 'founding'; otherwise returns 'standard'. A per-counter
- * advisory xact lock (auto-released at COMMIT) serializes concurrent claims so
- * two callers racing on the last spot can't both be granted 'founding'.
- *
- * Under unit-test mocks `db.transaction` is absent, so we fall back to a direct
- * read (the concurrency guarantee is covered by the real-DB test).
+ * Decide which tier a NEW checkout should use, WITHOUT consuming a spot. Returns
+ * 'founding' while spots remain, else 'standard'. This is intentionally
+ * read-only: the founding counter is only incremented when Stripe confirms a
+ * real payment (see `redeemFoundingSpot`), so an abandoned checkout never burns
+ * a founding spot. Because nothing is claimed here, two people can legitimately
+ * be offered the founding price on the last spot at the same time — whoever
+ * actually pays is honoured (a tiny, benign overshoot of the displayed cap).
  */
-export async function claimCheckoutTier(): Promise<CheckoutTier> {
-  const run = async (tx: Executor): Promise<CheckoutTier> => {
+export async function decideCheckoutTier(): Promise<CheckoutTier> {
+  const { isFoundingAvailable } = await getFoundingStatus();
+  return isFoundingAvailable ? 'founding' : 'standard';
+}
+
+/**
+ * Consume a founding spot for a PAID subscription, called from the Stripe
+ * `checkout.session.completed` webhook. Idempotent per `subscriptionId`: the
+ * redemptions ledger row is the dedupe key, so Stripe re-delivering the event
+ * (at-least-once delivery / retries) increments the counter at most once per
+ * subscription. A per-counter advisory xact lock serializes concurrent
+ * increments so the running total stays consistent. Returns true only when this
+ * call actually consumed a new spot.
+ *
+ * Under unit-test mocks `db.transaction` is absent, so we fall back to running
+ * the same steps directly (the real concurrency/idempotency guarantee is
+ * covered by the real-DB test).
+ */
+export async function redeemFoundingSpot(subscriptionId: string): Promise<boolean> {
+  if (!subscriptionId) return false;
+
+  const run = async (tx: Executor): Promise<boolean> => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(${FOUNDING_LOCK_KEY})`);
-    const [row] = await tx
-      .select()
-      .from(foundingMemberCounterTable)
-      .where(eq(foundingMemberCounterTable.id, 1));
-    const redeemed = row?.redeemed ?? 0;
-    if (redeemed < FOUNDING_MEMBER_LIMIT) {
-      await tx
-        .update(foundingMemberCounterTable)
-        .set({ redeemed: redeemed + 1 })
-        .where(eq(foundingMemberCounterTable.id, 1));
-      return 'founding';
-    }
-    return 'standard';
+
+    const inserted = await tx
+      .insert(foundingMemberRedemptionsTable)
+      .values({ subscriptionId })
+      .onConflictDoNothing()
+      .returning({ subscriptionId: foundingMemberRedemptionsTable.subscriptionId });
+
+    // Already redeemed for this subscription — never double-count.
+    if (inserted.length === 0) return false;
+
+    await tx
+      .insert(foundingMemberCounterTable)
+      .values({ id: 1, redeemed: 1 })
+      .onConflictDoUpdate({
+        target: foundingMemberCounterTable.id,
+        set: { redeemed: sql`${foundingMemberCounterTable.redeemed} + 1` },
+      });
+
+    return true;
   };
 
   return typeof db.transaction === 'function' ? db.transaction((tx) => run(tx)) : run(db);

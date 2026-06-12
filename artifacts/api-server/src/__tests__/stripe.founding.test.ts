@@ -2,11 +2,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import request from "supertest";
 
 // Founding-pricing route wiring (mocked). The atomic concurrency guarantee of
-// claimCheckoutTier itself is proven against a real Postgres in
+// decideCheckoutTier itself is proven against a real Postgres in
 // __tests__/concurrency/realDb.concurrency.test.ts (F1).
 
 const foundingMock = vi.hoisted(() => ({
-  claimCheckoutTier: vi.fn<() => Promise<"founding" | "standard">>(),
+  decideCheckoutTier: vi.fn<() => Promise<"founding" | "standard">>(),
   priceIdForTier: vi.fn((tier: "founding" | "standard") =>
     tier === "founding" ? "price_founding" : "price_standard",
   ),
@@ -96,7 +96,7 @@ describe("POST /api/checkout — server-chosen tier", () => {
 
   it("applies the founding price when a spot is claimed and returns the tier", async () => {
     vi.mocked(storage.getUser).mockResolvedValue(VERIFIED_CUSTOMER as never);
-    foundingMock.claimCheckoutTier.mockResolvedValue("founding");
+    foundingMock.decideCheckoutTier.mockResolvedValue("founding");
 
     const res = await request(makeApp({ id: "u1", email: "u1@example.test" }))
       .post("/api/checkout")
@@ -113,12 +113,13 @@ describe("POST /api/checkout — server-chosen tier", () => {
       "price_founding",
       expect.any(String),
       expect.any(String),
+      expect.objectContaining({ userId: "u1", tier: "founding" }),
     );
   });
 
   it("falls back to the standard price when founding is sold out", async () => {
     vi.mocked(storage.getUser).mockResolvedValue(VERIFIED_CUSTOMER as never);
-    foundingMock.claimCheckoutTier.mockResolvedValue("standard");
+    foundingMock.decideCheckoutTier.mockResolvedValue("standard");
 
     const res = await request(makeApp({ id: "u1", email: "u1@example.test" }))
       .post("/api/checkout")
@@ -131,7 +132,7 @@ describe("POST /api/checkout — server-chosen tier", () => {
 
   it("ignores any client-supplied priceId (cannot self-select founding)", async () => {
     vi.mocked(storage.getUser).mockResolvedValue(VERIFIED_CUSTOMER as never);
-    foundingMock.claimCheckoutTier.mockResolvedValue("standard");
+    foundingMock.decideCheckoutTier.mockResolvedValue("standard");
 
     const res = await request(makeApp({ id: "u1", email: "u1@example.test" }))
       .post("/api/checkout")
@@ -154,7 +155,7 @@ describe("POST /api/checkout — server-chosen tier", () => {
 
     expect(res.status).toBe(403);
     expect(res.body.requiresEmailVerification).toBe(true);
-    expect(foundingMock.claimCheckoutTier).not.toHaveBeenCalled();
+    expect(foundingMock.decideCheckoutTier).not.toHaveBeenCalled();
   });
 
   it("blocks checkout when the user already has an active subscription", async () => {
@@ -169,6 +170,6 @@ describe("POST /api/checkout — server-chosen tier", () => {
       .send({});
 
     expect(res.status).toBe(400);
-    expect(foundingMock.claimCheckoutTier).not.toHaveBeenCalled();
+    expect(foundingMock.decideCheckoutTier).not.toHaveBeenCalled();
   });
 });

@@ -370,47 +370,68 @@ describe("E1 — squad cap holds under concurrency", () => {
   });
 });
 
-// ── F1: founding spot cap holds under concurrency ────────────────────────────
+// ── F1: founding spot is consumed at PAYMENT, idempotently ───────────────────
+//
+// New model: the tier shown at checkout creation is a read-only decision (it
+// does NOT consume a spot), and the counter is only incremented from the
+// checkout.session.completed webhook via redeemFoundingSpot — idempotent per
+// subscription id. These tests prove both halves hold under real concurrency.
 
-describe("F1 — founding spot cap holds under concurrency", () => {
-  it("at 499/500, only ONE concurrent claim gets 'founding'", async () => {
-    const { claimCheckoutTier, FOUNDING_MEMBER_LIMIT } = await import("../../lib/founding");
-    // One spot left.
-    await seedFoundingCounter(FOUNDING_MEMBER_LIMIT - 1);
+describe("F1 — decideCheckoutTier is read-only (no spot burned at checkout start)", () => {
+  it("at 499/500, ALL concurrent decisions get 'founding' and the counter is untouched", async () => {
+    const { decideCheckoutTier, FOUNDING_MEMBER_LIMIT } = await import("../../lib/founding");
+    await seedFoundingCounter(FOUNDING_MEMBER_LIMIT - 1); // one spot left
 
     const results = await Promise.all(
-      Array.from({ length: 8 }, () => claimCheckoutTier()),
+      Array.from({ length: 8 }, () => decideCheckoutTier()),
     );
 
-    const founding = results.filter((t) => t === "founding").length;
-    const standard = results.filter((t) => t === "standard").length;
-    expect(founding).toBe(1);
-    expect(standard).toBe(7);
-    // Counter never overshoots the cap.
-    expect(await foundingRedeemed()).toBe(FOUNDING_MEMBER_LIMIT);
+    // Nothing is claimed at checkout start, so concurrent shoppers can all be
+    // offered the founding price — whoever actually pays consumes the spot.
+    expect(results.every((t) => t === "founding")).toBe(true);
+    expect(await foundingRedeemed()).toBe(FOUNDING_MEMBER_LIMIT - 1);
   });
 
-  it("when sold out, every concurrent claim gets 'standard' and the counter is unchanged", async () => {
-    const { claimCheckoutTier, FOUNDING_MEMBER_LIMIT } = await import("../../lib/founding");
+  it("when sold out, every decision is 'standard' and the counter is unchanged", async () => {
+    const { decideCheckoutTier, FOUNDING_MEMBER_LIMIT } = await import("../../lib/founding");
     await seedFoundingCounter(FOUNDING_MEMBER_LIMIT);
 
     const results = await Promise.all(
-      Array.from({ length: 5 }, () => claimCheckoutTier()),
+      Array.from({ length: 5 }, () => decideCheckoutTier()),
     );
 
     expect(results.every((t) => t === "standard")).toBe(true);
     expect(await foundingRedeemed()).toBe(FOUNDING_MEMBER_LIMIT);
   });
+});
 
-  it("with plenty of spots, N concurrent claims grant exactly N founding spots", async () => {
-    const { claimCheckoutTier } = await import("../../lib/founding");
+describe("F1 — redeemFoundingSpot consumes a spot at payment, idempotently", () => {
+  it("N distinct paid subscriptions consume exactly N spots under concurrency", async () => {
+    const { redeemFoundingSpot } = await import("../../lib/founding");
     await seedFoundingCounter(10);
 
     const results = await Promise.all(
-      Array.from({ length: 6 }, () => claimCheckoutTier()),
+      Array.from({ length: 6 }, (_, i) => redeemFoundingSpot(`sub_distinct_${i}`)),
     );
 
-    expect(results.every((t) => t === "founding")).toBe(true);
+    expect(results.filter(Boolean).length).toBe(6);
     expect(await foundingRedeemed()).toBe(16);
+  });
+
+  it("re-delivering the same subscription only ever consumes ONE spot", async () => {
+    const { redeemFoundingSpot } = await import("../../lib/founding");
+    await seedFoundingCounter(0);
+
+    const results = await Promise.all(
+      Array.from({ length: 8 }, () => redeemFoundingSpot("sub_idempotent")),
+    );
+
+    // Exactly one call wins the ledger insert; the rest are no-ops.
+    expect(results.filter(Boolean).length).toBe(1);
+    expect(await foundingRedeemed()).toBe(1);
+
+    // A later re-delivery (sequential) is still a no-op.
+    expect(await redeemFoundingSpot("sub_idempotent")).toBe(false);
+    expect(await foundingRedeemed()).toBe(1);
   });
 });

@@ -2,6 +2,7 @@ import { getStripeSync } from './stripeClient';
 import { storage } from './storage';
 import { logger } from './lib/logger';
 import { emailService } from './emailService';
+import { redeemFoundingSpot } from './lib/founding';
 import { db } from '@workspace/db';
 import { sql } from 'drizzle-orm';
 
@@ -35,6 +36,7 @@ export class WebhookHandlers {
     let customerId: string | null = null;
     let subscriptionId: string | null = null;
     let isCheckoutCompleted = false;
+    let checkoutTier: string | null = null;
     let invoicePaymentSucceededId: string | null = null;
     let invoicePaymentSucceededCustomerId: string | null = null;
     let invoicePaymentFailedId: string | null = null;
@@ -63,9 +65,11 @@ export class WebhookHandlers {
           const session = event.data.object as {
             customer: string | null;
             subscription: string | null;
+            metadata: Record<string, string> | null;
           };
           customerId = session.customer;
           subscriptionId = session.subscription;
+          checkoutTier = session.metadata?.tier ?? null;
           isCheckoutCompleted = true;
         } else if (event.type === 'invoice.payment_succeeded') {
           const invoice = event.data.object as unknown as {
@@ -116,6 +120,28 @@ export class WebhookHandlers {
         }
       } catch (err) {
         logger.warn({ err, customerId, subscriptionId }, 'Could not link subscription to user');
+      }
+    }
+
+    // Consume a Founding Member spot ONLY now that payment has actually
+    // succeeded, and only for a founding-tier purchase. Idempotent per
+    // subscription id, so Stripe re-delivering this event can't double-count.
+    // On a transient failure we rethrow so the webhook returns non-2xx and
+    // Stripe retries — because the redemption is idempotent, a retry can never
+    // double-count, but without it a paid founding checkout would silently lose
+    // its spot forever.
+    if (isCheckoutCompleted && subscriptionId && checkoutTier === 'founding') {
+      try {
+        const consumed = await redeemFoundingSpot(subscriptionId);
+        if (consumed) {
+          logger.info({ subscriptionId }, 'Redeemed a founding member spot');
+        }
+      } catch (err) {
+        logger.error(
+          { err, subscriptionId },
+          'Founding spot redemption failed — failing webhook so Stripe retries',
+        );
+        throw err;
       }
     }
 

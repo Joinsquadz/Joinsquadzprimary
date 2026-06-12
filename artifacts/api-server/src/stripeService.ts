@@ -15,6 +15,7 @@ export class StripeService {
     priceId: string,
     successUrl: string,
     cancelUrl: string,
+    metadata?: Record<string, string>,
   ) {
     const stripe = await getUncachableStripeClient();
     return await stripe.checkout.sessions.create({
@@ -24,6 +25,10 @@ export class StripeService {
       mode: 'subscription',
       success_url: successUrl,
       cancel_url: cancelUrl,
+      // Tag the session (and the resulting subscription) with the server-chosen
+      // tier so the checkout.session.completed webhook can consume a founding
+      // spot only for an actual founding purchase.
+      ...(metadata ? { metadata, subscription_data: { metadata } } : {}),
     });
   }
 
