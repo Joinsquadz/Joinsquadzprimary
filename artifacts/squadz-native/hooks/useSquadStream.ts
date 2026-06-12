@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
 import { useFocusEffect } from "expo-router";
+// Expo's streaming-capable fetch. React Native's built-in fetch does NOT
+// populate `response.body` (it has no ReadableStream), so the SSE reader below
+// could never start and the status was stuck on "reconnecting" forever on a
+// device. expo/fetch returns a real streaming body on both native and web.
+import { fetch as streamFetch } from "expo/fetch";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
 export type SquadStreamStatus = "connected" | "reconnecting" | "error";
@@ -92,7 +97,7 @@ export function useSquadStream({ squadId, authToken, onUpdate }: Options): { sta
 
     const run = async () => {
       try {
-        const response = await fetch(`${API_BASE}/api/squads/${squadId}/stream`, {
+        const response = await streamFetch(`${API_BASE}/api/squads/${squadId}/stream`, {
           headers: {
             Accept: "text/event-stream",
             "Cache-Control": "no-cache",

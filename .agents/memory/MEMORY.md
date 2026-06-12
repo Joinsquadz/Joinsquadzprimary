@@ -29,6 +29,7 @@
 - [Squadz push fan-out](squadz-push-fanout.md) — every feature push: exclude actor + gate on notify_* pref + filterUnmutedForSquad for squad sends; reminder scheduler marks reminderSentAt only AFTER successful send (never before).
 - [Availability poll caps](availability-poll-caps.md) — mobile DAY_COUNT_OPTIONS must match server days cap (BOTH Create+Update schemas) and cells cap (=maxDays×48); grid is windowed (DAY_WINDOW) with arrow pager, not all-on-screen.
 - [Availability live updates](availability-live-updates.md) — poll SSE stream reuses GET-poll authz; any refresh MUST branch pollId→/:id vs squad/event→/find or invite-link screens silently never refresh; keep 20s poll fallback.
+- [SSE needs expo/fetch on native](sse-expo-fetch.md) — RN built-in fetch has null response.body → getReader SSE never connects on device (stuck "reconnecting"); use `import {fetch} from "expo/fetch"`; tests must mock expo/fetch too.
 - [Squadz activation UX](squadz-activation-ux.md) — onboarding has NO paywall (value before payment); invite-crew is the climax; Find-the-Best-Time stays prominent; no fake social proof.
 - [FlatList ref generic](flatlist-ref-generic.md) — `useRef<FlatList>` = FlatList<any> and pins renderItem item to any (TS7006 only on nested .map); type the ref as `FlatList<ItemT>`.
 - [Squadz welcome tips tour](squadz-onboarding-tips.md) — once-per-user coach tour; `tips_seen_<userId>` kept OUT of ALL_APP_STORAGE_KEYS so it survives logout; cost split is event-scoped (Tip 4 anchors to Events, no squad-screen cost UI).

@@ -1,0 +1,134 @@
+SquadZ — Founding Member Pricing, 14-Day Vault, Expiry Notifications & Profile Photo Tab
+Work through these in order. Confirm approach before coding each section. Do not add anything outside what is specified.
+
+SECTION 1 — Founding Member Pricing
+Stripe setup required first:
+
+Add a second price to the existing Squadz+ product in Stripe:
+
+Founding price: $19.99/year — label "Founding Member"
+Standard price: $29.99/year — label "Squadz+ Annual"
+
+Store both price IDs as environment variables: STRIPE_FOUNDING_PRICE_ID and STRIPE_STANDARD_PRICE_ID.
+Database:
+
+Add a single-row counter table called founding_member_counter with one integer column: redeemed. Initialize it at 0. The founding member limit is 500.
+Server — checkout endpoint:
+
+When creating a Stripe Checkout session, wrap the counter check and increment in an atomic transaction using the same pg_advisory_xact_lock pattern already used for squad limits. If redeemed is under 500, increment it and use STRIPE_FOUNDING_PRICE_ID. If 500 or over, use STRIPE_STANDARD_PRICE_ID. Return which price tier was applied so the client can confirm.
+Add a new public GET /api/subscription/founding-status endpoint that returns: { spotsRemaining: number, isFoundingAvailable: boolean }. This does not require auth — it needs to be visible before login for the landing page.
+Client — UpgradeModal:
+
+On mount, call /api/subscription/founding-status and store the result in local state.
+When founding is available (spotsRemaining > 0):
+
+Show an orange "🔥 Founding Member Pricing" badge at the top of the modal
+Display "$19.99/year" as the price with "$29.99" in strikethrough next to it
+Show "Only X spots remaining at this price" — use the live spotsRemaining value
+CTA button reads "Claim Founding Member Price"
+
+When founding is unavailable:
+
+No founding member badge
+Display "$29.99/year" cleanly
+CTA button reads "Upgrade to Squadz+ — $29.99/year"
+
+The modal should never show a loading state longer than 1 second — if the founding-status call hasn't returned, default to showing the standard $29.99 price.
+Landing page:
+
+Wire the same /api/subscription/founding-status endpoint to the landing page so the waitlist section can show founding member pricing availability to prospective users.
+Verification:
+
+Counter increments atomically — simulate two simultaneous upgrades at the 499/500 boundary and confirm only one gets the founding price
+Modal correctly shows founding UI when spots remain and standard UI when spots are gone
+The /api/subscription/founding-status endpoint returns correctly at 0, 250, and 500 redeemed
+Both Stripe price IDs route to the correct checkout session
+
+
+SECTION 2 — 14-Day Vault Retention and Expiry Notifications
+Vault retention change:
+
+Update the photo vault retention period for free users from 30 days to 14 days. This applies to both photos and videos. The server-side expiry logic, the client-side paywall check, and any references to "30 days" in copy, tooltips, or upgrade modal text must all be updated to reflect 14 days consistently.
+Squadz+ users retain permanent storage — no change.
+Expiry notification sequence:
+
+For every photo or video batch uploaded by a free user, schedule three push notifications tied to that upload's expiry date. A batch is defined as all media uploaded to the same squad within a 6-hour window — group them so users get one notification per squad per window, not one per photo.
+Notification schedule per batch:
+
+Day 10 after upload — "📸 Your [squad name] photos expire in 4 days. Upgrade to Squadz+ to keep them forever."
+Day 13 after upload — "⏰ Your [squad name] photos disappear tomorrow. Upgrade now — founding member pricing still available, only X spots left." (Show spots remaining dynamically. If founding is no longer available, copy reads "Upgrade now — $29.99/year.")
+Day 14 after upload — expiry day — "Your photos from [squad name] just expired. Upgrade to Squadz+ so it never happens again."
+
+Each notification deep links directly to the UpgradeModal with trigger set to photo_vault so it shows vault-specific benefit-led copy: "Permanent photo and video storage for every squad you're in. Never lose a memory again."
+Notification rules:
+
+If the user upgrades to Squadz+ before any scheduled notification fires, cancel all pending expiry notifications for that user
+Do not send expiry notifications to Squadz+ users under any condition
+If a user deletes the photos before expiry, cancel the remaining scheduled notifications for that batch
+Never send more than one expiry notification per day per user regardless of how many batches are expiring
+
+Copy updates:
+
+Anywhere in the app that currently references "30 days" in relation to photo retention — upgrade modal, vault paywall screen, settings, onboarding tips — update to "14 days."
+Verification:
+
+Free user uploads photos — confirm notifications are scheduled at day 10, 13, and 14
+User upgrades before day 10 — confirm all pending notifications are cancelled
+User deletes photos before day 10 — confirm notifications are cancelled
+Squadz+ user uploads — confirm no expiry notifications are scheduled
+Day 13 notification shows correct founding member spots remaining dynamically
+All "30 days" references are gone from the app
+
+
+SECTION 3 — Profile Photo Tab
+Add a Photos tab to the profile screen. This is a personal photo archive — every photo and video the user has uploaded across all squads, viewable in one place.
+Placement:
+
+Add a tab bar to the profile screen with two tabs: Profile (existing content) and Photos (new). The tab bar should sit below the profile header (avatar, name, bio, streak) and above the content area. Style consistently with the rest of the app — dark background, orange active tab indicator.
+What the Photos tab shows:
+
+Every photo and video the user has personally uploaded to any squad vault, aggregated in a single grid. This is personal content only — not other squad members' uploads. The grid should match the vault's existing grid layout (3 columns, consistent spacing).
+Filters:
+
+Provide the following filter options in a horizontally scrollable filter bar above the grid:
+
+All — every photo and video, most recent first (default)
+Photos — images only, no videos
+Videos — videos only
+By Squad — dropdown or chip selector showing all squads the user has uploaded to; selecting one filters to that squad's uploads only
+By Date — month/year selector; selecting a period filters to uploads from that time range
+
+Filters should be combinable — for example a user should be able to filter to Videos from a specific squad.
+Free vs Pro behavior:
+
+Free users see all their uploads in the grid but photos and videos older than 14 days are shown with a lock overlay and a blur, consistent with the vault paywall treatment. Tapping a locked item surfaces the UpgradeModal with trigger set to photo_vault.
+Squadz+ users see all their uploads in full with no locks regardless of age.
+Empty state:
+
+If the user has no uploads: "No photos yet. Start capturing moments with your squad." with a CTA that navigates to their first squad's vault.
+If a filter returns no results: "No [photos/videos] from [squad name / date range]." with a button to clear filters.
+Performance:
+
+The photo grid must use FlatList with numColumns={3} — not ScrollView. Images should use the same expo-image caching pattern already implemented in the vault screen. Load in pages of 30 items — do not fetch all uploads at once.
+API:
+
+Add a GET /api/user/photos endpoint that returns the authenticated user's uploads with support for the following query params: type (photo/video/all), squadId, month, year, page, limit. Server must enforce that only the authenticated user's own uploads are returned — never other squad members' content.
+Verification:
+
+All uploaded photos and videos appear correctly aggregated across squads
+Each filter works correctly in isolation and in combination
+Free user sees lock overlay on items older than 14 days
+Squadz+ user sees all items unlocked
+Tapping a locked item opens the UpgradeModal with vault-specific copy
+Pagination loads correctly — no blank screens between pages
+FlatList virtualization confirmed — no ScrollView
+API returns only the authenticated user's own uploads — verify at the API level that other users' content is never returned regardless of how the request is formed
+Empty state and no-results state both render correctly
+
+
+Global Notes:
+
+The $29.99/year standard price and $19.99/year founding price must be consistent everywhere they appear: UpgradeModal, settings, landing page, notification copy
+Do not change any existing Squadz+ features or gating logic outside of the 30→14 day vault retention change
+All three sections must pass typecheck and the full test suite before marking complete
+Architect code review required after all three sections are complete

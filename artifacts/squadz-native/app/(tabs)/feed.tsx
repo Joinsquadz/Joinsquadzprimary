@@ -52,7 +52,9 @@ type PickedMedia = {
   durationMs: number | null;
 };
 
-const MAX_VIDEO_MS = 60 * 1000;
+// Single uploaded file cap — kept in sync with the server (150 MB). Videos are
+// limited by this byte size, not by duration.
+const MAX_UPLOAD_BYTES = 150 * 1024 * 1024;
 
 type FeedComment = {
   id: string;
@@ -283,7 +285,6 @@ export default function FeedScreen() {
           result = await ImagePicker.launchCameraAsync({
             mediaTypes: kind === "video" ? ["videos"] : ["images"],
             quality: 0.8,
-            videoMaxDuration: 60,
           });
         } catch {
           // Some devices/simulators have no usable camera — fall back to the
@@ -292,7 +293,6 @@ export default function FeedScreen() {
             mediaTypes: kind === "video" ? ["videos"] : ["images"],
             allowsMultipleSelection: false,
             quality: 0.8,
-            videoMaxDuration: 60,
           });
         }
       } else {
@@ -305,17 +305,14 @@ export default function FeedScreen() {
           mediaTypes: ["images", "videos"],
           allowsMultipleSelection: false,
           quality: 0.8,
-          videoMaxDuration: 60,
         });
       }
       if (result.canceled || !result.assets.length) return;
       const asset = result.assets[0];
       const isVideo = kind === "video" || asset.type === "video";
       const durationMs = asset.duration ?? null;
-      if (isVideo && durationMs && durationMs > MAX_VIDEO_MS) {
-        Alert.alert("Too long", "Clips can be up to 60 seconds.");
-        return;
-      }
+      // No duration cap — clips are limited by file size (150 MB), enforced
+      // against the real byte size at upload time in handlePost.
       setPicked({
         uri: asset.uri,
         mediaType: isVideo ? "video" : "photo",
@@ -351,13 +348,27 @@ export default function FeedScreen() {
         null;
 
       if (picked) {
-        // 1. Request a signed upload URL.
+        // 1. Read the actual bytes first so we can validate the real file size
+        //    (ImagePicker reports fileSize: 0 for videos on some platforms,
+        //    notably web) and enforce the 150 MB cap by size, not duration.
+        const fileRes = await fetch(picked.uri);
+        const blob = await fileRes.blob();
+        const byteSize = blob.size || picked.fileSize;
+        if (byteSize > MAX_UPLOAD_BYTES) {
+          Alert.alert(
+            "Too large",
+            "Photos and videos must be 150 MB or smaller. Try a shorter clip.",
+          );
+          return;
+        }
+
+        // 2. Request a signed upload URL using the real byte size.
         const urlRes = await fetch(`${API_BASE}/api/storage/uploads/request-url`, {
           method: "POST",
           headers: { ...buildAuthHeaders(authToken), "Content-Type": "application/json" },
           body: JSON.stringify({
             name: picked.fileName,
-            size: picked.fileSize,
+            size: byteSize,
             contentType: picked.mimeType,
           }),
         });
@@ -370,9 +381,7 @@ export default function FeedScreen() {
           objectPath: string;
         };
 
-        // 2. PUT the media bytes.
-        const fileRes = await fetch(picked.uri);
-        const blob = await fileRes.blob();
+        // 3. PUT the media bytes.
         const putRes = await fetch(uploadURL, {
           method: "PUT",
           body: blob,

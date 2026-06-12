@@ -9,6 +9,7 @@ import {
   Platform,
   Share,
   Modal,
+  Alert,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
@@ -174,9 +175,31 @@ export default function HomeScreen() {
     } as never);
   };
 
+  // Share a message via the native share sheet, falling back to the clipboard
+  // on web. The browser's Web Share API (which react-native-web's Share wraps)
+  // is unavailable inside the cross-origin preview iframe, so Share.share()
+  // throws and the tap appeared to do nothing — copy the link instead.
+  const shareOrCopy = async (message: string) => {
+    if (Platform.OS === "web") {
+      try {
+        const Clipboard = await import("expo-clipboard");
+        await Clipboard.setStringAsync(message);
+        Alert.alert("Copied!", "Invite link copied to your clipboard — paste it anywhere to share.");
+      } catch {
+        Alert.alert("Couldn't copy", "Please copy the link manually.");
+      }
+      return;
+    }
+    try {
+      await Share.share({ message });
+    } catch {
+      // user dismissed the share sheet
+    }
+  };
+
   const shareSignupInvite = async () => {
     const message = `I'm on SquadZ — let's plan our next hangout and find a time everyone's free. Add me with my code ${friendCode}\nhttps://joinsquadz.com`;
-    try { await Share.share({ message }); } catch { /* dismissed */ }
+    await shareOrCopy(message);
   };
 
   const shareSquadInvite = async (squad: (typeof squads)[0]) => {
@@ -184,11 +207,7 @@ export default function HomeScreen() {
       ? `https://joinsquadz.com/squad/join?code=${squad.inviteCode}`
       : `https://joinsquadz.com/squad/${squad.id}`;
     const message = `Join my squad "${squad.emoji} ${squad.name}" on SquadZ — let's find a time we're all actually free 🎉\n${link}`;
-    try {
-      await Share.share({ message });
-    } catch {
-      // user dismissed the share sheet
-    }
+    await shareOrCopy(message);
   };
 
   // "Invite crew" opens a chooser: invite into an existing squad, or just send a

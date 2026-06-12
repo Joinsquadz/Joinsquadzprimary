@@ -16,7 +16,17 @@ const appStateHandlers = vi.hoisted(
   () => new Set<(state: string) => void>()
 );
 
+// The hook uses expo/fetch (streaming-capable). Tests drive a per-test mock
+// through this stable holder so beforeEach can swap the implementation.
+const expoFetchState = vi.hoisted(
+  () => ({ fn: null as null | ((...args: unknown[]) => unknown) })
+);
+
 // ── Module mocks ──────────────────────────────────────────────────────────────
+
+vi.mock("expo/fetch", () => ({
+  fetch: (...args: unknown[]) => expoFetchState.fn!(...args),
+}));
 
 vi.mock("expo-router", () => ({
   useFocusEffect: (cb: () => (() => void) | void) => {
@@ -93,6 +103,7 @@ describe("useSquadStream — auto-reconnect with exponential backoff", () => {
     setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
 
     fetchMock = vi.fn();
+    expoFetchState.fn = fetchMock;
     vi.stubGlobal("fetch", fetchMock);
   });
 
