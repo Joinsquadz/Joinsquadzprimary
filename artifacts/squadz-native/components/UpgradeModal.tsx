@@ -15,13 +15,13 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AppContext";
+import { useUserCache } from "@/context/UserCacheContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { startProCheckout } from "@/lib/checkout";
 import { ProAvatar } from "@/components/ProAvatar";
 
 export type UpgradeTrigger =
   | "squad_limit"
-  | "dm_gate"
   | "photos"
   | "events"
   | "moments"
@@ -52,10 +52,6 @@ const TRIGGER_COPY: Record<UpgradeTrigger, { headline: string; sub: string }> = 
   squad_limit: {
     headline: "Unlock unlimited squads",
     sub: "Free accounts are capped at 2 squads. Squadz+ lets you create and join as many as you want.",
-  },
-  dm_gate: {
-    headline: "Read every message",
-    sub: "Direct messages are a Squadz+ feature. Upgrade to unlock your full inbox.",
   },
   photos: {
     headline: "Keep your memories forever",
@@ -96,6 +92,7 @@ const welcomeSeenKey = (subId: string) => `hasSeenUpgradeWelcome_${subId}`;
 export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess }: Props) {
   const colors = useColors();
   const { authToken, currentUser } = useAuth();
+  const { refreshUsers } = useUserCache();
   const insets = useSafeAreaInsets();
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -171,6 +168,9 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess }: Pr
       const { isPro, subId } = await fetchSubscription();
       if (isPro) {
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        // Bust the shared user cache so the Pro gold ring resolves immediately
+        // on every avatar across the app, not just after a manual refresh.
+        if (currentUser.id) refreshUsers([currentUser.id]);
         onUpgradeSuccess?.();
         // Show the celebration once per subscription. If we can't resolve a sub
         // id, or it's already been seen, fall back to simply closing.
@@ -193,7 +193,7 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess }: Pr
     }
     setPhase("failed");
     setError("Almost there — if you finished checkout, tap Refresh status.");
-  }, [fetchSubscription, onUpgradeSuccess, onClose]);
+  }, [fetchSubscription, onUpgradeSuccess, onClose, refreshUsers, currentUser.id]);
 
   // Reset transient state whenever the parent closes the modal. Clearing
   // `founding` here means each fresh open re-fetches status and, if that fetch

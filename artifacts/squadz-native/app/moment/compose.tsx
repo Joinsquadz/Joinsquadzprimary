@@ -251,20 +251,6 @@ const styles = StyleSheet.create({
   pickLabel: { fontSize: 15, fontWeight: "700" },
   pickHint: { fontSize: 12, fontWeight: "500" },
 
-  sectionTitle: { fontSize: 15, fontWeight: "800", marginTop: 22, marginBottom: 10 },
-  audienceRow: { gap: 8, paddingRight: 4 },
-  audienceChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    maxWidth: 180,
-  },
-  audienceChipText: { fontSize: 13, fontWeight: "700" },
-
   postBtn: {
     marginTop: 28,
     borderRadius: 14,

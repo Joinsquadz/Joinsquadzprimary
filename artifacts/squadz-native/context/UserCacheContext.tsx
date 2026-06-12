@@ -58,12 +58,14 @@ type UserCacheCtx = {
   resolveUser: (id: string) => ResolvedUser;
   prefetchUsers: (ids: string[]) => void;
   seedUser: (user: ResolvedUser) => void;
+  refreshUsers: (ids: string[]) => void;
 };
 
 const UserCacheContext = createContext<UserCacheCtx>({
   resolveUser: makePlaceholder,
   prefetchUsers: () => {},
   seedUser: () => {},
+  refreshUsers: () => {},
 });
 
 export function useUserCache(): UserCacheCtx {
@@ -138,6 +140,23 @@ export function UserCacheProvider({ children }: { children: React.ReactNode }) {
     [cache, scheduleFetch],
   );
 
+  // Force a re-fetch of the given users even if already cached, replacing the
+  // entries in place (no placeholder flash). Used after the current user
+  // upgrades so their Pro gold ring resolves immediately everywhere.
+  const refreshUsers = useCallback(
+    (ids: string[]) => {
+      let hasNew = false;
+      for (const id of ids) {
+        if (!fetchingRef.current.has(id)) {
+          pendingRef.current.add(id);
+          hasNew = true;
+        }
+      }
+      if (hasNew) scheduleFetch();
+    },
+    [scheduleFetch],
+  );
+
   const seedUser = useCallback((user: ResolvedUser) => {
     setCache((prev) => {
       const existing = prev.get(user.id);
@@ -155,7 +174,7 @@ export function UserCacheProvider({ children }: { children: React.ReactNode }) {
   }, [authToken]);
 
   return (
-    <UserCacheContext.Provider value={{ resolveUser, prefetchUsers, seedUser }}>
+    <UserCacheContext.Provider value={{ resolveUser, prefetchUsers, seedUser, refreshUsers }}>
       {children}
     </UserCacheContext.Provider>
   );

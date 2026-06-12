@@ -94,6 +94,7 @@ function AuthGuard() {
 function PushNotificationHandler() {
   const { isLoggedIn, authToken } = useAuth();
   const checkedRef = useRef(false);
+  const handledNotificationIds = useRef<Set<string>>(new Set());
   const [showBanner, setShowBanner] = useState(false);
   const [registering, setRegistering] = useState(false);
 
@@ -177,7 +178,77 @@ function PushNotificationHandler() {
     };
   }, [isLoggedIn, authToken]);
 
-  // Deep-link listener for notification taps
+  // Shared deep-link routing for notification taps, used by both the live
+  // response listener and the cold-start launch handler.
+  const routeFromNotificationData = useCallback((data?: Record<string, string>) => {
+    if (!data?.screen) return;
+
+    switch (data.screen) {
+      case "availability":
+        if (data.squadId) {
+          router.push({ pathname: "/availability", params: { squadId: data.squadId } } as never);
+        } else if (data.eventId) {
+          router.push({ pathname: "/availability", params: { eventId: data.eventId } } as never);
+        }
+        break;
+      case "conversation":
+        if (data.conversationId) {
+          router.push({ pathname: "/conversation/[id]", params: { id: data.conversationId } } as never);
+        }
+        break;
+      case "event":
+        if (data.eventId) {
+          router.push({ pathname: "/event/[id]", params: { id: data.eventId } } as never);
+        }
+        break;
+      case "squad":
+        if (data.squadId) {
+          router.push({ pathname: "/squad/[id]", params: { id: data.squadId } } as never);
+        }
+        break;
+      case "vault":
+        // Vault comment notifications carry a photoId so the tap opens the
+        // specific photo (VaultMediaDetail) rather than the generic vault.
+        if (data.photoId) {
+          router.push({
+            pathname: "/vault",
+            params: {
+              ...(data.squadId ? { squadId: data.squadId } : {}),
+              ...(data.eventId ? { eventId: data.eventId } : {}),
+              photoId: data.photoId,
+            },
+          } as never);
+        } else if (data.squadId) {
+          router.push({ pathname: "/vault", params: { squadId: data.squadId } } as never);
+        }
+        break;
+      case "friends":
+        router.push("/friends" as never);
+        break;
+    }
+  }, []);
+
+  // Notification responses can be delivered to both the live listener and the
+  // cold-start getLastNotificationResponseAsync() path; dedupe by identifier so
+  // a single tap never routes twice.
+  const handleNotificationResponse = useCallback(
+    (response: { notification: { request: { identifier?: string; content: { data?: unknown } } } }) => {
+      const id = response?.notification?.request?.identifier;
+      if (id) {
+        if (handledNotificationIds.current.has(id)) return;
+        handledNotificationIds.current.add(id);
+      }
+      const data = response.notification.request.content.data as
+        | Record<string, string>
+        | undefined;
+      routeFromNotificationData(data);
+    },
+    [routeFromNotificationData],
+  );
+
+  // Deep-link listener for notification taps. Handles taps while the app is
+  // running (foreground/background) AND the launch notification when the app is
+  // started from a fully-killed (cold) state via getLastNotificationResponseAsync.
   useEffect(() => {
     if (Platform.OS === "web") return;
 
@@ -186,43 +257,13 @@ function PushNotificationHandler() {
     void (async () => {
       try {
         const Notifications = await import("expo-notifications");
-        sub = Notifications.addNotificationResponseReceivedListener((response) => {
-          const data = response.notification.request.content.data as Record<string, string> | undefined;
-          if (!data?.screen) return;
+        sub = Notifications.addNotificationResponseReceivedListener(handleNotificationResponse);
 
-          switch (data.screen) {
-            case "availability":
-              if (data.squadId) {
-                router.push({ pathname: "/availability", params: { squadId: data.squadId } } as never);
-              } else if (data.eventId) {
-                router.push({ pathname: "/availability", params: { eventId: data.eventId } } as never);
-              }
-              break;
-            case "conversation":
-              if (data.conversationId) {
-                router.push({ pathname: "/conversation/[id]", params: { id: data.conversationId } } as never);
-              }
-              break;
-            case "event":
-              if (data.eventId) {
-                router.push({ pathname: "/event/[id]", params: { id: data.eventId } } as never);
-              }
-              break;
-            case "squad":
-              if (data.squadId) {
-                router.push({ pathname: "/squad/[id]", params: { id: data.squadId } } as never);
-              }
-              break;
-            case "vault":
-              if (data.squadId) {
-                router.push({ pathname: "/vault", params: { squadId: data.squadId } } as never);
-              }
-              break;
-            case "friends":
-              router.push("/friends" as never);
-              break;
-          }
-        });
+        // Cold start: the response listener does not fire for the notification
+        // that launched the app, so read it explicitly and route through the
+        // same handler (deduped by notification identifier).
+        const last = await Notifications.getLastNotificationResponseAsync();
+        if (last) handleNotificationResponse(last);
       } catch {
         // Ignore
       }
@@ -231,7 +272,7 @@ function PushNotificationHandler() {
     return () => {
       sub?.remove();
     };
-  }, []);
+  }, [handleNotificationResponse]);
 
   const handleReEnable = useCallback(() => {
     if (!authToken || registering) return;

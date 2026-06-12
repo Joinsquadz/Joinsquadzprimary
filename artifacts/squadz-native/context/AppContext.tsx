@@ -3,6 +3,11 @@ import { useToast } from "@/context/ToastContext";
 import { AppState } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { API_BASE } from "@/lib/api";
+// Expo's streaming-capable fetch. React Native's built-in fetch does NOT
+// populate `response.body` (no ReadableStream), so the SSE reader below could
+// never start and the global live-status banner would be stuck reconnecting on
+// a device. expo/fetch returns a real streaming body on both native and web.
+import { fetch as streamFetch } from "expo/fetch";
 import { clearProfileCache } from "@/hooks/useUserProfiles";
 import { ME } from "@/data/mock";
 import type { Event, Squad, RsvpStatus, Cost, CostShare } from "@/types";
@@ -200,6 +205,7 @@ type AppContextType = {
   removeFriend: (userId: string) => void;
   outstandingBalancesCount: number;
   squadStreamStatus: "connected" | "reconnecting" | "error";
+  retrySquadStream: () => void;
 };
 
 const noop = () => {};
@@ -268,6 +274,7 @@ const AppContext = createContext<AppContextType>({
   removeFriend: noop,
   outstandingBalancesCount: 0,
   squadStreamStatus: "reconnecting",
+  retrySquadStream: noop,
 });
 
 function dbEventToEvent(e: Record<string, unknown>): Event {
@@ -648,7 +655,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       const run = async () => {
         try {
-          const response = await fetch(`${API_BASE}/api/squads/stream`, {
+          const response = await streamFetch(`${API_BASE}/api/squads/stream`, {
             headers: {
               Accept: "text/event-stream",
               "Cache-Control": "no-cache",
@@ -725,6 +732,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
     return () => sub.remove();
   }, [isLoggedIn, authToken]);
+
+  // Manual retry for the global squad stream — resets the back-off counter and
+  // reconnects immediately. Backs the "Tap to retry" action on the live-status
+  // banner shown on Home + Feed when the stream drops into the "error" state.
+  const retrySquadStream = useCallback(() => {
+    globalStreamRetryCountRef.current = 0;
+    globalStreamConnectRef.current();
+  }, []);
 
   useEffect(() => {
     AsyncStorage.multiGet([AUTH_TOKEN_KEY, ONBOARDING_PENDING_KEY]).then(entries => {
@@ -1908,6 +1923,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       removeFriend,
       outstandingBalancesCount,
       squadStreamStatus,
+      retrySquadStream,
     }),
     [
       isLoggedIn,
@@ -1970,6 +1986,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       removeFriend,
       outstandingBalancesCount,
       squadStreamStatus,
+      retrySquadStream,
     ],
   );
 

@@ -152,7 +152,7 @@ export default function PhotosTab() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: topPad + 16, borderBottomColor: colors.border }]}>
         <View style={styles.headerText}>
-          <Text style={[styles.title, { color: colors.foreground }]}>📷 Photos</Text>
+          <Text style={[styles.title, { color: colors.foreground }]}>📷 Vault</Text>
           <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
             Every memory from your squadz & events
           </Text>

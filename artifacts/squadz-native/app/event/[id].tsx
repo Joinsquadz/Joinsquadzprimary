@@ -380,7 +380,7 @@ export default function EventDetailScreen() {
     { key: "food", label: "🍕 Food" },
     { key: "costs", label: "Costs" },
     { key: "chat", label: "Chat" },
-    { key: "photos", label: "📷 Photos" },
+    { key: "photos", label: "📷 Vault" },
     ...(isHost ? [{ key: "admin" as EventTab, label: "Admin" }] : []),
   ];
 
@@ -1218,7 +1218,7 @@ export default function EventDetailScreen() {
             >
               <View style={styles.cardHeaderRow}>
                 <View style={{ flex: 1, gap: 4 }}>
-                  <Text style={[styles.cardTitle, { color: colors.mutedForeground }]}>📷 Event Photos</Text>
+                  <Text style={[styles.cardTitle, { color: colors.mutedForeground }]}>📷 Event Vault</Text>
                   <Text style={[styles.cardBody, { color: colors.foreground }]}>View all photos from {event.title}</Text>
                   <Text style={[styles.cardTitle, { color: colors.mutedForeground, marginTop: 4 }]}>Stored in Photo Vault · private to squad members</Text>
                 </View>

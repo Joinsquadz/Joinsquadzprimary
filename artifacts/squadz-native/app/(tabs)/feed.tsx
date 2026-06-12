@@ -25,6 +25,7 @@ import { useAuth, useData } from "@/context/AppContext";
 import { useUserCache } from "@/context/UserCacheContext";
 import { ProAvatar } from "@/components/ProAvatar";
 import { MomentsRingRow } from "@/components/MomentsRingRow";
+import { LiveStatusBanner } from "@/components/LiveStatusBanner";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
 // ── types ─────────────────────────────────────────────────────────────────────
@@ -98,6 +99,13 @@ export default function FeedScreen() {
   const [draft, setDraft] = useState("");
   const [posting, setPosting] = useState(false);
   const [picked, setPicked] = useState<PickedMedia | null>(null);
+  const composerRef = useRef<TextInput>(null);
+  const listRef = useRef<FlatList<FeedPost>>(null);
+
+  const focusComposer = useCallback(() => {
+    listRef.current?.scrollToOffset({ offset: 0, animated: true });
+    composerRef.current?.focus();
+  }, []);
 
   const mediaSrc = useCallback((path: string) => `${API_BASE}/api/storage${path}`, []);
 
@@ -625,7 +633,10 @@ export default function FeedScreen() {
         </TouchableOpacity>
       </View>
 
+      <LiveStatusBanner />
+
       <FlatList
+        ref={listRef}
         data={loading ? [] : posts}
         keyExtractor={(post) => post.id}
         contentContainerStyle={{ paddingBottom: botPad }}
@@ -654,6 +665,7 @@ export default function FeedScreen() {
               fontSize={14}
             />
             <TextInput
+              ref={composerRef}
               style={[styles.composerInput, { color: colors.foreground }]}
               placeholder="What's the vibe?"
               placeholderTextColor={colors.mutedForeground}
@@ -735,6 +747,16 @@ export default function FeedScreen() {
               <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>
                 Be the first to post. Share what's going on with your friends and squads.
               </Text>
+              <TouchableOpacity
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  focusComposer();
+                }}
+                style={[styles.emptyBtn, { backgroundColor: colors.primary }]}
+              >
+                <Ionicons name="sparkles" size={18} color="#fff" />
+                <Text style={styles.emptyBtnText}>Post a Vibe</Text>
+              </TouchableOpacity>
             </View>
           )
         }
@@ -1058,6 +1080,16 @@ const styles = StyleSheet.create({
   empty: { alignItems: "center", paddingTop: 60, paddingHorizontal: 32 },
   emptyTitle: { fontSize: 20, fontWeight: "800", marginBottom: 8 },
   emptySub: { fontSize: 14, textAlign: "center", lineHeight: 20 },
+  emptyBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 20,
+    paddingVertical: 12,
+    paddingHorizontal: 22,
+    borderRadius: 999,
+  },
+  emptyBtnText: { color: "#fff", fontSize: 15, fontWeight: "800" },
 
   post: {
     marginHorizontal: 16,

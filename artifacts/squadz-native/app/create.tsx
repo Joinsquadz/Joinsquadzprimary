@@ -24,7 +24,6 @@ import { UpgradeModal } from "@/components/UpgradeModal";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
 const EMOJIS = ["🔥", "🎉", "🎮", "🏖️", "🍕", "🎸", "⚽", "🎬", "🍻", "🎊"];
-const FREE_EVENT_LIMIT = 3;
 
 function formatPickedDate(d: Date): string {
   const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -89,10 +88,11 @@ export default function CreateEventScreen() {
   const [isPro, setIsPro] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [myEventCount, setMyEventCount] = useState(0);
+  const [eventLimit, setEventLimit] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
-  const atLimit = !isPro && myEventCount >= FREE_EVENT_LIMIT;
+  const atLimit = !isPro && eventLimit !== null && myEventCount >= eventLimit;
 
   const authHeaders = useCallback((): HeadersInit => {
     return buildAuthHeaders(authToken);
@@ -108,7 +108,12 @@ export default function CreateEventScreen() {
   useEffect(() => {
     fetch(`${API_BASE}/api/events/count`, { headers: authHeaders() })
       .then(r => r.ok ? r.json() : null)
-      .then((data: { count: number } | null) => { if (data) setMyEventCount(data.count); })
+      .then((data: { count: number; limit?: number } | null) => {
+        if (data) {
+          setMyEventCount(data.count);
+          if (typeof data.limit === "number") setEventLimit(data.limit);
+        }
+      })
       .catch(() => {});
   }, [authHeaders]);
 
@@ -152,7 +157,12 @@ export default function CreateEventScreen() {
       });
       fetch(`${API_BASE}/api/events/count`, { headers: authHeaders() })
         .then(r => r.ok ? r.json() : null)
-        .then((data: { count: number } | null) => { if (data) setMyEventCount(data.count); })
+        .then((data: { count: number; limit?: number } | null) => {
+          if (data) {
+            setMyEventCount(data.count);
+            if (typeof data.limit === "number") setEventLimit(data.limit);
+          }
+        })
         .catch(() => {});
       resetForm();
       router.replace(`/event/${id}` as never);
@@ -218,7 +228,7 @@ export default function CreateEventScreen() {
         <View style={[styles.limitBanner, { backgroundColor: colors.primary + "18", borderBottomColor: colors.primary + "40" }]}>
           <Ionicons name="flash" size={14} color={colors.primary} />
           <Text style={[styles.limitBannerText, { color: colors.primary }]}>
-            Free plan: {myEventCount}/{FREE_EVENT_LIMIT} events used — upgrade for unlimited
+            Free plan: {myEventCount}/{eventLimit} events used — upgrade for unlimited
           </Text>
           <TouchableOpacity onPress={() => setShowUpgradeModal(true)} style={[styles.limitBannerBtn, { borderColor: colors.primary + "60" }]}>
             <Text style={[styles.limitBannerBtnText, { color: colors.primary }]}>Upgrade</Text>

@@ -165,19 +165,28 @@ export function MomentViewer({ rings, initialRingIndex, onClose, onChanged }: Pr
     async (emoji: string) => {
       if (!moment || !authToken || ring?.isSelf) return;
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      setReacted(emoji);
+      // Tapping the already-selected reaction removes it (undo).
+      const isUndo = reacted === emoji;
+      setReacted(isUndo ? null : emoji);
       try {
-        await fetch(`${API_BASE}/api/moments/${moment.id}/reactions`, {
-          method: "POST",
-          headers: { ...headers, "Content-Type": "application/json" },
-          body: JSON.stringify({ emoji }),
-        });
+        if (isUndo) {
+          await fetch(
+            `${API_BASE}/api/moments/${moment.id}/reactions/${encodeURIComponent(emoji)}`,
+            { method: "DELETE", headers },
+          );
+        } else {
+          await fetch(`${API_BASE}/api/moments/${moment.id}/reactions`, {
+            method: "POST",
+            headers: { ...headers, "Content-Type": "application/json" },
+            body: JSON.stringify({ emoji }),
+          });
+        }
       } catch {
         // ignore
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [moment, authToken, ring],
+    [moment, authToken, ring, reacted],
   );
 
   const handleDelete = useCallback(() => {

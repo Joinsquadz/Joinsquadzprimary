@@ -20,7 +20,7 @@ A poll can be scoped three ways: `squadId`, `eventId`, or **ad-hoc** (neither).
 **Why:** ad-hoc plans are meant to be shared by link like event polls; requiring participants
 or locking by participant set breaks the share-link UX.
 
-## Fresh-poll routing (T12)
+## Fresh-poll routing
 
 - Home "Find a time" ALWAYS opens a chooser and routes with `from=create`; the client maps
   `from=create` → `forceNew:true` so the server skips poll reuse and starts a brand-new board.

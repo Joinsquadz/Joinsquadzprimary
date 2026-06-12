@@ -71,6 +71,7 @@ type Props = {
   onToggleFavorite: (id: number) => void;
   onShare: (photo: VaultDetailPhoto) => void;
   onCaptionUpdated?: (id: number, caption: string | null) => void;
+  onHeartChanged?: (id: number, hearted: boolean, heartCount: number) => void;
   onDelete?: (id: number) => void;
   deleteLabel?: string;
 };
@@ -122,6 +123,7 @@ export default function VaultMediaDetail({
   onToggleFavorite,
   onShare,
   onCaptionUpdated,
+  onHeartChanged,
   onDelete,
   deleteLabel = "Delete",
 }: Props) {
@@ -222,6 +224,7 @@ export default function VaultMediaDetail({
       const d = (await res.json()) as { hearted: boolean; heartCount: number };
       setHearted(d.hearted);
       setHeartCount(d.heartCount);
+      onHeartChanged?.(photoId, d.hearted, d.heartCount);
       void fetchInteractions();
     } catch {
       setHearted(wasHearted);
@@ -230,7 +233,7 @@ export default function VaultMediaDetail({
     } finally {
       heartPendingRef.current = false;
     }
-  }, [photoId, hearted, authHeaders, fetchInteractions, showToast]);
+  }, [photoId, hearted, authHeaders, fetchInteractions, showToast, onHeartChanged]);
 
   const submitComment = useCallback(async () => {
     const text = draft.trim();

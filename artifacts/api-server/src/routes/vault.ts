@@ -8,6 +8,7 @@ import { emitFeedUpdate } from "../lib/feedEvents";
 import { sendPushNotifications } from "../lib/pushNotifications";
 import { db, feedPostsTable } from "@workspace/db";
 import { logger } from "../lib/logger";
+import { copyStorageObject } from "../services/objectStorage";
 
 const router: IRouter = Router();
 
@@ -272,6 +273,17 @@ router.post("/vault/favorites", requireAuth, async (req: Request, res: Response)
     }
     const { photoId } = parsed.data;
 
+    // Favorites are a Squadz+ feature — gate the write too, not just the GET
+    // list. Otherwise a free client could POST favorites it can never see.
+    let user = await storage.getUser(userId);
+    if (!user) {
+      user = await storage.upsertUser(userId, (req.user as { id: string; email?: string }).email ?? "");
+    }
+    if (!(await resolveProStatus(user))) {
+      res.status(403).json({ error: "Saving favorites is a Squadz+ feature.", requiresPro: true });
+      return;
+    }
+
     if (!(await storage.canUserViewPhotoById(photoId, userId))) {
       res.status(403).json({ error: "You can only favorite media you have access to." });
       return;
@@ -477,7 +489,12 @@ router.post("/vault/photos/:id/comments", requireAuth, async (req: Request, res:
             {
               title: `${name} commented`,
               body: preview,
-              data: { screen: "vault", photoId: String(photoId) },
+              data: {
+                screen: "vault",
+                photoId: String(photoId),
+                ...(photo.squadId ? { squadId: String(photo.squadId) } : {}),
+                ...(photo.eventId ? { eventId: String(photo.eventId) } : {}),
+              },
             },
             { onStaleToken: (token) => storage.clearPushToken(token) },
           );
@@ -557,13 +574,20 @@ router.post("/vault/photos/:id/share", requireAuth, async (req: Request, res: Re
     const text = parsed.data.text ?? "";
     const mediaType = photo.mediaType === "video" ? "video" : "photo";
 
+    // Copy the underlying storage object so the feed post owns an independent
+    // binary. If the original vault item is later deleted, the share stays
+    // intact. Falls back to referencing the original path when the object can't
+    // be copied (non-Supabase path or storage not configured).
+    const copiedUrl = await copyStorageObject(photo.url);
+    const mediaUrl = copiedUrl ?? photo.url;
+
     const [post] = await db
       .insert(feedPostsTable)
       .values({
         authorId: userId,
         text,
         audience: "friends",
-        mediaUrl: photo.url,
+        mediaUrl,
         mediaType,
       })
       .returning();

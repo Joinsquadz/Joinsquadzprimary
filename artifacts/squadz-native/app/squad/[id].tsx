@@ -838,7 +838,7 @@ export default function SquadDetailScreen() {
             <Ionicons name="images-outline" size={20} color={colors.primary} />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={[styles.photosTitle, { color: colors.foreground }]}>Squad Photos</Text>
+            <Text style={[styles.photosTitle, { color: colors.foreground }]}>Squad Vault</Text>
             <Text style={[styles.photosSub, { color: colors.mutedForeground }]}>View vault · private memories</Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={colors.textDim} />

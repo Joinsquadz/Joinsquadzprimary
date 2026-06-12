@@ -27,6 +27,7 @@ import type { ResolvedUser } from "@/context/UserCacheContext";
 import { ProAvatar } from "@/components/ProAvatar";
 import { UserAvatar } from "@/components/UserAvatar";
 import { GradientButton } from "@/components/GradientButton";
+import { LiveStatusBanner } from "@/components/LiveStatusBanner";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
 type DiscoverEvent = { id: string; emoji: string; title: string; date: string; inviteCode: string };
@@ -274,6 +275,8 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
       </View>
+
+      <LiveStatusBanner />
 
       <ScrollView
         style={styles.body}

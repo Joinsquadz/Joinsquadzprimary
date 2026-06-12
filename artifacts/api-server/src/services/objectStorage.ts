@@ -140,6 +140,43 @@ export async function createStorageDownloadUrl(
   return data.signedUrl;
 }
 
+/**
+ * Server-side copy of a PRIVATE Supabase Storage object to a fresh path inside
+ * the same bucket. Used when a vault photo/video is shared to the Vibe feed so
+ * the feed post owns an independent copy of the binary — deleting the original
+ * vault item then no longer breaks (orphans) the shared post.
+ *
+ * @param sourceObjectPath  The stored objectPath of the source, in the
+ *   `/objects/supabase/<storagePath>` form produced by createStorageUploadUrl.
+ * @returns the new protected `/objects/supabase/<newStoragePath>` objectPath, or
+ *   null if Supabase is not configured or the path is not a copyable private
+ *   Supabase object (caller should fall back to referencing the original).
+ */
+export async function copyStorageObject(
+  sourceObjectPath: string,
+): Promise<string | null> {
+  if (!supabaseAdmin) return null;
+
+  const prefix = "/objects/supabase/";
+  if (!sourceObjectPath.startsWith(prefix)) return null;
+  const sourceStoragePath = sourceObjectPath.slice(prefix.length);
+  if (!sourceStoragePath) return null;
+
+  const ext = sourceStoragePath.split(".").pop()?.replace(/[^a-z0-9]/gi, "") ?? "bin";
+  const destStoragePath = `uploads/${crypto.randomUUID()}.${ext}`;
+
+  const { error } = await supabaseAdmin.storage
+    .from(BUCKET)
+    .copy(sourceStoragePath, destStoragePath);
+
+  if (error) {
+    logger.error({ err: error, sourceStoragePath }, "[storage] Failed to copy Supabase object");
+    return null;
+  }
+
+  return `/objects/supabase/${destStoragePath}`;
+}
+
 export function getStorageStatus(): { configured: boolean; bucket: string; missing: string[] } {
   const missing: string[] = [];
   if (!process.env.SUPABASE_URL) missing.push("SUPABASE_URL");

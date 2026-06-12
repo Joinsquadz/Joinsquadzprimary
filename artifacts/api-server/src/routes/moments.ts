@@ -405,6 +405,35 @@ router.post(
   },
 );
 
+// DELETE /api/moments/:id/reactions/:emoji — remove your reaction (undo).
+router.delete(
+  "/moments/:id/reactions/:emoji",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const id = parseId(req.params.id);
+      const emoji = decodeURIComponent(parseId(req.params.emoji));
+      const userId = (req.user as { id: string }).id;
+      await db
+        .delete(momentReactionsTable)
+        .where(
+          and(
+            eq(momentReactionsTable.momentId, id),
+            eq(momentReactionsTable.userId, userId),
+            eq(momentReactionsTable.emoji, emoji),
+          ),
+        );
+      res.json({ ok: true });
+      const [moment] = await db.select().from(momentsTable).where(eq(momentsTable.id, id));
+      if (moment) emitFeedUpdate(moment.authorId);
+      emitFeedUpdate(userId);
+    } catch (err) {
+      logger.error({ err }, "Error removing moment reaction");
+      res.status(500).json({ error: "Failed to remove reaction" });
+    }
+  },
+);
+
 // DELETE /api/moments/:id — delete your own moment.
 router.delete("/moments/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {

@@ -127,8 +127,15 @@ export default function SquadsScreen() {
             <Text style={{ fontSize: 52, marginBottom: 14 }}>👥</Text>
             <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No squads yet</Text>
             <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>
-              Create a squad and invite your people
+              Create a squad and invite your people — then find the time everyone's free.
             </Text>
+            <TouchableOpacity
+              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push("/squad/create"); }}
+              style={[styles.emptyBtn, { backgroundColor: colors.primary }]}
+            >
+              <Ionicons name="add-circle-outline" size={18} color="#fff" />
+              <Text style={styles.emptyBtnText}>Create a Squad</Text>
+            </TouchableOpacity>
           </View>
         ) : (
           squads.map((squad) => {
@@ -284,7 +291,12 @@ const styles = StyleSheet.create({
   memberInitial: { fontSize: 9, fontWeight: "800", color: "#fff" },
   empty: { alignItems: "center", paddingTop: 60, paddingBottom: 40 },
   emptyTitle: { fontSize: 20, fontWeight: "800", marginBottom: 8 },
-  emptySub: { fontSize: 14, textAlign: "center", lineHeight: 20 },
+  emptySub: { fontSize: 14, textAlign: "center", lineHeight: 20, paddingHorizontal: 24 },
+  emptyBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    marginTop: 20, paddingVertical: 12, paddingHorizontal: 22, borderRadius: 999,
+  },
+  emptyBtnText: { color: "#fff", fontSize: 15, fontWeight: "800" },
   createBtn: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10,
     borderRadius: 16, borderWidth: 1.5, borderStyle: "dashed", padding: 16, marginTop: 6,

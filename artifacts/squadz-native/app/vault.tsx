@@ -225,15 +225,29 @@ export default function VaultScreen() {
   const scrollYRef = useRef(0);
   const saveScrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const { squadId, squadName, eventId, eventName } = useLocalSearchParams<{
+  const { squadId, squadName, eventId, eventName, photoId } = useLocalSearchParams<{
     squadId?: string;
     squadName?: string;
     eventId?: string;
     eventName?: string;
+    photoId?: string;
   }>();
 
   const isContextual = !!(squadId || eventId);
   const isSquadVault = !!squadId;
+
+  // When opened from a vault-comment notification, the photoId param drives the
+  // detail view directly. Applied once; the detail resolves as soon as the
+  // matching photo loads into squadPhotos/personalSource.
+  const appliedPhotoParam = useRef(false);
+  useEffect(() => {
+    if (!photoId || appliedPhotoParam.current) return;
+    const pid = Number(photoId);
+    if (!Number.isNaN(pid)) {
+      setSelected(pid);
+      appliedPhotoParam.current = true;
+    }
+  }, [photoId]);
 
   const recentEvents = useMemo(
     () => (squadId ? events.filter(e => e.squadId === squadId) : events),
@@ -775,6 +789,18 @@ export default function VaultScreen() {
     );
   };
 
+  // A small heart-count badge shown on a grid tile when it has hearts. Kept in
+  // sync with the detail view via VaultMediaDetail's onHeartChanged callback.
+  const renderHeartBadge = (p: { heartCount?: number; hearted?: boolean }) => {
+    if (!p.heartCount) return null;
+    return (
+      <View style={styles.heartBadge}>
+        <Ionicons name={p.hearted ? "heart" : "heart-outline"} size={11} color={p.hearted ? "#ff5a7a" : "#fff"} />
+        <Text style={styles.heartBadgeText}>{p.heartCount}</Text>
+      </View>
+    );
+  };
+
   // Render a grid cell's media: videos use the web-safe AttachmentVideo player,
   // photos keep the lightweight VaultImage.
   const renderCellMedia = (url: string, isVideo: boolean) =>
@@ -873,6 +899,7 @@ export default function VaultScreen() {
             >
               {renderCellMedia(p.url, p.mediaType === "video")}
               {renderFavButton(p.id)}
+              {renderHeartBadge(p)}
               <View style={styles.attrOverlay}>
                 <View style={[styles.attrAvatar, { backgroundColor: colors.primary }]}>
                   <Text style={styles.attrAvatarText}>{uploaderInitial(p)}</Text>
@@ -1120,6 +1147,7 @@ export default function VaultScreen() {
               >
                 {renderCellMedia(p.url, p.mediaType === "video")}
                 {renderFavButton(p.id)}
+                {renderHeartBadge(p)}
                 {selected === p.id && (
                   <View style={[styles.checkBadge, { backgroundColor: colors.primary }]}>
                     <Ionicons name="checkmark" size={10} color="#fff" />
@@ -1221,6 +1249,14 @@ export default function VaultScreen() {
         onToggleFavorite={(id) => { void toggleFavorite(id); }}
         onShare={(p) => setShareTarget({ id: p.id, url: p.url, mediaType: p.mediaType })}
         onCaptionUpdated={handleCaptionUpdated}
+        onHeartChanged={(id, hearted, heartCount) => {
+          // Mirror the heart count into every dataset a tile can be drawn from
+          // (personal uploads, favorites, squad vault) so the grid badge stays
+          // in sync no matter which grid the detail was opened from.
+          setPhotos(prev => prev.map(p => p.id === id ? { ...p, hearted, heartCount } : p));
+          setFavoritePhotos(prev => prev.map(p => p.id === id ? { ...p, hearted, heartCount } : p));
+          setSquadPhotos(prev => prev.map(p => p.id === id ? { ...p, hearted, heartCount } : p));
+        }}
         onDelete={selectedSquadPhoto && currentUserId && selectedSquadPhoto.uploaderId === currentUserId
           ? (id) => handleRemoveShared(id)
           : undefined}
@@ -1430,6 +1466,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  heartBadge: {
+    position: "absolute",
+    bottom: 6,
+    right: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    borderRadius: 11,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+  },
+  heartBadgeText: { color: "#fff", fontSize: 10, fontWeight: "800" },
   favRow: {
     flexDirection: "row",
     alignItems: "center",
