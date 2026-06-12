@@ -40,6 +40,11 @@ const VAULT_SCROLL_KEY = "vault:scrollY";
 // limit; the server enforces the same ceiling on the request-url route.
 const MAX_UPLOAD_BYTES = 150 * 1024 * 1024;
 
+// Sentinel thrown by uploadAsset when the server rejects the upload because it
+// needs a Pro subscription (e.g. uploading to an event past the free window).
+// The caller surfaces the upgrade sheet instead of a plain error alert.
+const PRO_REQUIRED_ERROR = "__PRO_REQUIRED__";
+
 type MediaType = "image" | "video";
 type MediaFilter = "all" | MediaType;
 
@@ -407,7 +412,8 @@ export default function VaultScreen() {
         body: JSON.stringify({ url: objectPath, mediaType, ...extra }),
       });
       if (!createRes.ok) {
-        const body = (await createRes.json().catch(() => ({}))) as { error?: string };
+        const body = (await createRes.json().catch(() => ({}))) as { error?: string; requiresPro?: boolean };
+        if (body.requiresPro) throw new Error(PRO_REQUIRED_ERROR);
         throw new Error(body.error ?? "Couldn't save to the vault. Please try again.");
       }
     },
@@ -422,6 +428,7 @@ export default function VaultScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     const failures: string[] = [];
+    let needsPro = false;
     for (const asset of assets) {
       try {
         await uploadAsset(
@@ -429,12 +436,18 @@ export default function VaultScreen() {
           uploadEventId || eventId ? { eventId: uploadEventId || eventId } : {},
         );
       } catch (e) {
-        failures.push(e instanceof Error ? e.message : "Upload failed.");
+        const msg = e instanceof Error ? e.message : "Upload failed.";
+        if (msg === PRO_REQUIRED_ERROR) needsPro = true;
+        else failures.push(msg);
       }
     }
 
     await fetchPhotos();
     setIsUploading(false);
+
+    // An event past the free window needs Pro — show the upgrade sheet (which
+    // explains what's included) rather than a dead-end error alert.
+    if (needsPro) setUpgradeModalVisible(true);
 
     if (failures.length > 0) {
       Alert.alert(
@@ -912,9 +925,9 @@ export default function VaultScreen() {
                 </View>
               )}
 
-              {isPro ? (
+              {isPro || !!eventId ? (
                 <>
-                  {recentEvents.length > 0 && (
+                  {isPro && recentEvents.length > 0 && (
                     <View style={styles.pickerWrap}>
                       <Text style={[styles.pickerLabel, { color: colors.mutedForeground }]}>Add to event (optional)</Text>
                       <TouchableOpacity

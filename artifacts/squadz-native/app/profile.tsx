@@ -20,7 +20,7 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useAuth, useData } from "@/context/AppContext";
 import { UserAvatar } from "@/components/UserAvatar";
-import { startProCheckout } from "@/lib/checkout";
+import { UpgradeModal } from "@/components/UpgradeModal";
 import { router, useLocalSearchParams } from "expo-router";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
@@ -117,7 +117,7 @@ export default function ProfileScreen() {
 
   const [isPro, setIsPro] = useState(didCheckoutSuccess);
   const [checkingPro, setCheckingPro] = useState(false);
-  const [upgradeLoading, setUpgradeLoading] = useState(false);
+  const [upgradeModalVisible, setUpgradeModalVisible] = useState(false);
   const [showSuccessBanner, setShowSuccessBanner] = useState(didCheckoutSuccess);
   const [eventCount, setEventCount] = useState<number | null>(null);
   const [eventLimit] = useState(3);
@@ -577,15 +577,6 @@ export default function ProfileScreen() {
     }
   }
 
-  async function handleUpgrade() {
-    setUpgradeLoading(true);
-    const result = await startProCheckout(authToken);
-    if (!result.ok) {
-      Alert.alert("Checkout Error", result.error);
-    }
-    setUpgradeLoading(false);
-  }
-
   async function handlePortal() {
     try {
       const res = await fetch(`${API_BASE}/api/portal`, {
@@ -635,11 +626,17 @@ export default function ProfileScreen() {
       ]
     : [
         {
+          icon: "gift-outline",
+          label: "What's included in Squadz+",
+          color: colors.gold,
+          onPress: () => setUpgradeModalVisible(true),
+        },
+        {
           icon: "flash",
-          label: upgradeLoading ? "Opening checkout…" : "Upgrade to Squadz+",
+          label: "Upgrade to Squadz+",
           value: "$20/year",
           color: colors.gold,
-          onPress: upgradeLoading ? undefined : () => { void handleUpgrade(); },
+          onPress: () => setUpgradeModalVisible(true),
         },
       ];
 
@@ -1156,6 +1153,13 @@ export default function ProfileScreen() {
           </View>
         ) : null}
       </ScrollView>
+
+      <UpgradeModal
+        visible={upgradeModalVisible}
+        trigger="general"
+        onClose={() => setUpgradeModalVisible(false)}
+        onUpgradeSuccess={() => setIsPro(true)}
+      />
     </View>
   );
 }
