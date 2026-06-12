@@ -1,0 +1,297 @@
+SquadZ — Full Monetization Restructure, Founding Member Pricing, 14-Day Vault, Expiry Notifications, Unified Vault System, Profile Photo Tab & Upgrade Experience
+This prompt restructures the entire free vs paid model and implements several interconnected features. The goal is a fluid, connected system where photos and videos flow naturally between squad vaults, the personal vault, and the Vibe Feed. Work through each section in order. Confirm approach before coding each section. Do not add anything outside what is specified. Architect code review required after all sections are complete.
+
+SECTION 1 — Free vs Paid Model Restructure
+Read this section completely before touching any code. This replaces the existing gating logic entirely.
+Free tier — fully unlocked for all users forever:
+
+Vibe Feed — posting Vibes, reactions, comments, audience picker
+Moments — posting to Friends and squads, viewing ring rows, emoji reactions
+Direct messages — fully unlocked, no blur, no gate, no restriction of any kind
+Squad chat and event chat
+Availability polling and heatmap
+Cost splitting and balance tracking
+Friend adding, friend list, and friend removal
+RSVPing to unlimited events regardless of who created them
+Viewing squad vault content within the 14-day window
+Commenting, hearting, and captioning photos and videos in vaults
+Streaks and gamification
+Push notifications
+Squad discovery
+Profile and avatar
+
+Free tier — permanently limited by append-only counters:
+Squads: free users can create or join a maximum of 2 squads total. Once the counter reaches 2 it never decreases under any circumstance — not on squad leave, squad delete, squad removal, or any other action. The counter is stored server-side and enforced at the API level.
+Events created: free users can create a maximum of 3 events total. Once the counter reaches 3 it never decreases — not on event delete, event leave, or any other action. RSVPing to events created by others does not count toward this limit. Only the act of creating an event increments the counter.
+Add two append-only columns to the users table:
+
+squads_joined_total (integer, default 0)
+events_created_total (integer, default 0)
+
+Both counters must be implemented as atomic increments using the same pg_advisory_xact_lock pattern already used for squad limits. They must never decrement under any circumstance.
+Photo and video vault — visibility model:
+
+Do not delete any photos or videos based on subscription status. After 14 days, free users see a lock overlay and blur on that specific item. Squadz+ users in the same squad see the item fully unlocked. Two users in the same squad can look at the same vault and see different things based on their subscription status.
+When a free user upgrades mid-session, all lock overlays disappear immediately without requiring a restart.
+Removing the DM gate entirely:
+
+Remove the existing DM blur and UpgradeModal trigger from all conversation screens. Remove the BlurView from the DM inbox and conversation screens. Free users have full unrestricted DM access. Verify there are no orphaned blur components, dead UpgradeModal triggers, or broken imports after removal.
+Squadz+ — what the upgrade unlocks:
+
+Unlimited squads
+Unlimited event creation
+Permanent vault access — no lock overlays, full access to all photos and videos regardless of age
+Ability to mark favorites and save to personal vault
+Gold ring badge on avatar
+Priority support
+
+Verification for Section 1:
+
+ Free user creates 2 squads — third attempt blocked with UpgradeModal at every entry point
+ Free user leaves squad 1 — counter stays at 2, not reduced
+ Free user creates 3 events — fourth attempt blocked with UpgradeModal
+ Free user deletes event 1 — counter stays at 3, not reduced
+ Free user RSVPs to 10 events — no block, fully permitted
+ Free user uploads photo — visible for 14 days, lock overlay appears on day 15
+ Squadz+ user in same squad sees same photo fully unlocked on day 15
+ Free user upgrades — all locked photos immediately visible without restart
+ DM inbox fully accessible for all users — no blur, no modal, no gate
+ Both counters enforced at API level
+ Vibe Feed and Moments fully functional for free users
+
+
+SECTION 2 — Unified Vault System
+This is the core of the fluid content system. The goal is that photos and videos feel like they belong to the user, not just to a squad.
+Two vault surfaces — both exist simultaneously:
+1. Squad vault (existing, enhanced)
+
+Every squad still has its own vault showing all media uploaded to that squad. This is the shared, collaborative view. All squad members with access can see, comment, heart, caption, and favorite items here.
+2. Personal vault (new — accessible from profile)
+
+A unified view of everything the user has personally uploaded across all squads, plus anything they have marked as a favorite from any squad vault. This is their personal media collection. It lives on their profile under a dedicated Vault tab alongside the existing Photos tab concept — consolidate these into one unified Vault tab since they serve the same purpose.
+Vault tab on profile:
+
+Replace the Photos tab concept from the previous spec with a single unified Vault tab on the profile screen. This tab contains two sub-sections accessible via a toggle or segmented control at the top:
+
+My Uploads — every photo and video the user personally uploaded across all squads
+Favorites — every photo and video the user has marked as a favorite from any squad vault, regardless of who uploaded it
+
+Both sub-sections share the same filter bar and grid layout.
+Filters — apply to both My Uploads and Favorites:
+
+Horizontally scrollable filter bar above the grid, fully combinable:
+
+All — photos and videos, most recent first (default)
+Photos — images only
+Videos — videos only
+By Squad — chip selector showing all squads with content; selecting one filters to that squad
+By Date — month/year picker
+Favorited — shortcut to the Favorites sub-section from anywhere in the filter bar
+
+Favorites mechanics:
+
+Any user can mark any photo or video in any squad vault as a favorite by tapping a bookmark or star icon on the media item. Favorites are personal — they are visible only to the user who marked them. Favoriting does not notify anyone and does not move or copy the original file. It simply adds a reference to the user's personal Favorites collection.
+A favorited item in the personal vault links back to the original in the squad vault — tapping it opens the full media detail view in the context of its squad.
+Favorites are available to all users including free users. However, free users can only view favorites that are still within the 14-day window. Favorites older than 14 days show a lock overlay for free users, consistent with the vault visibility model. Upgrading to Squadz+ unlocks all favorited items permanently.
+Verification for Section 2 vault structure:
+
+ Squad vault still exists and functions correctly per squad
+ Profile Vault tab shows My Uploads and Favorites sub-sections
+ My Uploads shows only the user's own uploads across all squads
+ Favorites shows all items the user has marked regardless of who uploaded them
+ Favoriting an item does not move or copy the file — it is a reference only
+ Favorites are personal — not visible to other squad members
+ Favoriting does not trigger any notification
+ Free user favorites older than 14 days show lock overlay
+ Squadz+ user sees all favorites unlocked regardless of age
+ All filters work correctly in isolation and in combination on both sub-sections
+ Tapping a favorited item in the personal vault opens it in the context of its squad
+
+
+SECTION 3 — Vault Media Interactions: Comments, Hearts, Captions & Sharing
+Every photo and video in every squad vault should support rich interactions. The goal is to make vault content feel alive and social without broadcasting anything outside the squad without intent.
+Media detail view:
+
+Tapping any photo or video in a squad vault opens a full-screen detail view. This view contains:
+
+The photo or video (full screen, pinch to zoom on photos, play/pause on video)
+The caption — displayed below the media, editable by the uploader at any time
+Heart count and who hearted it (visible to all squad members with vault access)
+Comments thread — visible to all squad members with vault access
+Uploader name, avatar, squad name, and upload date
+A favorite (bookmark) icon in the top right — tapping toggles the item in/out of the user's personal favorites
+A share icon — tapping opens the share-to-Vibe flow
+An options menu for the uploader: edit caption, delete
+
+Captions:
+
+Captions can be added at upload time or after upload. They are editable by the uploader at any time. Captions have a 300 character limit. They are visible to all squad members with access to that vault item.
+Hearts:
+
+Any squad member with vault access can heart a photo or video. Hearts are visible to all squad members — the count is shown below the media and tapping the count shows a list of who hearted it. Hearts are real-time via the existing SSE infrastructure. Hearting a vault item does not post anything to the Vibe Feed or notify anyone outside the squad.
+Comments:
+
+Any squad member with vault access can comment on a photo or video. Comments are threaded and real-time via SSE. Comments are visible only to squad members with access to that vault item — they never appear in the Vibe Feed or any surface outside the vault. The uploader receives a push notification when someone comments on their photo. Comment notifications deep link to the media detail view.
+Share to Vibe:
+
+Any user can share any vault item they have access to directly to their Vibe Feed. The share flow works as follows:
+
+User taps the share icon on a media item
+A composer opens — similar to the Vibe post composer but pre-populated with the photo or video
+The user can type a status or caption for the Vibe post — this is optional but encouraged with placeholder copy: "Add a caption for your friends..."
+Audience is locked to Friends only — the user cannot change this to a squad. This is intentional: squad content shared to the feed goes to friends, not back into a squad context.
+User taps Post — the item appears in their friends' Vibe Feed as a standard Vibe post with the photo/video and their caption
+The original vault item is unchanged — sharing creates a new Vibe post, it does not move or remove the item from the vault
+
+The share flow should feel like Facebook's share mechanic — you see the content, you add your words, you post. Fast and fluid.
+Sharing to Vibe is available to all users including free users as long as the item is within its 14-day visibility window. Free users cannot share locked items — tapping share on a locked item opens the UpgradeModal with photo_vault trigger.
+Verification for Section 3:
+
+ Tapping a vault item opens the full media detail view
+ Caption can be added at upload time
+ Caption can be added and edited after upload by the uploader
+ Hearts are real-time via SSE for all squad members
+ Hearting does not post to Vibe Feed or notify outside the squad
+ Comments are real-time via SSE for all squad members
+ Comments never appear in the Vibe Feed or outside the vault
+ Uploader receives push notification on new comment
+ Comment notification deep links to correct media detail view
+ Share to Vibe opens composer pre-populated with the media item
+ User can add a status caption in the share composer
+ Audience is locked to Friends only — no squad audience option in share flow
+ Sharing creates a new Vibe post without modifying the vault item
+ Free user can share items within 14-day window
+ Free user tapping share on locked item opens UpgradeModal
+ Favorite icon correctly toggles item in and out of personal vault favorites
+ Favorites are personal and not visible to other squad members
+
+
+SECTION 4 — Founding Member Pricing
+Stripe setup required first:
+
+Add two prices to the existing Squadz+ product in Stripe:
+
+Founding price: $19.99/year — label "Founding Member"
+Standard price: $29.99/year — label "Squadz+ Annual"
+
+Store both price IDs as environment variables: STRIPE_FOUNDING_PRICE_ID and STRIPE_STANDARD_PRICE_ID.
+Database:
+
+Add a single-row counter table called founding_member_counter with one integer column: redeemed. Initialize at 0. Founding member limit is 500.
+Server — checkout endpoint:
+
+Wrap the counter check and increment in an atomic transaction using pg_advisory_xact_lock. If redeemed is under 500, increment and use STRIPE_FOUNDING_PRICE_ID. If 500 or over, use STRIPE_STANDARD_PRICE_ID. Return which price tier was applied.
+Add a public GET /api/subscription/founding-status endpoint returning: { spotsRemaining: number, isFoundingAvailable: boolean }. Does not require auth.
+UpgradeModal — full redesign:
+
+The modal leads with benefits, not the price. Structure:
+Top context line — trigger specific:
+
+squad_limit: "You've reached your squad limit. Upgrade for unlimited squads and keep growing your crew."
+event_limit: "You've created 3 events. Upgrade for unlimited event creation."
+photo_vault: "This memory is over 14 days old. Upgrade for permanent access to every photo and video, forever."
+general: "Everything your squad needs, all in one place."
+
+Benefits list — always shown:
+
+🏠 Unlimited Squads — "Join and create as many squads as you want. No limits, ever."
+🎉 Unlimited Events — "Plan as many hangouts as your crew can handle."
+📸 Permanent Photo Vault — "Every memory saved forever. Never lose a photo again."
+⭐ Unlimited Favorites — "Save any photo from any squad to your personal vault, forever."
+💍 Gold Member Ring — "Show your squad you're invested. Gold ring on your profile everywhere."
+
+Pricing and CTA:
+
+When founding available:
+
+Orange "🔥 Founding Member Pricing" badge
+"$19.99/year" with "$29.99" strikethrough
+"Only X spots remaining at this price"
+Orange gradient CTA: "Claim Founding Member Price"
+
+When founding unavailable:
+
+"$29.99/year — less than $2.50/month"
+Orange gradient CTA: "Upgrade to Squadz+"
+
+Below CTA in small grey text: "Cancel anytime. Billed annually."
+If founding-status call hasn't returned within 1 second, default to $29.99.
+Post-upgrade celebration screen:
+
+Full-screen moment immediately after successful upgrade:
+
+Gold ring animation around the user's avatar
+Headline: "Welcome to Squadz+, [first name]! 🎉"
+Subtext: "Your gold ring is live. Unlimited squads, events, permanent memories, and your personal vault — all yours."
+Single CTA: "Let's go" — dismisses and returns to previous screen
+
+Store hasSeenUpgradeWelcome flag locally tied to subscription ID. Shows exactly once per upgrade.
+Ambient benefit visibility:
+
+Squad screen: subtle persistent banner for free users below member list: "✨ Upgrade to Squadz+ — Unlimited squads, permanent photos, unlimited events" with orange CTA
+Profile Vault tab: banner above locked items: "Upgrade to unlock all your memories and save favorites permanently."
+Profile screen: Squadz+ card shows benefit pairs: ∞ Squads · ∞ Events · 📸 Permanent Vault · ⭐ Favorites
+Event creation at event limit: show full benefit summary alongside blocked state
+
+Landing page:
+
+Wire /api/subscription/founding-status to landing page for dynamic founding pricing display.
+Verification for Section 4:
+
+ Counter increments atomically — simulate two simultaneous upgrades at 499/500 boundary
+ Modal shows correct founding UI when spots remain and standard UI when gone
+ Each trigger shows correct context copy
+ Benefits list always visible regardless of trigger
+ Both Stripe price IDs route to correct checkout session
+ Post-upgrade celebration fires exactly once per upgrade
+ Ambient benefit banners visible on all specified surfaces
+ Landing page reflects live founding status
+ Modal never shows loading longer than 1 second
+
+
+SECTION 5 — 14-Day Vault Expiry Notifications
+Notification sequence:
+
+For every photo or video batch uploaded by a free user, schedule three push notifications. A batch is all media uploaded to the same squad within a 6-hour window — one notification per squad per window.
+
+Day 10: "📸 Your [squad name] photos expire in 4 days. Upgrade to Squadz+ to keep them forever."
+Day 13: Dynamic — if founding spots remain: "⏰ Your [squad name] photos disappear tomorrow. Founding member pricing still available — only X spots left." If founding gone: "⏰ Your [squad name] photos disappear tomorrow. Upgrade now — $29.99/year."
+Day 14: "Your photos from [squad name] are now locked. Upgrade to Squadz+ to restore access instantly."
+
+Each notification deep links to UpgradeModal with trigger photo_vault.
+Notification rules:
+
+User upgrades before notification fires — cancel all pending expiry notifications
+Never send to Squadz+ users
+User deletes photos before expiry — cancel remaining notifications for that batch
+Maximum one expiry notification per day per user
+
+Copy updates:
+
+Every reference to "30 days" throughout the entire app must be updated to "14 days" — modal, paywall, settings, tips, notifications, and any other surface.
+Verification for Section 5:
+
+ Notifications scheduled correctly at day 10, 13, 14 on free user upload
+ Upgrade before day 10 cancels all pending notifications
+ Photo deletion before expiry cancels notifications
+ Squadz+ users never receive expiry notifications
+ Day 13 notification shows correct founding copy dynamically
+ No "30 days" references remain anywhere in the app
+ Maximum one expiry notification per day per user enforced
+
+
+Global Notes:
+
+Vibe Feed and Moments are fully free features — no gate, no blur, no upgrade prompt anywhere on these surfaces under any condition
+DM gate removal must be completely clean — no orphaned components, dead triggers, or broken imports
+Permanent counters are append-only, enforced server-side, and never decrement under any circumstance
+The vault system is a fluid connected experience — squad vaults, personal vault, favorites, sharing to Vibe, and the profile vault tab should all feel like one coherent system, not separate features bolted together
+Sharing a vault item to Vibe creates a new post — it never modifies, moves, or removes the original vault item
+Favorites are personal and private — they are never visible to other squad members and never trigger notifications
+Comments and hearts in the vault stay in the vault — they never appear in the Vibe Feed or any surface outside the squad
+$19.99 founding and $29.99 standard must be consistent everywhere across the entire app and landing page
+Every upgrade touchpoint should feel like an invitation, not a wall — ambient visibility converts better than hard blocking
+Post-upgrade celebration fires exactly once per upgrade, never again
+All sections must pass typecheck and the full test suite before marking complete
+Architect code review required after all sections are complete
+Provide a final verification report confirming every checklist item passed across all five sections

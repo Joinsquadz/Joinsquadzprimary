@@ -9,6 +9,7 @@
     "smoke-test-push": "tsx ./src/smoke-test-push.ts",
     "smoke-test-deeplinks": "tsx ./src/smoke-test-deeplinks.ts",
     "backfill-squad-invite-codes": "tsx ./src/backfill-squad-invite-codes.ts",
+    "backfill-event-creations": "tsx ./src/backfill-event-creations.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
@@ -19,5 +20,8 @@
     "stripe": "^22.2.0",
     "stripe-replit-sync": "^1.0.0",
     "tsx": "catalog:"
+  },
+  "dependencies": {
+    "@workspace/db": "workspace:*"
   }
 }

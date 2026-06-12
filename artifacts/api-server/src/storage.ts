@@ -1,6 +1,7 @@
 import {
   usersTable,
   eventsTable,
+  eventCreationsTable,
   photosTable,
   squadsTable,
   squadMutesTable,
@@ -192,19 +193,22 @@ export class Storage {
     return user;
   }
 
-  async countUserEventsThisYear(hostId: string): Promise<number> {
-    const now = new Date();
-    const yearStart = new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
-    const yearEnd = new Date(Date.UTC(now.getUTCFullYear() + 1, 0, 1));
+  /**
+   * Count events a user created within the trailing 12-month window, read from
+   * the append-only `event_creations` ledger. Because ledger rows are never
+   * deleted, deleting an event does NOT free a slot — a slot only frees once its
+   * ledger row ages out past 12 months. This backs the free-tier event cap.
+   */
+  async countUserEventCreationsInWindow(userId: string): Promise<number> {
+    const windowStart = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
     const [row] = await db
       .select({ total: count() })
-      .from(eventsTable)
+      .from(eventCreationsTable)
       .where(
         and(
-          eq(eventsTable.hostId, hostId),
-          gte(eventsTable.createdAt, yearStart),
-          lt(eventsTable.createdAt, yearEnd),
-        )
+          eq(eventCreationsTable.userId, userId),
+          gte(eventCreationsTable.createdAt, windowStart),
+        ),
       );
     return row?.total ?? 0;
   }
@@ -405,6 +409,20 @@ export class Storage {
     }
 
     return false;
+  }
+
+  /**
+   * Fetch a vault photo row by its object path (e.g. "/objects/..."), or null if
+   * the path is not a vault photo. Used by the object-serving route to apply the
+   * 14-day free-tier lock at read time, so an old vault URL can never be fetched
+   * directly by a free user.
+   */
+  async getPhotoByUrl(objectPath: string): Promise<Photo | null> {
+    const [photo] = await db
+      .select()
+      .from(photosTable)
+      .where(eq(photosTable.url, objectPath));
+    return photo ?? null;
   }
 
   private async isSquadMember(squadId: string, userId: string): Promise<boolean> {

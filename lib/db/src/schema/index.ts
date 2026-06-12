@@ -20,6 +20,7 @@
 export * from "./users";
 export * from "./friendships";
 export * from "./events";
+export * from "./event-creations";
 export * from "./squads";
 export * from "./photos";
 export * from "./availability";

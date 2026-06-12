@@ -8,6 +8,7 @@ import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage"
 import { createStorageUploadUrl, createStorageDownloadUrl } from "../services/objectStorage";
 import { requireAuth } from "../middleware/currentUser";
 import { storage } from "../storage";
+import { resolveProStatus } from "../lib/proStatus";
 
 const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
@@ -20,6 +21,10 @@ const objectStorageService = new ObjectStorageService();
  * oversized file is rejected before any bytes are transferred.
  */
 const MAX_UPLOAD_BYTES = 150 * 1024 * 1024;
+
+// Free-tier vault lock window: vault photos older than this are not served to
+// non-Pro users at read time (mirrors the vault list-endpoint lock).
+const PHOTO_VAULT_DAYS = 14;
 
 /**
  * POST /storage/uploads/request-url
@@ -141,6 +146,27 @@ router.get("/storage/objects/*path", requireAuth, async (req: Request, res: Resp
     const wildcardPath = Array.isArray(raw) ? raw.join("/") : raw;
     const objectPath = `/objects/${wildcardPath}`;
     const userId = req.user!.id;
+
+    // Read-time vault lock: a free user must never receive the bytes of a vault
+    // photo older than 14 days, regardless of how the URL was obtained (this
+    // mirrors the lock the vault list endpoint applies). Non-vault objects
+    // (message attachments, feed media, moments) are not vault photos, so
+    // getPhotoByUrl returns null for them and they are unaffected.
+    const vaultPhoto = await storage.getPhotoByUrl(objectPath);
+    if (vaultPhoto?.uploadedAt) {
+      const vaultCutoff = new Date(Date.now() - PHOTO_VAULT_DAYS * 24 * 60 * 60 * 1000);
+      if (new Date(vaultPhoto.uploadedAt) < vaultCutoff) {
+        const me = await storage.getUser(userId);
+        const viewerIsPro = me ? await resolveProStatus(me) : false;
+        if (!viewerIsPro) {
+          res.status(403).json({
+            error: "This vault item has expired. Upgrade to Squadz+ to view it.",
+            requiresPro: true,
+          });
+          return;
+        }
+      }
+    }
 
     // ── Supabase-stored objects (path prefix: supabase/) ───────────────────────
     // These are served via a short-lived signed URL redirect instead of being

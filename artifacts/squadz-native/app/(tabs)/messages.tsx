@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -11,12 +11,10 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { BlurView } from "expo-blur";
 import { router, useFocusEffect } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AppContext";
-import { useUserCache } from "@/context/UserCacheContext";
 import { useMessages, type ConversationListItem } from "@/context/MessagesContext";
 import type { Event } from "@/types";
 
@@ -100,16 +98,9 @@ export default function MessagesScreen() {
   const insets = useSafeAreaInsets();
   const { currentUser, events, eventsLoading } = useAuth();
   const { conversations, conversationsLoading, refreshConversations, refreshUnread } = useMessages();
-  const { resolveUser, prefetchUsers } = useUserCache();
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 84 : 100);
-
-  // DM gate: non-Pro users can't read direct messages, so blur their previews.
-  useEffect(() => {
-    if (currentUser?.id) prefetchUsers([currentUser.id]);
-  }, [currentUser?.id, prefetchUsers]);
-  const isPro = currentUser?.id ? resolveUser(currentUser.id).isPro : false;
 
   useFocusEffect(
     useCallback(() => {
@@ -162,7 +153,6 @@ export default function MessagesScreen() {
           ? `${youSent ? "You: " : ""}${c.lastMessagePreview}`
           : "No messages yet";
         const type = c.type; // "direct" | "squad"
-        const previewLocked = type === "direct" && !isPro && !!c.lastMessagePreview;
 
         return (
           <TouchableOpacity
@@ -187,38 +177,15 @@ export default function MessagesScreen() {
                 </Text>
               </View>
               <View style={styles.rowBottom}>
-                {previewLocked ? (
-                  <View style={styles.lockedPreview}>
-                    <Text
-                      style={[styles.rowPreview, { color: colors.mutedForeground }]}
-                      numberOfLines={1}
-                    >
-                      {preview}
-                    </Text>
-                    <BlurView
-                      intensity={18}
-                      tint="dark"
-                      style={StyleSheet.absoluteFill}
-                      pointerEvents="none"
-                    />
-                    <View style={styles.lockedPreviewBadge} pointerEvents="none">
-                      <Ionicons name="lock-closed" size={11} color={colors.primary} />
-                      <Text style={[styles.lockedPreviewText, { color: colors.primary }]}>
-                        Squadz+ to read
-                      </Text>
-                    </View>
-                  </View>
-                ) : (
-                  <Text
-                    style={[
-                      styles.rowPreview,
-                      { color: unread ? colors.foreground : colors.mutedForeground, fontWeight: unread ? "700" : "400" },
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {preview}
-                  </Text>
-                )}
+                <Text
+                  style={[
+                    styles.rowPreview,
+                    { color: unread ? colors.foreground : colors.mutedForeground, fontWeight: unread ? "700" : "400" },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {preview}
+                </Text>
                 {unread && (
                   <View style={[styles.badge, { backgroundColor: colors.primary }]}>
                     <Text style={styles.badgeText}>{c.unreadCount > 99 ? "99+" : c.unreadCount}</Text>
@@ -264,7 +231,7 @@ export default function MessagesScreen() {
         </TouchableOpacity>
       );
     },
-    [colors, currentUser?.id, isPro, openItem],
+    [colors, currentUser?.id, openItem],
   );
 
   return (
@@ -348,12 +315,6 @@ const styles = StyleSheet.create({
   rowTime: { fontSize: 12, fontWeight: "600", flexShrink: 0 },
   rowBottom: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
   rowPreview: { fontSize: 14, flex: 1 },
-  lockedPreview: { flex: 1, justifyContent: "center", overflow: "hidden", borderRadius: 6 },
-  lockedPreviewBadge: {
-    ...StyleSheet.absoluteFillObject,
-    flexDirection: "row", alignItems: "center", gap: 4,
-  },
-  lockedPreviewText: { fontSize: 12, fontWeight: "700" },
   badge: {
     minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 6,
     alignItems: "center", justifyContent: "center", flexShrink: 0,

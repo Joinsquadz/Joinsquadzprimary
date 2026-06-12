@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, count, or, sql, and, gte, isNull } from "drizzle-orm";
 import { z } from "zod";
-import { db, eventsTable, usersTable } from "@workspace/db";
+import { db, eventsTable, eventCreationsTable, usersTable } from "@workspace/db";
 import { storage } from "../storage";
 import { requireAuth } from "../middleware/currentUser";
 import { logger } from "../lib/logger";
@@ -23,8 +23,14 @@ const RSVP_LABEL: Record<string, string> = {
   notgoing: "can't make it",
 };
 
-const FREE_EVENT_LIMIT = 3;
-const PHOTO_VAULT_DAYS = 30;
+const FREE_EVENT_LIMIT = 5;
+// Free users may create up to FREE_EVENT_LIMIT events within this trailing
+// window. Enforced against the append-only event_creations ledger, so deleting
+// an event does not free a slot until its ledger row ages out of the window.
+const EVENT_WINDOW_MS = 365 * 24 * 60 * 60 * 1000;
+const PHOTO_VAULT_DAYS = 14;
+
+type EventExecutor = Parameters<Parameters<typeof db.transaction>[0]>[0] | typeof db;
 
 function randomCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -206,7 +212,7 @@ router.get("/events/preview", async (req: Request, res: Response): Promise<void>
 router.get("/events/count", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = (req.user as { id: string }).id;
-    const total = await storage.countUserEventsThisYear(userId);
+    const total = await storage.countUserEventCreationsInWindow(userId);
     res.json({ count: total, limit: FREE_EVENT_LIMIT });
   } catch (err) {
     logger.error({ err }, "Error fetching event count");
@@ -268,62 +274,99 @@ router.post("/events", requireAuth, async (req: Request, res: Response): Promise
       return false;
     })();
 
-    if (!isPro) {
-      const eventCount = await storage.countUserEventsThisYear(authUser.id);
-      if (eventCount >= FREE_EVENT_LIMIT) {
-        res.status(403).json({
-          error: `Free plan is limited to ${FREE_EVENT_LIMIT} events. Upgrade to Pro to create unlimited events.`,
-          requiresPro: true,
-          count: eventCount,
-          limit: FREE_EVENT_LIMIT,
-        });
-        return;
-      }
-    }
-  } catch (err) {
-    logger.error({ err }, "Error checking Pro status");
-  }
-
-  const { inviteCode, hostId: _bodyHostId, eventAt, ...rest } = parsed.data;
-  const hostId = authUser.id;
-
-  const [event] = await db
-    .insert(eventsTable)
-    .values({
+    const { inviteCode, hostId: _bodyHostId, eventAt, ...rest } = parsed.data;
+    const hostId = authUser.id;
+    const insertValues = {
       ...rest,
       hostId,
       inviteCode: inviteCode ?? randomCode(),
       ...(eventAt ? { eventAt: new Date(eventAt) } : {}),
-    })
-    .returning();
-  res.status(201).json(event);
+    };
 
-  // Fire-and-forget: a squad event invites the rest of the squad.
-  if (event.squadId) {
-    void (async () => {
-      try {
-        const squad = await storage.getSquad(event.squadId);
-        const memberIds = ((squad?.memberIds ?? []) as string[]).filter((m) => m !== hostId);
-        if (memberIds.length === 0) return;
-        // Respect both per-squad mute and the Event Invites preference.
-        const unmuted = await storage.filterUnmutedForSquad(memberIds, event.squadId);
-        const tokens = await storage.getPushTokensForUsers(unmuted, { requireNotifyEventInvites: true });
-        if (tokens.length === 0) return;
-
-        const host = await storage.getUser(hostId);
-        await sendPushNotifications(
-          tokens,
-          {
-            title: `${event.emoji} ${event.title}`,
-            body: `${displayName(host)} invited you to an event`,
-            data: { screen: "event", eventId: event.id },
-          },
-          { onStaleToken: (token) => storage.clearPushToken(token) },
-        );
-      } catch (err) {
-        logger.error({ err }, "Error sending event-invite push notifications");
+    // Enforce the free-tier event cap and append the ledger row atomically. A
+    // per-user advisory lock serializes a user's concurrent creates so the
+    // count-then-insert cannot race past the limit (mirrors the squad cap). Pro
+    // users skip the cap. Under unit-test mocks db.transaction is absent, so we
+    // fall back to a direct, unenforced insert (the cap is covered elsewhere).
+    const runCreate = async (
+      executor: EventExecutor,
+      inTransaction: boolean,
+    ): Promise<
+      | { ok: true; event: typeof eventsTable.$inferSelect }
+      | { ok: false; count: number }
+    > => {
+      if (!isPro && inTransaction) {
+        await executor.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${hostId}))`);
+        const windowStart = new Date(Date.now() - EVENT_WINDOW_MS);
+        const [row] = await executor
+          .select({ count: sql<number>`count(*)::int` })
+          .from(eventCreationsTable)
+          .where(
+            and(
+              eq(eventCreationsTable.userId, hostId),
+              gte(eventCreationsTable.createdAt, windowStart),
+            ),
+          );
+        const used = row?.count ?? 0;
+        if (used >= FREE_EVENT_LIMIT) return { ok: false, count: used };
       }
-    })();
+      const [created] = await executor.insert(eventsTable).values(insertValues).returning();
+      await executor
+        .insert(eventCreationsTable)
+        .values({ userId: hostId, eventId: created.id });
+      return { ok: true, event: created };
+    };
+
+    const result =
+      typeof db.transaction === "function"
+        ? await db.transaction((tx) => runCreate(tx, true))
+        : await runCreate(db, false);
+
+    if (!result.ok) {
+      res.status(403).json({
+        error: `Free plan is limited to ${FREE_EVENT_LIMIT} events in a 12-month window. Upgrade to Pro to create unlimited events.`,
+        requiresPro: true,
+        count: result.count,
+        limit: FREE_EVENT_LIMIT,
+      });
+      return;
+    }
+
+    const event = result.event;
+    res.status(201).json(event);
+
+    // Fire-and-forget: a squad event invites the rest of the squad.
+    if (event.squadId) {
+      void (async () => {
+        try {
+          const squad = await storage.getSquad(event.squadId);
+          const memberIds = ((squad?.memberIds ?? []) as string[]).filter((m) => m !== hostId);
+          if (memberIds.length === 0) return;
+          // Respect both per-squad mute and the Event Invites preference.
+          const unmuted = await storage.filterUnmutedForSquad(memberIds, event.squadId);
+          const tokens = await storage.getPushTokensForUsers(unmuted, { requireNotifyEventInvites: true });
+          if (tokens.length === 0) return;
+
+          const host = await storage.getUser(hostId);
+          await sendPushNotifications(
+            tokens,
+            {
+              title: `${event.emoji} ${event.title}`,
+              body: `${displayName(host)} invited you to an event`,
+              data: { screen: "event", eventId: event.id },
+            },
+            { onStaleToken: (token) => storage.clearPushToken(token) },
+          );
+        } catch (err) {
+          logger.error({ err }, "Error sending event-invite push notifications");
+        }
+      })();
+    }
+  } catch (err) {
+    logger.error({ err }, "Error creating event");
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Failed to create event" });
+    }
   }
 });
 
