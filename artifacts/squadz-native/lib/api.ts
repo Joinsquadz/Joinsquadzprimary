@@ -5,8 +5,12 @@ import { Platform } from "react-native";
  * Resolves the API base URL for the current environment.
  *
  * In production native builds: set EXPO_PUBLIC_API_URL in the build environment.
- * In Expo Go / development: REPLIT_DEV_DOMAIN is injected via app.config.js extra.
- * In Expo web: relative URLs work because the proxy routes /api correctly.
+ * In Expo Go / development: REPLIT_DEV_DOMAIN is injected via app.config.js extra
+ * (`extra.apiBase`), so this returns the ABSOLUTE main dev domain.
+ * In Expo web preview: that means /api calls are cross-origin (the preview is
+ * served from $REPLIT_EXPO_DEV_DOMAIN, which bypasses the shared proxy), so the
+ * api-server CORS allowlist must include the Expo origin. The Platform.OS==="web"
+ * relative-URL fallback below only applies when no apiBase/EXPO_PUBLIC_API_URL is set.
  */
 export function resolveApiBase(): string {
   if (process.env.EXPO_PUBLIC_API_URL) return process.env.EXPO_PUBLIC_API_URL;

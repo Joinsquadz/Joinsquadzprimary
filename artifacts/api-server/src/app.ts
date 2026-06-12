@@ -30,6 +30,12 @@ function buildAllowedOrigins(): Set<string> {
   if (process.env.REPLIT_DEV_DOMAIN) {
     origins.add(`https://${process.env.REPLIT_DEV_DOMAIN}`);
   }
+  // Expo web preview is served from a SEPARATE domain that bypasses the shared
+  // proxy, so its browser fetches hit this API cross-origin. Allowlist it or the
+  // dev web preview gets a blank screen (every /api call fails CORS preflight).
+  if (process.env.REPLIT_EXPO_DEV_DOMAIN) {
+    origins.add(`https://${process.env.REPLIT_EXPO_DEV_DOMAIN}`);
+  }
   for (const d of (process.env.REPLIT_DOMAINS ?? "").split(",")) {
     const trimmed = d.trim();
     if (trimmed) origins.add(`https://${trimmed}`);
