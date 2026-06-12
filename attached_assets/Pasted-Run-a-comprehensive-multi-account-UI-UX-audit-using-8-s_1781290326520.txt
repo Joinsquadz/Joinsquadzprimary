@@ -1,0 +1,133 @@
+Run a comprehensive multi-account UI/UX audit using 8 simultaneous test accounts. This is both a functional bug check and an experience quality review. For every finding report whether it is a bug (broken behavior), a friction point (works but feels wrong), or a polish gap (works and feels fine but could be meaningfully better).
+Do not fix anything during this pass. Report all findings first. Organize by severity: Critical (blocks core functionality), High (significantly degrades experience), Medium (noticeable but workable), Low (minor polish).
+Test account setup:
+
+User 1: Squadz+ subscriber, organizer of a squad with Users 2-4, friends with User 6
+User 2: Free user, member of User 1's squad, at event creation limit
+User 3: Free user, member of User 1's squad, new user (just onboarded)
+User 4: Free user, member of User 1's squad, has uploaded photos to the vault
+User 5: Free user, in a completely separate squad, no connection to Users 1-4
+User 6: Free user, friend of User 1 only, not in any shared squad
+User 7: Brand new user, mid-onboarding
+User 8: Free user at the 2-squad active limit
+
+Functional bug checks — simulate all simultaneously:
+Squad and events:
+
+User 1 creates an event, Users 2-4 RSVP simultaneously
+User 2 attempts to create a 6th event this year — does the limit fire correctly with the UpgradeModal?
+User 8 attempts to join a new squad via UI, invite link, and direct API — does every path block correctly?
+User 1 leaves their squad — does ownership transfer correctly to the next member?
+User 3 (new user) creates their first squad — does the onboarding tip sequence trigger correctly?
+
+Vault system:
+
+User 4 uploads 3 photos to the squad vault — do they appear instantly for Users 1, 2, and 3?
+User 1 (Squadz+) accesses their personal vault — does it show all uploads correctly?
+User 2 (free) attempts to access personal vault — does the single clean upgrade gate appear?
+User 4 opens a vault photo — does VaultMediaDetail open correctly with hearts, comments, captions, favorite, and share?
+User 1 hearts a photo — does the count update in real time for Users 2, 3, and 4?
+User 2 and User 3 heart the same photo simultaneously — does the count resolve correctly with no race condition?
+User 4 shares a vault photo to Vibe — does it appear in User 1 and User 6's feed locked to Friends audience?
+User 1 favorites a vault photo — does it appear in their personal vault Favorites tab?
+User 2 attempts to favorite — does the Squadz+ gate appear?
+
+Vibe Feed and Moments:
+
+User 1 posts a Vibe to Friends — does it appear for User 6 but not User 5?
+User 6 reacts to User 1's Vibe — does the reaction update in real time for all viewers?
+User 3 posts a Squad Moment — does it appear in the feed ring row for squad members only?
+User 1 posts a Friends Moment — does it appear in the feed ring row for User 6 but not User 5?
+Users 2 and 3 react to the same Moment simultaneously — no race condition?
+
+Founding member pricing:
+
+User 2 taps upgrade — does the UpgradeModal show the founding price with correct spots remaining?
+User 2 completes upgrade — does the founding spot counter increment only after payment succeeds?
+Does the celebration screen appear exactly once?
+Does the gold ring appear immediately on User 2's avatar across all surfaces without restart?
+
+Notifications:
+
+User 1 receives RSVP notifications from Users 2, 3, and 4 — no duplicates?
+User 4 receives a comment notification on their vault photo — does it deep link to the correct VaultMediaDetail?
+User 2 (free) receives a DM from User 1 — is the full message visible with no blur?
+All notification deep links route to the correct screen when app is closed, backgrounded, and open
+
+SSE resilience:
+
+Simulate a network drop for User 3 mid-session — does the reconnect banner appear and function?
+After reconnect, does User 3 see all updates they missed during the drop?
+
+UI/UX experience review — for each screen and flow, assess:
+Onboarding:
+
+Does the flow feel fast or does it have unnecessary friction?
+Are the welcome tips positioned correctly on a real device or do they overlap UI elements?
+Does landing directly in a squad after onboarding feel natural or disorienting?
+Is the empty squad state (new squad, no events, no chat) inviting or cold?
+
+Home screen:
+
+Does the layout feel purposeful or cluttered?
+Is the "Up Next" event card immediately useful or does it feel like filler when there's nothing upcoming?
+Are the quick action cards (Find a time, Invite crew) prominent enough?
+
+Vibe Feed:
+
+Does the feed feel alive or empty with a small number of posts?
+Is the Moments ring row at the top visually distinct and intuitive?
+Is the composer fast enough — does the audience picker feel like friction or natural?
+Are reactions and comments responsive enough to feel real-time?
+
+Squad screen:
+
+Is the navigation between chat, events, members, and tasks intuitive?
+Does the SquadzPlusBanner feel like an invitation or an interruption?
+Is the vault entry point obvious enough?
+
+Vault:
+
+Does VaultMediaDetail feel polished or rushed?
+Are hearts, comments, captions, favorite, and share all discoverable without explanation?
+Is the share to Vibe flow smooth or does the pre-filled composer feel clunky?
+Does the personal vault gate feel clean or does it feel like a hard wall?
+
+Profile:
+
+Is the Vault tab entry obvious?
+Does the My Uploads / Favorites segmented control make immediate sense?
+Are the filters intuitive and fast to use?
+Does the Squadz+ card feel premium or generic?
+
+Upgrade flow:
+
+Does the UpgradeModal feel like an invitation or a paywall?
+Is the benefit list scannable in under 5 seconds?
+Is the founding member pricing badge eye-catching without being aggressive?
+Does the celebration screen feel earned or over the top?
+After upgrading, does the gold ring appear in enough places to feel meaningful?
+
+Navigation:
+
+Is the bottom nav intuitive — do the five tabs make sense at a glance?
+Does moving between Feed, Squads, Events, Messages, and Profile feel fluid?
+Are there any screens where the back button behavior is unexpected?
+Are there any dead ends — screens where the user has no clear next action?
+
+Empty states:
+
+Every empty state across the app — feed, vault, squad, chat, events, discover — does each one tell the user what to do next or does it just say "nothing here"?
+Are empty states visually consistent with the brand?
+
+Deliverable:
+
+Return a structured report organized by severity. For each finding include:
+
+Screen or flow affected
+What happens currently
+What should happen or feel like instead
+Severity: Critical / High / Medium / Low
+Whether it is a Bug, Friction Point, or Polish Gap
+
+Do not fix anything until I review the full report and prioritize which items to address before launch.
