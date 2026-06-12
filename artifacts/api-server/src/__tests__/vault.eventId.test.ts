@@ -67,6 +67,7 @@ describe("POST /api/vault/photos eventId handling", () => {
       PRO_USER_ID,
       "/objects/uploads/with-event.jpg",
       "evt-1",
+      { mediaType: undefined },
     );
     expect(res.body.photo.eventId).toBe("evt-1");
   });
@@ -92,6 +93,7 @@ describe("POST /api/vault/photos eventId handling", () => {
       PRO_USER_ID,
       "/objects/uploads/no-event.jpg",
       undefined,
+      { mediaType: undefined },
     );
     expect(res.body.photo.eventId).toBeNull();
   });

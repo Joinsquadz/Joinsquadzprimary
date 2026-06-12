@@ -10,6 +10,7 @@ export const photosTable = pgTable("photos", {
   url: text("url").notNull().unique(),
   squadId: text("squad_id"),
   sharedToSquad: boolean("shared_to_squad").notNull().default(false),
+  mediaType: text("media_type").notNull().default("image"),
   uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

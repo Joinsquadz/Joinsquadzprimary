@@ -13,6 +13,15 @@ const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
 
 /**
+ * Hard cap on a single uploaded file: 150 MB. Photos and videos both flow
+ * through the presigned-upload request below, so the limit is enforced here at
+ * URL-issue time (the binary is PUT directly to cloud storage and never passes
+ * through this server). The client reports the byte size up front so an
+ * oversized file is rejected before any bytes are transferred.
+ */
+const MAX_UPLOAD_BYTES = 150 * 1024 * 1024;
+
+/**
  * POST /storage/uploads/request-url
  *
  * Request a presigned URL for file upload.
@@ -23,6 +32,13 @@ router.post("/storage/uploads/request-url", requireAuth, async (req: Request, re
   const parsed = RequestUploadUrlBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Missing or invalid required fields" });
+    return;
+  }
+
+  if (parsed.data.size > MAX_UPLOAD_BYTES) {
+    res.status(413).json({
+      error: "File too large. Photos and videos must be 150 MB or smaller.",
+    });
     return;
   }
 

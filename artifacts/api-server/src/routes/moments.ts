@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { and, eq, gt, inArray, isNull, or, sql, desc } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, desc } from "drizzle-orm";
 import { z } from "zod";
 import {
   db,
@@ -54,7 +54,6 @@ async function canViewMoment(userId: string, moment: MomentRow): Promise<boolean
 }
 
 const CreateMomentBody = z.object({
-  audience: z.string().min(1), // "friends" | squadId
   mediaUrl: z.string().min(1),
   mediaType: z.enum(["photo", "video"]),
   durationMs: z.number().int().positive().optional(),
@@ -69,7 +68,10 @@ router.post("/moments", requireAuth, async (req: Request, res: Response): Promis
       res.status(400).json({ error: parsed.error.message });
       return;
     }
-    const { audience, mediaUrl, mediaType, durationMs } = parsed.data;
+    const { mediaUrl, mediaType, durationMs } = parsed.data;
+
+    // Moments are always friends-only; ignore any client-sent audience.
+    const audience = "friends";
 
     if (mediaType === "video" && durationMs && durationMs > MAX_VIDEO_MS) {
       res.status(400).json({ error: "Video moments must be 60 seconds or shorter." });
@@ -88,17 +90,7 @@ router.post("/moments", requireAuth, async (req: Request, res: Response): Promis
       }
     }
 
-    let recipientIds: string[] = [];
-    if (audience === "friends") {
-      recipientIds = await getFriendIds(userId);
-    } else {
-      const [squad] = await db.select().from(squadsTable).where(eq(squadsTable.id, audience));
-      if (!squad || !((squad.memberIds ?? []) as string[]).includes(userId)) {
-        res.status(403).json({ error: "You can only post moments to squads you belong to." });
-        return;
-      }
-      recipientIds = ((squad.memberIds ?? []) as string[]).filter((id) => id !== userId);
-    }
+    const recipientIds = await getFriendIds(userId);
 
     const expiresAt = new Date(Date.now() + MOMENT_TTL_MS);
     const [moment] = await db
@@ -115,11 +107,7 @@ router.post("/moments", requireAuth, async (req: Request, res: Response): Promis
         if (recipientIds.length === 0) return;
         const author = await storage.getUser(userId);
         const authorName = author?.firstName ?? "Someone";
-        const targets =
-          audience === "friends"
-            ? recipientIds
-            : await storage.filterUnmutedForSquad(recipientIds, audience);
-        const tokens = await storage.getPushTokensForUsers(targets, {
+        const tokens = await storage.getPushTokensForUsers(recipientIds, {
           requireNotifyFriendActivity: true,
         });
         if (tokens.length > 0) {
@@ -228,19 +216,12 @@ router.get("/moments/feed", requireAuth, async (req: Request, res: Response): Pr
     const userId = (req.user as { id: string }).id;
     const friendIds = await getFriendIds(userId);
     const authors = Array.from(new Set([userId, ...friendIds]));
-    const squadRows = await db
-      .select({ id: squadsTable.id })
-      .from(squadsTable)
-      .where(sql`${squadsTable.memberIds} @> ${JSON.stringify([userId])}::jsonb`);
-    const squadIds = squadRows.map((s) => s.id);
 
-    const friendsAudience = and(
+    // Moments are friends-only: the viewer's own + their friends' moments.
+    const audienceCondition = and(
       eq(momentsTable.audience, "friends"),
       inArray(momentsTable.authorId, authors),
     );
-    const audienceCondition = squadIds.length
-      ? or(friendsAudience, inArray(momentsTable.audience, squadIds))
-      : friendsAudience;
 
     const moments = await db
       .select()

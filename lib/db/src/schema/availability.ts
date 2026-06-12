@@ -16,6 +16,10 @@ export const availabilityPollsTable = pgTable("availability_polls", {
   id: text("id").primaryKey().default(sql`gen_random_uuid()`),
   squadId: text("squad_id"),
   eventId: text("event_id"),
+  // Explicit invitee roster for an ad-hoc "new plan" poll that isn't bound to a
+  // squad or an existing event. NULL for squad/event-scoped polls (their roster
+  // is derived from squad membership / event participants instead).
+  participantIds: jsonb("participant_ids").$type<string[] | null>(),
   createdBy: text("created_by").notNull(),
   title: text("title").notNull().default("Find the Best Time"),
   days: jsonb("days")

@@ -658,14 +658,17 @@ export default function SquadDetailScreen() {
         {/* Invite banner */}
         <TouchableOpacity
           onPress={shareInvite}
-          style={[styles.inviteBanner, { backgroundColor: colors.primary + "15", borderColor: colors.primary + "30" }]}
+          activeOpacity={0.85}
+          style={[styles.inviteBanner, { backgroundColor: colors.card, borderColor: colors.border }]}
         >
           <View style={[styles.inviteIcon, { backgroundColor: colors.primary + "20" }]}>
-            <Ionicons name="share-social-outline" size={20} color={colors.primary} />
+            <Ionicons name="person-add-outline" size={20} color={colors.primary} />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={[styles.inviteTitle, { color: colors.foreground }]}>Invite friends</Text>
-            <Text style={[styles.inviteSub, { color: colors.mutedForeground }]}>{inviteLink}</Text>
+            <Text style={[styles.inviteTitle, { color: colors.foreground }]}>Invite friends not on SquadZ</Text>
+            <Text style={[styles.inviteSub, { color: colors.mutedForeground }]} numberOfLines={1}>
+              Share an invite link to add them
+            </Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
         </TouchableOpacity>
@@ -845,20 +848,30 @@ export default function SquadDetailScreen() {
           <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Events</Text>
         </View>
         {squadEvents.length === 0 ? (
-          <View style={styles.emptyEvents}>
-            <Ionicons name="calendar-outline" size={36} color={colors.textDim} />
-            <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>No events yet</Text>
-            <TouchableOpacity
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                router.push({ pathname: "/create", params: { prefillSquad: squad.id } } as never);
-              }}
-              style={[styles.emptyCta, { borderColor: colors.border }]}
+          <TouchableOpacity
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              router.push({ pathname: "/create", params: { prefillSquad: squad.id } } as never);
+            }}
+            activeOpacity={0.9}
+            style={{ marginTop: 4 }}
+          >
+            <LinearGradient
+              colors={[squad.color, squad.color + "CC"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.findTimeCta}
             >
-              <Ionicons name="add" size={18} color={colors.primary} />
-              <Text style={[styles.emptyCtaText, { color: colors.primary }]}>Plan an event</Text>
-            </TouchableOpacity>
-          </View>
+              <View style={styles.findTimeIcon}>
+                <Ionicons name="add" size={24} color="#fff" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.findTimeTitle}>Plan an event</Text>
+                <Text style={styles.findTimeSub}>No events yet · get the squad together</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#fff" />
+            </LinearGradient>
+          </TouchableOpacity>
         ) : (
           squadEvents.map((e) => (
             <EventCard
@@ -893,8 +906,18 @@ export default function SquadDetailScreen() {
           style={styles.modalOverlay}
           behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
-          <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border, paddingBottom: botPad + 16 }]}>
-            <Text style={[styles.modalTitle, { color: colors.foreground }]}>Add a member</Text>
+          <View style={[styles.modalCard, styles.addMemberCard, { backgroundColor: colors.surface, borderColor: colors.border, paddingBottom: botPad + 16 }]}>
+            {/* Persistent close (X) — left side, always visible above scrolling content */}
+            <TouchableOpacity
+              onPress={() => { setAddMemberOpen(false); resetAddMemberModal(); }}
+              style={[styles.modalCloseBtn, { backgroundColor: colors.card }]}
+              accessibilityLabel="Close"
+              hitSlop={8}
+            >
+              <Ionicons name="close" size={20} color={colors.foreground} />
+            </TouchableOpacity>
+
+            <Text style={[styles.modalTitle, styles.addMemberTitle, { color: colors.foreground }]}>Add members</Text>
             <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>Search by name</Text>
             <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
               <TextInput
@@ -932,7 +955,7 @@ export default function SquadDetailScreen() {
             )}
 
             {searchResults.length > 0 && (
-              <ScrollView style={{ maxHeight: 240 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              <ScrollView style={styles.addMemberResults} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                 {searchResults.map((user) => {
                   const alreadyMember = squad.memberIds.includes(user.id);
                   const isSelected = selectedToAdd.has(user.id);
@@ -1266,6 +1289,10 @@ const styles = StyleSheet.create({
   photosSub: { fontSize: 12, marginTop: 2 },
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" },
   modalCard: { borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, padding: 20 },
+  addMemberCard: { maxHeight: "82%" },
+  addMemberTitle: { textAlign: "center", paddingHorizontal: 44 },
+  addMemberResults: { flexShrink: 1, flexGrow: 0 },
+  modalCloseBtn: { position: "absolute", top: 14, left: 14, zIndex: 10, width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
   modalTitle: { fontSize: 20, fontWeight: "800", marginBottom: 16 },
   fieldLabel: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8, marginTop: 4 },
   modalInput: { borderRadius: 13, borderWidth: 1.5, paddingHorizontal: 14, height: 50, fontSize: 15, marginBottom: 12 },

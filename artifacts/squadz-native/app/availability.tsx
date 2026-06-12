@@ -188,15 +188,40 @@ function prettyCell(cell: string | null): string {
   return isDate ? `${dayPretty} · ${slotPretty}` : `${dayPretty} ${slotPretty}`;
 }
 
+// Convert a dated cell key (`2026-06-14-7PM`) into a machine-readable ISO start
+// so the event can be expired/filtered precisely. Returns undefined for legacy
+// weekday-only polls (no concrete calendar date) — those just keep the friendly
+// display string and never auto-expire.
+function cellToISO(cell: string | null): string | undefined {
+  if (!cell) return undefined;
+  const { day, slot } = splitCell(cell);
+  const base = parseISODate(day);
+  if (!base) return undefined;
+  const m = /^(\d{1,2})\s*(AM|PM)$/i.exec(slot);
+  if (m) {
+    let h = Number(m[1]) % 12;
+    if (m[2].toUpperCase() === "PM") h += 12;
+    base.setHours(h, 0, 0, 0);
+  }
+  return base.toISOString();
+}
+
 export default function AvailabilityScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const { authToken, currentUser } = useAuth();
-  const params = useLocalSearchParams<{ squadId?: string; eventId?: string; pollId?: string; from?: string }>();
+  const params = useLocalSearchParams<{ squadId?: string; eventId?: string; pollId?: string; from?: string; adhoc?: string; participantIds?: string }>();
   const squadId = params.squadId || undefined;
   const eventId = params.eventId || undefined;
   const pollId = params.pollId || undefined;
+  // Ad-hoc "new plan" poll (T3): no squad/event scope; the roster is an explicit
+  // set of invitees chosen on the previous screen and passed as a CSV param.
+  const adhoc = params.adhoc === "1";
+  const participantIds = (params.participantIds || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
   // True when the screen was opened from the event-creation flow. In that case
   // we always start a fresh poll setup rather than reloading the squad's last
   // (possibly abandoned) board.
@@ -563,7 +588,14 @@ export default function AvailabilityScreen() {
     try {
       const days = computeRange(rangeStart, rangeDays);
       const slots = ALL_SLOT_OPTIONS.filter(s => selectedSlots.has(s));
-      const body: Record<string, unknown> = { ...(squadId ? { squadId } : { eventId }), days, slots };
+      const scope: Record<string, unknown> = adhoc
+        ? { adhoc: true, participantIds }
+        : squadId
+          ? { squadId }
+          : { eventId };
+      // "Find a time" / event-planning flows always start a brand-new poll
+      // rather than reopening this scope's last (possibly stale) board.
+      const body: Record<string, unknown> = { ...scope, days, slots, ...(fromCreate ? { forceNew: true } : {}) };
       if (pollTitle.trim()) body.title = pollTitle.trim();
       const res = await fetch(`${API_BASE}/api/availability/polls`, {
         method: "POST",
@@ -586,7 +618,7 @@ export default function AvailabilityScreen() {
     } finally {
       setCreating(false);
     }
-  }, [authHeaders, squadId, eventId, pollTitle, rangeStart, rangeDays]);
+  }, [authHeaders, squadId, eventId, adhoc, fromCreate, params.participantIds, pollTitle, rangeStart, rangeDays, selectedSlots]);
 
   // Silently re-fetches the poll and updates the heatmap + best-time card.
   // The user's own unsaved picks (mySet) are only synced when there are no
@@ -746,7 +778,7 @@ export default function AvailabilityScreen() {
   }, [data]);
 
   useEffect(() => {
-    if (!squadId && !eventId && !pollId) {
+    if (!squadId && !eventId && !pollId && !adhoc) {
       setError("Missing squad, event, or poll.");
       setLoading(false);
       return;
@@ -911,13 +943,14 @@ export default function AvailabilityScreen() {
   const useThisTime = async () => {
     if (!data?.best) return;
     const friendly = prettyCell(data.best.cell);
+    const eventAtISO = cellToISO(data.best.cell);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     if (eventId) {
       try {
         const res = await fetch(`${API_BASE}/api/events/${eventId}`, {
           method: "PATCH",
           headers: authHeaders(),
-          body: JSON.stringify({ date: friendly }),
+          body: JSON.stringify({ date: friendly, ...(eventAtISO ? { eventAt: eventAtISO } : {}) }),
         });
         if (res.ok) {
           Alert.alert("Time locked in", `${friendly} is now the event time.`, [
@@ -936,7 +969,11 @@ export default function AvailabilityScreen() {
     // Squad / create flow → start an event prefilled with the winning slot.
     router.push({
       pathname: "/create",
-      params: { prefillDate: friendly, prefillSquad: squadId ?? "" },
+      params: {
+        prefillDate: friendly,
+        ...(eventAtISO ? { prefillEventAt: eventAtISO } : {}),
+        prefillSquad: squadId ?? "",
+      },
     } as never);
   };
 

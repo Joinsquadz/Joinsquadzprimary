@@ -2,15 +2,20 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { z } from "zod";
 import { requireAuth } from "../middleware/currentUser";
 import { storage, type EnrichedPhoto } from "../storage";
+import { emitSquadUpdate } from "../lib/squadEvents";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
-const PHOTO_VAULT_DAYS = 30;
+const PHOTO_VAULT_DAYS = 14;
 
 const AddVaultPhotoBody = z.object({
   url: z.string().min(1),
   eventId: z.string().optional(),
+  // T11: when provided (and no eventId), the media is added straight to this
+  // squad's shared vault — no event roll-up required. Member-only.
+  squadId: z.string().optional(),
+  mediaType: z.enum(["image", "video"]).optional(),
 });
 
 const VaultPhotosQuery = z.object({
@@ -102,6 +107,7 @@ router.get("/vault/photos", requireAuth, async (req: Request, res: Response): Pr
         ? {
             id: photo.id,
             eventId: photo.eventId,
+            mediaType: photo.mediaType,
             uploadedAt: photo.uploadedAt,
             eventTitle: photo.eventTitle,
             eventEmoji: photo.eventEmoji,
@@ -137,6 +143,41 @@ router.post("/vault/photos", requireAuth, async (req: Request, res: Response): P
       return;
     }
 
+    const { url, eventId, squadId, mediaType } = parsedBody.data;
+
+    // Provenance: only add media you uploaded. A vault url with no existing photo
+    // row (e.g. another user's moment/message object path) would otherwise let a
+    // user create a row they "own" and self-authorize read access via the photo
+    // ACL. Public uploads (full https URLs) carry no private path to forge.
+    const verifyProvenance = async (): Promise<boolean> => {
+      if (/^https?:\/\//i.test(url)) return true;
+      const owner = await storage.getUploadOwner(url);
+      return owner === userId;
+    };
+
+    // T11 — Direct-to-squad-vault upload. No event roll-up required: any current
+    // member of the squad may add media straight to its shared vault. This path
+    // is intentionally independent of Pro status (membership is the gate).
+    if (squadId && !eventId) {
+      const isMember = await storage.isSquadMemberPublic(squadId, userId);
+      if (!isMember) {
+        res.status(403).json({ error: "Not a member of this squad" });
+        return;
+      }
+      if (!(await verifyProvenance())) {
+        res.status(403).json({ error: "You can only add media you uploaded." });
+        return;
+      }
+      const photo = await storage.addPhoto(userId, url, undefined, {
+        squadId,
+        sharedToSquad: true,
+        mediaType,
+      });
+      emitSquadUpdate(squadId);
+      res.status(201).json({ photo });
+      return;
+    }
+
     let user = await storage.getUser(userId);
     if (!user) {
       user = await storage.upsertUser(userId, (req.user as { id: string; email?: string }).email ?? "");
@@ -160,19 +201,13 @@ router.post("/vault/photos", requireAuth, async (req: Request, res: Response): P
       return;
     }
 
-    // Provenance: only add media you uploaded. A vault url with no existing photo
-    // row (e.g. another user's moment/message object path) would otherwise let a
-    // user create a row they "own" and self-authorize read access via the photo
-    // ACL. Public uploads (full https URLs) carry no private path to forge.
-    if (!/^https?:\/\//i.test(parsedBody.data.url)) {
-      const owner = await storage.getUploadOwner(parsedBody.data.url);
-      if (owner !== userId) {
-        res.status(403).json({ error: "You can only add media you uploaded." });
-        return;
-      }
+    // Provenance: only add media you uploaded (see verifyProvenance above).
+    if (!(await verifyProvenance())) {
+      res.status(403).json({ error: "You can only add media you uploaded." });
+      return;
     }
 
-    const photo = await storage.addPhoto(userId, parsedBody.data.url, parsedBody.data.eventId);
+    const photo = await storage.addPhoto(userId, url, eventId, { mediaType });
     res.status(201).json({ photo });
   } catch (err) {
     logger.error({ err }, "Error saving vault photo");

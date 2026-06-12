@@ -80,6 +80,7 @@ const enrichedPhotoColumns = {
   url: photosTable.url,
   squadId: photosTable.squadId,
   sharedToSquad: photosTable.sharedToSquad,
+  mediaType: photosTable.mediaType,
   uploadedAt: photosTable.uploadedAt,
   eventTitle: eventsTable.title,
   eventEmoji: eventsTable.emoji,
@@ -241,7 +242,12 @@ export class Storage {
       .orderBy(desc(photosTable.uploadedAt));
   }
 
-  async addPhoto(uploaderId: string, url: string, eventId?: string): Promise<Photo> {
+  async addPhoto(
+    uploaderId: string,
+    url: string,
+    eventId?: string,
+    opts?: { squadId?: string | null; sharedToSquad?: boolean; mediaType?: string },
+  ): Promise<Photo> {
     // Enforce object-URL provenance: each object path maps to exactly one photo
     // row (DB-unique on url). If the URL is already recorded, only its original
     // uploader may re-save it (idempotent retry); anyone else is rejected so
@@ -258,7 +264,14 @@ export class Storage {
     }
     const [photo] = await db
       .insert(photosTable)
-      .values({ uploaderId, url, eventId: eventId ?? null })
+      .values({
+        uploaderId,
+        url,
+        eventId: eventId ?? null,
+        squadId: opts?.squadId ?? null,
+        sharedToSquad: opts?.sharedToSquad ?? false,
+        mediaType: opts?.mediaType === "video" ? "video" : "image",
+      })
       .returning();
     return photo;
   }
@@ -270,6 +283,7 @@ export class Storage {
         url: photosTable.url,
         eventId: photosTable.eventId,
         uploaderId: photosTable.uploaderId,
+        mediaType: photosTable.mediaType,
         uploadedAt: photosTable.uploadedAt,
         uploaderFirstName: usersTable.firstName,
         uploaderLastName: usersTable.lastName,
@@ -447,6 +461,7 @@ export class Storage {
     createdBy: string;
     squadId?: string | null;
     eventId?: string | null;
+    participantIds?: string[] | null;
     title?: string;
     days?: string[];
     slots?: string[];
@@ -455,6 +470,8 @@ export class Storage {
       createdBy: input.createdBy,
       squadId: input.squadId ?? null,
       eventId: input.eventId ?? null,
+      participantIds:
+        input.participantIds && input.participantIds.length ? input.participantIds : null,
     };
     if (input.title) values.title = input.title;
     // Polls coordinate on concrete calendar dates. When the caller doesn't

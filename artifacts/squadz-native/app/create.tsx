@@ -69,13 +69,18 @@ export default function CreateEventScreen() {
   const insets = useSafeAreaInsets();
   const { addEvent, squads } = useData();
   const { authToken } = useAuth();
-  const prefill = useLocalSearchParams<{ prefillDate?: string; prefillSquad?: string; prefillTitle?: string; prefillEmoji?: string }>();
+  const prefill = useLocalSearchParams<{ prefillDate?: string; prefillEventAt?: string; prefillSquad?: string; prefillTitle?: string; prefillEmoji?: string }>();
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
 
   const [title, setTitle] = useState("");
   const [location, setLocation] = useState("");
   const [date, setDate] = useState("");
+  // Machine-readable ISO start, set whenever a concrete time is chosen via the
+  // picker (or prefilled from the availability "best time"). Cleared when the
+  // user clears or manually edits the freeform date text, since it no longer
+  // corresponds to a parseable instant.
+  const [eventAtISO, setEventAtISO] = useState<string | undefined>(undefined);
   const [description, setDescription] = useState("");
   const [selectedSquad, setSelectedSquad] = useState<string | null>(null);
   const [selectedEmoji, setSelectedEmoji] = useState("🔥");
@@ -114,13 +119,14 @@ export default function CreateEventScreen() {
   // title / emoji passed from an AI suggestion on the Home screen.
   useEffect(() => {
     if (prefill.prefillDate) setDate(prefill.prefillDate);
+    if (prefill.prefillEventAt) setEventAtISO(prefill.prefillEventAt);
     if (prefill.prefillSquad) setSelectedSquad(prefill.prefillSquad);
     if (prefill.prefillTitle) setTitle(prefill.prefillTitle);
     if (prefill.prefillEmoji) setSelectedEmoji(prefill.prefillEmoji);
-  }, [prefill.prefillDate, prefill.prefillSquad, prefill.prefillTitle, prefill.prefillEmoji]);
+  }, [prefill.prefillDate, prefill.prefillEventAt, prefill.prefillSquad, prefill.prefillTitle, prefill.prefillEmoji]);
 
   const resetForm = () => {
-    setTitle(""); setLocation(""); setDate(""); setDescription("");
+    setTitle(""); setLocation(""); setDate(""); setEventAtISO(undefined); setDescription("");
     setSelectedSquad(null); setSelectedEmoji("🔥");
     setPickerDate(new Date());
   };
@@ -140,7 +146,7 @@ export default function CreateEventScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       const id = await addEvent({
         title: title.trim(), emoji: selectedEmoji,
-        date: date.trim(), location: location.trim(),
+        date: date.trim(), eventAt: eventAtISO, location: location.trim(),
         description: description.trim(), squadId: selectedSquad,
         isPublic,
       });
@@ -167,6 +173,7 @@ export default function CreateEventScreen() {
       setPickerStep("time");
     } else {
       setDate(formatPickedDate(pickerDate));
+      setEventAtISO(pickerDate.toISOString());
       setPickerStep(null);
     }
   };
@@ -182,6 +189,7 @@ export default function CreateEventScreen() {
       updated.setHours(d.getHours(), d.getMinutes());
       setPickerDate(updated);
       setDate(formatPickedDate(updated));
+      setEventAtISO(updated.toISOString());
       setPickerStep(null);
     }
   };
@@ -189,6 +197,7 @@ export default function CreateEventScreen() {
   const clearDate = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setDate("");
+    setEventAtISO(undefined);
     setPickerDate(new Date());
   };
 
@@ -258,7 +267,7 @@ export default function CreateEventScreen() {
         <View style={styles.section}>
           <Text style={[styles.label, { color: colors.mutedForeground }]}>Date & time</Text>
           {Platform.OS === "web" ? (
-            <Field icon="calendar-outline" placeholder="e.g. Sat, Jun 7 · 5:00 PM" value={date} onChangeText={setDate} colors={colors} />
+            <Field icon="calendar-outline" placeholder="e.g. Sat, Jun 7 · 5:00 PM" value={date} onChangeText={(t) => { setDate(t); setEventAtISO(undefined); }} colors={colors} />
           ) : date ? (
             <View style={[styles.dateDisplay, { backgroundColor: colors.card, borderColor: colors.primary }]}>
               <Ionicons name="calendar" size={20} color={colors.primary} />

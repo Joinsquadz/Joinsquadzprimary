@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   View,
   Text,
@@ -12,12 +12,12 @@ import {
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { router, useLocalSearchParams } from "expo-router";
+import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import AttachmentVideo from "@/components/AttachmentVideo";
 import { useColors } from "@/hooks/useColors";
-import { useAuth, useData } from "@/context/AppContext";
+import { useAuth } from "@/context/AppContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
 const MAX_VIDEO_MS = 60 * 1000;
@@ -35,33 +35,12 @@ export default function MomentComposeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { authToken } = useAuth();
-  const { squads } = useData();
-  const params = useLocalSearchParams<{ audience?: string }>();
 
-  const initialAudience = typeof params.audience === "string" ? params.audience : "friends";
-  const [audience, setAudience] = useState<string>(initialAudience);
   const [picked, setPicked] = useState<Picked | null>(null);
   const [posting, setPosting] = useState(false);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + 16;
-
-  const audienceOptions = useMemo(
-    () => [
-      { id: "friends", label: "Friends", emoji: "👥" },
-      ...squads.map((s) => ({ id: s.id, label: s.name, emoji: s.emoji })),
-    ],
-    [squads],
-  );
-
-  const audienceLabel = useCallback(
-    (aud: string): string => {
-      if (aud === "friends") return "Friends";
-      const squad = squads.find((s) => s.id === aud);
-      return squad ? `${squad.emoji} ${squad.name}` : "Squad";
-    },
-    [squads],
-  );
 
   const pick = useCallback(async (kind: "photo" | "video") => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -136,7 +115,6 @@ export default function MomentComposeScreen() {
         method: "POST",
         headers: { ...buildAuthHeaders(authToken), "Content-Type": "application/json" },
         body: JSON.stringify({
-          audience,
           mediaUrl: objectPath,
           mediaType: picked.mediaType,
           ...(picked.durationMs ? { durationMs: Math.round(picked.durationMs) } : {}),
@@ -154,7 +132,7 @@ export default function MomentComposeScreen() {
     } finally {
       setPosting(false);
     }
-  }, [picked, posting, authToken, audience]);
+  }, [picked, posting, authToken]);
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -208,45 +186,6 @@ export default function MomentComposeScreen() {
           </View>
         )}
 
-        {/* Audience */}
-        <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Share with</Text>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.audienceRow}
-        >
-          {audienceOptions.map((opt) => {
-            const selected = audience === opt.id;
-            return (
-              <TouchableOpacity
-                key={opt.id}
-                onPress={() => {
-                  void Haptics.selectionAsync();
-                  setAudience(opt.id);
-                }}
-                style={[
-                  styles.audienceChip,
-                  {
-                    backgroundColor: selected ? colors.primary + "22" : colors.card,
-                    borderColor: selected ? colors.primary : colors.border,
-                  },
-                ]}
-              >
-                <Text style={{ fontSize: 13 }}>{opt.emoji}</Text>
-                <Text
-                  style={[
-                    styles.audienceChipText,
-                    { color: selected ? colors.primary : colors.mutedForeground },
-                  ]}
-                  numberOfLines={1}
-                >
-                  {opt.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-
         <TouchableOpacity
           onPress={() => void handlePost()}
           disabled={!picked || posting}
@@ -259,7 +198,7 @@ export default function MomentComposeScreen() {
           {posting ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.postBtnText}>Share to {audienceLabel(audience)}</Text>
+            <Text style={styles.postBtnText}>Share with friends</Text>
           )}
         </TouchableOpacity>
       </ScrollView>

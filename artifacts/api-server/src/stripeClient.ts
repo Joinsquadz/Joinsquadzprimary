@@ -1,5 +1,7 @@
 import Stripe from 'stripe';
+import type { ConnectionOptions } from 'node:tls';
 import { StripeSync } from 'stripe-replit-sync';
+import { resolveDbConfig } from '@workspace/db';
 
 async function getStripeCredentials(): Promise<{ secretKey: string; webhookSecret?: string }> {
   const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
@@ -49,15 +51,50 @@ export async function getUncachableStripeClient(): Promise<Stripe> {
   return new Stripe(secretKey);
 }
 
-export async function getStripeSync(): Promise<StripeSync> {
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) {
-    throw new Error('DATABASE_URL environment variable is required');
-  }
+/**
+ * Build the Postgres connection details for the Stripe sync from the SAME source
+ * the app reads through (`resolveDbConfig`, which prefers SUPABASE_DB_URL). The
+ * sync MUST write the `stripe.*` tables into the database the app queries — if
+ * the sync writes to a different DB (e.g. a Replit-managed DATABASE_URL) the
+ * app's `stripe.products` lookups 500 with "relation does not exist" and the
+ * upgrade button can never find the Pro plan.
+ *
+ * Returns both a `poolConfig` (discrete pg fields, used by StripeSync) and a
+ * percent-encoded `databaseUrl` + `ssl` (used by runMigrations, which only
+ * accepts a connection string). The URL is rebuilt from the parsed discrete
+ * fields so raw Supabase passwords with special characters are encoded safely.
+ */
+export function getStripeDbConfig(): {
+  poolConfig: ReturnType<typeof resolveDbConfig>;
+  databaseUrl: string;
+  ssl: ConnectionOptions | undefined;
+} {
+  const poolConfig = resolveDbConfig();
+  const { host, port, user, password, database, ssl } = poolConfig as {
+    host: string;
+    port: number;
+    user: string;
+    password: string;
+    database: string;
+    ssl?: boolean | ConnectionOptions;
+  };
+  const databaseUrl =
+    `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(password)}` +
+    `@${host}:${port}/${encodeURIComponent(database)}`;
+  const sslOption: ConnectionOptions | undefined =
+    ssl === true
+      ? { rejectUnauthorized: true }
+      : ssl === undefined
+        ? undefined
+        : (ssl as ConnectionOptions);
+  return { poolConfig, databaseUrl, ssl: sslOption };
+}
 
+export async function getStripeSync(): Promise<StripeSync> {
+  const { poolConfig } = getStripeDbConfig();
   const { secretKey, webhookSecret } = await getStripeCredentials();
   return new StripeSync({
-    poolConfig: { connectionString: databaseUrl },
+    poolConfig,
     stripeSecretKey: secretKey,
     stripeWebhookSecret: webhookSecret ?? '',
   });

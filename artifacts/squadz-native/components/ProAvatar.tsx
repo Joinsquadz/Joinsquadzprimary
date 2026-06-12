@@ -36,7 +36,8 @@ export function ProAvatar({
   ) : (
     (() => {
       const ringWidth = Math.max(2, Math.round(size * 0.06));
-      const outer = size + ringWidth * 2 + 2;
+      const innerSize = size + 4;
+      const outer = innerSize + ringWidth * 2;
       return (
         <LinearGradient
           colors={["#FFE08A", "#F5C242", "#C8941A"]}
@@ -44,7 +45,12 @@ export function ProAvatar({
           end={{ x: 1, y: 1 }}
           style={[styles.ring, { width: outer, height: outer, borderRadius: outer / 2 }]}
         >
-          <View style={[styles.inner, { borderRadius: (size + 4) / 2, padding: 2, backgroundColor: "transparent" }]}>
+          <View
+            style={[
+              styles.inner,
+              { width: innerSize, height: innerSize, borderRadius: innerSize / 2, backgroundColor: "transparent" },
+            ]}
+          >
             <UserAvatar initials={initials} color={color} imageUrl={imageUrl} size={size} fontSize={fontSize} />
           </View>
         </LinearGradient>
@@ -65,10 +71,17 @@ export function ProAvatar({
 
 const styles = StyleSheet.create({
   ring: {
+    aspectRatio: 1,
+    alignSelf: "center",
+    flexShrink: 0,
+    overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
   },
   inner: {
+    aspectRatio: 1,
+    flexShrink: 0,
+    overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
   },

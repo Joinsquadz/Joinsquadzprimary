@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -94,7 +94,6 @@ export default function FeedScreen() {
 
   // composer
   const [draft, setDraft] = useState("");
-  const [audience, setAudience] = useState<string>("friends");
   const [posting, setPosting] = useState(false);
   const [picked, setPicked] = useState<PickedMedia | null>(null);
 
@@ -105,6 +104,11 @@ export default function FeedScreen() {
   const [commentsByPost, setCommentsByPost] = useState<Record<string, FeedComment[]>>({});
   const [commentDraft, setCommentDraft] = useState("");
   const [commentSending, setCommentSending] = useState(false);
+
+  // editing your own post
+  const [editingPostId, setEditingPostId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
 
   // ── data fetching ─────────────────────────────────────────────────────────
   const fetchFeed = useCallback(async () => {
@@ -391,7 +395,7 @@ export default function FeedScreen() {
       const res = await fetch(`${API_BASE}/api/feed/posts`, {
         method: "POST",
         headers: { ...buildAuthHeaders(authToken), "Content-Type": "application/json" },
-        body: JSON.stringify({ text, audience, ...(media ?? {}) }),
+        body: JSON.stringify({ text, ...(media ?? {}) }),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
@@ -406,7 +410,7 @@ export default function FeedScreen() {
     } finally {
       setPosting(false);
     }
-  }, [draft, picked, posting, audience, authToken, fetchFeed]);
+  }, [draft, picked, posting, authToken, fetchFeed]);
 
   const handleToggleReaction = useCallback(
     async (post: FeedPost, emoji: string) => {
@@ -474,6 +478,69 @@ export default function FeedScreen() {
     [authToken, fetchFeed],
   );
 
+  const handleStartEdit = useCallback((post: FeedPost) => {
+    void Haptics.selectionAsync();
+    setEditingPostId(post.id);
+    setEditDraft(post.text);
+  }, []);
+
+  const handleCancelEdit = useCallback(() => {
+    setEditingPostId(null);
+    setEditDraft("");
+  }, []);
+
+  const handleSaveEdit = useCallback(
+    async (post: FeedPost) => {
+      const text = editDraft.trim();
+      if (editSaving) return;
+      if (!text && !post.mediaUrl) {
+        Alert.alert("Can't save", "A post needs text or media.");
+        return;
+      }
+      if (text === post.text) {
+        handleCancelEdit();
+        return;
+      }
+      setEditSaving(true);
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      // optimistic
+      setPosts((prev) => prev.map((p) => (p.id === post.id ? { ...p, text } : p)));
+      try {
+        const res = await fetch(`${API_BASE}/api/feed/posts/${post.id}`, {
+          method: "PATCH",
+          headers: { ...buildAuthHeaders(authToken), "Content-Type": "application/json" },
+          body: JSON.stringify({ text }),
+        });
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { error?: string };
+          Alert.alert("Couldn't save", body.error ?? "Please try again.");
+          void fetchFeed();
+          return;
+        }
+        setEditingPostId(null);
+        setEditDraft("");
+      } catch {
+        Alert.alert("Couldn't save", "Please check your connection and try again.");
+        void fetchFeed();
+      } finally {
+        setEditSaving(false);
+      }
+    },
+    [editDraft, editSaving, authToken, fetchFeed, handleCancelEdit],
+  );
+
+  const handlePostMenu = useCallback(
+    (post: FeedPost) => {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      Alert.alert("Post options", undefined, [
+        { text: "Edit", onPress: () => handleStartEdit(post) },
+        { text: "Delete", style: "destructive", onPress: () => handleDeletePost(post) },
+        { text: "Cancel", style: "cancel" },
+      ]);
+    },
+    [handleStartEdit, handleDeletePost],
+  );
+
   const toggleComments = useCallback(
     (postId: string) => {
       setOpenComments((prev) => {
@@ -515,15 +582,6 @@ export default function FeedScreen() {
       }
     },
     [commentDraft, commentSending, authToken],
-  );
-
-  // ── audience options ───────────────────────────────────────────────────────
-  const audienceOptions = useMemo(
-    () => [
-      { id: "friends", label: "Friends", emoji: "👥" },
-      ...squads.map((s) => ({ id: s.id, label: s.name, emoji: s.emoji })),
-    ],
-    [squads],
   );
 
   const audienceLabel = useCallback(
@@ -597,43 +655,6 @@ export default function FeedScreen() {
             />
           </View>
 
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.audienceRow}
-          >
-            {audienceOptions.map((opt) => {
-              const selected = audience === opt.id;
-              return (
-                <TouchableOpacity
-                  key={opt.id}
-                  onPress={() => {
-                    void Haptics.selectionAsync();
-                    setAudience(opt.id);
-                  }}
-                  style={[
-                    styles.audienceChip,
-                    {
-                      backgroundColor: selected ? colors.primary + "22" : colors.background,
-                      borderColor: selected ? colors.primary : colors.border,
-                    },
-                  ]}
-                >
-                  <Text style={{ fontSize: 13 }}>{opt.emoji}</Text>
-                  <Text
-                    style={[
-                      styles.audienceChipText,
-                      { color: selected ? colors.primary : colors.mutedForeground },
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {opt.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-
           {picked && (
             <View style={[styles.mediaPreview, { borderColor: colors.border }]}>
               {picked.mediaType === "video" ? (
@@ -669,7 +690,7 @@ export default function FeedScreen() {
               <Ionicons name="image-outline" size={20} color={colors.primary} />
             </TouchableOpacity>
             <Text style={[styles.composerHint, { color: colors.textDim }]}>
-              Sharing to {audienceLabel(audience)}
+              Sharing with friends
             </Text>
             <TouchableOpacity
               onPress={() => void handlePost()}
@@ -743,14 +764,63 @@ export default function FeedScreen() {
                     </Text>
                   </View>
                   {post.canDelete && (
-                    <TouchableOpacity onPress={() => handleDeletePost(post)} hitSlop={8}>
+                    <TouchableOpacity onPress={() => handlePostMenu(post)} hitSlop={8}>
                       <Ionicons name="ellipsis-horizontal" size={18} color={colors.mutedForeground} />
                     </TouchableOpacity>
                   )}
                 </View>
 
-                {post.text.length > 0 && (
-                  <Text style={[styles.postText, { color: colors.foreground }]}>{post.text}</Text>
+                {editingPostId === post.id ? (
+                  <View style={styles.editBox}>
+                    <TextInput
+                      style={[
+                        styles.editInput,
+                        {
+                          color: colors.foreground,
+                          backgroundColor: colors.background,
+                          borderColor: colors.border,
+                        },
+                      ]}
+                      value={editDraft}
+                      onChangeText={setEditDraft}
+                      placeholder="What's the vibe?"
+                      placeholderTextColor={colors.mutedForeground}
+                      multiline
+                      maxLength={1000}
+                      autoFocus
+                    />
+                    <View style={styles.editActions}>
+                      <TouchableOpacity
+                        onPress={handleCancelEdit}
+                        disabled={editSaving}
+                        style={[styles.editBtn, { borderColor: colors.border }]}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[styles.editBtnText, { color: colors.mutedForeground }]}>
+                          Cancel
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => void handleSaveEdit(post)}
+                        disabled={editSaving}
+                        style={[
+                          styles.editBtn,
+                          { backgroundColor: colors.primary, opacity: editSaving ? 0.5 : 1 },
+                        ]}
+                        activeOpacity={0.85}
+                      >
+                        {editSaving ? (
+                          <ActivityIndicator color="#fff" size="small" />
+                        ) : (
+                          <Text style={[styles.editBtnText, { color: "#fff" }]}>Save</Text>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ) : (
+                  post.text.length > 0 && (
+                    <Text style={[styles.postText, { color: colors.foreground }]}>{post.text}</Text>
+                  )
                 )}
 
                 {post.mediaUrl && (
@@ -992,6 +1062,28 @@ const styles = StyleSheet.create({
   postAuthor: { fontSize: 15, fontWeight: "700" },
   postMeta: { fontSize: 12, fontWeight: "500", marginTop: 1 },
   postText: { fontSize: 15.5, lineHeight: 22 },
+  editBox: { gap: 10 },
+  editInput: {
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15.5,
+    minHeight: 60,
+    maxHeight: 160,
+  },
+  editActions: { flexDirection: "row", justifyContent: "flex-end", gap: 8 },
+  editBtn: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "transparent",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 72,
+  },
+  editBtnText: { fontSize: 13, fontWeight: "800" },
   postMedia: {
     width: "100%",
     aspectRatio: 4 / 3,

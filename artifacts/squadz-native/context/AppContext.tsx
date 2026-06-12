@@ -105,6 +105,8 @@ export type NewEventInput = {
   title: string;
   emoji: string;
   date: string;
+  /** Machine-readable event start (ISO string) when a concrete time is chosen. */
+  eventAt?: string;
   location: string;
   description?: string;
   squadId: string | null;
@@ -1024,6 +1026,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       emoji: input.emoji,
       title: input.title,
       date: input.date || "Date TBD",
+      ...(input.eventAt ? { eventAt: input.eventAt } : {}),
       location: input.location || "Location TBD",
       squadId: squad?.id ?? "",
       squadName: squad?.name ?? "Personal",

@@ -8,4 +8,5 @@ const { Pool } = pg;
 export const pool = new Pool(resolveDbConfig());
 export const db = drizzle(pool, { schema });
 
+export { resolveDbConfig } from "./connection";
 export * from "./schema";

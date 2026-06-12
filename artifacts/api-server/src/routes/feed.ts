@@ -132,24 +132,16 @@ router.get("/feed", requireAuth, async (req: Request, res: Response): Promise<vo
     const userId = (req.user as { id: string }).id;
     const before = typeof req.query.before === "string" ? new Date(req.query.before) : null;
 
-    const [friendIds, squadIds] = await Promise.all([getFriendIds(userId), getSquadIds(userId)]);
+    const friendIds = await getFriendIds(userId);
     const friendsAudienceAuthors = Array.from(new Set([userId, ...friendIds]));
 
-    // A post is visible if it's a friends-post by the viewer or a friend, OR a
-    // squad-post in one of the viewer's squads, OR authored by the viewer.
+    // Vibe posts are friends-only: a post is visible if it's a friends-post by
+    // the viewer or a friend, OR authored by the viewer.
     const visibility = sql`(
       (${feedPostsTable.audience} = 'friends' AND ${feedPostsTable.authorId} IN (${sql.join(
         friendsAudienceAuthors.map((id) => sql`${id}`),
         sql`, `,
       )}))
-      ${
-        squadIds.length > 0
-          ? sql`OR (${feedPostsTable.audience} IN (${sql.join(
-              squadIds.map((id) => sql`${id}`),
-              sql`, `,
-            )}))`
-          : sql``
-      }
       OR ${feedPostsTable.authorId} = ${userId}
     )`;
 
@@ -231,7 +223,6 @@ router.get("/feed", requireAuth, async (req: Request, res: Response): Promise<vo
 const CreatePostBody = z
   .object({
     text: z.string().trim().max(1000).optional().default(""),
-    audience: z.string().min(1), // "friends" | squadId
     mediaUrl: z.string().min(1).optional(),
     mediaType: z.enum(["photo", "video"]).optional(),
     durationMs: z.number().int().positive().optional(),
@@ -252,17 +243,10 @@ router.post("/feed/posts", requireAuth, async (req: Request, res: Response): Pro
       res.status(400).json({ error: parsed.error.message });
       return;
     }
-    const { text, audience, mediaUrl, mediaType, durationMs } = parsed.data;
+    const { text, mediaUrl, mediaType, durationMs } = parsed.data;
 
-    // Validate audience: "friends" is always allowed; a squad audience requires
-    // the author to be a member of that squad.
-    if (audience !== "friends") {
-      const [squad] = await db.select().from(squadsTable).where(eq(squadsTable.id, audience));
-      if (!squad || !((squad.memberIds ?? []) as string[]).includes(userId)) {
-        res.status(403).json({ error: "You can only post to squads you belong to." });
-        return;
-      }
-    }
+    // Vibe posts are always friends-only; ignore any client-sent audience.
+    const audience = "friends";
 
     // Provenance: a post may only reference media the author uploaded. This stops
     // a user from pointing a post at someone else's private object and then
@@ -331,6 +315,50 @@ router.post("/feed/posts", requireAuth, async (req: Request, res: Response): Pro
   } catch (err) {
     logger.error({ err }, "Error creating feed post");
     res.status(500).json({ error: "Failed to create post" });
+  }
+});
+
+const EditPostBody = z.object({ text: z.string().trim().max(1000) });
+
+// PATCH /api/feed/posts/:id — edit your own post's caption/text. Only the
+// original author may edit (403 otherwise).
+router.patch("/feed/posts/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const id = parseId(req.params.id);
+    const userId = (req.user as { id: string }).id;
+    const parsed = EditPostBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+    const [post] = await db.select().from(feedPostsTable).where(eq(feedPostsTable.id, id));
+    if (!post || post.deletedAt) {
+      res.status(404).json({ error: "Post not found" });
+      return;
+    }
+    if (post.authorId !== userId) {
+      res.status(403).json({ error: "You can only edit your own posts." });
+      return;
+    }
+    const text = parsed.data.text;
+    if (text.length === 0 && !post.mediaUrl) {
+      res.status(400).json({ error: "A post needs text or media." });
+      return;
+    }
+    const [updated] = await db
+      .update(feedPostsTable)
+      .set({ text })
+      .where(eq(feedPostsTable.id, id))
+      .returning();
+    res.json({ id: updated.id, text: updated.text });
+    emitFeedUpdate(userId);
+    void (async () => {
+      const recipientIds = await feedPostReaders(userId, post.audience);
+      recipientIds.forEach((rid) => emitFeedUpdate(rid));
+    })();
+  } catch (err) {
+    logger.error({ err }, "Error editing feed post");
+    res.status(500).json({ error: "Failed to edit post" });
   }
 });
 

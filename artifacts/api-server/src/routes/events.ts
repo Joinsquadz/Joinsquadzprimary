@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { eq, count, or, sql, and } from "drizzle-orm";
+import { eq, count, or, sql, and, gte, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db, eventsTable, usersTable } from "@workspace/db";
 import { storage } from "../storage";
@@ -41,6 +41,7 @@ const CreateEventBody = z.object({
   emoji: z.string().default("🎉"),
   title: z.string().min(1),
   date: z.string().default("TBD"),
+  eventAt: z.string().datetime().optional(),
   location: z.string().default("TBD"),
   squadId: z.string().default(""),
   squadName: z.string().default("Personal"),
@@ -54,6 +55,7 @@ const UpdateEventBody = z.object({
   title: z.string().optional(),
   description: z.string().optional(),
   date: z.string().optional(),
+  eventAt: z.string().datetime().optional(),
   location: z.string().optional(),
   emoji: z.string().optional(),
   budget: z.number().optional(),
@@ -214,13 +216,25 @@ router.get("/events/count", requireAuth, async (req: Request, res: Response): Pr
 
 router.get("/events", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const userId = (req.user as { id: string }).id;
+  // Hide events once their concrete time has fully passed: an event drops off at
+  // midnight at the start of the FOLLOWING day, i.e. keep events whose eventAt is
+  // >= the start of today. Events with no concrete time yet (eventAt IS NULL —
+  // still being planned / "TBD") are always kept.
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
   const events = await db
     .select()
     .from(eventsTable)
     .where(
-      or(
-        eq(eventsTable.hostId, userId),
-        sql`${eventsTable.rsvps} ? ${userId}`,
+      and(
+        or(
+          eq(eventsTable.hostId, userId),
+          sql`${eventsTable.rsvps} ? ${userId}`,
+        ),
+        or(
+          isNull(eventsTable.eventAt),
+          gte(eventsTable.eventAt, startOfToday),
+        ),
       ),
     )
     .orderBy(eventsTable.createdAt);
@@ -270,12 +284,17 @@ router.post("/events", requireAuth, async (req: Request, res: Response): Promise
     logger.error({ err }, "Error checking Pro status");
   }
 
-  const { inviteCode, hostId: _bodyHostId, ...rest } = parsed.data;
+  const { inviteCode, hostId: _bodyHostId, eventAt, ...rest } = parsed.data;
   const hostId = authUser.id;
 
   const [event] = await db
     .insert(eventsTable)
-    .values({ ...rest, hostId, inviteCode: inviteCode ?? randomCode() })
+    .values({
+      ...rest,
+      hostId,
+      inviteCode: inviteCode ?? randomCode(),
+      ...(eventAt ? { eventAt: new Date(eventAt) } : {}),
+    })
     .returning();
   res.status(201).json(event);
 
@@ -421,6 +440,9 @@ router.patch("/events/:id", requireAuth, async (req: Request, res: Response): Pr
   };
   if (fieldsToUpdate.budget !== undefined) {
     patch.budget = String(fieldsToUpdate.budget);
+  }
+  if (fieldsToUpdate.eventAt !== undefined) {
+    patch.eventAt = new Date(fieldsToUpdate.eventAt);
   }
   const updateWhere = clientVersion !== undefined
     ? and(eq(eventsTable.id, id), eq(eventsTable.version, clientVersion))

@@ -8,6 +8,11 @@ export const eventsTable = pgTable("events", {
   emoji: text("emoji").notNull().default("🎉"),
   title: text("title").notNull(),
   date: text("date").notNull(),
+  // Machine-readable event start (when a concrete time is chosen). The `date`
+  // column above stays as a human-readable display string ("Sat, Jun 7 · 5 PM",
+  // "TBD", …); this column is what we filter/expire on. NULL = no concrete time
+  // yet (still being planned), so such events never auto-expire off the home feed.
+  eventAt: timestamp("event_at", { withTimezone: true }),
   location: text("location").notNull(),
   squadId: text("squad_id").notNull().default(""),
   squadName: text("squad_name").notNull().default("Personal"),

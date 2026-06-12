@@ -30,14 +30,22 @@ import { useSquadStream } from "@/hooks/useSquadStream";
 import { useAuth, useData } from "@/context/AppContext";
 import { useToast } from "@/context/ToastContext";
 import { UpgradeModal } from "@/components/UpgradeModal";
+import AttachmentVideo from "@/components/AttachmentVideo";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
 const VAULT_SELECTED_KEY = "vault:selectedPhoto";
 const VAULT_SCROLL_KEY = "vault:scrollY";
 
+// Hard cap on a single uploaded file: 150 MB. Photos and videos share this
+// limit; the server enforces the same ceiling on the request-url route.
+const MAX_UPLOAD_BYTES = 150 * 1024 * 1024;
+
+type MediaType = "image" | "video";
+type MediaFilter = "all" | MediaType;
+
 type VaultPhoto =
-  | { id: number; eventId: string | null; uploadedAt: string; url: string; uploaderId: string; eventTitle: string | null; eventEmoji: string | null; squadName: string | null; locked: false }
-  | { id: number; eventId: string | null; uploadedAt: string; eventTitle: string | null; eventEmoji: string | null; squadName: string | null; locked: true };
+  | { id: number; eventId: string | null; uploadedAt: string; url: string; uploaderId: string; mediaType?: MediaType; eventTitle: string | null; eventEmoji: string | null; squadName: string | null; locked: false }
+  | { id: number; eventId: string | null; uploadedAt: string; mediaType?: MediaType; eventTitle: string | null; eventEmoji: string | null; squadName: string | null; locked: true };
 
 interface SquadVaultPhoto {
   id: number;
@@ -45,6 +53,7 @@ interface SquadVaultPhoto {
   eventId?: string | null;
   uploaderId: string;
   uploadedAt: string;
+  mediaType?: MediaType;
   uploaderFirstName?: string | null;
   uploaderLastName?: string | null;
   uploaderImageUrl?: string | null;
@@ -144,9 +153,11 @@ export default function VaultScreen() {
   const [selected, setSelected] = useState<number | null>(null);
   const [photos, setPhotos] = useState<VaultPhoto[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [isUploadingSquad, setIsUploadingSquad] = useState(false);
   const [photosLoading, setPhotosLoading] = useState(false);
   const [uploadEventId, setUploadEventId] = useState<string>("");
   const [activeSquad, setActiveSquad] = useState<string>("all");
+  const [mediaFilter, setMediaFilter] = useState<MediaFilter>("all");
   const [eventPickerOpen, setEventPickerOpen] = useState(false);
   const { showToast } = useToast();
 
@@ -203,9 +214,17 @@ export default function VaultScreen() {
   }, [eventId]);
 
   const visiblePhotos = useMemo(() => {
-    if (activeSquad === "all") return photos;
-    return photos.filter(p => p.squadName === activeSquad);
-  }, [photos, activeSquad]);
+    let list = activeSquad === "all" ? photos : photos.filter(p => p.squadName === activeSquad);
+    if (mediaFilter !== "all") {
+      list = list.filter(p => (p.mediaType ?? "image") === mediaFilter);
+    }
+    return list;
+  }, [photos, activeSquad, mediaFilter]);
+
+  const filteredSquadPhotos = useMemo(() => {
+    if (mediaFilter === "all") return squadPhotos;
+    return squadPhotos.filter(p => (p.mediaType ?? "image") === mediaFilter);
+  }, [squadPhotos, mediaFilter]);
 
   const filterLabel = eventName
     ? decodeURIComponent(eventName)
@@ -327,72 +346,103 @@ export default function VaultScreen() {
 
   const imageUrl = (objectPath: string) => `${API_BASE}/api/storage${objectPath}`;
 
-  const handleUpload = useCallback(async () => {
-    try {
-      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!perm.granted) {
-        Alert.alert("Permission needed", "Allow photo library access to upload photos.");
-        return;
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ["images"],
-        allowsMultipleSelection: true,
-        quality: 0.8,
-      });
-
-      if (result.canceled || !result.assets.length) return;
-
-      setIsUploading(true);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-
-      for (const asset of result.assets) {
-        try {
-          const urlRes = await fetch(`${API_BASE}/api/storage/uploads/request-url`, {
-            method: "POST",
-            headers: { ...authHeaders(), "Content-Type": "application/json" },
-            body: JSON.stringify({
-              name: asset.fileName ?? "photo.jpg",
-              size: asset.fileSize ?? 0,
-              contentType: asset.mimeType ?? "image/jpeg",
-            }),
-          });
-
-          if (!urlRes.ok) continue;
-          const { uploadURL, objectPath } = await urlRes.json() as { uploadURL: string; objectPath: string };
-
-          const fileRes = await fetch(asset.uri);
-          const blob = await fileRes.blob();
-
-          const putRes = await fetch(uploadURL, {
-            method: "PUT",
-            body: blob,
-            headers: { "Content-Type": asset.mimeType ?? "image/jpeg" },
-          });
-
-          if (!putRes.ok) continue;
-
-          await fetch(`${API_BASE}/api/vault/photos`, {
-            method: "POST",
-            headers: { ...authHeaders(), "Content-Type": "application/json" },
-            body: JSON.stringify(
-              uploadEventId || eventId
-                ? { url: objectPath, eventId: uploadEventId || eventId }
-                : { url: objectPath },
-            ),
-          });
-        } catch {
-          // skip failed individual uploads
-        }
-      }
-
-      await fetchPhotos();
-    } catch {
-      Alert.alert("Upload failed", "Could not upload photos. Please try again.");
-    } finally {
-      setIsUploading(false);
+  // Open the library for both photos AND videos. No duration cap — uploads are
+  // bounded by file SIZE (150 MB), enforced per-asset in uploadAsset below.
+  const pickVaultMedia = useCallback(async (): Promise<ImagePicker.ImagePickerAsset[] | null> => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert("Permission needed", "Allow photo library access to upload to your vault.");
+      return null;
     }
-  }, [authHeaders, fetchPhotos, uploadEventId, eventId]);
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images", "videos"],
+      allowsMultipleSelection: true,
+      quality: 0.8,
+    });
+    if (result.canceled || !result.assets.length) return null;
+    return result.assets;
+  }, []);
+
+  // Upload a single picked asset: request a signed URL, PUT the bytes directly
+  // to cloud storage with the CORRECT content-type (videos were previously sent
+  // as image/jpeg), then record the vault item. Throws an explicit, human
+  // readable Error on any failure so the caller can surface it (no silent skip).
+  const uploadAsset = useCallback(
+    async (asset: ImagePicker.ImagePickerAsset, extra: Record<string, unknown>): Promise<void> => {
+      const isVideo = asset.type === "video";
+      const contentType = asset.mimeType ?? (isVideo ? "video/mp4" : "image/jpeg");
+      const mediaType: MediaType = isVideo ? "video" : "image";
+      const name = asset.fileName ?? (isVideo ? "video.mp4" : "photo.jpg");
+      const size = asset.fileSize ?? 0;
+
+      if (size > MAX_UPLOAD_BYTES) {
+        throw new Error(`"${name}" is larger than 150 MB and can't be uploaded.`);
+      }
+
+      const urlRes = await fetch(`${API_BASE}/api/storage/uploads/request-url`, {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ name, size, contentType }),
+      });
+      if (!urlRes.ok) {
+        const body = (await urlRes.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? "Couldn't start the upload. Please try again.");
+      }
+      const { uploadURL, objectPath } = (await urlRes.json()) as { uploadURL: string; objectPath: string };
+
+      const fileRes = await fetch(asset.uri);
+      const blob = await fileRes.blob();
+      const putRes = await fetch(uploadURL, {
+        method: "PUT",
+        body: blob,
+        headers: { "Content-Type": contentType },
+      });
+      if (!putRes.ok) {
+        throw new Error("Couldn't upload the file to storage. Please try again.");
+      }
+
+      const createRes = await fetch(`${API_BASE}/api/vault/photos`, {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ url: objectPath, mediaType, ...extra }),
+      });
+      if (!createRes.ok) {
+        const body = (await createRes.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? "Couldn't save to the vault. Please try again.");
+      }
+    },
+    [authHeaders],
+  );
+
+  const handleUpload = useCallback(async () => {
+    const assets = await pickVaultMedia();
+    if (!assets) return;
+
+    setIsUploading(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    const failures: string[] = [];
+    for (const asset of assets) {
+      try {
+        await uploadAsset(
+          asset,
+          uploadEventId || eventId ? { eventId: uploadEventId || eventId } : {},
+        );
+      } catch (e) {
+        failures.push(e instanceof Error ? e.message : "Upload failed.");
+      }
+    }
+
+    await fetchPhotos();
+    setIsUploading(false);
+
+    if (failures.length > 0) {
+      Alert.alert(
+        failures.length === assets.length ? "Upload failed" : "Some uploads failed",
+        failures.join("\n\n"),
+      );
+    }
+  }, [pickVaultMedia, uploadAsset, fetchPhotos, uploadEventId, eventId]);
 
   const fetchSquadVault = useCallback(async () => {
     if (!squadId) return;
@@ -408,6 +458,37 @@ export default function VaultScreen() {
       setSquadLoading(false);
     }
   }, [squadId, authHeaders]);
+
+  // T11 — Upload photos/videos straight into the current squad's vault (no event
+  // roll-up needed). The server authorizes by squad membership and marks each
+  // item sharedToSquad=true.
+  const handleUploadToSquad = useCallback(async () => {
+    if (!squadId) return;
+    const assets = await pickVaultMedia();
+    if (!assets) return;
+
+    setIsUploadingSquad(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    const failures: string[] = [];
+    for (const asset of assets) {
+      try {
+        await uploadAsset(asset, { squadId });
+      } catch (e) {
+        failures.push(e instanceof Error ? e.message : "Upload failed.");
+      }
+    }
+
+    await fetchSquadVault();
+    setIsUploadingSquad(false);
+
+    if (failures.length > 0) {
+      Alert.alert(
+        failures.length === assets.length ? "Upload failed" : "Some uploads failed",
+        failures.join("\n\n"),
+      );
+    }
+  }, [squadId, pickVaultMedia, uploadAsset, fetchSquadVault]);
 
   useEffect(() => {
     if (squadId) fetchSquadVault();
@@ -516,6 +597,35 @@ export default function VaultScreen() {
     return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   };
 
+  // Render a grid cell's media: videos use the web-safe AttachmentVideo player,
+  // photos keep the lightweight VaultImage.
+  const renderCellMedia = (url: string, isVideo: boolean) =>
+    isVideo ? (
+      <AttachmentVideo uri={imageUrl(url)} style={styles.gridImage} headers={authHeaders() as Record<string, string>} />
+    ) : (
+      <VaultImage uri={imageUrl(url)} style={styles.gridImage} headers={authHeaders() as Record<string, string>} />
+    );
+
+  // T13a — All / Photos / Videos filter tabs, shared by the personal and squad grids.
+  const mediaFilterTabs = (
+    <View style={styles.mediaFilterRow}>
+      {(["all", "image", "video"] as const).map(f => {
+        const active = mediaFilter === f;
+        const label = f === "all" ? "All" : f === "image" ? "Photos" : "Videos";
+        return (
+          <TouchableOpacity
+            key={f}
+            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setMediaFilter(f); setSelected(null); }}
+            style={[styles.mediaFilterTab, { backgroundColor: active ? colors.primary : colors.card, borderColor: active ? colors.primary : colors.border }]}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.mediaFilterText, { color: active ? "#fff" : colors.mutedForeground }]}>{label}</Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: topPad + 16, borderBottomColor: colors.border }]}>
@@ -544,7 +654,7 @@ export default function VaultScreen() {
 
       {isSquadVault ? (
         <FlatList
-          data={squadLoading && squadPhotos.length === 0 ? [] : squadPhotos}
+          data={squadLoading && squadPhotos.length === 0 ? [] : filteredSquadPhotos}
           keyExtractor={(p) => String(p.id)}
           numColumns={3}
           columnWrapperStyle={{ gap: 4 }}
@@ -557,9 +667,12 @@ export default function VaultScreen() {
           windowSize={11}
           removeClippedSubviews={Platform.OS !== "web"}
           ListHeaderComponent={
-            <Text style={[styles.countLabel, { color: colors.mutedForeground }]}>
-              {squadPhotos.length} {squadPhotos.length === 1 ? "photo" : "photos"} · curated by your squad
-            </Text>
+            <>
+              {mediaFilterTabs}
+              <Text style={[styles.countLabel, { color: colors.mutedForeground }]}>
+                {filteredSquadPhotos.length} {filteredSquadPhotos.length === 1 ? "item" : "items"} · curated by your squad
+              </Text>
+            </>
           }
           ListEmptyComponent={
             squadLoading ? (
@@ -580,7 +693,7 @@ export default function VaultScreen() {
               style={[styles.gridCell, { borderWidth: 2, borderColor: selected === p.id ? colors.primary : "transparent" }]}
               activeOpacity={0.8}
             >
-              <VaultImage uri={imageUrl(p.url)} style={styles.gridImage} headers={authHeaders() as Record<string, string>} />
+              {renderCellMedia(p.url, p.mediaType === "video")}
               <View style={styles.attrOverlay}>
                 <View style={[styles.attrAvatar, { backgroundColor: colors.primary }]}>
                   <Text style={styles.attrAvatarText}>{uploaderInitial(p)}</Text>
@@ -619,6 +732,25 @@ export default function VaultScreen() {
                   )}
                 </View>
               )}
+
+              <TouchableOpacity
+                style={[styles.uploadBtn, { borderColor: colors.border, marginBottom: 12 }]}
+                activeOpacity={0.7}
+                onPress={handleUploadToSquad}
+                disabled={isUploadingSquad}
+              >
+                {isUploadingSquad ? (
+                  <ActivityIndicator color={colors.mutedForeground} />
+                ) : (
+                  <Ionicons name="cloud-upload-outline" size={26} color={colors.mutedForeground} />
+                )}
+                <Text style={[styles.uploadLabel, { color: colors.mutedForeground }]}>
+                  {isUploadingSquad ? "Uploading…" : "Upload to this vault"}
+                </Text>
+                <Text style={[styles.uploadSub, { color: colors.mutedForeground }]}>
+                  Add photos or videos straight to the squad vault
+                </Text>
+              </TouchableOpacity>
 
               <TouchableOpacity
                 style={[styles.rollUpBtn, { backgroundColor: colors.primary }]}
@@ -669,8 +801,10 @@ export default function VaultScreen() {
                 </View>
               )}
 
+              {mediaFilterTabs}
+
               <Text style={[styles.countLabel, { color: colors.mutedForeground }]}>
-                {visiblePhotos.length} {visiblePhotos.length === 1 ? "photo" : "photos"} · tap to view
+                {visiblePhotos.length} {visiblePhotos.length === 1 ? "item" : "items"} · tap to view
               </Text>
 
               {!isPro && lockedCount > 0 && (
@@ -752,11 +886,10 @@ export default function VaultScreen() {
                   style={[styles.gridCell, { borderWidth: 2, borderColor: selected === p.id ? colors.primary : "transparent" }]}
                   activeOpacity={0.8}
                 >
-                  <VaultImage
-                    uri={imageUrl((p as Extract<VaultPhoto, { locked: false }>).url)}
-                    style={styles.gridImage}
-                    headers={authHeaders() as Record<string, string>}
-                  />
+                  {renderCellMedia(
+                    (p as Extract<VaultPhoto, { locked: false }>).url,
+                    p.mediaType === "video",
+                  )}
                   {selected === p.id && (
                     <View style={[styles.checkBadge, { backgroundColor: colors.primary }]}>
                       <Ionicons name="checkmark" size={10} color="#fff" />
@@ -1057,6 +1190,9 @@ const styles = StyleSheet.create({
   chipRow: { flexDirection: "row", gap: 8, paddingBottom: 12 },
   chip: { borderRadius: 20, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 6 },
   chipText: { fontSize: 12, fontWeight: "700", fontFamily: "Inter_600SemiBold" },
+  mediaFilterRow: { flexDirection: "row", gap: 8, marginBottom: 12 },
+  mediaFilterTab: { flex: 1, borderRadius: 10, borderWidth: 1, paddingVertical: 8, alignItems: "center" },
+  mediaFilterText: { fontSize: 13, fontWeight: "700", fontFamily: "Inter_600SemiBold" },
   pickerWrap: { marginBottom: 12 },
   pickerLabel: { fontSize: 12, fontFamily: "Inter_600SemiBold", fontWeight: "600", marginBottom: 6 },
   pickerBtn: {

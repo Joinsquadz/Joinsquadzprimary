@@ -22,7 +22,10 @@ import { EventCard } from "@/components/EventCard";
 import { SkeletonBox } from "@/components/SkeletonBox";
 import { goingCount } from "@/lib/eventUtils";
 import { useUserCache } from "@/context/UserCacheContext";
+import type { ResolvedUser } from "@/context/UserCacheContext";
 import { ProAvatar } from "@/components/ProAvatar";
+import { UserAvatar } from "@/components/UserAvatar";
+import { GradientButton } from "@/components/GradientButton";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
 type DiscoverEvent = { id: string; emoji: string; title: string; date: string; inviteCode: string };
@@ -53,13 +56,16 @@ export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { currentUser, authToken } = useAuth();
-  const { events, squads, eventsLoading, squadsLoading, joinEvent, joinSquad, friendCode } = useData();
+  const { events, squads, friends, eventsLoading, squadsLoading, joinEvent, joinSquad, friendCode } = useData();
   const [discoverEvents, setDiscoverEvents] = useState<DiscoverEvent[]>([]);
   const [discoverSquads, setDiscoverSquads] = useState<DiscoverSquad[]>([]);
   const [streaks, setStreaks] = useState<{ monthlyPlan: number; stayInTouch: number } | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [fabOpen, setFabOpen] = useState(false);
-  const [pickerMode, setPickerMode] = useState<"find-time" | "invite" | null>(null);
+  const [pickerMode, setPickerMode] = useState<"find-time" | "invite" | "invite-choose" | null>(null);
+  // Ad-hoc "new plan" participant picker (T3): choose exactly who's planning.
+  const [participantSheetOpen, setParticipantSheetOpen] = useState(false);
+  const [selectedParticipants, setSelectedParticipants] = useState<Set<string>>(new Set());
   const [upgradeVisible, setUpgradeVisible] = useState(false);
 
   useEffect(() => {
@@ -136,17 +142,41 @@ export default function HomeScreen() {
     return result;
   }, [events, currentUser.id]);
 
+  // "Find a time" always opens the chooser so the user can start a FRESH plan
+  // (T12 — never auto-jumps to a squad's last pending board) and decide whether
+  // it's for a whole squad or an ad-hoc group they pick (T3).
   const handleFindTime = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    if (squads.length === 0) {
-      router.push("/squad/create" as never);
-      return;
-    }
-    if (squads.length === 1) {
-      router.push({ pathname: "/availability", params: { squadId: squads[0].id } } as never);
-      return;
-    }
     setPickerMode("find-time");
+  };
+
+  // Start a brand-new squad-scoped poll (from=create → forceNew on the server).
+  const startSquadPoll = (squadId: string) => {
+    setPickerMode(null);
+    router.push({ pathname: "/availability", params: { squadId, from: "create" } } as never);
+  };
+
+  // Open the participant picker for an ad-hoc plan that isn't tied to a squad.
+  const startNewPlan = () => {
+    setPickerMode(null);
+    setSelectedParticipants(new Set());
+    setTimeout(() => setParticipantSheetOpen(true), Platform.OS === "ios" ? 350 : 0);
+  };
+
+  // Launch the ad-hoc availability poll with the chosen invitees.
+  const launchParticipantPoll = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setParticipantSheetOpen(false);
+    const csv = [...selectedParticipants].join(",");
+    router.push({
+      pathname: "/availability",
+      params: { from: "create", adhoc: "1", participantIds: csv },
+    } as never);
+  };
+
+  const shareSignupInvite = async () => {
+    const message = `I'm on SquadZ — let's plan our next hangout and find a time everyone's free. Add me with my code ${friendCode}\nhttps://joinsquadz.com`;
+    try { await Share.share({ message }); } catch { /* dismissed */ }
   };
 
   const shareSquadInvite = async (squad: (typeof squads)[0]) => {
@@ -161,15 +191,24 @@ export default function HomeScreen() {
     }
   };
 
-  const handleInvite = async () => {
+  // "Invite crew" opens a chooser: invite into an existing squad, or just send a
+  // friend a signup link with no squad attached (T1).
+  const handleInvite = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setPickerMode("invite-choose");
+  };
+
+  // From the invite chooser: route to the right squad-invite flow by squad count.
+  const inviteToSquad = () => {
     if (squads.length === 0) {
-      const message = `I'm on SquadZ — let's plan our next hangout and find a time everyone's free. Add me with my code ${friendCode}\nhttps://joinsquadz.com`;
-      try { await Share.share({ message }); } catch { /* dismissed */ }
+      setPickerMode(null);
+      setTimeout(() => { void shareSignupInvite(); }, 300);
       return;
     }
     if (squads.length === 1) {
-      await shareSquadInvite(squads[0]);
+      const sq = squads[0];
+      setPickerMode(null);
+      setTimeout(() => { void shareSquadInvite(sq); }, 350);
       return;
     }
     setPickerMode("invite");
@@ -683,46 +722,141 @@ export default function HomeScreen() {
         />
         <View style={[styles.pickerSheet, { backgroundColor: colors.card, paddingBottom: insets.bottom + 12 }]}>
           <View style={[styles.pickerHandle, { backgroundColor: colors.border }]} />
-          <Text style={[styles.pickerTitle, { color: colors.foreground }]}>Which squad?</Text>
-          <Text style={[styles.pickerSub, { color: colors.mutedForeground }]}>
-            {pickerMode === "invite" ? "Share an invite link for this squad" : "Choose the squad to find time for"}
-          </Text>
-          {squads.map((sq) => (
-            <TouchableOpacity
-              key={sq.id}
-              style={[styles.pickerRow, { borderBottomColor: colors.border }]}
-              onPress={() => {
-                const mode = pickerMode;
-                setPickerMode(null);
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                if (mode === "invite") {
-                  // Delay until the modal close animation finishes (~300 ms on iOS)
-                  // so the Share sheet isn't blocked by the dismissing modal.
-                  setTimeout(() => { void shareSquadInvite(sq); }, 350);
-                } else {
-                  router.push({ pathname: "/availability", params: { squadId: sq.id } } as never);
-                }
-              }}
-              activeOpacity={0.8}
-            >
-              <View style={[styles.pickerSquadEmoji, { backgroundColor: sq.color + "20" }]}>
-                <Text style={{ fontSize: 22 }}>{sq.emoji}</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.pickerSquadName, { color: colors.foreground }]}>{sq.name}</Text>
-                <Text style={[styles.pickerSquadCount, { color: colors.mutedForeground }]}>
-                  {sq.memberIds.length} member{sq.memberIds.length !== 1 ? "s" : ""}
-                </Text>
-              </View>
-              <Ionicons
-                name={pickerMode === "invite" ? "share-outline" : "chevron-forward"}
-                size={18}
-                color={pickerMode === "invite" ? colors.primary : colors.mutedForeground}
-              />
-            </TouchableOpacity>
-          ))}
+          {pickerMode === "invite-choose" ? (
+            <>
+              <Text style={[styles.pickerTitle, { color: colors.foreground }]}>Invite crew</Text>
+              <Text style={[styles.pickerSub, { color: colors.mutedForeground }]}>
+                How do you want to bring people in?
+              </Text>
+              <TouchableOpacity
+                style={[styles.pickerRow, { borderBottomColor: colors.border }]}
+                onPress={inviteToSquad}
+                activeOpacity={0.8}
+              >
+                <View style={[styles.pickerSquadEmoji, { backgroundColor: colors.primary + "20" }]}>
+                  <Ionicons name="people" size={20} color={colors.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.pickerSquadName, { color: colors.foreground }]}>Invite to a squad</Text>
+                  <Text style={[styles.pickerSquadCount, { color: colors.mutedForeground }]}>
+                    Add someone to one of your squads
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.mutedForeground} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.pickerRow, { borderBottomColor: colors.border }]}
+                onPress={() => { setPickerMode(null); setTimeout(() => { void shareSignupInvite(); }, 300); }}
+                activeOpacity={0.8}
+              >
+                <View style={[styles.pickerSquadEmoji, { backgroundColor: colors.primary + "20" }]}>
+                  <Ionicons name="person-add" size={20} color={colors.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.pickerSquadName, { color: colors.foreground }]}>Invite a friend to SquadZ</Text>
+                  <Text style={[styles.pickerSquadCount, { color: colors.mutedForeground }]}>
+                    Send a signup link — no squad needed
+                  </Text>
+                </View>
+                <Ionicons name="share-outline" size={18} color={colors.primary} />
+              </TouchableOpacity>
+            </>
+          ) : pickerMode === "find-time" ? (
+            <>
+              <Text style={[styles.pickerTitle, { color: colors.foreground }]}>Find a time</Text>
+              <Text style={[styles.pickerSub, { color: colors.mutedForeground }]}>
+                Start a fresh plan and see when everyone's free
+              </Text>
+              <TouchableOpacity
+                style={[styles.pickerRow, { borderBottomColor: colors.border }]}
+                onPress={startNewPlan}
+                activeOpacity={0.8}
+              >
+                <View style={[styles.pickerSquadEmoji, { backgroundColor: colors.primary + "20" }]}>
+                  <Ionicons name="sparkles" size={20} color={colors.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.pickerSquadName, { color: colors.foreground }]}>New plan — pick people</Text>
+                  <Text style={[styles.pickerSquadCount, { color: colors.mutedForeground }]}>
+                    Choose exactly who's in on this one
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.mutedForeground} />
+              </TouchableOpacity>
+              {squads.map((sq) => (
+                <TouchableOpacity
+                  key={sq.id}
+                  style={[styles.pickerRow, { borderBottomColor: colors.border }]}
+                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); startSquadPoll(sq.id); }}
+                  activeOpacity={0.8}
+                >
+                  <View style={[styles.pickerSquadEmoji, { backgroundColor: sq.color + "20" }]}>
+                    <Text style={{ fontSize: 22 }}>{sq.emoji}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.pickerSquadName, { color: colors.foreground }]}>{sq.name}</Text>
+                    <Text style={[styles.pickerSquadCount, { color: colors.mutedForeground }]}>
+                      {sq.memberIds.length} member{sq.memberIds.length !== 1 ? "s" : ""}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={colors.mutedForeground} />
+                </TouchableOpacity>
+              ))}
+            </>
+          ) : (
+            <>
+              <Text style={[styles.pickerTitle, { color: colors.foreground }]}>Which squad?</Text>
+              <Text style={[styles.pickerSub, { color: colors.mutedForeground }]}>
+                Share an invite link for this squad
+              </Text>
+              {squads.map((sq) => (
+                <TouchableOpacity
+                  key={sq.id}
+                  style={[styles.pickerRow, { borderBottomColor: colors.border }]}
+                  onPress={() => {
+                    setPickerMode(null);
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                    // Delay until the modal close animation finishes (~300 ms on iOS)
+                    // so the Share sheet isn't blocked by the dismissing modal.
+                    setTimeout(() => { void shareSquadInvite(sq); }, 350);
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <View style={[styles.pickerSquadEmoji, { backgroundColor: sq.color + "20" }]}>
+                    <Text style={{ fontSize: 22 }}>{sq.emoji}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.pickerSquadName, { color: colors.foreground }]}>{sq.name}</Text>
+                    <Text style={[styles.pickerSquadCount, { color: colors.mutedForeground }]}>
+                      {sq.memberIds.length} member{sq.memberIds.length !== 1 ? "s" : ""}
+                    </Text>
+                  </View>
+                  <Ionicons name="share-outline" size={18} color={colors.primary} />
+                </TouchableOpacity>
+              ))}
+            </>
+          )}
         </View>
       </Modal>
+
+      <ParticipantPickerModal
+        visible={participantSheetOpen}
+        friends={friends}
+        selected={selectedParticipants}
+        onToggle={(id) => {
+          Haptics.selectionAsync();
+          setSelectedParticipants((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            return next;
+          });
+        }}
+        onClose={() => setParticipantSheetOpen(false)}
+        onConfirm={launchParticipantPoll}
+        resolveUser={resolveUser}
+        colors={colors}
+        insets={insets}
+      />
 
       <UpgradeModal
         visible={upgradeVisible}
@@ -730,6 +864,81 @@ export default function HomeScreen() {
         onClose={() => setUpgradeVisible(false)}
       />
     </View>
+  );
+}
+
+function ParticipantPickerModal({
+  visible,
+  friends,
+  selected,
+  onToggle,
+  onClose,
+  onConfirm,
+  resolveUser,
+  colors,
+  insets,
+}: {
+  visible: boolean;
+  friends: string[];
+  selected: Set<string>;
+  onToggle: (id: string) => void;
+  onClose: () => void;
+  onConfirm: () => void;
+  resolveUser: (id: string) => ResolvedUser;
+  colors: ReturnType<typeof useColors>;
+  insets: { bottom: number };
+}) {
+  const count = selected.size;
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <TouchableOpacity style={styles.pickerBackdrop} activeOpacity={1} onPress={onClose} />
+      <View style={[styles.pickerSheet, { backgroundColor: colors.card, paddingBottom: insets.bottom + 12, maxHeight: "80%" }]}>
+        <View style={[styles.pickerHandle, { backgroundColor: colors.border }]} />
+        <Text style={[styles.pickerTitle, { color: colors.foreground }]}>Who's in on this plan?</Text>
+        <Text style={[styles.pickerSub, { color: colors.mutedForeground }]}>
+          Pick the friends planning this one. You can always share the link after.
+        </Text>
+        {friends.length === 0 ? (
+          <View style={{ paddingVertical: 28, alignItems: "center" }}>
+            <Ionicons name="people-outline" size={32} color={colors.mutedForeground} />
+            <Text style={{ color: colors.mutedForeground, marginTop: 10, textAlign: "center" }}>
+              Add friends first, or just start the plan and share the link.
+            </Text>
+          </View>
+        ) : (
+          <ScrollView style={{ maxHeight: 360 }} showsVerticalScrollIndicator={false}>
+            {friends.map((id) => {
+              const u = resolveUser(id);
+              const on = selected.has(id);
+              return (
+                <TouchableOpacity
+                  key={id}
+                  style={[styles.pickerRow, { borderBottomColor: colors.border }]}
+                  onPress={() => onToggle(id)}
+                  activeOpacity={0.8}
+                >
+                  <UserAvatar initials={u.initials} color={u.color} imageUrl={u.profileImageUrl} size={40} />
+                  <View style={{ flex: 1, marginLeft: 12 }}>
+                    <Text style={[styles.pickerSquadName, { color: colors.foreground }]}>{u.name}</Text>
+                  </View>
+                  <Ionicons
+                    name={on ? "checkmark-circle" : "ellipse-outline"}
+                    size={24}
+                    color={on ? colors.primary : colors.mutedForeground}
+                  />
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        )}
+        <View style={{ marginTop: 16 }}>
+          <GradientButton
+            label={count > 0 ? `Find a time with ${count} ${count === 1 ? "person" : "people"}` : "Start plan & share link"}
+            onPress={onConfirm}
+          />
+        </View>
+      </View>
+    </Modal>
   );
 }
 

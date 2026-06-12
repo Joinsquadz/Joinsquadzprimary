@@ -59,6 +59,24 @@ async function buildMembersField(
       };
     });
   }
+  // Ad-hoc poll: the roster is the explicit participant list (T3), unioned with
+  // anyone who has already responded.
+  const participantIds = (poll.participantIds as string[] | null) ?? [];
+  if (participantIds.length > 0) {
+    const allIds = [...new Set([...participantIds, ...respondentIds])];
+    const users = await storage.getUsers(allIds);
+    return users.map((u) => {
+      const resp = responseMap.get(u.id);
+      return {
+        id: u.id,
+        displayName: toDisplayName(u),
+        avatarUrl: u.profileImageUrl ?? null,
+        hasResponded: respondentIds.has(u.id),
+        needsUpdate: memberNeedsUpdate(u.id),
+        respondedAt: resp?.updatedAt?.toISOString() ?? null,
+      };
+    });
+  }
   if (respondentIds.size > 0) {
     const users = await storage.getUsers([...respondentIds]);
     return users.map((u) => {
@@ -95,13 +113,31 @@ const CreatePollBody = z
   .object({
     squadId: z.string().optional(),
     eventId: z.string().optional(),
+    // Explicit invitee set for an ad-hoc "new plan" poll that isn't tied to a
+    // squad or an existing event (T3 — pick who's in the planning).
+    participantIds: z.array(z.string().min(1)).max(50).optional(),
     title: z.string().trim().min(1).max(120).optional(),
     days: z.array(z.string().max(20)).max(31).optional(),
     slots: z.array(z.string().max(20)).max(48).optional(),
+    // When true, always create a brand-new poll instead of reusing the latest
+    // poll for this scope (T12 — "Find a time" starts fresh each time).
+    forceNew: z.boolean().optional(),
+    // Marks an ad-hoc "new plan" poll (T3). The roster is the creator plus any
+    // chosen participantIds; an empty set is allowed (a solo poll the creator
+    // then shares by link), so this flag — not a non-empty participantIds — is
+    // what authorizes a squad/event-less poll.
+    adhoc: z.boolean().optional(),
   })
-  .refine((d) => d.squadId || d.eventId, {
-    message: "A poll must be scoped to a squad or an event",
-  });
+  .refine(
+    (d) =>
+      d.squadId ||
+      d.eventId ||
+      d.adhoc ||
+      (d.participantIds && d.participantIds.length > 0),
+    {
+      message: "A poll must be scoped to a squad, an event, or a set of participants",
+    },
+  );
 
 const FindPollQuery = z
   .object({
@@ -255,7 +291,7 @@ router.post("/availability/polls", requireAuth, async (req: Request, res: Respon
       res.status(400).json({ error: parsed.error.message });
       return;
     }
-    const { squadId, eventId, title, days, slots } = parsed.data;
+    const { squadId, eventId, participantIds, title, days, slots, forceNew } = parsed.data;
 
     // Access checks before creating.
     if (eventId) {
@@ -283,14 +319,24 @@ router.post("/availability/polls", requireAuth, async (req: Request, res: Respon
       }
     }
 
-    // Reuse an existing poll for the same scope rather than creating duplicates.
-    const existing = await storage.findAvailabilityPoll({ squadId, eventId });
+    // Reuse an existing poll for the same scope rather than creating duplicates,
+    // UNLESS the caller asked for a fresh poll (forceNew — T12) or this is an
+    // ad-hoc participant-scoped poll (which is always brand new — T3).
+    const isAdHoc = !squadId && !eventId;
+    const existing =
+      forceNew || isAdHoc ? null : await storage.findAvailabilityPoll({ squadId, eventId });
+    // For an ad-hoc poll always include the creator in the planning roster.
+    const roster =
+      isAdHoc && participantIds
+        ? [...new Set([userId, ...participantIds])]
+        : participantIds;
     const poll =
       existing ??
       (await storage.createAvailabilityPoll({
         createdBy: userId,
         squadId: squadId ?? null,
         eventId: eventId ?? null,
+        participantIds: roster ?? null,
         title,
         days,
         slots,

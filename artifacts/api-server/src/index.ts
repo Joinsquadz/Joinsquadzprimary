@@ -1,5 +1,5 @@
 import { runMigrations } from 'stripe-replit-sync';
-import { getStripeSync } from './stripeClient';
+import { getStripeSync, getStripeDbConfig } from './stripeClient';
 import app from './app';
 import { logger } from './lib/logger';
 import { getSmtpStatus } from './emailService';
@@ -22,15 +22,19 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 async function initStripe() {
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) {
-    logger.warn('DATABASE_URL not set — skipping Stripe initialization');
+  if (!process.env.SUPABASE_DB_URL && !process.env.DATABASE_URL) {
+    logger.warn('No database connection string set — skipping Stripe initialization');
     return;
   }
 
+  // Stripe schema + sync MUST target the SAME database the app reads through
+  // (resolveDbConfig prefers SUPABASE_DB_URL). Otherwise the sync writes
+  // stripe.* into a different DB and app reads 500 with "relation does not exist".
+  const { databaseUrl, ssl } = getStripeDbConfig();
+
   try {
     logger.info('Initializing Stripe schema...');
-    await runMigrations({ databaseUrl });
+    await runMigrations({ databaseUrl, ...(ssl ? { ssl } : {}) });
     logger.info('Stripe schema ready');
 
     const stripeSync = await getStripeSync();
