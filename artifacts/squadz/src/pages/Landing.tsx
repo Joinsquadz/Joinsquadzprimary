@@ -248,13 +248,27 @@ function HeatmapPreview() {
   );
 }
 
+type FoundingStatus = { spotsRemaining: number; isFoundingAvailable: boolean };
+
+const STANDARD_PRICE = "$29.99";
+const FOUNDING_PRICE = "$19.99";
+
 export default function Landing() {
   const [count, setCount] = useState<number | null>(null);
+  const [founding, setFounding] = useState<FoundingStatus | null>(null);
 
   useEffect(() => {
     fetch("/api/waitlist/count")
       .then((r) => r.json())
       .then((d: { count: number }) => setCount(typeof d.count === "number" ? d.count : null))
+      .catch(() => {});
+    fetch("/api/subscription/founding-status")
+      .then((r) => r.json())
+      .then((d: Partial<FoundingStatus>) => {
+        if (typeof d.spotsRemaining === "number" && typeof d.isFoundingAvailable === "boolean") {
+          setFounding({ spotsRemaining: d.spotsRemaining, isFoundingAvailable: d.isFoundingAvailable });
+        }
+      })
       .catch(() => {});
   }, []);
 
@@ -262,6 +276,8 @@ export default function Landing() {
     count != null && count >= 25
       ? `${count.toLocaleString()} people on the waitlist`
       : "Join the founding squad";
+
+  const isFounding = !!founding?.isFoundingAvailable && founding.spotsRemaining > 0;
 
   return (
     <div style={{ background: T.bg, color: T.text, fontFamily: font, minHeight: "100dvh", overflowX: "hidden" }}>
@@ -352,6 +368,14 @@ export default function Landing() {
               <StoreBadge store="ios" />
               <StoreBadge store="android" />
             </div>
+            {isFounding && (
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 10, marginTop: 20, padding: "9px 16px", borderRadius: 14, background: T.surfaceUp, border: `1px solid ${T.gold}55` }}>
+                <span style={{ fontSize: 13.5, fontWeight: 800, color: T.gold }}>Founding price</span>
+                <span style={{ fontSize: 13.5, color: T.textSub, textDecoration: "line-through" }}>{STANDARD_PRICE}</span>
+                <span style={{ fontSize: 15, fontWeight: 800, color: T.text }}>{FOUNDING_PRICE}<span style={{ fontSize: 12.5, color: T.textSub, fontWeight: 600 }}>/yr</span></span>
+                <span style={{ fontSize: 12.5, color: T.textSub }}>· {founding!.spotsRemaining} of 500 spots left</span>
+              </div>
+            )}
             <div className="lz-proof" style={{ display: "flex", alignItems: "center", gap: 11, marginTop: 24 }}>
               <div style={{ display: "flex" }}>
                 {[T.accent, T.purple, T.green, T.gold, T.blue].map((c, i) => (
@@ -436,6 +460,14 @@ export default function Landing() {
               <div style={{ display: "flex", justifyContent: "center" }}>
                 <WaitlistForm compact />
               </div>
+              {isFounding && (
+                <div style={{ marginTop: 20, fontSize: 14.5, color: T.textSub }}>
+                  Founding members lock in{" "}
+                  <span style={{ color: T.gold, fontWeight: 800 }}>{FOUNDING_PRICE}/yr</span>{" "}
+                  <span style={{ textDecoration: "line-through" }}>{STANDARD_PRICE}</span> — only{" "}
+                  <span style={{ color: T.text, fontWeight: 700 }}>{founding!.spotsRemaining} of 500</span> spots left.
+                </div>
+              )}
             </div>
           </div>
         </div>

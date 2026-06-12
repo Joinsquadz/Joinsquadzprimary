@@ -1,0 +1,91 @@
+Section 3 confirmed and verified. The atomic heart toggle fix was the right call — good catch by the architect.
+Continue to Section 4. Here are the Stripe price IDs already created — do not create new ones:
+STRIPE_STANDARD_PRICE_ID = price_1ThOK7PC0Ww3FXFkhTB0TZoW
+
+STRIPE_FOUNDING_PRICE_ID = price_1ThOIDPC0Ww3FXFkbq3adsIq
+Add both as environment variables immediately. Do not hardcode them anywhere in the application code. Do not migrate any existing subscribers to a new price — only new Stripe Checkout sessions use these IDs.
+Database:
+
+Add a single-row counter table called founding_member_counter with one integer column: redeemed. Initialize at 0. Founding member limit is 500.
+Server — checkout endpoint:
+
+Wrap the counter check and increment in an atomic transaction using pg_advisory_xact_lock:
+
+If redeemed is under 500 → increment and use STRIPE_FOUNDING_PRICE_ID ($19.99)
+If redeemed is 500 or over → use STRIPE_STANDARD_PRICE_ID ($29.99)
+
+Return which price tier was applied in the response. Also resolve the stripe.accounts does not exist sync warning currently logging on the server as part of this section.
+Public founding status endpoint:
+
+Add GET /api/subscription/founding-status returning: { spotsRemaining: number, isFoundingAvailable: boolean }. Does not require auth — must be accessible from the landing page before login.
+UpgradeModal — full redesign:
+
+The modal leads with benefits, not the price. Structure:
+Top context line — trigger specific:
+
+squad_limit: "You've reached your squad limit. Upgrade for unlimited squads and keep growing your crew."
+event_limit: "You've created 5 events this year. Upgrade for unlimited event creation."
+photo_vault: "Your personal vault is a Squadz+ feature. Upgrade to access all your uploads in one place, save favorites from any squad, and keep your memories forever."
+general: "Everything your squad needs, all in one place."
+
+Benefits list — always shown regardless of trigger:
+
+🏠 Unlimited Squads — "Join and create as many squads as you want. No limits, ever."
+🎉 Unlimited Events — "Plan as many hangouts as your crew can handle."
+📸 Personal Vault — "All your uploads in one place. Access everything, forever."
+⭐ Unlimited Favorites — "Save any photo from any squad to your personal collection."
+💍 Gold Member Ring — "Show your squad you're invested. Gold ring on your profile everywhere."
+
+Pricing and CTA:
+
+When founding available (spotsRemaining > 0):
+
+Orange "🔥 Founding Member Pricing" badge at top of modal
+"$19.99/year" with "$29.99" in strikethrough
+"Only X spots remaining at this price" — live count from founding-status endpoint
+Orange gradient CTA: "Claim Founding Member Price"
+
+When founding unavailable:
+
+"$29.99/year — less than $2.50/month"
+Orange gradient CTA: "Upgrade to Squadz+"
+
+Below CTA in small grey text on both states: "Cancel anytime. Billed annually."
+Default to showing $29.99 if founding-status call has not returned within 1 second. Never show a loading spinner longer than 1 second on this modal.
+Post-upgrade celebration screen:
+
+Full-screen moment immediately after successful upgrade — fires exactly once per upgrade, never again:
+
+Gold ring animation appearing around the user's avatar
+Headline: "Welcome to Squadz+, [first name]! 🎉"
+Subtext: "Your gold ring is live. Unlimited squads, events, your personal vault, and favorites — all yours."
+Single CTA: "Let's go" — dismisses and returns to wherever they were
+
+Store hasSeenUpgradeWelcome flag locally tied to subscription ID. Shows exactly once per upgrade.
+Ambient benefit visibility:
+
+Squad screen: subtle persistent banner below member list for free users: "✨ Upgrade to Squadz+ — Unlimited squads, personal vault, unlimited events" with small orange CTA
+Profile Vault tab: single clean upgrade prompt at the entrance for free users — not per-item locks
+Profile screen: Squadz+ card shows benefit pairs: ∞ Squads · ∞ Events · 📸 Personal Vault · ⭐ Favorites
+Event creation at event limit: show full benefit summary alongside blocked state — not just an error message
+
+Landing page:
+
+Wire /api/subscription/founding-status to landing page for dynamic founding pricing display and spots remaining.
+Verification for Section 4:
+
+ Both environment variables set correctly
+ No existing subscribers migrated or affected
+ Counter increments atomically — simulate two simultaneous upgrades at 499/500 boundary, confirm only one gets founding price
+ Modal shows correct founding UI when spots remain
+ Modal shows correct standard UI when spots are gone
+ Each trigger shows correct context copy
+ Benefits list always visible regardless of trigger
+ STRIPE_FOUNDING_PRICE_ID routes to $19.99 checkout session
+ STRIPE_STANDARD_PRICE_ID routes to $29.99 checkout session
+ Post-upgrade celebration fires exactly once per upgrade
+ hasSeenUpgradeWelcome flag persists correctly and never shows twice
+ Ambient benefit banners visible on squad screen, profile vault tab, profile screen, and event creation screen
+ Landing page reflects live founding status dynamically
+ Modal never shows loading state longer than 1 second
+ stripe.accounts sync warning resolved

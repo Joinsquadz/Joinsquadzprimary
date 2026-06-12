@@ -6,8 +6,21 @@ import { logger } from '../lib/logger';
 import { buildProWelcomeHtml } from '../emailService';
 import { getBaseUrl } from '../lib/urls';
 import { trackEvent } from '../services/analytics';
+import { claimCheckoutTier, priceIdForTier, getFoundingStatus } from '../lib/founding';
 
 const router: IRouter = Router();
+
+// Public, no-auth: how many Founding Member spots remain. Drives the landing
+// page price + the in-app upgrade modal. Read-only — never claims a spot.
+router.get('/subscription/founding-status', async (_req, res): Promise<void> => {
+  try {
+    const status = await getFoundingStatus();
+    res.json(status);
+  } catch (err) {
+    logger.error({ err }, 'Error fetching founding status');
+    res.status(500).json({ error: 'Failed to fetch founding status' });
+  }
+});
 
 // Products endpoint is public — listing plans is safe
 router.get('/products-with-prices', async (_req, res): Promise<void> => {
@@ -54,14 +67,12 @@ router.get('/products-with-prices', async (_req, res): Promise<void> => {
 // User identity comes from the session (set by authMiddleware), never from the client.
 router.post('/checkout', requireAuth, async (req, res): Promise<void> => {
   try {
-    const { priceId } = req.body as { priceId: string };
+    // The client no longer chooses the price — the server decides the tier
+    // (founding vs standard) atomically and picks the matching price id from
+    // env. Any priceId in the body is ignored on purpose so a client can't
+    // self-select the cheaper founding price after the spots are gone.
     // requireAuth guarantees req.user is defined
     const { id: userId, email } = req.user!;
-
-    if (!priceId) {
-      res.status(400).json({ error: 'priceId is required' });
-      return;
-    }
 
     let user = await storage.getUser(userId);
     if (!user) {
@@ -98,6 +109,12 @@ router.post('/checkout', requireAuth, async (req, res): Promise<void> => {
       return;
     }
 
+    // Server decides the tier atomically: claims a founding spot if any remain
+    // (incrementing the counter under an advisory lock), else falls back to
+    // standard. The matching price id comes from server env, never the client.
+    const tier = await claimCheckoutTier();
+    const priceId = priceIdForTier(tier);
+
     const baseUrl = getBaseUrl();
     const session = await stripeService.createCheckoutSession(
       customerId!,
@@ -106,8 +123,8 @@ router.post('/checkout', requireAuth, async (req, res): Promise<void> => {
       `${baseUrl}/home?checkout=cancel`,
     );
 
-    trackEvent(userId, 'checkout_started', { priceId });
-    res.json({ url: session.url });
+    trackEvent(userId, 'checkout_started', { priceId, tier });
+    res.json({ url: session.url, tier, priceId });
   } catch (err) {
     logger.error({ err }, 'Error creating checkout session');
     res.status(500).json({ error: 'Failed to create checkout session' });

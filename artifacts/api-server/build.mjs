@@ -67,6 +67,11 @@ async function buildAll() {
       "@azure/*",
       "@opentelemetry/*",
       "@sentry/node",
+      // Resolves its DB migration .sql files via path.resolve(__dirname, "./migrations").
+      // Bundling rewrites __dirname to this artifact's dist/ (no migrations there), so the
+      // stripe schema silently never gets created. Keep it external so it loads from
+      // node_modules where its migrations folder sits next to the package's real __dirname.
+      "stripe-replit-sync",
       "@google-cloud/*",
       "@google/*",
       "googleapis",

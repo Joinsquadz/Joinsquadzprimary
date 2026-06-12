@@ -1,4 +1,5 @@
 - [Sentry + OTel + esbuild](sentry-otel-esbuild.md) — @sentry/node v8 needs @opentelemetry/* at runtime; externalize both "@opentelemetry/*" + "@sentry/node" in build.mjs or server crashes.
+- [stripe-replit-sync bundling](stripe-replit-sync-bundling.md) — externalize "stripe-replit-sync" in build.mjs + pass logger to runMigrations, else stripe.* tables (accounts) missing & sync half-works.
 - [Squadz design parity](squadz-design-parity.md) — web app is the visual source of truth; mobile mirrors it via SquadzIcon SVG + GradientButton, not PNG logo / flat buttons.
 - [Squadz auth flow invariants](squadz-auth-flow.md) — register must NOT flip isLoggedIn (onboarding's login() does); email confirm is non-blocking; never log raw token URLs in prod; leave /api/auth/user untouched (mobile uses /api/auth/me).
 - [Expo native modules](expo-native-modules.md) — pin expo-* to bundledNativeModules.json version (some were mis-pinned for SDK 54); dynamic-import no-web modules behind a Platform.OS web guard.

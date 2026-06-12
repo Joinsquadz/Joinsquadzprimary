@@ -936,7 +936,7 @@ export default function VaultScreen() {
             style={[styles.upgradeBtn, { backgroundColor: colors.primary, alignSelf: "stretch" }]}
             activeOpacity={0.85}
           >
-            <Text style={styles.upgradeBtnText}>⚡ Upgrade to Squadz+ — $20/year</Text>
+            <Text style={styles.upgradeBtnText}>⚡ Upgrade to Squadz+ — $29.99/year</Text>
           </TouchableOpacity>
         </View>
       ) : (
@@ -1270,7 +1270,7 @@ export default function VaultScreen() {
                   style={[styles.upgradeBtn, { backgroundColor: colors.primary, marginTop: 16 }]}
                   activeOpacity={0.85}
                 >
-                  <Text style={styles.upgradeBtnText}>⚡ Upgrade to Squadz+ — $20/year</Text>
+                  <Text style={styles.upgradeBtnText}>⚡ Upgrade to Squadz+ — $29.99/year</Text>
                 </TouchableOpacity>
               </View>
             ) : pickerPhotos.length > 0 ? (

@@ -34,7 +34,10 @@ async function initStripe() {
 
   try {
     logger.info('Initializing Stripe schema...');
-    await runMigrations({ databaseUrl, ...(ssl ? { ssl } : {}) });
+    // Pass our logger so migration errors surface (the library no-ops silently
+    // without one — a missing migrations dir or failed migration would otherwise
+    // leave the stripe.* tables uncreated while still logging "schema ready").
+    await runMigrations({ databaseUrl, ...(ssl ? { ssl } : {}), logger });
     logger.info('Stripe schema ready');
 
     const stripeSync = await getStripeSync();

@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   AppState,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -16,6 +17,7 @@ import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AppContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { startProCheckout } from "@/lib/checkout";
+import { ProAvatar } from "@/components/ProAvatar";
 
 export type UpgradeTrigger =
   | "squad_limit"
@@ -33,85 +35,129 @@ interface Props {
   onUpgradeSuccess?: () => void;
 }
 
-// Canonical price shown on every upgrade CTA across the app.
-const PRICE_LABEL = "$20/year";
-const CTA_LABEL = `Upgrade to Squadz+ — ${PRICE_LABEL}`;
+// Display-only price labels. The real charge is enforced server-side from the
+// Stripe price env vars — these strings just mirror those amounts in the UI.
+const STANDARD_PRICE = "$29.99";
+const FOUNDING_PRICE = "$19.99";
 // Orange gradient used by all primary upgrade CTAs.
 const CTA_GRADIENT = ["#FF5C3A", "#FF8050"] as const;
+// Gold gradient for the founding badge + celebration ring.
+const GOLD_GRADIENT = ["#FFE08A", "#F5C242", "#C8941A"] as const;
 // Backoff delays (ms) for polling the subscription after returning from checkout.
 const POLL_DELAYS = [0, 1000, 2000, 3000, 4000];
+// Max time we'll wait on founding-status before falling back to standard price.
+const FOUNDING_STATUS_TIMEOUT = 1000;
 
-const TRIGGER_COPY: Record<UpgradeTrigger, { headline: string; sub: string; icon: string }> = {
+const TRIGGER_COPY: Record<UpgradeTrigger, { headline: string; sub: string }> = {
   squad_limit: {
-    icon: "people",
     headline: "Unlock unlimited squads",
-    sub: "Free accounts are limited to 2 squads. Squadz+ lets you create and join as many as you want.",
+    sub: "Free accounts are capped at 2 squads. Squadz+ lets you create and join as many as you want.",
   },
   dm_gate: {
-    icon: "chatbubble-ellipses",
-    headline: "Read your messages",
+    headline: "Read every message",
     sub: "Direct messages are a Squadz+ feature. Upgrade to unlock your full inbox.",
   },
   photos: {
-    icon: "images",
     headline: "Keep your memories forever",
-    sub: "Free photo vault expires after 30 days. Squadz+ stores your squad photos permanently.",
+    sub: "The free photo vault expires after 30 days. Squadz+ stores your squad photos permanently.",
   },
   events: {
-    icon: "calendar",
     headline: "Plan without limits",
-    sub: "Free accounts can only plan a few events. Squadz+ unlocks unlimited events so you can keep the momentum going.",
+    sub: "Free accounts can only plan a few events. Squadz+ unlocks unlimited events so you keep the momentum going.",
   },
   moments: {
-    icon: "aperture",
     headline: "Share Moments",
     sub: "Post 24-hour moments to your friends and squads with Squadz+.",
   },
   feed: {
-    icon: "newspaper",
     headline: "Post to the Vibe Feed",
     sub: "Share what's going on with your squads. Upgrade to post and react.",
   },
   general: {
-    icon: "star",
     headline: "Upgrade to Squadz+",
-    sub: "Unlimited squads, permanent photo vault, Moments, full DMs, and more.",
+    sub: "Everything Squadz has to offer, unlocked — one membership, all your squads.",
   },
 };
 
-const PRO_BULLETS = [
+// Always-on benefit list shown on every upgrade surface (5 benefits).
+const PRO_BENEFITS: Array<{ icon: string; label: string; gold?: boolean }> = [
   { icon: "people", label: "Unlimited squads & members" },
+  { icon: "calendar", label: "Unlimited events" },
   { icon: "images", label: "Permanent photo vault" },
-  { icon: "chatbubble-ellipses", label: "Full direct messages" },
-  { icon: "aperture", label: "Moments (24h stories)" },
-  { icon: "newspaper", label: "Vibe Feed posting & reactions" },
-  { icon: "star", label: "Pro gold ring badge" },
+  { icon: "chatbubbles", label: "Full DMs, Moments & Vibe Feed" },
+  { icon: "ribbon", label: "Gold Member Ring 💍", gold: true },
 ];
 
-type Phase = "idle" | "checkout" | "confirming" | "failed";
+type FoundingStatus = { spotsRemaining: number; isFoundingAvailable: boolean };
+type Phase = "idle" | "checkout" | "confirming" | "failed" | "celebrate";
+
+const welcomeSeenKey = (subId: string) => `hasSeenUpgradeWelcome_${subId}`;
 
 export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess }: Props) {
   const colors = useColors();
-  const { authToken } = useAuth();
+  const { authToken, currentUser } = useAuth();
   const insets = useSafeAreaInsets();
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [founding, setFounding] = useState<FoundingStatus | null>(null);
   // True between launching checkout and the next app-foreground, so we know the
   // foreground event is a checkout return and should confirm the upgrade.
   const awaitingUpgrade = useRef(false);
   const copy = TRIGGER_COPY[trigger];
 
-  const checkPro = useCallback(async (): Promise<boolean> => {
+  const firstName = currentUser.name?.trim().split(/\s+/)[0] ?? "";
+  const isFounding = !!founding?.isFoundingAvailable && founding.spotsRemaining > 0;
+  const priceLabel = isFounding ? FOUNDING_PRICE : STANDARD_PRICE;
+
+  // Pull live founding-status when the sheet opens. Bounded to 1s so we never
+  // block the UI: if it's slow we just show standard pricing.
+  useEffect(() => {
+    if (!visible) return;
+    let cancelled = false;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), FOUNDING_STATUS_TIMEOUT);
+    (async () => {
+      try {
+        const r = await fetch(`${API_BASE}/api/subscription/founding-status`, {
+          signal: controller.signal,
+        });
+        if (!r.ok) return;
+        const d = (await r.json()) as Partial<FoundingStatus>;
+        if (
+          !cancelled &&
+          typeof d.spotsRemaining === "number" &&
+          typeof d.isFoundingAvailable === "boolean"
+        ) {
+          setFounding({ spotsRemaining: d.spotsRemaining, isFoundingAvailable: d.isFoundingAvailable });
+        }
+      } catch {
+        // Timeout / network error → stay on standard pricing.
+      } finally {
+        clearTimeout(timer);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [visible]);
+
+  const fetchSubscription = useCallback(async (): Promise<{ isPro: boolean; subId: string | null }> => {
     try {
       const r = await fetch(`${API_BASE}/api/subscription`, {
         headers: buildAuthHeaders(authToken),
         credentials: "include",
       });
-      if (!r.ok) return false;
-      const d = (await r.json()) as { isPro?: boolean };
-      return !!d.isPro;
+      if (!r.ok) return { isPro: false, subId: null };
+      const d = (await r.json()) as {
+        isPro?: boolean;
+        subscription?: { id?: string; stripeSubscriptionId?: string } | null;
+      };
+      const subId = d.subscription?.stripeSubscriptionId ?? d.subscription?.id ?? null;
+      return { isPro: !!d.isPro, subId };
     } catch {
-      return false;
+      return { isPro: false, subId: null };
     }
   }, [authToken]);
 
@@ -122,23 +168,42 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess }: Pr
     setError(null);
     for (const delay of POLL_DELAYS) {
       if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
-      if (await checkPro()) {
+      const { isPro, subId } = await fetchSubscription();
+      if (isPro) {
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        setPhase("idle");
         onUpgradeSuccess?.();
+        // Show the celebration once per subscription. If we can't resolve a sub
+        // id, or it's already been seen, fall back to simply closing.
+        if (subId) {
+          try {
+            const seen = await AsyncStorage.getItem(welcomeSeenKey(subId));
+            if (!seen) {
+              await AsyncStorage.setItem(welcomeSeenKey(subId), "1");
+              setPhase("celebrate");
+              return;
+            }
+          } catch {
+            // Storage failure → skip celebration, just close.
+          }
+        }
+        setPhase("idle");
         onClose();
         return;
       }
     }
     setPhase("failed");
     setError("Almost there — if you finished checkout, tap Refresh status.");
-  }, [checkPro, onUpgradeSuccess, onClose]);
+  }, [fetchSubscription, onUpgradeSuccess, onClose]);
 
-  // Reset transient state whenever the parent closes the modal.
+  // Reset transient state whenever the parent closes the modal. Clearing
+  // `founding` here means each fresh open re-fetches status and, if that fetch
+  // is slow/unavailable, falls back to standard pricing instead of showing a
+  // stale founding price from a previous session.
   useEffect(() => {
     if (!visible) {
       setPhase("idle");
       setError(null);
+      setFounding(null);
       awaitingUpgrade.current = false;
     }
   }, [visible]);
@@ -177,6 +242,54 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess }: Pr
     if (!busy) onClose();
   }, [busy, onClose]);
 
+  const handleCelebrateDone = useCallback(() => {
+    setPhase("idle");
+    onClose();
+  }, [onClose]);
+
+  // ---- Celebration screen (full-screen) -----------------------------------
+  if (phase === "celebrate") {
+    return (
+      <Modal visible={visible} transparent animationType="fade" statusBarTranslucent>
+        <View style={[styles.celebrateRoot, { backgroundColor: colors.background }]}>
+          <View style={styles.celebrateInner}>
+            <ProAvatar
+              initials={currentUser.initials}
+              color={currentUser.color}
+              imageUrl={currentUser.profileImageUrl}
+              size={120}
+              fontSize={44}
+              isPro
+            />
+            <Text style={styles.celebrateEmoji}>🎉</Text>
+            <Text style={[styles.celebrateTitle, { color: colors.foreground }]}>
+              {firstName ? `Welcome to Squadz+, ${firstName}!` : "Welcome to Squadz+!"}
+            </Text>
+            <Text style={[styles.celebrateSub, { color: colors.mutedForeground }]}>
+              You've unlocked everything — unlimited squads, a permanent vault, and your gold
+              member ring.
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={[styles.ctaWrap, styles.celebrateCta, { paddingBottom: Math.max(insets.bottom, 24) }]}
+            onPress={handleCelebrateDone}
+            activeOpacity={0.85}
+          >
+            <LinearGradient
+              colors={GOLD_GRADIENT}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.cta}
+            >
+              <Text style={[styles.ctaLabel, { color: "#3A2A00" }]}>Let's go</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+      </Modal>
+    );
+  }
+
+  // ---- Upgrade sheet -------------------------------------------------------
   return (
     <Modal
       visible={visible}
@@ -202,22 +315,55 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess }: Pr
             <Ionicons name="close" size={20} color={colors.mutedForeground} />
           </TouchableOpacity>
 
-          <View
-            style={[styles.iconCircle, { backgroundColor: "#FF5C3A20", borderColor: "#FF5C3A40" }]}
-          >
-            <Ionicons name={copy.icon as "star"} size={32} color="#FF5C3A" />
+          <View style={[styles.iconCircle, { backgroundColor: "#FF5C3A20", borderColor: "#FF5C3A40" }]}>
+            <Ionicons name="star" size={30} color="#FF5C3A" />
           </View>
 
           <Text style={[styles.headline, { color: colors.foreground }]}>{copy.headline}</Text>
           <Text style={[styles.sub, { color: colors.mutedForeground }]}>{copy.sub}</Text>
 
           <View style={[styles.bullets, { borderColor: colors.border }]}>
-            {PRO_BULLETS.map((b) => (
+            {PRO_BENEFITS.map((b) => (
               <View key={b.label} style={styles.bulletRow}>
-                <Ionicons name={b.icon as "star"} size={16} color="#FF5C3A" />
+                <Ionicons
+                  name={b.icon as "star"}
+                  size={16}
+                  color={b.gold ? colors.gold : "#FF5C3A"}
+                />
                 <Text style={[styles.bulletLabel, { color: colors.foreground }]}>{b.label}</Text>
               </View>
             ))}
+          </View>
+
+          {/* Pricing block — founding (discounted) vs standard. */}
+          <View style={styles.priceBlock}>
+            {isFounding ? (
+              <>
+                <View style={styles.priceRow}>
+                  <Text style={[styles.priceStrike, { color: colors.mutedForeground }]}>
+                    {STANDARD_PRICE}
+                  </Text>
+                  <Text style={[styles.priceNow, { color: colors.foreground }]}>{FOUNDING_PRICE}</Text>
+                  <Text style={[styles.priceInterval, { color: colors.mutedForeground }]}>/year</Text>
+                </View>
+                <LinearGradient
+                  colors={GOLD_GRADIENT}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.foundingBadge}
+                >
+                  <Ionicons name="flame" size={13} color="#3A2A00" />
+                  <Text style={styles.foundingBadgeText}>
+                    Founding price — {founding!.spotsRemaining} of 500 spots left
+                  </Text>
+                </LinearGradient>
+              </>
+            ) : (
+              <View style={styles.priceRow}>
+                <Text style={[styles.priceNow, { color: colors.foreground }]}>{STANDARD_PRICE}</Text>
+                <Text style={[styles.priceInterval, { color: colors.mutedForeground }]}>/year</Text>
+              </View>
+            )}
           </View>
 
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
@@ -243,11 +389,15 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess }: Pr
                 </View>
               ) : (
                 <Text style={styles.ctaLabel}>
-                  {phase === "failed" ? "Refresh status" : CTA_LABEL}
+                  {phase === "failed" ? "Refresh status" : `Upgrade to Squadz+ — ${priceLabel}/year`}
                 </Text>
               )}
             </LinearGradient>
           </TouchableOpacity>
+
+          <Text style={[styles.fineprint, { color: colors.mutedForeground }]}>
+            Cancel anytime. Billed annually.
+          </Text>
 
           <TouchableOpacity onPress={handleDismiss} style={styles.notNow} disabled={busy}>
             <Text style={[styles.notNowLabel, { color: colors.mutedForeground }]}>Not now</Text>
@@ -286,26 +436,26 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   iconCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     borderWidth: 1.5,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 18,
+    marginBottom: 16,
   },
   headline: {
     fontSize: 22,
     fontWeight: "800",
     textAlign: "center",
-    marginBottom: 10,
+    marginBottom: 8,
     letterSpacing: -0.4,
   },
   sub: {
     fontSize: 14.5,
     textAlign: "center",
     lineHeight: 21,
-    marginBottom: 20,
+    marginBottom: 18,
     paddingHorizontal: 8,
   },
   bullets: {
@@ -314,7 +464,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
     gap: 12,
-    marginBottom: 20,
+    marginBottom: 16,
   },
   bulletRow: {
     flexDirection: "row",
@@ -325,9 +475,48 @@ const styles = StyleSheet.create({
     fontSize: 14.5,
     fontWeight: "600",
   },
+  priceBlock: {
+    alignItems: "center",
+    marginBottom: 16,
+    gap: 8,
+  },
+  priceRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 6,
+  },
+  priceStrike: {
+    fontSize: 16,
+    fontWeight: "600",
+    textDecorationLine: "line-through",
+    marginBottom: 3,
+  },
+  priceNow: {
+    fontSize: 30,
+    fontWeight: "900",
+    letterSpacing: -0.6,
+  },
+  priceInterval: {
+    fontSize: 14,
+    fontWeight: "600",
+    marginBottom: 5,
+  },
+  foundingBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 999,
+  },
+  foundingBadgeText: {
+    color: "#3A2A00",
+    fontSize: 12.5,
+    fontWeight: "800",
+  },
   ctaWrap: {
     width: "100%",
-    marginBottom: 12,
+    marginBottom: 10,
     borderRadius: 16,
     shadowColor: "#FF5C3A",
     shadowOffset: { width: 0, height: 8 },
@@ -354,6 +543,12 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     letterSpacing: 0.2,
   },
+  fineprint: {
+    fontSize: 12.5,
+    fontWeight: "500",
+    textAlign: "center",
+    marginBottom: 6,
+  },
   notNow: { paddingVertical: 8 },
   notNowLabel: { fontSize: 14, fontWeight: "500" },
   errorText: {
@@ -361,5 +556,35 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginBottom: 8,
     textAlign: "center",
+  },
+  celebrateRoot: {
+    flex: 1,
+    paddingHorizontal: 28,
+    justifyContent: "center",
+  },
+  celebrateInner: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 14,
+  },
+  celebrateEmoji: {
+    fontSize: 40,
+    marginTop: 4,
+  },
+  celebrateTitle: {
+    fontSize: 26,
+    fontWeight: "900",
+    textAlign: "center",
+    letterSpacing: -0.6,
+  },
+  celebrateSub: {
+    fontSize: 15,
+    textAlign: "center",
+    lineHeight: 22,
+    paddingHorizontal: 8,
+  },
+  celebrateCta: {
+    shadowColor: "#F5C242",
   },
 });

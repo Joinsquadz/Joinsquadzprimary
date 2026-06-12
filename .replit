@@ -77,6 +77,8 @@ SMTP_FROM = "Squadz <javier@joinsquadz.com>"
 SUPABASE_URL = "https://grypxcaomfwmdtmlnsxx.supabase.co"
 EXPO_PUBLIC_SUPABASE_URL = "https://grypxcaomfwmdtmlnsxx.supabase.co"
 SUPABASE_STORAGE_BUCKET = "Squadz storage bucket"
+STRIPE_STANDARD_PRICE_ID = "price_1ThOK7PC0Ww3FXFkhTB0TZoW"
+STRIPE_FOUNDING_PRICE_ID = "price_1ThOIDPC0Ww3FXFkbq3adsIq"
 
 [userenv.development]
 ENABLE_EMAIL_PREVIEW_TEST = "true"

@@ -34,6 +34,7 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { ProAvatar } from "@/components/ProAvatar";
 import { ContactSheet } from "@/components/ContactSheet";
 import { EventCard } from "@/components/EventCard";
+import { SquadzPlusBanner } from "@/components/SquadzPlusBanner";
 import { goingCount } from "@/lib/eventUtils";
 import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
 
@@ -689,6 +690,13 @@ export default function SquadDetailScreen() {
             <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
           </TouchableOpacity>
         )}
+
+        {/* Ambient Squadz+ benefit nudge for free members */}
+        <SquadzPlusBanner
+          trigger="squad_limit"
+          message="Squadz+ — unlimited squads, permanent vault & more"
+          style={{ marginTop: 12 }}
+        />
 
         {/* Find the best time — primary action, surfaced near the top */}
         <View

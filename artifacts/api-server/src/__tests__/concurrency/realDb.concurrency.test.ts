@@ -223,6 +223,21 @@ async function squadCountFor(userId: string): Promise<number> {
   return rows[0]?.c ?? 0;
 }
 
+async function seedFoundingCounter(redeemed: number): Promise<void> {
+  await dbmod.pool.query(
+    `INSERT INTO founding_member_counter (id, redeemed) VALUES (1, $1)
+     ON CONFLICT (id) DO UPDATE SET redeemed = EXCLUDED.redeemed`,
+    [redeemed],
+  );
+}
+
+async function foundingRedeemed(): Promise<number> {
+  const { rows } = await dbmod.pool.query(
+    `SELECT redeemed FROM founding_member_counter WHERE id = 1`,
+  );
+  return rows[0]?.redeemed ?? 0;
+}
+
 // ── A1: concurrent RSVPs merge per-user (no lost updates) ─────────────────────
 
 describe("A1 — concurrent RSVPs persist per user", () => {
@@ -352,5 +367,50 @@ describe("E1 — squad cap holds under concurrency", () => {
     expect(joined).toBe(1);
     expect(blocked).toBe(5);
     expect(await squadCountFor(user)).toBe(FREE_SQUAD_LIMIT);
+  });
+});
+
+// ── F1: founding spot cap holds under concurrency ────────────────────────────
+
+describe("F1 — founding spot cap holds under concurrency", () => {
+  it("at 499/500, only ONE concurrent claim gets 'founding'", async () => {
+    const { claimCheckoutTier, FOUNDING_MEMBER_LIMIT } = await import("../../lib/founding");
+    // One spot left.
+    await seedFoundingCounter(FOUNDING_MEMBER_LIMIT - 1);
+
+    const results = await Promise.all(
+      Array.from({ length: 8 }, () => claimCheckoutTier()),
+    );
+
+    const founding = results.filter((t) => t === "founding").length;
+    const standard = results.filter((t) => t === "standard").length;
+    expect(founding).toBe(1);
+    expect(standard).toBe(7);
+    // Counter never overshoots the cap.
+    expect(await foundingRedeemed()).toBe(FOUNDING_MEMBER_LIMIT);
+  });
+
+  it("when sold out, every concurrent claim gets 'standard' and the counter is unchanged", async () => {
+    const { claimCheckoutTier, FOUNDING_MEMBER_LIMIT } = await import("../../lib/founding");
+    await seedFoundingCounter(FOUNDING_MEMBER_LIMIT);
+
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => claimCheckoutTier()),
+    );
+
+    expect(results.every((t) => t === "standard")).toBe(true);
+    expect(await foundingRedeemed()).toBe(FOUNDING_MEMBER_LIMIT);
+  });
+
+  it("with plenty of spots, N concurrent claims grant exactly N founding spots", async () => {
+    const { claimCheckoutTier } = await import("../../lib/founding");
+    await seedFoundingCounter(10);
+
+    const results = await Promise.all(
+      Array.from({ length: 6 }, () => claimCheckoutTier()),
+    );
+
+    expect(results.every((t) => t === "founding")).toBe(true);
+    expect(await foundingRedeemed()).toBe(16);
   });
 });

@@ -634,7 +634,7 @@ export default function ProfileScreen() {
         {
           icon: "flash",
           label: "Upgrade to Squadz+",
-          value: "$20/year",
+          value: "$29.99/year",
           color: colors.gold,
           onPress: () => setUpgradeModalVisible(true),
         },
