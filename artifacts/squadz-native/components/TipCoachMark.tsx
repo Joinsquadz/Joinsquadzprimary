@@ -7,8 +7,13 @@ import {
   Dimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useTips, type SquadAnchorKey } from "@/context/TipsContext";
+import { useSafeAreaInsets, type EdgeInsets } from "react-native-safe-area-context";
+import {
+  useTips,
+  EVENT_COST_TIP,
+  type SquadAnchorKey,
+  type TipLayout,
+} from "@/context/TipsContext";
 import { TAB_BAR_HEIGHT } from "@/constants/layout";
 
 const CARD_W = 220;
@@ -20,90 +25,171 @@ function clamp(v: number, min: number, max: number) {
   return Math.max(min, Math.min(max, v));
 }
 
-/**
- * Global, once-per-user onboarding tour overlay. Renders nothing unless a tip
- * is active. Squad-screen tips (1-4) are positioned against measured anchors;
- * Feed-tab tips (5-6) sit just above the bottom nav pointing at the Feed tab.
- *
- * Mounted once at the root so it can float above any screen and survive the
- * squad -> Feed navigation that happens mid-tour.
- */
-export function TipCoachMark() {
-  const { activeIndex, tips, anchors, next, dismiss } = useTips();
-  const insets = useSafeAreaInsets();
-  const [cardH, setCardH] = useState(132);
+type CardPos = {
+  cardTop: number;
+  cardLeft: number;
+  arrowDir: "up" | "down";
+  arrowLeft: number;
+};
 
-  if (activeIndex === null) return null;
-  const tip = tips[activeIndex];
-  if (!tip) return null;
-
-  const win = Dimensions.get("window");
-  const isLast = activeIndex === tips.length - 1;
-
+// Position a card above/below a measured anchor, clamped to the screen.
+function positionFromAnchor(
+  layout: TipLayout,
+  cardH: number,
+  win: { width: number; height: number },
+  insets: EdgeInsets,
+): CardPos {
+  const centerX = layout.x + layout.width / 2;
+  const cardLeft = clamp(centerX - CARD_W / 2, 12, win.width - CARD_W - 12);
+  const spaceBelow =
+    win.height - (layout.y + layout.height) - insets.bottom - TAB_BAR_HEIGHT;
   let cardTop: number;
-  let cardLeft: number;
   let arrowDir: "up" | "down";
-  let arrowLeft: number;
-
-  if (tip.place === "feedTab") {
-    // Feed is the 5th of 5 visible tabs — point at its horizontal centre.
-    const tabCount = 5;
-    const feedCenter = win.width * ((4 + 0.5) / tabCount);
-    cardLeft = clamp(feedCenter - CARD_W / 2, 12, win.width - CARD_W - 12);
-    const barTop = win.height - insets.bottom - TAB_BAR_HEIGHT;
-    cardTop = clamp(barTop - cardH - ARROW - 8, insets.top + 12, win.height);
-    arrowDir = "down";
-    arrowLeft = clamp(feedCenter - cardLeft - ARROW, 16, CARD_W - 16 - ARROW * 2);
+  if (spaceBelow > cardH + ARROW + 16) {
+    cardTop = layout.y + layout.height + ARROW + 4;
+    arrowDir = "up";
   } else {
-    const key = tip.target as SquadAnchorKey;
-    const layout = anchors[key];
-    if (!layout) return null; // wait until the anchor has been measured
-    const centerX = layout.x + layout.width / 2;
-    cardLeft = clamp(centerX - CARD_W / 2, 12, win.width - CARD_W - 12);
-    const spaceBelow =
-      win.height - (layout.y + layout.height) - insets.bottom - TAB_BAR_HEIGHT;
-    if (spaceBelow > cardH + ARROW + 16) {
-      cardTop = layout.y + layout.height + ARROW + 4;
-      arrowDir = "up";
-    } else {
-      cardTop = clamp(layout.y - cardH - ARROW - 4, insets.top + 12, win.height);
-      arrowDir = "down";
-    }
-    arrowLeft = clamp(centerX - cardLeft - ARROW, 16, CARD_W - 16 - ARROW * 2);
+    cardTop = clamp(layout.y - cardH - ARROW - 4, insets.top + 12, win.height);
+    arrowDir = "down";
   }
+  const arrowLeft = clamp(centerX - cardLeft - ARROW, 16, CARD_W - 16 - ARROW * 2);
+  return { cardTop, cardLeft, arrowDir, arrowLeft };
+}
 
+type CardContentProps = {
+  pos: CardPos;
+  headline: string;
+  body: string;
+  /** Footer left: e.g. "2 of 5". Omit for standalone tips. */
+  progress?: string;
+  primaryLabel: string;
+  onPrimary: () => void;
+  onClose: () => void;
+  onCardLayout: (h: number) => void;
+};
+
+function TipCard({
+  pos,
+  headline,
+  body,
+  progress,
+  primaryLabel,
+  onPrimary,
+  onClose,
+  onCardLayout,
+}: CardContentProps) {
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
       <View
-        onLayout={(e) => setCardH(e.nativeEvent.layout.height)}
-        style={[styles.card, { top: cardTop, left: cardLeft, width: CARD_W }]}
+        onLayout={(e) => onCardLayout(e.nativeEvent.layout.height)}
+        style={[styles.card, { top: pos.cardTop, left: pos.cardLeft, width: CARD_W }]}
       >
-        {arrowDir === "up" && <View style={[styles.arrowUp, { left: arrowLeft }]} />}
+        {pos.arrowDir === "up" && <View style={[styles.arrowUp, { left: pos.arrowLeft }]} />}
 
         <View style={styles.headerRow}>
-          <Text style={styles.headline}>{tip.headline}</Text>
+          <Text style={styles.headline}>{headline}</Text>
           <TouchableOpacity
-            onPress={dismiss}
+            onPress={onClose}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
             <Ionicons name="close" size={16} color="#9A9A9A" />
           </TouchableOpacity>
         </View>
 
-        <Text style={styles.body}>{tip.body}</Text>
+        <Text style={styles.body}>{body}</Text>
 
-        <View style={styles.footerRow}>
-          <Text style={styles.progress}>
-            {activeIndex + 1} of {tips.length}
-          </Text>
-          <TouchableOpacity onPress={next} style={styles.nextBtn} activeOpacity={0.85}>
-            <Text style={styles.nextText}>{isLast ? "Done" : "Next"}</Text>
+        <View style={[styles.footerRow, !progress && styles.footerRowEnd]}>
+          {progress ? <Text style={styles.progress}>{progress}</Text> : null}
+          <TouchableOpacity onPress={onPrimary} style={styles.nextBtn} activeOpacity={0.85}>
+            <Text style={styles.nextText}>{primaryLabel}</Text>
           </TouchableOpacity>
         </View>
 
-        {arrowDir === "down" && <View style={[styles.arrowDown, { left: arrowLeft }]} />}
+        {pos.arrowDir === "down" && <View style={[styles.arrowDown, { left: pos.arrowLeft }]} />}
       </View>
     </View>
+  );
+}
+
+/**
+ * Global onboarding coach-mark overlay. Renders nothing unless a tip is active.
+ *
+ * Two independent surfaces share this overlay:
+ * - The sequential first-run tour (squad-screen tips + Feed-tab tips), driven
+ *   by `activeIndex`.
+ * - A standalone, contextual cost-split tip (`eventCostActive`) that fires the
+ *   first time the user opens an event, anchored to that screen's Costs tab.
+ *
+ * Mounted once at the root so it can float above any screen.
+ */
+export function TipCoachMark() {
+  const {
+    activeIndex,
+    tips,
+    anchors,
+    next,
+    dismiss,
+    eventCostActive,
+    eventCostAnchor,
+    dismissEventCostTip,
+  } = useTips();
+  const insets = useSafeAreaInsets();
+  const [cardH, setCardH] = useState(132);
+
+  const win = Dimensions.get("window");
+
+  // Standalone event-cost tip takes precedence — it's screen-local & real-time.
+  if (eventCostActive) {
+    if (!eventCostAnchor) return null; // wait for the Costs tab to be measured
+    return (
+      <TipCard
+        pos={positionFromAnchor(eventCostAnchor, cardH, win, insets)}
+        headline={EVENT_COST_TIP.headline}
+        body={EVENT_COST_TIP.body}
+        primaryLabel="Got it"
+        onPrimary={dismissEventCostTip}
+        onClose={dismissEventCostTip}
+        onCardLayout={setCardH}
+      />
+    );
+  }
+
+  if (activeIndex === null) return null;
+  const tip = tips[activeIndex];
+  if (!tip) return null;
+
+  const isLast = activeIndex === tips.length - 1;
+  const progress = `${activeIndex + 1} of ${tips.length}`;
+  const primaryLabel = isLast ? "Done" : "Next";
+
+  let pos: CardPos;
+  if (tip.place === "feedTab") {
+    // Feed is the 5th of 5 visible tabs — point at its horizontal centre.
+    const tabCount = 5;
+    const feedCenter = win.width * ((4 + 0.5) / tabCount);
+    const cardLeft = clamp(feedCenter - CARD_W / 2, 12, win.width - CARD_W - 12);
+    const barTop = win.height - insets.bottom - TAB_BAR_HEIGHT;
+    const cardTop = clamp(barTop - cardH - ARROW - 8, insets.top + 12, win.height);
+    const arrowLeft = clamp(feedCenter - cardLeft - ARROW, 16, CARD_W - 16 - ARROW * 2);
+    pos = { cardTop, cardLeft, arrowDir: "down", arrowLeft };
+  } else {
+    const key = tip.target as SquadAnchorKey;
+    const layout = anchors[key];
+    if (!layout) return null; // wait until the anchor has been measured
+    pos = positionFromAnchor(layout, cardH, win, insets);
+  }
+
+  return (
+    <TipCard
+      pos={pos}
+      headline={tip.headline}
+      body={tip.body}
+      progress={progress}
+      primaryLabel={primaryLabel}
+      onPrimary={next}
+      onClose={dismiss}
+      onCardLayout={setCardH}
+    />
   );
 }
 
@@ -145,6 +231,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     marginTop: 12,
+  },
+  footerRowEnd: {
+    justifyContent: "flex-end",
   },
   progress: {
     color: "#7A7A7A",

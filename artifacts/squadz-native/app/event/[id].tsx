@@ -35,6 +35,7 @@ import { claimOnce } from "@/lib/seenFlags";
 import { goingCount } from "@/lib/eventUtils";
 import type { RsvpStatus } from "@/types";
 import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
+import { useTips } from "@/context/TipsContext";
 
 type EventTab = "overview" | "guests" | "tasks" | "food" | "costs" | "chat" | "photos" | "admin";
 
@@ -86,6 +87,43 @@ export default function EventDetailScreen() {
   const [contactOpen, setContactOpen] = useState(false);
   const [contactMember, setContactMember] = useState<ResolvedUser | null>(null);
   const { resolveUser, prefetchUsers } = useUserCache();
+
+  // Contextual cost-split coach mark: fires the first time the user opens an
+  // event, anchored to the "Costs" tab (where splitting actually lives).
+  const { eventCostActive, canShowEventCostTip, maybeShowEventCostTip, setEventCostAnchor } = useTips();
+  const tabScrollRef = useRef<ScrollView>(null);
+  const costsChipRef = useRef<View>(null);
+  const costsChipX = useRef(0);
+
+  // Surface the cost tip once the event has loaded and showing is actually
+  // allowed. Keying on `canShowEventCostTip` means it re-attempts the moment the
+  // gate opens — the seen flag finishes loading, the sequential tour ends, or the
+  // fail-safe releases a stuck active flag — rather than being a one-shot miss.
+  const eventLoaded = !!event;
+  useEffect(() => {
+    if (!eventLoaded || !canShowEventCostTip) return;
+    const t = setTimeout(() => maybeShowEventCostTip(), 600);
+    return () => clearTimeout(t);
+  }, [eventLoaded, canShowEventCostTip, maybeShowEventCostTip]);
+
+  // Once the cost tip is active, reveal the Costs chip and measure it so the
+  // coach mark can point at it precisely.
+  useEffect(() => {
+    if (!eventCostActive) return;
+    tabScrollRef.current?.scrollTo({ x: Math.max(0, costsChipX.current - 40), animated: true });
+    const t = setTimeout(() => {
+      costsChipRef.current?.measureInWindow((x, y, width, height) => {
+        if (width > 0 || height > 0) setEventCostAnchor({ x, y, width, height });
+      });
+    }, 380);
+    return () => clearTimeout(t);
+  }, [eventCostActive, setEventCostAnchor]);
+
+  // Drop the anchor when leaving the event screen so the global coach mark
+  // never flashes at this event's stale coordinates on the next screen.
+  useEffect(() => {
+    return () => setEventCostAnchor(null);
+  }, [setEventCostAnchor]);
 
   // Pre-load all user profiles referenced in this event
   useEffect(() => {
@@ -700,6 +738,7 @@ export default function EventDetailScreen() {
 
       {/* Tab bar */}
       <ScrollView
+        ref={tabScrollRef}
         horizontal
         showsHorizontalScrollIndicator={false}
         style={[styles.tabBar, { borderBottomColor: colors.border }]}
@@ -708,6 +747,12 @@ export default function EventDetailScreen() {
         {TABS.map((t) => (
           <TouchableOpacity
             key={t.key}
+            ref={t.key === "costs" ? (costsChipRef as never) : undefined}
+            onLayout={
+              t.key === "costs"
+                ? (e) => { costsChipX.current = e.nativeEvent.layout.x; }
+                : undefined
+            }
             onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setTab(t.key); }}
             style={[
               styles.tabChip,
