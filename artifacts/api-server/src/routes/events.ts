@@ -243,7 +243,7 @@ router.get("/events", requireAuth, async (req: Request, res: Response): Promise<
         ),
       ),
     )
-    .orderBy(eventsTable.createdAt);
+    .orderBy(eventsTable.eventAt, eventsTable.createdAt);
   res.json(events);
 });
 

@@ -135,11 +135,22 @@ export default function HomeScreen() {
   const upNext = useMemo(() => {
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    return events.find((e) => {
+    // Sort a shallow copy: events with a concrete eventAt timestamp first
+    // (ascending — soonest first), TBD / no-timestamp events after.
+    const sorted = [...events].sort((a, b) => {
+      const aMs = a.eventAt ? new Date(a.eventAt).getTime() : Infinity;
+      const bMs = b.eventAt ? new Date(b.eventAt).getTime() : Infinity;
+      return aMs - bMs;
+    });
+    return sorted.find((e) => {
       if (e.eventAt) return new Date(e.eventAt) >= todayStart;
+      // No eventAt — show TBD events (genuinely undated future plans).
       if (!e.date || e.date === "Date TBD" || e.date === "TBD") return true;
+      // The app's display format ("Jun 12 · 7:00 PM") doesn't parse via
+      // new Date() — treat unparseable strings as past to avoid surfacing
+      // stale events. The server already filters past eventAt rows.
       const parsed = new Date(e.date);
-      if (isNaN(parsed.getTime())) return true;
+      if (isNaN(parsed.getTime())) return false;
       const endOfDay = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate() + 1);
       return endOfDay >= now;
     }) ?? null;
