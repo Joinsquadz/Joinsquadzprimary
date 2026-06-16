@@ -123,7 +123,10 @@ export default function OnboardingScreen() {
   async function handleShare() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     try {
-      await Share.share({ message: shareMessage });
+      const result = await Share.share({ message: shareMessage });
+      if (result.action === Share.sharedAction) {
+        handleComplete();
+      }
     } catch {
       // user dismissed the share sheet — stay on the step so they can retry
     }

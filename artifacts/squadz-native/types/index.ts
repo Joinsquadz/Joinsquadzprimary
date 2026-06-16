@@ -56,6 +56,8 @@ export type Event = {
   emoji: string;
   title: string;
   date: string;
+  /** Machine-readable ISO datetime when a concrete time is set; null/undefined = TBD. */
+  eventAt?: string | null;
   location: string;
   squadId: string;
   squadName: string;

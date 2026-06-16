@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -156,6 +157,7 @@ export default function VaultMediaDetail({
 
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const commentInputRef = useRef<TextInput>(null);
 
   // Seed local state from the grid payload when a new photo opens.
   useEffect(() => {
@@ -249,6 +251,7 @@ export default function VaultMediaDetail({
       });
       if (!res.ok) throw new Error("comment failed");
       setDraft("");
+      Keyboard.dismiss();
       await fetchInteractions();
     } catch {
       showToast("Couldn't post comment. Please try again.", { durationMs: 2500 });
@@ -277,6 +280,7 @@ export default function VaultMediaDetail({
   );
 
   const startEditCaption = useCallback(() => {
+    commentInputRef.current?.blur();
     setCaptionDraft(caption ?? "");
     setEditingCaption(true);
     setOptionsOpen(false);
@@ -409,13 +413,6 @@ export default function VaultMediaDetail({
                   size={24}
                   color={favorited ? colors.gold : colors.foreground}
                 />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.action}
-                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onShare(photo); }}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="paper-plane-outline" size={23} color={colors.foreground} />
               </TouchableOpacity>
             </View>
 
@@ -558,6 +555,7 @@ export default function VaultMediaDetail({
           {/* Comment composer */}
           <View style={[styles.composer, { borderTopColor: colors.border, backgroundColor: colors.background, paddingBottom: Math.max(insets.bottom, 8) }]}>
             <TextInput
+              ref={commentInputRef}
               value={draft}
               onChangeText={(t) => setDraft(t.slice(0, COMMENT_MAX))}
               placeholder="Add a comment…"

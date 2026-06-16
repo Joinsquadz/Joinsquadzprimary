@@ -75,13 +75,19 @@ const TRIGGER_COPY: Record<UpgradeTrigger, { headline: string; sub: string }> = 
   },
 };
 
-// Always-on benefit list shown on every upgrade surface (5 benefits).
+// What free accounts get (shown for comparison).
+const FREE_FEATURES = [
+  "Up to 2 squads",
+  "Event RSVPs & basic planning",
+  "Group chat & squad vault browsing",
+];
+
+// Benefits unlocked by Squadz+.
 const PRO_BENEFITS: Array<{ icon: string; label: string; gold?: boolean }> = [
-  { icon: "people", label: "Unlimited squads & members" },
-  { icon: "calendar", label: "Unlimited events" },
-  { icon: "images", label: "Permanent photo vault" },
-  { icon: "chatbubbles", label: "Full DMs, Moments & Vibe Feed" },
-  { icon: "ribbon", label: "Gold Member Ring 💍", gold: true },
+  { icon: "people", label: "Unlimited squads & events" },
+  { icon: "images", label: "Personal vault + saved favorites" },
+  { icon: "chatbubbles", label: "Moments & Vibe Feed posting" },
+  { icon: "ribbon", label: "Gold Ring Indicator", gold: true },
 ];
 
 type FoundingStatus = { spotsRemaining: number; isFoundingAvailable: boolean };
@@ -266,8 +272,7 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess }: Pr
               {firstName ? `Welcome to Squadz+, ${firstName}!` : "Welcome to Squadz+!"}
             </Text>
             <Text style={[styles.celebrateSub, { color: colors.mutedForeground }]}>
-              You've unlocked everything — unlimited squads, a permanent vault, and your gold
-              member ring.
+              You've unlocked everything — unlimited squads, a permanent vault, and your gold ring indicator.
             </Text>
           </View>
           <TouchableOpacity
@@ -322,17 +327,31 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess }: Pr
           <Text style={[styles.headline, { color: colors.foreground }]}>{copy.headline}</Text>
           <Text style={[styles.sub, { color: colors.mutedForeground }]}>{copy.sub}</Text>
 
-          <View style={[styles.bullets, { borderColor: colors.border }]}>
-            {PRO_BENEFITS.map((b) => (
-              <View key={b.label} style={styles.bulletRow}>
-                <Ionicons
-                  name={b.icon as "star"}
-                  size={16}
-                  color={b.gold ? colors.gold : "#FF5C3A"}
-                />
-                <Text style={[styles.bulletLabel, { color: colors.foreground }]}>{b.label}</Text>
-              </View>
-            ))}
+          <View style={styles.tierWrap}>
+            {/* Free tier */}
+            <View style={[styles.tierSection, { borderColor: colors.border }]}>
+              <Text style={[styles.tierLabel, { color: colors.mutedForeground }]}>Included free</Text>
+              {FREE_FEATURES.map((f) => (
+                <View key={f} style={styles.bulletRow}>
+                  <Ionicons name="checkmark-circle-outline" size={16} color={colors.mutedForeground} />
+                  <Text style={[styles.bulletLabel, { color: colors.mutedForeground }]}>{f}</Text>
+                </View>
+              ))}
+            </View>
+            {/* Pro tier */}
+            <View style={[styles.tierSection, { borderColor: "#FF5C3A40", backgroundColor: "#FF5C3A08" }]}>
+              <Text style={[styles.tierLabel, { color: "#FF5C3A" }]}>Squadz+ unlocks</Text>
+              {PRO_BENEFITS.map((b) => (
+                <View key={b.label} style={styles.bulletRow}>
+                  <Ionicons
+                    name={b.icon as "star"}
+                    size={16}
+                    color={b.gold ? colors.gold : "#FF5C3A"}
+                  />
+                  <Text style={[styles.bulletLabel, { color: colors.foreground }]}>{b.label}</Text>
+                </View>
+              ))}
+            </View>
           </View>
 
           {/* Pricing block — founding (discounted) vs standard. */}
@@ -458,13 +477,24 @@ const styles = StyleSheet.create({
     marginBottom: 18,
     paddingHorizontal: 8,
   },
-  bullets: {
+  tierWrap: {
+    width: "100%",
+    gap: 8,
+    marginBottom: 16,
+  },
+  tierSection: {
     width: "100%",
     borderWidth: 1,
-    borderRadius: 16,
-    padding: 16,
-    gap: 12,
-    marginBottom: 16,
+    borderRadius: 14,
+    padding: 14,
+    gap: 10,
+  },
+  tierLabel: {
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    marginBottom: 2,
   },
   bulletRow: {
     flexDirection: "row",
@@ -472,8 +502,9 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   bulletLabel: {
-    fontSize: 14.5,
+    fontSize: 14,
     fontWeight: "600",
+    flex: 1,
   },
   priceBlock: {
     alignItems: "center",

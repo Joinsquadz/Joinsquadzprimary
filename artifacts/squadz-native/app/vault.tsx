@@ -1246,7 +1246,10 @@ export default function VaultScreen() {
         currentUserId={currentUserId ?? null}
         favorited={detailPhoto ? favoriteIds.has(detailPhoto.id) : false}
         onClose={() => setSelected(null)}
-        onToggleFavorite={(id) => { void toggleFavorite(id); }}
+        onToggleFavorite={(id) => {
+          if (isPro === false) { setUpgradeModalVisible(true); return; }
+          void toggleFavorite(id);
+        }}
         onShare={(p) => setShareTarget({ id: p.id, url: p.url, mediaType: p.mediaType })}
         onCaptionUpdated={handleCaptionUpdated}
         onHeartChanged={(id, hearted, heartCount) => {

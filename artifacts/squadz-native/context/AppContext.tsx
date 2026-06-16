@@ -283,6 +283,7 @@ function dbEventToEvent(e: Record<string, unknown>): Event {
     emoji: e.emoji as string,
     title: e.title as string,
     date: e.date as string,
+    eventAt: (e.eventAt as string | null | undefined) ?? null,
     location: e.location as string,
     squadId: e.squadId as string,
     squadName: e.squadName as string,

@@ -10,6 +10,7 @@
     "smoke-test-deeplinks": "tsx ./src/smoke-test-deeplinks.ts",
     "backfill-squad-invite-codes": "tsx ./src/backfill-squad-invite-codes.ts",
     "backfill-event-creations": "tsx ./src/backfill-event-creations.ts",
+    "migrate-activity-table": "tsx ./src/migrate-activity-table.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {

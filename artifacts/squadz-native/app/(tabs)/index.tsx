@@ -132,7 +132,18 @@ export default function HomeScreen() {
 
   const { resolveUser, prefetchUsers } = useUserCache();
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
-  const upNext = events[0] ?? null;
+  const upNext = useMemo(() => {
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    return events.find((e) => {
+      if (e.eventAt) return new Date(e.eventAt) >= todayStart;
+      if (!e.date || e.date === "Date TBD" || e.date === "TBD") return true;
+      const parsed = new Date(e.date);
+      if (isNaN(parsed.getTime())) return true;
+      const endOfDay = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate() + 1);
+      return endOfDay >= now;
+    }) ?? null;
+  }, [events]);
 
   type EventBalance = {
     eventId: string;
@@ -282,7 +293,7 @@ export default function HomeScreen() {
         </View>
         <View style={styles.headerRight}>
           <TouchableOpacity
-            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push("/(tabs)/activity"); }}
+            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.navigate("/(tabs)/activity"); }}
             style={[styles.bellBtn, { backgroundColor: colors.card }]}
           >
             <Ionicons name="notifications-outline" size={22} color={colors.foreground} />
