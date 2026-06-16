@@ -656,45 +656,6 @@ export default function SquadDetailScreen() {
         contentContainerStyle={{ padding: 20, paddingBottom: botPad + 24 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* Invite actions — grouped card */}
-        <View style={[styles.groupCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <TouchableOpacity
-            onPress={shareInvite}
-            activeOpacity={0.7}
-            style={styles.groupRow}
-          >
-            <View style={[styles.inviteIcon, { backgroundColor: colors.primary + "20" }]}>
-              <Ionicons name="person-add-outline" size={20} color={colors.primary} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.inviteTitle, { color: colors.foreground }]}>Invite friends not on SquadZ</Text>
-              <Text style={[styles.inviteSub, { color: colors.mutedForeground }]} numberOfLines={1}>
-                Share an invite link to add them
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
-          </TouchableOpacity>
-          {squad.isPublic && (
-            <>
-              <View style={[styles.groupDivider, { backgroundColor: colors.border }]} />
-              <TouchableOpacity
-                onPress={sharePublicLink}
-                activeOpacity={0.7}
-                style={styles.groupRow}
-              >
-                <View style={[styles.inviteIcon, { backgroundColor: colors.primary + "20" }]}>
-                  <Ionicons name="globe-outline" size={20} color={colors.primary} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.inviteTitle, { color: colors.foreground }]}>Share publicly</Text>
-                  <Text style={[styles.inviteSub, { color: colors.mutedForeground }]}>Anyone with the link can join</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
-              </TouchableOpacity>
-            </>
-          )}
-        </View>
-
         {/* Ambient Squadz+ benefit nudge for free members */}
         <SquadzPlusBanner
           trigger="squad_limit"
@@ -755,7 +716,7 @@ export default function SquadDetailScreen() {
         )}
         </View>
 
-        {/* Members */}
+        {/* Members — horizontal avatar row */}
         <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginTop: 24 }]}>Members</Text>
         {showLongPressHint && (
           <Animated.View style={[styles.longPressHint, { backgroundColor: colors.primary + "18", borderColor: colors.primary + "35", opacity: hintOpacity }]}>
@@ -763,29 +724,29 @@ export default function SquadDetailScreen() {
             <Text style={[styles.longPressHintText, { color: colors.primary }]}>Long-press a member to remove</Text>
           </Animated.View>
         )}
-        <View style={styles.membersGrid}>
+        <View style={styles.membersRow}>
           {members.map((m) => {
             const isSelf = m.id === currentUser.id;
             const showRemoveBtn = isCreator && !isSelf && m.id !== creatorId;
             const isBeingRemoved = removingMemberId === m.id;
             return (
-              <View key={m.id} style={{ position: "relative" }}>
+              <View key={m.id} style={{ position: "relative", alignItems: "center" }}>
                 <TouchableOpacity
                   onPress={!isSelf ? () => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push(`/user/${m.id}` as never); } : undefined}
                   onLongPress={isSelf && !isCreator ? handleLeaveSquad : undefined}
                   delayLongPress={400}
-                  style={[styles.memberCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+                  style={styles.memberAvatar}
                   activeOpacity={isSelf ? 1 : 0.7}
                 >
                   {isBeingRemoved ? (
-                    <ActivityIndicator size="small" color={colors.primary} style={{ height: 44 }} />
+                    <ActivityIndicator size="small" color={colors.primary} style={{ height: 44, width: 44 }} />
                   ) : (
                     <ProAvatar initials={m.initials} color={m.color} imageUrl={m.profileImageUrl} size={44} fontSize={15} isPro={m.isPro} />
                   )}
-                  <Text style={[styles.memberName, { color: colors.foreground }]} numberOfLines={1}>
-                    {m.id === currentUser.id ? "You" : m.name.split(" ")[0]}
-                  </Text>
                 </TouchableOpacity>
+                <Text style={[styles.memberAvatarName, { color: colors.mutedForeground }]} numberOfLines={1}>
+                  {m.id === currentUser.id ? "You" : m.name.split(" ")[0]}
+                </Text>
                 {showRemoveBtn && (
                   <TouchableOpacity
                     onPress={() => handleRemoveMember(m.id, m.name.split(" ")[0])}
@@ -805,12 +766,12 @@ export default function SquadDetailScreen() {
                 resetAddMemberModal();
                 setAddMemberOpen(true);
               }}
-              style={[styles.memberCard, styles.addMember, { backgroundColor: colors.card, borderColor: colors.border }]}
+              style={{ alignItems: "center" }}
             >
-              <View style={[styles.addIcon, { backgroundColor: colors.primary + "20" }]}>
-                <Ionicons name="person-add-outline" size={20} color={colors.primary} />
+              <View style={[styles.memberAddCircle, { borderColor: colors.border }]}>
+                <Ionicons name="add" size={20} color={colors.mutedForeground} />
               </View>
-              <Text style={[styles.memberName, { color: colors.primary }]}>Add</Text>
+              <Text style={[styles.memberAvatarName, { color: colors.mutedForeground }]}>Add</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -863,6 +824,40 @@ export default function SquadDetailScreen() {
               </View>
               <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
             </TouchableOpacity>
+            <View style={[styles.groupDivider, { backgroundColor: colors.border }]} />
+            <TouchableOpacity
+              onPress={shareInvite}
+              activeOpacity={0.7}
+              style={styles.groupRow}
+            >
+              <View style={[styles.photosIcon, { backgroundColor: colors.primary + "20" }]}>
+                <Ionicons name="person-add-outline" size={20} color={colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.photosTitle, { color: colors.foreground }]}>Invite friends</Text>
+                <Text style={[styles.photosSub, { color: colors.mutedForeground }]}>Share a link to add them</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
+            </TouchableOpacity>
+            {squad.isPublic && (
+              <>
+                <View style={[styles.groupDivider, { backgroundColor: colors.border }]} />
+                <TouchableOpacity
+                  onPress={sharePublicLink}
+                  activeOpacity={0.7}
+                  style={styles.groupRow}
+                >
+                  <View style={[styles.photosIcon, { backgroundColor: colors.primary + "20" }]}>
+                    <Ionicons name="globe-outline" size={20} color={colors.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.photosTitle, { color: colors.foreground }]}>Share publicly</Text>
+                    <Text style={[styles.photosSub, { color: colors.mutedForeground }]}>Anyone with the link can join</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
+                </TouchableOpacity>
+              </>
+            )}
           </View>
         </View>
 
@@ -1299,20 +1294,16 @@ const styles = StyleSheet.create({
   heroName: { fontSize: 24, fontWeight: "800", color: "#fff", textAlign: "center" },
   heroMeta: { fontSize: 14, color: "rgba(255,255,255,0.8)", marginTop: 4 },
   inviteBanner: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 14, borderWidth: 1, padding: 14 },
-  inviteIcon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
-  inviteTitle: { fontSize: 15, fontWeight: "800" },
-  inviteSub: { fontSize: 12, marginTop: 2 },
   sectionTitle: { fontSize: 18, fontWeight: "800", marginBottom: 12 },
   sectionLabel: { fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 10 },
   groupCard: { borderRadius: 14, borderWidth: 1, overflow: "hidden" },
   groupRow: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14 },
   groupDivider: { height: 1 },
-  membersGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  memberCard: { borderRadius: 14, borderWidth: 1, padding: 14, alignItems: "center", gap: 8, width: "30%" },
-  removeMemberBtn: { position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center", zIndex: 10 },
-  addMember: {},
-  addIcon: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
-  memberName: { fontSize: 12, fontWeight: "700", textAlign: "center" },
+  membersRow: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 4 },
+  memberAvatar: { alignItems: "center", paddingVertical: 4, paddingHorizontal: 6 },
+  memberAvatarName: { fontSize: 11, fontWeight: "600", textAlign: "center", marginTop: 5, maxWidth: 56 },
+  memberAddCircle: { width: 44, height: 44, borderRadius: 22, borderWidth: 1.5, borderStyle: "dashed", alignItems: "center", justifyContent: "center" },
+  removeMemberBtn: { position: "absolute", top: -2, right: 2, width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center", zIndex: 10 },
   emptyEvents: { alignItems: "center", paddingTop: 24, gap: 10 },
   emptyText: { fontSize: 14 },
   emptyCta: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 20, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 9 },
