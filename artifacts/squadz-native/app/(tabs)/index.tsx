@@ -73,7 +73,13 @@ export default function HomeScreen() {
   >(null);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [fabOpen, setFabOpen] = useState(false);
-  const [pickerMode, setPickerMode] = useState<"find-time" | "invite" | "invite-choose" | null>(null);
+  const [pickerMode, setPickerMode] = useState<
+    "find-time" | "invite" | "invite-choose" | "invite-link" | null
+  >(null);
+  // The actual invite message + link to reveal, so the user can always read,
+  // select, copy, or share it — even in the web preview where the native Share
+  // sheet and clipboard API are blocked by the cross-origin iframe.
+  const [inviteReveal, setInviteReveal] = useState<{ title: string; message: string } | null>(null);
   // Ad-hoc "new plan" participant picker (T3): choose exactly who's planning.
   const [participantSheetOpen, setParticipantSheetOpen] = useState(false);
   const [selectedParticipants, setSelectedParticipants] = useState<Set<string>>(new Set());
@@ -227,21 +233,22 @@ export default function HomeScreen() {
     } as never);
   };
 
-  // Share a message via the native share sheet, falling back to the clipboard
-  // on web. The browser's Web Share API (which react-native-web's Share wraps)
-  // is unavailable inside the cross-origin preview iframe, so Share.share()
-  // throws and the tap appeared to do nothing — copy the link instead.
-  const shareOrCopy = async (message: string) => {
-    if (Platform.OS === "web") {
-      try {
-        const Clipboard = await import("expo-clipboard");
-        await Clipboard.setStringAsync(message);
-        showToast("Invite link copied — paste it anywhere to share 📋");
-      } catch {
-        showToast("Couldn't copy — please copy the link manually");
-      }
-      return;
+  // Copy the invite message to the clipboard. Works on native and, when the
+  // preview iframe permits it, on web too. If the clipboard is blocked the link
+  // is still visible/selectable in the reveal sheet, so the user is never stuck.
+  const copyInvite = async (message: string) => {
+    try {
+      const Clipboard = await import("expo-clipboard");
+      await Clipboard.setStringAsync(message);
+      showToast("Invite link copied — paste it anywhere to share 📋");
+    } catch {
+      showToast("Couldn't copy automatically — select the link to copy it");
     }
+  };
+
+  // Open the native share sheet (native only). Unavailable in the web preview's
+  // cross-origin iframe, so the reveal sheet hides this button on web.
+  const shareInviteNative = async (message: string) => {
     try {
       await Share.share({ message });
     } catch {
@@ -249,17 +256,24 @@ export default function HomeScreen() {
     }
   };
 
-  const shareSignupInvite = async () => {
-    const message = `I'm on SquadZ — let's plan our next hangout and find a time everyone's free. Add me with my code ${friendCode}\nhttps://joinsquadz.com`;
-    await shareOrCopy(message);
-  };
+  const signupInviteMessage = () =>
+    `I'm on SquadZ — let's plan our next hangout and find a time everyone's free. Add me with my code ${friendCode}\nhttps://joinsquadz.com`;
 
-  const shareSquadInvite = async (squad: (typeof squads)[0]) => {
+  const squadInviteMessage = (squad: (typeof squads)[0]) => {
     const link = squad.inviteCode
       ? `https://joinsquadz.com/squad/join?code=${squad.inviteCode}`
       : `https://joinsquadz.com/squad/${squad.id}`;
-    const message = `Join my squad "${squad.emoji} ${squad.name}" on SquadZ — let's find a time we're all actually free 🎉\n${link}`;
-    await shareOrCopy(message);
+    return `Join my squad "${squad.emoji} ${squad.name}" on SquadZ — let's find a time we're all actually free 🎉\n${link}`;
+  };
+
+  const showSignupInvite = () => {
+    setInviteReveal({ title: "Invite a friend to SquadZ", message: signupInviteMessage() });
+    setPickerMode("invite-link");
+  };
+
+  const showSquadInvite = (squad: (typeof squads)[0]) => {
+    setInviteReveal({ title: `Invite to ${squad.emoji} ${squad.name}`, message: squadInviteMessage(squad) });
+    setPickerMode("invite-link");
   };
 
   // "Invite crew" opens a chooser: invite into an existing squad, or just send a
@@ -272,14 +286,11 @@ export default function HomeScreen() {
   // From the invite chooser: route to the right squad-invite flow by squad count.
   const inviteToSquad = () => {
     if (squads.length === 0) {
-      setPickerMode(null);
-      setTimeout(() => { void shareSignupInvite(); }, 300);
+      showSignupInvite();
       return;
     }
     if (squads.length === 1) {
-      const sq = squads[0];
-      setPickerMode(null);
-      setTimeout(() => { void shareSquadInvite(sq); }, 350);
+      showSquadInvite(squads[0]);
       return;
     }
     setPickerMode("invite");
@@ -791,12 +802,12 @@ export default function HomeScreen() {
         visible={pickerMode !== null}
         transparent
         animationType="slide"
-        onRequestClose={() => setPickerMode(null)}
+        onRequestClose={() => { setPickerMode(null); setInviteReveal(null); }}
       >
         <TouchableOpacity
           style={styles.pickerBackdrop}
           activeOpacity={1}
-          onPress={() => setPickerMode(null)}
+          onPress={() => { setPickerMode(null); setInviteReveal(null); }}
         />
         <View style={[styles.pickerSheet, { backgroundColor: colors.card, paddingBottom: insets.bottom + 12 }]}>
           <View style={[styles.pickerHandle, { backgroundColor: colors.border }]} />
@@ -824,7 +835,7 @@ export default function HomeScreen() {
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.pickerRow, { borderBottomColor: colors.border }]}
-                onPress={() => { setPickerMode(null); setTimeout(() => { void shareSignupInvite(); }, 300); }}
+                onPress={showSignupInvite}
                 activeOpacity={0.8}
               >
                 <View style={[styles.pickerSquadEmoji, { backgroundColor: colors.primary + "20" }]}>
@@ -881,6 +892,61 @@ export default function HomeScreen() {
                 </TouchableOpacity>
               ))}
             </>
+          ) : pickerMode === "invite-link" ? (
+            <>
+              <Text style={[styles.pickerTitle, { color: colors.foreground }]}>
+                {inviteReveal?.title ?? "Invite crew"}
+              </Text>
+              <Text style={[styles.pickerSub, { color: colors.mutedForeground }]}>
+                Send this to bring people in — or copy the link below.
+              </Text>
+              <View style={[styles.inviteLinkBox, { backgroundColor: colors.muted, borderColor: colors.border }]}>
+                <Text selectable style={[styles.inviteLinkText, { color: colors.foreground }]}>
+                  {inviteReveal?.message ?? ""}
+                </Text>
+              </View>
+              {Platform.OS !== "web" ? (
+                <TouchableOpacity
+                  style={[styles.inviteBtn, { backgroundColor: colors.primary }]}
+                  activeOpacity={0.85}
+                  onPress={() => { if (inviteReveal) void shareInviteNative(inviteReveal.message); }}
+                >
+                  <Ionicons name="share-outline" size={18} color="#fff" />
+                  <Text style={styles.inviteBtnText}>Share…</Text>
+                </TouchableOpacity>
+              ) : null}
+              <TouchableOpacity
+                style={[
+                  styles.inviteBtn,
+                  Platform.OS === "web"
+                    ? { backgroundColor: colors.primary }
+                    : { backgroundColor: colors.muted, borderWidth: 1, borderColor: colors.border },
+                ]}
+                activeOpacity={0.85}
+                onPress={() => { if (inviteReveal) void copyInvite(inviteReveal.message); }}
+              >
+                <Ionicons
+                  name="copy-outline"
+                  size={18}
+                  color={Platform.OS === "web" ? "#fff" : colors.foreground}
+                />
+                <Text
+                  style={[
+                    styles.inviteBtnText,
+                    Platform.OS === "web" ? null : { color: colors.foreground },
+                  ]}
+                >
+                  Copy link
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.inviteDone}
+                activeOpacity={0.7}
+                onPress={() => { setPickerMode(null); setInviteReveal(null); }}
+              >
+                <Text style={[styles.inviteDoneText, { color: colors.mutedForeground }]}>Done</Text>
+              </TouchableOpacity>
+            </>
           ) : (
             <>
               <Text style={[styles.pickerTitle, { color: colors.foreground }]}>Which squad?</Text>
@@ -892,11 +958,8 @@ export default function HomeScreen() {
                   key={sq.id}
                   style={[styles.pickerRow, { borderBottomColor: colors.border }]}
                   onPress={() => {
-                    setPickerMode(null);
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                    // Delay until the modal close animation finishes (~300 ms on iOS)
-                    // so the Share sheet isn't blocked by the dismissing modal.
-                    setTimeout(() => { void shareSquadInvite(sq); }, 350);
+                    showSquadInvite(sq);
                   }}
                   activeOpacity={0.8}
                 >
@@ -1184,6 +1247,17 @@ const styles = StyleSheet.create({
   },
   pickerSquadName: { fontSize: 15, fontWeight: "700" },
   pickerSquadCount: { fontSize: 12, marginTop: 2 },
+  inviteLinkBox: {
+    borderRadius: 14, borderWidth: 1, padding: 14, marginBottom: 16,
+  },
+  inviteLinkText: { fontSize: 13, lineHeight: 19 },
+  inviteBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    paddingVertical: 14, borderRadius: 14, marginBottom: 10,
+  },
+  inviteBtnText: { fontSize: 15, fontWeight: "700", color: "#fff" },
+  inviteDone: { alignItems: "center", paddingVertical: 10, marginBottom: 2 },
+  inviteDoneText: { fontSize: 14, fontWeight: "600" },
   balanceRow: {
     flexDirection: "row", alignItems: "center", gap: 12,
     borderRadius: 14, borderWidth: 1, padding: 14,
