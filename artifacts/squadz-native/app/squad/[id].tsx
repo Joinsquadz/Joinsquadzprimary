@@ -656,40 +656,44 @@ export default function SquadDetailScreen() {
         contentContainerStyle={{ padding: 20, paddingBottom: botPad + 24 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* Invite banner */}
-        <TouchableOpacity
-          onPress={shareInvite}
-          activeOpacity={0.85}
-          style={[styles.inviteBanner, { backgroundColor: colors.card, borderColor: colors.border }]}
-        >
-          <View style={[styles.inviteIcon, { backgroundColor: colors.primary + "20" }]}>
-            <Ionicons name="person-add-outline" size={20} color={colors.primary} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.inviteTitle, { color: colors.foreground }]}>Invite friends not on SquadZ</Text>
-            <Text style={[styles.inviteSub, { color: colors.mutedForeground }]} numberOfLines={1}>
-              Share an invite link to add them
-            </Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
-        </TouchableOpacity>
-
-        {/* Public share link — only for public squads */}
-        {squad.isPublic && (
+        {/* Invite actions — grouped card */}
+        <View style={[styles.groupCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <TouchableOpacity
-            onPress={sharePublicLink}
-            style={[styles.inviteBanner, { backgroundColor: colors.card, borderColor: colors.border, marginTop: 10 }]}
+            onPress={shareInvite}
+            activeOpacity={0.7}
+            style={styles.groupRow}
           >
             <View style={[styles.inviteIcon, { backgroundColor: colors.primary + "20" }]}>
-              <Ionicons name="globe-outline" size={20} color={colors.primary} />
+              <Ionicons name="person-add-outline" size={20} color={colors.primary} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={[styles.inviteTitle, { color: colors.foreground }]}>Share publicly</Text>
-              <Text style={[styles.inviteSub, { color: colors.mutedForeground }]}>Anyone with the link can join</Text>
+              <Text style={[styles.inviteTitle, { color: colors.foreground }]}>Invite friends not on SquadZ</Text>
+              <Text style={[styles.inviteSub, { color: colors.mutedForeground }]} numberOfLines={1}>
+                Share an invite link to add them
+              </Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
           </TouchableOpacity>
-        )}
+          {squad.isPublic && (
+            <>
+              <View style={[styles.groupDivider, { backgroundColor: colors.border }]} />
+              <TouchableOpacity
+                onPress={sharePublicLink}
+                activeOpacity={0.7}
+                style={styles.groupRow}
+              >
+                <View style={[styles.inviteIcon, { backgroundColor: colors.primary + "20" }]}>
+                  <Ionicons name="globe-outline" size={20} color={colors.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.inviteTitle, { color: colors.foreground }]}>Share publicly</Text>
+                  <Text style={[styles.inviteSub, { color: colors.mutedForeground }]}>Anyone with the link can join</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
 
         {/* Ambient Squadz+ benefit nudge for free members */}
         <SquadzPlusBanner
@@ -739,7 +743,7 @@ export default function SquadDetailScreen() {
         </View>
 
         {/* Members */}
-        <Text style={[styles.sectionTitle, { color: colors.foreground, marginTop: 24 }]}>Members</Text>
+        <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginTop: 24 }]}>Members</Text>
         {showLongPressHint && (
           <Animated.View style={[styles.longPressHint, { backgroundColor: colors.primary + "18", borderColor: colors.primary + "35", opacity: hintOpacity }]}>
             <Ionicons name="hand-left-outline" size={14} color={colors.primary} />
@@ -798,51 +802,56 @@ export default function SquadDetailScreen() {
           )}
         </View>
 
-        {/* Group chat */}
+        {/* Group chat + Vault — grouped card */}
         <View
           ref={chatAnchorRef}
           collapsable={false}
           onLayout={(e) => {
             chatContentY.current = e.nativeEvent.layout.y;
           }}
+          style={{ marginTop: 20 }}
         >
-        <TouchableOpacity
-          onPress={() => handleOpenChat(squad.id)}
-          disabled={openingChat}
-          style={[styles.photosRow, { backgroundColor: colors.card, borderColor: colors.border, marginBottom: 12 }]}
-        >
-          <View style={[styles.photosIcon, { backgroundColor: colors.primary + "20" }]}>
-            <Ionicons name="chatbubbles-outline" size={20} color={colors.primary} />
+          <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 8 }]}>Squad</Text>
+          <View style={[styles.groupCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <TouchableOpacity
+              onPress={() => handleOpenChat(squad.id)}
+              disabled={openingChat}
+              activeOpacity={0.7}
+              style={styles.groupRow}
+            >
+              <View style={[styles.photosIcon, { backgroundColor: colors.primary + "20" }]}>
+                <Ionicons name="chatbubbles-outline" size={20} color={colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.photosTitle, { color: colors.foreground }]}>Group Chat</Text>
+                <Text style={[styles.photosSub, { color: colors.mutedForeground }]}>Message the whole squad</Text>
+              </View>
+              {openingChat ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
+                <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
+              )}
+            </TouchableOpacity>
+            <View style={[styles.groupDivider, { backgroundColor: colors.border }]} />
+            <TouchableOpacity
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push(`/vault?squadId=${squad.id}&squadName=${encodeURIComponent(squad.name)}` as never);
+              }}
+              activeOpacity={0.7}
+              style={styles.groupRow}
+            >
+              <View style={[styles.photosIcon, { backgroundColor: colors.primary + "20" }]}>
+                <Ionicons name="images-outline" size={20} color={colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.photosTitle, { color: colors.foreground }]}>Squad Vault</Text>
+                <Text style={[styles.photosSub, { color: colors.mutedForeground }]}>View vault · private memories</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
+            </TouchableOpacity>
           </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.photosTitle, { color: colors.foreground }]}>Group Chat</Text>
-            <Text style={[styles.photosSub, { color: colors.mutedForeground }]}>Message the whole squad</Text>
-          </View>
-          {openingChat ? (
-            <ActivityIndicator size="small" color={colors.primary} />
-          ) : (
-            <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
-          )}
-        </TouchableOpacity>
         </View>
-
-        {/* Photos */}
-        <TouchableOpacity
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            router.push(`/vault?squadId=${squad.id}&squadName=${encodeURIComponent(squad.name)}` as never);
-          }}
-          style={[styles.photosRow, { backgroundColor: colors.card, borderColor: colors.border }]}
-        >
-          <View style={[styles.photosIcon, { backgroundColor: colors.primary + "20" }]}>
-            <Ionicons name="images-outline" size={20} color={colors.primary} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.photosTitle, { color: colors.foreground }]}>Squad Vault</Text>
-            <Text style={[styles.photosSub, { color: colors.mutedForeground }]}>View vault · private memories</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
-        </TouchableOpacity>
 
         {/* Events */}
         <View
@@ -853,7 +862,7 @@ export default function SquadDetailScreen() {
           }}
           style={{ marginTop: 24 }}
         >
-          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Events</Text>
+          <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Events</Text>
         </View>
         {squadEvents.length === 0 ? (
           <TouchableOpacity
@@ -1281,6 +1290,10 @@ const styles = StyleSheet.create({
   inviteTitle: { fontSize: 15, fontWeight: "800" },
   inviteSub: { fontSize: 12, marginTop: 2 },
   sectionTitle: { fontSize: 18, fontWeight: "800", marginBottom: 12 },
+  sectionLabel: { fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 10 },
+  groupCard: { borderRadius: 14, borderWidth: 1, overflow: "hidden" },
+  groupRow: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14 },
+  groupDivider: { height: 1 },
   membersGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   memberCard: { borderRadius: 14, borderWidth: 1, padding: 14, alignItems: "center", gap: 8, width: "30%" },
   removeMemberBtn: { position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center", zIndex: 10 },
