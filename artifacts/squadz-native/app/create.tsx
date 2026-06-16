@@ -23,7 +23,7 @@ import { useData, useAuth } from "@/context/AppContext";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
-const EMOJIS = ["🔥", "🎉", "🎮", "🏖️", "🍕", "🎸", "⚽", "🎬", "🍻", "🎊"];
+import { EMOJI_CHOICES as EMOJIS } from "@/constants/emojis";
 
 function formatPickedDate(d: Date): string {
   const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -253,7 +253,7 @@ export default function CreateEventScreen() {
       >
         <View style={styles.section}>
           <Text style={[styles.label, { color: colors.mutedForeground }]}>Event icon</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
+          <View style={styles.emojiGrid}>
             {EMOJIS.map((e) => (
               <TouchableOpacity
                 key={e}
@@ -266,7 +266,7 @@ export default function CreateEventScreen() {
                 <Text style={styles.emojiText}>{e}</Text>
               </TouchableOpacity>
             ))}
-          </ScrollView>
+          </View>
         </View>
 
         <View style={styles.section}>
@@ -489,6 +489,7 @@ const styles = StyleSheet.create({
   },
   fieldInput: { flex: 1, fontSize: 15 },
   fieldMultiline: { height: undefined, alignItems: "flex-start", paddingVertical: 12 },
+  emojiGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   emojiOption: { width: 52, height: 52, borderRadius: 14, borderWidth: 2, alignItems: "center", justifyContent: "center" },
   emojiText: { fontSize: 24 },
   dateBtn: {

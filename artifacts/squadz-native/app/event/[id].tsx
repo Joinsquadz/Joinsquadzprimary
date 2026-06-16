@@ -39,7 +39,7 @@ import { useTips } from "@/context/TipsContext";
 
 type EventTab = "overview" | "guests" | "tasks" | "food" | "costs" | "chat" | "photos" | "admin";
 
-const EMOJIS = ["🔥", "🎉", "🎮", "🏖️", "🍕", "🎸", "⚽", "🎬", "🍻", "🎊"];
+import { EMOJI_CHOICES as EMOJIS } from "@/constants/emojis";
 
 const STATUS_LABEL: Record<RsvpStatus, string> = {
   going: "Going",

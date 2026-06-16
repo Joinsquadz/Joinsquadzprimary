@@ -38,7 +38,7 @@ import { SquadzPlusBanner } from "@/components/SquadzPlusBanner";
 import { goingCount } from "@/lib/eventUtils";
 import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
 
-const EMOJIS = ["🔥", "🎉", "🎮", "🏖️", "🍕", "🎸", "⚽", "🎬", "🍻", "🎊", "🏀", "🎲", "🧗", "🎤", "🏠", "💼"];
+import { EMOJI_CHOICES as EMOJIS } from "@/constants/emojis";
 
 function getFriendCodeDisplayName(u: FoundUser): string {
   if (u.firstName && u.lastName) return `${u.firstName} ${u.lastName}`;

@@ -58,6 +58,31 @@ const SUGGESTION_COLORS: Record<string, string> = {
 };
 const suggestionColor = (type: string) => SUGGESTION_COLORS[type] ?? "#A855F7";
 
+// Web-only clipboard copy via a hidden textarea + execCommand("copy"). This is
+// the one copy path that works inside the cross-origin preview iframe (where
+// navigator.clipboard.writeText is blocked). No-op/false on native.
+function webCopy(text: string): boolean {
+  try {
+    if (typeof document === "undefined") return false;
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.top = "0";
+    ta.style.left = "0";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    ta.setSelectionRange(0, text.length);
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -237,6 +262,27 @@ export default function HomeScreen() {
   // preview iframe permits it, on web too. If the clipboard is blocked the link
   // is still visible/selectable in the reveal sheet, so the user is never stuck.
   const copyInvite = async (message: string) => {
+    if (Platform.OS === "web") {
+      // Try the legacy execCommand path FIRST while still inside the tap
+      // gesture — navigator.clipboard is blocked in the cross-origin preview
+      // iframe, but a hidden-textarea + execCommand("copy") works there.
+      if (webCopy(message)) {
+        showToast("Invite link copied — paste it anywhere to share 📋");
+        return;
+      }
+      try {
+        const nav = (globalThis as { navigator?: Navigator }).navigator;
+        if (nav?.clipboard?.writeText) {
+          await nav.clipboard.writeText(message);
+          showToast("Invite link copied — paste it anywhere to share 📋");
+          return;
+        }
+      } catch {
+        // fall through to the manual-select hint
+      }
+      showToast("Couldn't copy automatically — select the link to copy it");
+      return;
+    }
     try {
       const Clipboard = await import("expo-clipboard");
       await Clipboard.setStringAsync(message);
