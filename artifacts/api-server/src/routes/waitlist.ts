@@ -25,43 +25,43 @@ function buildWaitlistThankYouText(_email: string): string {
 }
 
 function buildWaitlistThankYouHtml(_email: string): string {
+  // Email-safe markup: table-based layout, inline styles, NO inline <svg>
+  // (Gmail and most clients strip <svg>), and a solid color fallback behind
+  // any gradient so the brand always renders.
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Thanks for joining the Squadz waitlist!</title>
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0A0A0F; color: #fff; margin: 0; padding: 0; }
-    .container { max-width: 480px; margin: 0 auto; padding: 40px 24px; }
-    h1 { font-size: 24px; font-weight: 800; margin: 0 0 16px; }
-    p { font-size: 16px; line-height: 1.6; color: #E2E2E8; margin: 0 0 12px; }
-    .footer { margin-top: 32px; font-size: 13px; color: #8B8B9E; }
-  </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>You're on the Squadz waitlist!</title>
 </head>
-<body>
-  <div class="container">
-    <svg width="52" height="52" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" style="display:block;border-radius:12px;margin-bottom:24px">
-      <defs>
-        <linearGradient id="sq-zg" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stop-color="#FF5C3A"/>
-          <stop offset="100%" stop-color="#FFB547"/>
-        </linearGradient>
-        <linearGradient id="sq-bg" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stop-color="#1E1E2E"/>
-          <stop offset="100%" stop-color="#0A0A14"/>
-        </linearGradient>
-      </defs>
-      <rect x="0" y="0" width="512" height="512" rx="114" fill="url(#sq-bg)"/>
-      <path d="M 81,81 L 431,81 L 431,151 L 151,361 L 431,361 L 431,431 L 81,431 L 81,361 L 361,151 L 81,151 Z" fill="url(#sq-zg)"/>
-    </svg>
-    <h1>Thanks for joining the Squadz waitlist!</h1>
-    <p>You're on the list. We'll email you the moment Squadz drops on the App Store and Google Play.</p>
-    <div class="footer">
-      <p>Thanks for being early — we can't wait to get your squad hanging.</p>
-      <p>— The Squadz team<br><a href="https://joinsquadz.com" style="color: #8B8B9E;">joinsquadz.com</a></p>
-    </div>
-  </div>
+<body style="margin:0;padding:0;background:#0f0f1a;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;color:#e8e8f0;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#0f0f1a;padding:40px 16px;">
+    <tr>
+      <td align="center">
+        <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;">
+          <tr>
+            <td align="center" style="padding-bottom:32px;">
+              <span style="display:inline-block;font-size:28px;font-weight:800;letter-spacing:-0.5px;color:#ffffff;">Squad<span style="color:#FF5C3A;">z</span></span>
+            </td>
+          </tr>
+          <tr>
+            <td style="background:#1a1a2e;border-radius:16px;padding:40px;border:1px solid rgba(255,255,255,0.08);">
+              <p style="margin:0 0 12px;font-size:24px;font-weight:800;color:#ffffff;">You're on the list! 🎉</p>
+              <p style="margin:0 0 12px;font-size:15px;color:#c8c8d8;line-height:1.6;">Thanks for joining the Squadz waitlist. We'll email you the moment Squadz drops on the App Store and Google Play.</p>
+              <p style="margin:0 0 4px;font-size:15px;color:#c8c8d8;line-height:1.6;">Thanks for being early — we can't wait to get your squad hanging.</p>
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="padding-top:28px;">
+              <p style="margin:0;font-size:13px;color:#9898b0;">— The Squadz team</p>
+              <p style="margin:6px 0 0;font-size:13px;"><a href="https://joinsquadz.com" style="color:#FF5C3A;text-decoration:none;">joinsquadz.com</a></p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
 </body>
 </html>`;
 }

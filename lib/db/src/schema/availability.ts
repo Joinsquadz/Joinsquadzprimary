@@ -33,6 +33,9 @@ export const availabilityPollsTable = pgTable("availability_polls", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }),
   updatedBy: text("updated_by"),
+  // Fire-once marker for the automatic "almost there" organizer nudge, sent when
+  // most invitees have responded but the poll isn't fully answered yet.
+  nudgeSentAt: timestamp("nudge_sent_at", { withTimezone: true }),
 });
 
 // One row per (poll, user). `cells` are the selected grid keys, e.g. "Mon-8PM".

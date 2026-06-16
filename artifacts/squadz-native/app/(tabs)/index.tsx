@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   Share,
   Modal,
   Alert,
+  RefreshControl,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
@@ -88,8 +89,15 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { currentUser, authToken } = useAuth();
   const { unreadCount: unreadActivity } = useActivity();
-  const { events, squads, friends, eventsLoading, squadsLoading, joinEvent, joinSquad, friendCode } = useData();
+  const { events, squads, friends, eventsLoading, squadsLoading, joinEvent, joinSquad, friendCode, refreshEvents, refreshSquads } = useData();
   const { showToast } = useToast();
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([refreshEvents(), refreshSquads()]);
+    setRefreshing(false);
+  }, [refreshEvents, refreshSquads]);
   const [discoverEvents, setDiscoverEvents] = useState<DiscoverEvent[]>([]);
   const [discoverSquads, setDiscoverSquads] = useState<DiscoverSquad[]>([]);
   const [streaks, setStreaks] = useState<{ monthlyPlan: number; stayInTouch: number } | null>(null);
@@ -395,6 +403,9 @@ export default function HomeScreen() {
         style={styles.body}
         contentContainerStyle={{ paddingBottom: insets.bottom + (Platform.OS === "web" ? 84 : 100) }}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
+        }
       >
         {/* Quick actions — always-present primary actions */}
         <View style={[styles.section, { flexDirection: "row", gap: 12 }]}>

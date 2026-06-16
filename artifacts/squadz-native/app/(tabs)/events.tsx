@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo, useEffect } from "react";
+import { useState, useRef, useMemo, useEffect, useCallback } from "react";
 import { router } from "expo-router";
 import {
   View,
@@ -11,6 +11,7 @@ import {
   Modal,
   KeyboardAvoidingView,
   ActivityIndicator,
+  RefreshControl,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -178,11 +179,18 @@ type ListItem =
 export default function EventsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { events, currentUser, eventsLoading } = useData();
+  const { events, currentUser, eventsLoading, refreshEvents } = useData();
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [showPast, setShowPast] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await refreshEvents();
+    setRefreshing(false);
+  }, [refreshEvents]);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
 
@@ -312,6 +320,9 @@ export default function EventsScreen() {
         maxToRenderPerBatch={8}
         windowSize={11}
         removeClippedSubviews={Platform.OS !== "web"}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
+        }
         ListEmptyComponent={
           eventsLoading ? (
             <View style={styles.empty}>

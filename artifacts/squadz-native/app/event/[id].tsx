@@ -36,10 +36,30 @@ import { goingCount } from "@/lib/eventUtils";
 import type { RsvpStatus } from "@/types";
 import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
 import { useTips } from "@/context/TipsContext";
+import { EMOJI_CHOICES as EMOJIS } from "@/constants/emojis";
 
 type EventTab = "overview" | "guests" | "tasks" | "food" | "costs" | "chat" | "photos" | "admin";
 
-import { EMOJI_CHOICES as EMOJIS } from "@/constants/emojis";
+/**
+ * Human-friendly countdown to an event start. Returns null when the event is
+ * more than ~10 days out (no urgency) or already finished (>3h past start).
+ */
+function formatCountdown(target: Date, now: number): { label: string; soon: boolean } | null {
+  const diff = target.getTime() - now;
+  const HOUR = 3600_000;
+  const DAY = 24 * HOUR;
+  if (diff < -3 * HOUR) return null; // event is over
+  if (diff <= 0) return { label: "Happening now", soon: true };
+  if (diff > 10 * DAY) return null; // too far out to bother
+  const days = Math.floor(diff / DAY);
+  const hours = Math.floor((diff % DAY) / HOUR);
+  const mins = Math.floor((diff % HOUR) / 60_000);
+  let label: string;
+  if (days >= 1) label = `Starts in ${days}d ${hours}h`;
+  else if (hours >= 1) label = `Starts in ${hours}h ${mins}m`;
+  else label = `Starts in ${mins}m`;
+  return { label, soon: diff <= DAY };
+}
 
 const STATUS_LABEL: Record<RsvpStatus, string> = {
   going: "Going",
@@ -84,6 +104,11 @@ export default function EventDetailScreen() {
     : tabParam === "photos" ? "photos"
     : "overview";
   const [tab, setTab] = useState<EventTab>(initialTab);
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNowTick(Date.now()), 60000);
+    return () => clearInterval(t);
+  }, []);
   const [contactOpen, setContactOpen] = useState(false);
   const [contactMember, setContactMember] = useState<ResolvedUser | null>(null);
   const { resolveUser, prefetchUsers } = useUserCache();
@@ -710,6 +735,33 @@ export default function EventDetailScreen() {
         >
           <Text style={[styles.heroLocation, { marginBottom: 0 }]}>{event.location}</Text>
         </Animated.View>
+
+        {(() => {
+          const start = parseEventStart(event.date);
+          const cd = start ? formatCountdown(start, nowTick) : null;
+          if (!cd) return null;
+          return (
+            <View
+              accessible
+              accessibilityRole="text"
+              accessibilityLabel={`Event ${cd.label}`}
+              accessibilityLiveRegion="polite"
+              style={[
+                styles.countdownPill,
+                { backgroundColor: cd.soon ? "rgba(255,92,58,0.22)" : "rgba(255,255,255,0.14)" },
+              ]}
+            >
+              <Ionicons
+                name={cd.soon ? "flame" : "time-outline"}
+                size={13}
+                color={cd.soon ? colors.primary : "#fff"}
+              />
+              <Text style={[styles.countdownText, cd.soon && { color: colors.primary }]}>
+                {cd.label}
+              </Text>
+            </View>
+          );
+        })()}
 
         {/* RSVP buttons */}
         <View style={styles.rsvpRow}>
@@ -1827,6 +1879,17 @@ const styles = StyleSheet.create({
   heroHostText: { color: "#fff", fontSize: 11, fontWeight: "700" },
   heroDate: { fontSize: 14, color: "rgba(255,255,255,0.85)", textAlign: "center", fontWeight: "600", marginBottom: 2 },
   heroLocation: { fontSize: 13, color: "rgba(255,255,255,0.75)", textAlign: "center", marginBottom: 14 },
+  countdownPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    alignSelf: "center",
+    paddingHorizontal: 11,
+    paddingVertical: 5,
+    borderRadius: 999,
+    marginBottom: 14,
+  },
+  countdownText: { fontSize: 12, fontWeight: "700", color: "#fff" },
   rsvpRow: { flexDirection: "row", gap: 8, justifyContent: "center" },
   rsvpBtn: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 20, borderWidth: 1.5, paddingHorizontal: 14, paddingVertical: 8 },
   rsvpText: { fontSize: 13, fontWeight: "700", color: "#fff" },

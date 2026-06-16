@@ -1571,6 +1571,91 @@ export class Storage {
       .where(eq(eventsTable.id, eventId));
   }
 
+  /** Events eligible for a "day-of" heads-up reminder (fire-once via
+   *  dayOfReminderSentAt). Same date-parseability gate as the soon reminder. */
+  async getEventsPendingDayOfReminder(): Promise<DbEvent[]> {
+    return db
+      .select()
+      .from(eventsTable)
+      .where(
+        and(
+          eq(eventsTable.cancelled, false),
+          isNull(eventsTable.dayOfReminderSentAt),
+          ne(eventsTable.date, ""),
+          ne(eventsTable.date, "TBD"),
+        ),
+      );
+  }
+
+  async markEventDayOfReminderSent(eventId: string): Promise<void> {
+    await db
+      .update(eventsTable)
+      .set({ dayOfReminderSentAt: new Date() })
+      .where(eq(eventsTable.id, eventId));
+  }
+
+  /** Events eligible for a post-event "drop your photos" recap prompt
+   *  (fire-once via recapPromptSentAt). */
+  async getEventsPendingRecap(): Promise<DbEvent[]> {
+    return db
+      .select()
+      .from(eventsTable)
+      .where(
+        and(
+          eq(eventsTable.cancelled, false),
+          isNull(eventsTable.recapPromptSentAt),
+          ne(eventsTable.date, ""),
+          ne(eventsTable.date, "TBD"),
+        ),
+      );
+  }
+
+  async markEventRecapSent(eventId: string): Promise<void> {
+    await db
+      .update(eventsTable)
+      .set({ recapPromptSentAt: new Date() })
+      .where(eq(eventsTable.id, eventId));
+  }
+
+  /** Availability polls that have not yet had their automatic "almost there"
+   *  organizer nudge sent (fire-once via nudgeSentAt). */
+  async getPollsPendingNudge(): Promise<AvailabilityPoll[]> {
+    return db
+      .select()
+      .from(availabilityPollsTable)
+      .where(isNull(availabilityPollsTable.nudgeSentAt));
+  }
+
+  async markPollNudgeSent(pollId: string): Promise<void> {
+    await db
+      .update(availabilityPollsTable)
+      .set({ nudgeSentAt: new Date() })
+      .where(eq(availabilityPollsTable.id, pollId));
+  }
+
+  /** Best-effort invitee roster for a poll, used to compute response ratios for
+   *  the automatic organizer nudge. Ad-hoc polls use their explicit
+   *  participantIds; squad polls use current squad membership; event polls use
+   *  the event's RSVP keys plus its host. Returns [] when it can't be derived. */
+  async getAvailabilityPollRoster(poll: AvailabilityPoll): Promise<string[]> {
+    const ids = new Set<string>();
+    if (Array.isArray(poll.participantIds) && poll.participantIds.length > 0) {
+      for (const id of poll.participantIds) ids.add(id);
+    }
+    if (poll.squadId) {
+      const squad = await this.getSquad(poll.squadId);
+      for (const id of ((squad?.memberIds ?? []) as string[])) ids.add(id);
+    }
+    if (poll.eventId) {
+      const event = await this.getEvent(poll.eventId);
+      if (event) {
+        ids.add(event.hostId);
+        for (const uid of Object.keys((event.rsvps ?? {}) as Record<string, string>)) ids.add(uid);
+      }
+    }
+    return [...ids];
+  }
+
   async storePushTicket(ticketId: string, pushToken: string): Promise<void> {
     await db
       .insert(pushTicketsTable)

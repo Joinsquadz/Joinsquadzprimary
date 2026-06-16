@@ -775,7 +775,7 @@ function buildAuthEmailHtml(opts: {
                 <tr>
                   <td align="center">
                     <a href="${opts.url}"
-                       style="display:inline-block;padding:14px 32px;background:linear-gradient(135deg,#FF5C3A,#A855F7);color:#ffffff;text-decoration:none;border-radius:10px;font-size:15px;font-weight:700;letter-spacing:0.2px;">
+                       style="display:inline-block;padding:14px 32px;background-color:#FF5C3A;background:linear-gradient(135deg,#FF5C3A,#A855F7);color:#ffffff;text-decoration:none;border-radius:10px;font-size:15px;font-weight:700;letter-spacing:0.2px;">
                       ${opts.buttonLabel}
                     </a>
                   </td>

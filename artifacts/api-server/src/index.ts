@@ -5,7 +5,13 @@ import { logger } from './lib/logger';
 import { getSmtpStatus } from './emailService';
 import { checkPushReceipts, initPushTickets } from './lib/pushNotifications';
 import { storage } from './storage';
-import { REMINDER_SCAN_INTERVAL_MS, runEventReminderScan } from './lib/eventReminders';
+import {
+  REMINDER_SCAN_INTERVAL_MS,
+  runEventReminderScan,
+  runDayOfReminderScan,
+  runEventRecapScan,
+  runPollNudgeScan,
+} from './lib/eventReminders';
 import { db, squadsTable } from '@workspace/db';
 import { isNull } from 'drizzle-orm';
 
@@ -125,8 +131,13 @@ setInterval(() => {
     .catch((err) => logger.error({ err }, 'Push receipt check failed'));
 }, RECEIPT_CHECK_INTERVAL_MS).unref();
 
-// Automatic "starting soon" event reminders (logic in ./lib/eventReminders).
-logger.info({ intervalMs: REMINDER_SCAN_INTERVAL_MS }, 'Event reminder scan scheduled');
+// Automatic engagement scans (logic in ./lib/eventReminders): "starting soon"
+// + "day-of" reminders, post-event photo recap prompt, and the availability
+// poll "almost there" organizer nudge. All are fire-once and idempotent.
+logger.info({ intervalMs: REMINDER_SCAN_INTERVAL_MS }, 'Engagement scans scheduled');
 setInterval(() => {
   runEventReminderScan().catch((err) => logger.error({ err }, 'Event reminder scan failed'));
+  runDayOfReminderScan().catch((err) => logger.error({ err }, 'Day-of reminder scan failed'));
+  runEventRecapScan().catch((err) => logger.error({ err }, 'Event recap scan failed'));
+  runPollNudgeScan().catch((err) => logger.error({ err }, 'Poll nudge scan failed'));
 }, REMINDER_SCAN_INTERVAL_MS).unref();

@@ -10,11 +10,43 @@ import { parseEventStart } from './eventDate';
 export const REMINDER_SCAN_INTERVAL_MS = 10 * 60 * 1000;
 export const REMINDER_LEAD_MS = 2 * 60 * 60 * 1000;
 
+// "Day-of" heads-up: fire once when the event is within this lead but still more
+// than the "starting soon" lead away, so the two reminders don't collide.
+export const DAY_OF_LEAD_MS = 14 * 60 * 60 * 1000;
+
+// Post-event recap: prompt for photos once the event is comfortably over, but
+// not so long after that it feels stale.
+export const RECAP_DELAY_MS = 3 * 60 * 60 * 1000;
+export const RECAP_MAX_AGE_MS = 48 * 60 * 60 * 1000;
+
+// Availability-poll "almost there" organizer nudge thresholds.
+export const POLL_NUDGE_MIN_AGE_MS = 2 * 60 * 60 * 1000;
+export const POLL_NUDGE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+export const POLL_NUDGE_MIN_ROSTER = 3;
+export const POLL_NUDGE_RATIO = 0.6;
+
+// Resolve an event's start time, preferring the machine-readable `eventAt`
+// timestamp and falling back to best-effort parsing of the human-readable
+// `date` display string. Preferring `eventAt` keeps timing accurate AND makes
+// the recap max-age retirement reachable: the year-less display format rolls
+// anything more than ~48h in the past forward into next year, which would
+// otherwise make a stale event look perpetually upcoming and never retire.
+function eventStartFor(
+  event: { eventAt?: Date | string | null; date: string },
+  now: Date,
+): Date | null {
+  if (event.eventAt) {
+    const t = event.eventAt instanceof Date ? event.eventAt : new Date(event.eventAt);
+    if (!Number.isNaN(t.getTime())) return t;
+  }
+  return parseEventStart(event.date, now);
+}
+
 export async function runEventReminderScan(): Promise<void> {
   const events = await storage.getEventsPendingReminder();
   const now = new Date();
   for (const event of events) {
-    const start = parseEventStart(event.date, now);
+    const start = eventStartFor(event, now);
     if (!start) continue; // unparseable — leave for a future scan
     const msUntil = start.getTime() - now.getTime();
     if (msUntil <= 0) {
@@ -64,6 +96,187 @@ export async function runEventReminderScan(): Promise<void> {
       }
     } catch (err) {
       logger.error({ err, eventId: event.id }, 'Event reminder send failed; will retry');
+    }
+  }
+}
+
+// "Day-of" heads-up reminder to going RSVPs, fired once per event when the start
+// is within DAY_OF_LEAD_MS but still further out than the 2h "starting soon"
+// window (so guests get a morning-of nudge as well as the last-minute one).
+export async function runDayOfReminderScan(): Promise<void> {
+  const events = await storage.getEventsPendingDayOfReminder();
+  const now = new Date();
+  for (const event of events) {
+    const start = eventStartFor(event, now);
+    if (!start) continue;
+    const msUntil = start.getTime() - now.getTime();
+    // Past, or already inside the "starting soon" window — the soon-reminder
+    // covers it; mark day-of done so we don't fire a late duplicate.
+    if (msUntil <= REMINDER_LEAD_MS) {
+      await storage.markEventDayOfReminderSent(event.id);
+      continue;
+    }
+    if (msUntil > DAY_OF_LEAD_MS) continue; // too far out yet
+
+    const rsvps = (event.rsvps ?? {}) as Record<string, string>;
+    const goingIds = Object.keys(rsvps).filter((uid) => rsvps[uid] === 'going');
+    if (goingIds.length === 0) continue;
+
+    const recipientIds = event.squadId
+      ? await storage.filterUnmutedForSquad(goingIds, event.squadId)
+      : goingIds;
+    if (recipientIds.length === 0) continue;
+
+    const tokens = await storage.getPushTokensForUsers(recipientIds, { requireNotifyReminders: true });
+    if (tokens.length === 0) continue;
+
+    try {
+      const result = await sendPushNotifications(
+        tokens,
+        {
+          title: `${event.emoji} ${event.title}`,
+          body: `Coming up today — ${event.date}`,
+          data: { screen: 'event', eventId: event.id },
+        },
+        { onStaleToken: (token) => storage.clearPushToken(token) },
+      );
+      if (result.okCount > 0 && !result.hadSendError) {
+        await storage.markEventDayOfReminderSent(event.id);
+      } else {
+        logger.warn(
+          { eventId: event.id, okCount: result.okCount, hadSendError: result.hadSendError },
+          'Day-of reminder not confirmed sent; will retry next scan',
+        );
+      }
+    } catch (err) {
+      logger.error({ err, eventId: event.id }, 'Day-of reminder send failed; will retry');
+    }
+  }
+}
+
+// Post-event "drop your photos" recap prompt, fired once per event a few hours
+// after it ends (within RECAP_MAX_AGE_MS) to the going RSVPs.
+export async function runEventRecapScan(): Promise<void> {
+  const events = await storage.getEventsPendingRecap();
+  const now = new Date();
+  for (const event of events) {
+    const start = eventStartFor(event, now);
+    if (!start) continue;
+    const msSince = now.getTime() - start.getTime();
+    if (msSince < RECAP_DELAY_MS) continue; // not over yet
+    if (msSince > RECAP_MAX_AGE_MS) {
+      // Too old to feel timely — retire it so we stop reprocessing.
+      await storage.markEventRecapSent(event.id);
+      continue;
+    }
+
+    const rsvps = (event.rsvps ?? {}) as Record<string, string>;
+    const goingIds = Object.keys(rsvps).filter((uid) => rsvps[uid] === 'going');
+    if (goingIds.length === 0) {
+      await storage.markEventRecapSent(event.id);
+      continue;
+    }
+
+    const recipientIds = event.squadId
+      ? await storage.filterUnmutedForSquad(goingIds, event.squadId)
+      : goingIds;
+    if (recipientIds.length === 0) {
+      await storage.markEventRecapSent(event.id);
+      continue;
+    }
+
+    const tokens = await storage.getPushTokensForUsers(recipientIds, { requireNotifyReminders: true });
+    if (tokens.length === 0) {
+      await storage.markEventRecapSent(event.id);
+      continue;
+    }
+
+    try {
+      const result = await sendPushNotifications(
+        tokens,
+        {
+          title: `📸 How was ${event.title}?`,
+          body: 'Drop your photos in the squad vault before they get lost!',
+          data: { screen: 'event', eventId: event.id, tab: 'photos' },
+        },
+        { onStaleToken: (token) => storage.clearPushToken(token) },
+      );
+      if (result.okCount > 0 && !result.hadSendError) {
+        await storage.markEventRecapSent(event.id);
+      } else {
+        logger.warn(
+          { eventId: event.id, okCount: result.okCount, hadSendError: result.hadSendError },
+          'Event recap prompt not confirmed sent; will retry next scan',
+        );
+      }
+    } catch (err) {
+      logger.error({ err, eventId: event.id }, 'Event recap prompt send failed; will retry');
+    }
+  }
+}
+
+// Availability-poll "almost there" nudge to the organizer once most invitees
+// have responded (fire-once via nudgeSentAt). Polls that never reach the
+// threshold are retired after POLL_NUDGE_MAX_AGE_MS so the scan stays bounded.
+export async function runPollNudgeScan(): Promise<void> {
+  const polls = await storage.getPollsPendingNudge();
+  const now = Date.now();
+  for (const poll of polls) {
+    const createdMs = poll.createdAt ? new Date(poll.createdAt).getTime() : 0;
+    const age = now - createdMs;
+    if (!createdMs || age > POLL_NUDGE_MAX_AGE_MS) {
+      await storage.markPollNudgeSent(poll.id);
+      continue;
+    }
+    if (age < POLL_NUDGE_MIN_AGE_MS) continue; // give people time to respond
+
+    const roster = await storage.getAvailabilityPollRoster(poll);
+    if (roster.length < POLL_NUDGE_MIN_ROSTER) continue; // too small to nudge
+
+    const responses = await storage.getAvailabilityResponses(poll.id);
+    const responded = new Set(responses.map((r) => r.userId).filter((id) => roster.includes(id)));
+    const ratio = responded.size / roster.length;
+    if (ratio < POLL_NUDGE_RATIO) continue; // not "almost there" yet
+
+    const allIn = responded.size >= roster.length;
+    const body = allIn
+      ? `Everyone's responded — lock in the best time!`
+      : `${responded.size} of ${roster.length} are in — pick a time!`;
+
+    const recipientIds = poll.squadId
+      ? await storage.filterUnmutedForSquad([poll.createdBy], poll.squadId)
+      : [poll.createdBy];
+    if (recipientIds.length === 0) {
+      await storage.markPollNudgeSent(poll.id);
+      continue;
+    }
+
+    const tokens = await storage.getPushTokensForUsers(recipientIds, { requireNotifyReminders: true });
+    if (tokens.length === 0) {
+      await storage.markPollNudgeSent(poll.id);
+      continue;
+    }
+
+    try {
+      const result = await sendPushNotifications(
+        tokens,
+        {
+          title: `🗓️ ${poll.title}`,
+          body,
+          data: { screen: 'availability', pollId: poll.id },
+        },
+        { onStaleToken: (token) => storage.clearPushToken(token) },
+      );
+      if (result.okCount > 0 && !result.hadSendError) {
+        await storage.markPollNudgeSent(poll.id);
+      } else {
+        logger.warn(
+          { pollId: poll.id, okCount: result.okCount, hadSendError: result.hadSendError },
+          'Poll nudge not confirmed sent; will retry next scan',
+        );
+      }
+    } catch (err) {
+      logger.error({ err, pollId: poll.id }, 'Poll nudge send failed; will retry');
     }
   }
 }

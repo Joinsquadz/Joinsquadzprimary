@@ -8,6 +8,7 @@ import {
   Platform,
   Image,
   Animated,
+  RefreshControl,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -28,10 +29,11 @@ type RemovalNotice = {
 export default function SquadsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { squads, events, currentUser, authToken } = useData();
+  const { squads, events, currentUser, authToken, refreshSquads } = useData();
   const { resolveUser, prefetchUsers } = useUserCache();
   const { mutedSquadIds, refreshMutedSquads } = useMutedSquads();
   const [notices, setNotices] = useState<RemovalNotice[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 84 : 100);
@@ -62,6 +64,12 @@ export default function SquadsScreen() {
       // Best-effort; the optimistic removal already happened
     }
   }, [authToken]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([refreshSquads(), fetchNotices(), refreshMutedSquads()]);
+    setRefreshing(false);
+  }, [refreshSquads, fetchNotices, refreshMutedSquads]);
 
   // Fetch notices whenever the screen comes into focus
   useFocusEffect(
@@ -108,6 +116,9 @@ export default function SquadsScreen() {
       <ScrollView
         contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: botPad }}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
+        }
       >
         {notices.map((notice) => (
           <RemovalBanner

@@ -28,6 +28,11 @@ export const eventsTable = pgTable("events", {
   messages: jsonb("messages").$type<unknown[]>().notNull().default(sql`'[]'::jsonb`),
   isPublic: boolean("is_public").notNull().default(false),
   reminderSentAt: timestamp("reminder_sent_at", { withTimezone: true }),
+  // Fire-once marker for the "day-of" heads-up reminder (sent the morning of /
+  // hours-ahead of the event, distinct from the 2h "starting soon" reminder).
+  dayOfReminderSentAt: timestamp("day_of_reminder_sent_at", { withTimezone: true }),
+  // Fire-once marker for the post-event "drop your photos" recap prompt.
+  recapPromptSentAt: timestamp("recap_prompt_sent_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   version: integer("version").notNull().default(1),
 });
