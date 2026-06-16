@@ -32,6 +32,7 @@ import { LiveStatusBanner } from "@/components/LiveStatusBanner";
 import { CelebrationOverlay } from "@/components/CelebrationOverlay";
 import { claimOnce } from "@/lib/seenFlags";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
+import { useToast } from "@/context/ToastContext";
 
 type DiscoverEvent = { id: string; emoji: string; title: string; date: string; inviteCode: string };
 type DiscoverSquad = { id: string; emoji: string; name: string; color: string; memberIds: string[] };
@@ -63,6 +64,7 @@ export default function HomeScreen() {
   const { currentUser, authToken } = useAuth();
   const { unreadCount: unreadActivity } = useActivity();
   const { events, squads, friends, eventsLoading, squadsLoading, joinEvent, joinSquad, friendCode } = useData();
+  const { showToast } = useToast();
   const [discoverEvents, setDiscoverEvents] = useState<DiscoverEvent[]>([]);
   const [discoverSquads, setDiscoverSquads] = useState<DiscoverSquad[]>([]);
   const [streaks, setStreaks] = useState<{ monthlyPlan: number; stayInTouch: number } | null>(null);
@@ -234,9 +236,9 @@ export default function HomeScreen() {
       try {
         const Clipboard = await import("expo-clipboard");
         await Clipboard.setStringAsync(message);
-        Alert.alert("Copied!", "Invite link copied to your clipboard — paste it anywhere to share.");
+        showToast("Invite link copied — paste it anywhere to share 📋");
       } catch {
-        Alert.alert("Couldn't copy", "Please copy the link manually.");
+        showToast("Couldn't copy — please copy the link manually");
       }
       return;
     }

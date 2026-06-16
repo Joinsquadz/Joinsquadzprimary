@@ -7,6 +7,7 @@ import {
   TextInput,
   Platform,
   Share,
+  Alert,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -14,7 +15,7 @@ import * as Haptics from "expo-haptics";
 import * as Clipboard from "expo-clipboard";
 import { Ionicons } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
-import { useAuth, useData } from "@/context/AppContext";
+import { useAuth, useData, SquadLimitError } from "@/context/AppContext";
 import { GradientButton } from "@/components/GradientButton";
 import { useTips } from "@/context/TipsContext";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
@@ -116,9 +117,19 @@ export default function OnboardingScreen() {
       const color = SQUAD_COLORS[SQUAD_EMOJIS.indexOf(squadEmoji) % SQUAD_COLORS.length] ?? "#FF5C3A";
       const id = await addSquad({ name: squadName.trim(), emoji: squadEmoji, color, isPublic: false });
       setCreatedSquadId(id);
-    } finally {
       setCreating(false);
       setStep(1);
+    } catch (err) {
+      setCreating(false);
+      if (err instanceof SquadLimitError) {
+        Alert.alert(
+          "Squad limit reached",
+          "You've hit the free-plan squad limit. Upgrade to Squadz+ for unlimited squads.",
+          [{ text: "OK" }],
+        );
+      } else {
+        Alert.alert("Something went wrong", "Couldn't create your squad. Please try again.", [{ text: "OK" }]);
+      }
     }
   }
 
