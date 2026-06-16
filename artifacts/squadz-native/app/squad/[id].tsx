@@ -1314,7 +1314,7 @@ const styles = StyleSheet.create({
   photosSub: { fontSize: 12, marginTop: 2 },
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" },
   modalCard: { borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, padding: 20 },
-  addMemberCard: { maxHeight: "82%" },
+  addMemberCard: { maxHeight: "82%", flexShrink: 1 },
   addMemberTitle: { textAlign: "center", paddingHorizontal: 44 },
   addMemberResults: { flexShrink: 1, flexGrow: 0 },
   modalCloseBtn: { position: "absolute", top: 14, left: 14, zIndex: 10, width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
