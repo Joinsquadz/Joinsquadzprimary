@@ -740,6 +740,19 @@ export default function SquadDetailScreen() {
             )}
           </LinearGradient>
         </TouchableOpacity>
+        {availabilityTitle !== null && (
+          <TouchableOpacity
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              router.push({ pathname: "/availability", params: { squadId: squad.id, from: "create" } } as never);
+            }}
+            style={styles.newPollLink}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="add-circle-outline" size={14} color={colors.mutedForeground} />
+            <Text style={[styles.newPollLinkText, { color: colors.mutedForeground }]}>Start a new poll</Text>
+          </TouchableOpacity>
+        )}
         </View>
 
         {/* Members */}
@@ -1339,6 +1352,8 @@ const styles = StyleSheet.create({
   findTimeSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 2 },
   findTimeBadge: { minWidth: 22, height: 22, borderRadius: 11, paddingHorizontal: 6, backgroundColor: "rgba(255,255,255,0.3)", alignItems: "center", justifyContent: "center" },
   findTimeBadgeText: { color: "#fff", fontSize: 12, fontWeight: "800" },
+  newPollLink: { flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-end", marginTop: 6, paddingVertical: 2, paddingHorizontal: 4 },
+  newPollLinkText: { fontSize: 12, fontWeight: "600" },
   longPressHint: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 10, borderWidth: 1, paddingVertical: 7, paddingHorizontal: 11, marginBottom: 10, alignSelf: "flex-start" },
   longPressHintText: { fontSize: 12, fontWeight: "600" },
   newLinkRow: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 13, borderWidth: 1, padding: 12, marginTop: 12 },
