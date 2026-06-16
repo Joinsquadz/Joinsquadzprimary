@@ -11,6 +11,7 @@ import {
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
+import * as Clipboard from "expo-clipboard";
 import { Ionicons } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import { useAuth, useData } from "@/context/AppContext";
@@ -50,6 +51,7 @@ export default function OnboardingScreen() {
   const [step, setStep] = useState(0);
   const [squadEmoji, setSquadEmoji] = useState("🔥");
   const [squadName, setSquadName] = useState("");
+  const [copied, setCopied] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createdSquadId, setCreatedSquadId] = useState<string | null>(null);
 
@@ -118,6 +120,13 @@ export default function OnboardingScreen() {
       setCreating(false);
       setStep(1);
     }
+  }
+
+  async function handleCopy() {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    await Clipboard.setStringAsync(inviteLink);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2500);
   }
 
   async function handleShare() {
@@ -246,27 +255,59 @@ export default function OnboardingScreen() {
         {/* Step 1 — Invite crew (the climax) */}
         {step === 1 && (
           <View style={{ gap: 14 }}>
-            {/* Why inviting unlocks value */}
-            <View style={[styles.whyCard, { backgroundColor: "#FF5C3A12", borderColor: "#FF5C3A35" }]}>
-              <Text style={styles.whyEmoji}>🗓️</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.whyTitle, { color: colors.foreground }]}>Why invite now?</Text>
-                <Text style={[styles.whyText, { color: colors.mutedForeground }]}>
-                  SquadZ finds the time everyone's actually free — that only works once your crew is in. Get 2+ friends in to unlock your overlap and lock in your first plan.
+            {/* Squad confirmation */}
+            {createdSquad && (
+              <View style={[styles.squadConfirm, { backgroundColor: createdSquad.color + "18", borderColor: createdSquad.color + "40" }]}>
+                <Text style={styles.squadConfirmEmoji}>{createdSquad.emoji}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.squadConfirmName, { color: colors.foreground }]}>{createdSquad.name}</Text>
+                  <Text style={[styles.squadConfirmSub, { color: colors.mutedForeground }]}>
+                    {createdSquad.memberIds?.length === 1 ? "Just you so far — invite your crew below" : `${createdSquad.memberIds?.length ?? 1} members`}
+                  </Text>
+                </View>
+                <Ionicons name="checkmark-circle" size={22} color={createdSquad.color} />
+              </View>
+            )}
+
+            {/* Invite link card with copy + share */}
+            <View style={[styles.linkCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Text style={[styles.linkLabel, { color: colors.mutedForeground }]}>Invite link</Text>
+              <View style={styles.linkRow}>
+                <Text style={[styles.linkValue, { color: colors.foreground }]} numberOfLines={1} ellipsizeMode="tail">
+                  {inviteLink}
                 </Text>
+                <TouchableOpacity
+                  onPress={() => { void handleCopy(); }}
+                  style={[styles.copyBtn, { backgroundColor: copied ? "#2ECC8A18" : colors.background, borderColor: copied ? "#2ECC8A60" : colors.border }]}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons
+                    name={copied ? "checkmark" : "copy-outline"}
+                    size={16}
+                    color={copied ? "#2ECC8A" : colors.mutedForeground}
+                  />
+                  <Text style={[styles.copyBtnText, { color: copied ? "#2ECC8A" : colors.mutedForeground }]}>
+                    {copied ? "Copied!" : "Copy"}
+                  </Text>
+                </TouchableOpacity>
               </View>
             </View>
 
-            {/* Invite link */}
-            <View style={[styles.linkCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <Text style={[styles.linkLabel, { color: colors.mutedForeground }]}>
-                {createdSquad ? "Your squad invite link" : "Your invite link"}
-              </Text>
-              <Text style={[styles.linkValue, { color: colors.foreground }]} numberOfLines={1}>{inviteLink}</Text>
-              {inviteCode ? (
-                <Text style={[styles.linkCode, { color: colors.primary }]}>Invite code: {inviteCode}</Text>
-              ) : null}
-            </View>
+            {/* Share action row */}
+            <TouchableOpacity
+              onPress={() => { void handleShare(); }}
+              activeOpacity={0.8}
+              style={[styles.shareRow, { backgroundColor: colors.card, borderColor: colors.border }]}
+            >
+              <View style={[styles.shareIcon, { backgroundColor: "#A855F720" }]}>
+                <Ionicons name="share-social-outline" size={20} color="#A855F7" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.shareRowTitle, { color: colors.foreground }]}>Send to your crew</Text>
+                <Text style={[styles.shareRowSub, { color: colors.mutedForeground }]}>iMessage, WhatsApp, Instagram…</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
+            </TouchableOpacity>
 
             <View style={styles.trustRow}>
               <Ionicons name="lock-closed-outline" size={14} color={colors.mutedForeground} />
@@ -295,17 +336,10 @@ export default function OnboardingScreen() {
           </View>
         )}
         {step === 1 && (
-          <View style={{ gap: 8 }}>
-            <GradientButton
-              label="Share invite link →"
-              onPress={() => { void handleShare(); }}
-            />
-            <TouchableOpacity onPress={handleComplete} style={{ alignItems: "center", padding: 4 }}>
-              <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>
-                {createdSquad ? "Done — take me to my squad" : "Skip for now"}
-              </Text>
-            </TouchableOpacity>
-          </View>
+          <GradientButton
+            label={createdSquad ? "Done — take me to my squad →" : "Skip for now"}
+            onPress={handleComplete}
+          />
         )}
       </View>
     </View>
@@ -366,16 +400,33 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1,
   },
   chipSmallText: { fontSize: 12 },
-  whyCard: {
-    flexDirection: "row", gap: 12, borderRadius: 16, borderWidth: 1, padding: 16,
+  squadConfirm: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    borderRadius: 16, borderWidth: 1, padding: 14,
   },
-  whyEmoji: { fontSize: 26 },
-  whyTitle: { fontSize: 15, fontWeight: "800", marginBottom: 4 },
-  whyText: { fontSize: 13, lineHeight: 18 },
-  linkCard: { borderRadius: 14, borderWidth: 1, padding: 16, gap: 6 },
+  squadConfirmEmoji: { fontSize: 30 },
+  squadConfirmName: { fontSize: 16, fontWeight: "800" },
+  squadConfirmSub: { fontSize: 12, marginTop: 2 },
+  linkCard: { borderRadius: 14, borderWidth: 1, padding: 16, gap: 10 },
   linkLabel: { fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 },
-  linkValue: { fontSize: 14, fontWeight: "600" },
-  linkCode: { fontSize: 13, fontWeight: "700" },
+  linkRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  linkValue: { fontSize: 13, fontWeight: "600", flex: 1 },
+  copyBtn: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    borderRadius: 10, borderWidth: 1,
+    paddingHorizontal: 10, paddingVertical: 7,
+  },
+  copyBtnText: { fontSize: 13, fontWeight: "700" },
+  shareRow: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    borderRadius: 14, borderWidth: 1, padding: 14,
+  },
+  shareIcon: {
+    width: 40, height: 40, borderRadius: 20,
+    alignItems: "center", justifyContent: "center",
+  },
+  shareRowTitle: { fontSize: 15, fontWeight: "800" },
+  shareRowSub: { fontSize: 12, marginTop: 2 },
   footer: {
     paddingHorizontal: 22, paddingTop: 14, borderTopWidth: 1,
     gap: 8,
