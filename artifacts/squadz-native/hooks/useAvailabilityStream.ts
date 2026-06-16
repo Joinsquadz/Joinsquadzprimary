@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
 import { useFocusEffect } from "expo-router";
+import { fetch as streamFetch } from "expo/fetch";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
 export type AvailabilityStreamStatus = "connected" | "reconnecting" | "error";
@@ -80,7 +81,7 @@ export function useAvailabilityStream({ pollId, authToken, onUpdate }: Options):
 
     const run = async () => {
       try {
-        const response = await fetch(`${API_BASE}/api/availability/polls/${pollId}/stream`, {
+        const response = await streamFetch(`${API_BASE}/api/availability/polls/${pollId}/stream`, {
           headers: {
             Accept: "text/event-stream",
             "Cache-Control": "no-cache",

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
 import { useFocusEffect } from "expo-router";
+import { fetch as streamFetch } from "expo/fetch";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
 export type ConversationStreamStatus = "connected" | "reconnecting" | "error";
@@ -78,7 +79,7 @@ export function useConversationStream({
 
     const run = async () => {
       try {
-        const response = await fetch(
+        const response = await streamFetch(
           `${API_BASE}/api/conversations/${conversationId}/stream`,
           {
             headers: {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { AppState } from "react-native";
 import { useFocusEffect } from "expo-router";
+import { fetch as streamFetch } from "expo/fetch";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
 type Options = {
@@ -39,7 +40,7 @@ export function useEventStream({ eventId, authToken, onUpdate }: Options): void 
 
     const run = async () => {
       try {
-        const response = await fetch(`${API_BASE}/api/events/${eventId}/stream`, {
+        const response = await streamFetch(`${API_BASE}/api/events/${eventId}/stream`, {
           headers: {
             Accept: "text/event-stream",
             "Cache-Control": "no-cache",
