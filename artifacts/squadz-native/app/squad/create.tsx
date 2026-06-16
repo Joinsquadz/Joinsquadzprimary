@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   View,
   Text,
@@ -43,6 +43,8 @@ export default function CreateSquadScreen() {
   const [color, setColor] = useState(COLORS[0]);
   const [isPublic, setIsPublic] = useState(false);
   const [showUpgrade, setShowUpgrade] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const inFlightRef = useRef(false);
 
   const pickCategory = (cat: (typeof CATEGORIES)[number]) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -52,16 +54,21 @@ export default function CreateSquadScreen() {
   };
 
   const handleCreate = async () => {
+    if (inFlightRef.current) return;
     if (!name.trim()) {
       Alert.alert("Missing info", "Give your squad a name.");
       return;
     }
+    inFlightRef.current = true;
+    setSubmitting(true);
     const desc = description.trim();
     try {
       const id = await addSquad({ name: name.trim(), description: desc || undefined, emoji, color, isPublic });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace(`/squad/${id}` as never);
     } catch (err) {
+      inFlightRef.current = false;
+      setSubmitting(false);
       if (err instanceof SquadLimitError) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
         setShowUpgrade(true);
@@ -72,7 +79,7 @@ export default function CreateSquadScreen() {
     }
   };
 
-  const canCreate = !!name.trim();
+  const canCreate = !!name.trim() && !submitting;
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -217,11 +224,12 @@ export default function CreateSquadScreen() {
       <View style={[styles.bottomBar, { borderTopColor: colors.border, paddingBottom: botPad + 12, backgroundColor: colors.background }]}>
         <TouchableOpacity
           onPress={handleCreate}
+          disabled={!canCreate}
           style={[styles.createBtn, { backgroundColor: canCreate ? colors.primary : colors.border }]}
         >
           <Ionicons name="add-circle-outline" size={20} color={canCreate ? "#fff" : colors.textDim} />
           <Text style={[styles.createBtnText, { color: canCreate ? "#fff" : colors.textDim }]}>
-            Create Squad
+            {submitting ? "Creating…" : "Create Squad"}
           </Text>
         </TouchableOpacity>
       </View>
