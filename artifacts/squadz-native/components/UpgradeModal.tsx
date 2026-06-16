@@ -24,8 +24,6 @@ export type UpgradeTrigger =
   | "squad_limit"
   | "photos"
   | "events"
-  | "moments"
-  | "feed"
   | "general";
 
 interface Props {
@@ -61,14 +59,6 @@ const TRIGGER_COPY: Record<UpgradeTrigger, { headline: string; sub: string }> = 
     headline: "Plan without limits",
     sub: "Free accounts can only plan a few events. Squadz+ unlocks unlimited events so you keep the momentum going.",
   },
-  moments: {
-    headline: "Share Moments",
-    sub: "Post 24-hour moments to your friends and squads with Squadz+.",
-  },
-  feed: {
-    headline: "Post to the Vibe Feed",
-    sub: "Share what's going on with your squads. Upgrade to post and react.",
-  },
   general: {
     headline: "Upgrade to Squadz+",
     sub: "Everything Squadz has to offer, unlocked — one membership, all your squads.",
@@ -79,14 +69,13 @@ const TRIGGER_COPY: Record<UpgradeTrigger, { headline: string; sub: string }> = 
 const FREE_FEATURES = [
   "Up to 2 squads",
   "Event RSVPs & basic planning",
-  "Group chat & squad vault browsing",
+  "Group chat, Vibe Feed & Moments",
 ];
 
 // Benefits unlocked by Squadz+.
 const PRO_BENEFITS: Array<{ icon: string; label: string; gold?: boolean }> = [
   { icon: "people", label: "Unlimited squads & events" },
   { icon: "images", label: "Personal vault + saved favorites" },
-  { icon: "chatbubbles", label: "Moments & Vibe Feed posting" },
   { icon: "ribbon", label: "Gold Ring Indicator", gold: true },
 ];
 
