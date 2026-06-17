@@ -28,6 +28,12 @@ its own vertical ScrollView.
 pattern (maxHeight + ScrollView + persistent absolute close X) per the RN modal
 overflow trap rule.
 
+**Onboarding** (`app/onboarding.tsx` step 0 "Create your first squad") ALSO
+uses the shared `IconPicker` now (previously a local 12-emoji `SQUAD_EMOJIS`
+grid). It auto-assigns the squad color (no color picker), so it derives one via
+`EMOJI_CHOICES.indexOf(squadEmoji)` guarded by `Math.max(0, idx)` — never the
+old `SQUAD_EMOJIS.indexOf` (which could return -1 → negative index → color
+collapse). Any emoji-index→color logic on the full set MUST clamp the -1 case.
+
 **How to apply:** to add/remove icons, edit only `EMOJI_CATEGORIES` (add
-keywords for searchability). Onboarding keeps its own smaller `SQUAD_EMOJIS`
-(color logic uses `SQUAD_EMOJIS.indexOf(...)`) — intentionally not unified.
+keywords for searchability).

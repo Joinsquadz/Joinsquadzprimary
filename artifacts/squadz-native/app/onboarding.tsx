@@ -19,8 +19,9 @@ import { useAuth, useData, SquadLimitError } from "@/context/AppContext";
 import { GradientButton } from "@/components/GradientButton";
 import { useTips } from "@/context/TipsContext";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
+import { IconPicker } from "@/components/IconPicker";
+import { EMOJI_CHOICES } from "@/constants/emojis";
 
-const SQUAD_EMOJIS = ["🔥", "💼", "🎓", "🏡", "✈️", "🎮", "🍕", "🎉", "💪", "🌊", "🎵", "🦄"];
 const SQUAD_COLORS = ["#FF5C3A", "#A855F7", "#2ECC8A", "#4A9EFF", "#FFB547", "#FF5C3A"];
 const SQUAD_CHIPS = ["Friend Group", "Coworkers", "Family", "College", "Roommates", "Sports"];
 
@@ -114,7 +115,8 @@ export default function OnboardingScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setCreating(true);
     try {
-      const color = SQUAD_COLORS[SQUAD_EMOJIS.indexOf(squadEmoji) % SQUAD_COLORS.length] ?? "#FF5C3A";
+      const emojiIndex = EMOJI_CHOICES.indexOf(squadEmoji);
+      const color = SQUAD_COLORS[Math.max(0, emojiIndex) % SQUAD_COLORS.length] ?? "#FF5C3A";
       const id = await addSquad({ name: squadName.trim(), emoji: squadEmoji, color, isPublic: false });
       setCreatedSquadId(id);
       setCreating(false);
@@ -224,24 +226,7 @@ export default function OnboardingScreen() {
         {/* Step 0 — Squad */}
         {step === 0 && (
           <View style={{ gap: 12 }}>
-            <View style={styles.emojiGridSmall}>
-              {SQUAD_EMOJIS.map((e) => (
-                <TouchableOpacity
-                  key={e}
-                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSquadEmoji(e); }}
-                  style={[
-                    styles.squadEmojiCell,
-                    {
-                      backgroundColor: squadEmoji === e ? "#FF5C3A22" : colors.card,
-                      borderColor: squadEmoji === e ? "#FF5C3A" : colors.border,
-                      borderWidth: squadEmoji === e ? 2 : 1,
-                    },
-                  ]}
-                >
-                  <Text style={styles.squadEmojiText}>{e}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+            <IconPicker value={squadEmoji} onChange={setSquadEmoji} />
             <TextInput
               placeholder="Squad name, e.g. The Usual Suspects"
               placeholderTextColor={colors.mutedForeground}
@@ -401,12 +386,6 @@ const styles = StyleSheet.create({
   },
   trustText: { fontSize: 12, flex: 1, lineHeight: 16 },
   chipsWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  emojiGridSmall: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  squadEmojiCell: {
-    width: "14%", aspectRatio: 1, borderRadius: 13,
-    alignItems: "center", justifyContent: "center",
-  },
-  squadEmojiText: { fontSize: 20 },
   chipSmall: {
     paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1,
   },
