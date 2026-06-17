@@ -18,8 +18,8 @@ import { useColors } from "@/hooks/useColors";
 import { useData, SquadLimitError } from "@/context/AppContext";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
+import { IconPicker } from "@/components/IconPicker";
 
-import { EMOJI_CHOICES as EMOJIS } from "@/constants/emojis";
 const COLORS = ["#FF5C3A", "#4A9EFF", "#2ECC8A", "#A855F7", "#FFB547", "#FF6B9D"];
 const CATEGORIES = [
   { label: "Roommates", emoji: "🏠", name: "The Roommates" },
@@ -160,23 +160,7 @@ export default function CreateSquadScreen() {
         {/* Emoji */}
         <View style={styles.section}>
           <Text style={[styles.label, { color: colors.mutedForeground }]}>Squad icon</Text>
-          <View style={styles.emojiGrid}>
-            {EMOJIS.map((e) => (
-              <TouchableOpacity
-                key={e}
-                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setEmoji(e); }}
-                style={[
-                  styles.emojiOption,
-                  {
-                    backgroundColor: emoji === e ? color + "25" : colors.card,
-                    borderColor: emoji === e ? color : colors.border,
-                  },
-                ]}
-              >
-                <Text style={styles.emojiText}>{e}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+          <IconPicker value={emoji} onChange={setEmoji} accent={color} />
         </View>
 
         {/* Color */}
@@ -267,9 +251,6 @@ const styles = StyleSheet.create({
   textArea: { borderRadius: 13, borderWidth: 1.5, paddingHorizontal: 14, paddingVertical: 12, minHeight: 80 },
   textAreaInput: { fontSize: 15, minHeight: 56, textAlignVertical: "top" },
   charCount: { fontSize: 11, textAlign: "right", marginTop: 6 },
-  emojiGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  emojiOption: { width: 52, height: 52, borderRadius: 14, borderWidth: 2, alignItems: "center", justifyContent: "center" },
-  emojiText: { fontSize: 24 },
   colorRow: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
   colorSwatch: { width: 48, height: 48, borderRadius: 24 },
   toggleRow: {
