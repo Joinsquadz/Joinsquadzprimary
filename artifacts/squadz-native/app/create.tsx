@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { createElement, useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -23,6 +23,38 @@ import { useData, useAuth } from "@/context/AppContext";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { IconPicker } from "@/components/IconPicker";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
+import { addStop } from "@/lib/tripApi";
+import { TRIP_COVER_KEYS, TRIP_COVERS, formatTripRange, dayKey } from "@/lib/tripUtils";
+import { getTemplate } from "@/lib/tripTemplates";
+
+function formatPickedDay(d: Date): string {
+  const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${DAYS[d.getDay()]}, ${MONTHS[d.getMonth()]} ${d.getDate()}`;
+}
+
+/** Date → "YYYY-MM-DD" for an HTML <input type="date"> (web range picker). */
+function toDateInputValue(d: Date | null): string {
+  if (!d) return "";
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** "YYYY-MM-DD" from an HTML date input → local Date (noon, to dodge DST edges). */
+function fromDateInputValue(s: string): Date | null {
+  if (!s) return null;
+  const [y, m, d] = s.split("-").map((n) => parseInt(n, 10));
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d, 12, 0, 0, 0);
+}
+
+/** Combine a calendar day with a wall-clock time (defaults to 9am) → ISO. */
+function dayAt(d: Date, hour: number): string {
+  const out = new Date(d.getFullYear(), d.getMonth(), d.getDate(), hour, 0, 0, 0);
+  return out.toISOString();
+}
 
 function formatPickedDate(d: Date): string {
   const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -67,13 +99,26 @@ export default function CreateEventScreen() {
   const insets = useSafeAreaInsets();
   const { addEvent, squads } = useData();
   const { authToken } = useAuth();
-  const prefill = useLocalSearchParams<{ prefillDate?: string; prefillEventAt?: string; prefillSquad?: string; prefillTitle?: string; prefillEmoji?: string }>();
+  const prefill = useLocalSearchParams<{ prefillDate?: string; prefillEventAt?: string; prefillSquad?: string; prefillTitle?: string; prefillEmoji?: string; mode?: string; templateId?: string }>();
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
+
+  const template = getTemplate(prefill.templateId);
+  // "trip" builds a multi-day trip with an itinerary; "event" is a one-off.
+  const [kind, setKind] = useState<"event" | "trip">(
+    prefill.mode === "trip" || prefill.templateId ? "trip" : "event",
+  );
 
   const [title, setTitle] = useState("");
   const [location, setLocation] = useState("");
   const [date, setDate] = useState("");
+  // Trip date range + presentation.
+  const [tripStart, setTripStart] = useState<Date | null>(null);
+  const [tripEnd, setTripEnd] = useState<Date | null>(null);
+  const [allDay, setAllDay] = useState(true);
+  const [coverStyle, setCoverStyle] = useState<string>(template?.coverStyle ?? "sunset");
+  const [rangeStep, setRangeStep] = useState<"start" | "end" | null>(null);
+  const [rangeTmp, setRangeTmp] = useState(new Date());
   // Machine-readable ISO start, set whenever a concrete time is chosen via the
   // picker (or prefilled from the availability "best time"). Cleared when the
   // user clears or manually edits the freeform date text, since it no longer
@@ -129,9 +174,18 @@ export default function CreateEventScreen() {
     if (prefill.prefillEmoji) setSelectedEmoji(prefill.prefillEmoji);
   }, [prefill.prefillDate, prefill.prefillEventAt, prefill.prefillSquad, prefill.prefillTitle, prefill.prefillEmoji]);
 
+  // Seed title/emoji/cover from a chosen template (once).
+  useEffect(() => {
+    if (!template) return;
+    setTitle((t) => t || template.title);
+    setSelectedEmoji(template.emoji);
+    setCoverStyle(template.coverStyle);
+  }, [template]);
+
   const resetForm = () => {
     setTitle(""); setLocation(""); setDate(""); setEventAtISO(undefined); setDescription("");
     setSelectedSquad(null); setSelectedEmoji("🔥");
+    setTripStart(null); setTripEnd(null); setAllDay(true); setCoverStyle("sunset");
     setPickerDate(new Date());
   };
 
@@ -145,15 +199,51 @@ export default function CreateEventScreen() {
       setShowUpgradeModal(true);
       return;
     }
+    if (kind === "trip" && !tripStart) {
+      setCreateError("Please pick the trip's start date.");
+      return;
+    }
     setCreating(true);
     try {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      const id = await addEvent({
-        title: title.trim(), emoji: selectedEmoji,
-        date: date.trim(), eventAt: eventAtISO, location: location.trim(),
-        description: description.trim(), squadId: selectedSquad,
-        isPublic,
-      });
+      let id: string;
+      if (kind === "trip" && tripStart) {
+        const end = tripEnd ?? tripStart;
+        const startISO = dayAt(tripStart, 9);
+        const endISO = dayAt(end, 18);
+        id = await addEvent({
+          title: title.trim(), emoji: selectedEmoji,
+          date: formatTripRange({ startAt: startISO, endAt: endISO }),
+          location: location.trim(), description: description.trim(),
+          squadId: selectedSquad, isPublic,
+          type: "trip", startAt: startISO, endAt: endISO, allDay, coverStyle,
+        });
+        // Templates are a Squadz+ feature: only materialize their stops for pro
+        // users. This re-checks entitlement server-trust-free at create time so
+        // the deep-link /create?mode=trip&templateId=… path can't hand template
+        // content to a non-pro user who bypassed the template picker UI gate.
+        // Thread the event version through each append so the version-checked
+        // itinerary route accepts them (a freshly created event starts at v1).
+        if (template && isPro) {
+          let v = 1;
+          for (const s of template.stops) {
+            const day = new Date(tripStart);
+            day.setDate(day.getDate() + s.dayIndex);
+            const r = await addStop(id, authToken, {
+              day: dayKey(day), time: s.time, title: s.title,
+              placeName: s.placeName, category: s.category, status: "confirmed",
+            }, v);
+            if (r.event && typeof r.event.version === "number") v = r.event.version;
+          }
+        }
+      } else {
+        id = await addEvent({
+          title: title.trim(), emoji: selectedEmoji,
+          date: date.trim(), eventAt: eventAtISO, location: location.trim(),
+          description: description.trim(), squadId: selectedSquad,
+          isPublic,
+        });
+      }
       fetch(`${API_BASE}/api/events/count`, { headers: authHeaders() })
         .then(r => r.ok ? r.json() : null)
         .then((data: { count: number; limit?: number } | null) => {
@@ -164,12 +254,51 @@ export default function CreateEventScreen() {
         })
         .catch(() => {});
       resetForm();
-      router.replace(`/event/${id}` as never);
+      router.replace((kind === "trip" ? `/trip/${id}` : `/event/${id}`) as never);
     } catch (err) {
-      setCreateError(err instanceof Error ? err.message : "Failed to create event. Please try again.");
+      setCreateError(err instanceof Error ? err.message : "Failed to create. Please try again.");
     } finally {
       setCreating(false);
     }
+  };
+
+  const openRangePicker = (step: "start" | "end") => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setRangeTmp(step === "start" ? (tripStart ?? new Date()) : (tripEnd ?? tripStart ?? new Date()));
+    setRangeStep(step);
+  };
+
+  const applyRange = (step: "start" | "end", picked: Date) => {
+    if (step === "start") {
+      setTripStart(picked);
+      // Seed the end date from a template's suggested length the first time a
+      // start day is chosen; otherwise just keep end ≥ start.
+      if (template && !tripEnd) {
+        const seeded = new Date(picked);
+        seeded.setDate(seeded.getDate() + template.nights);
+        setTripEnd(seeded);
+      } else if (tripEnd && tripEnd < picked) {
+        setTripEnd(picked);
+      }
+    } else {
+      if (tripStart && picked < tripStart) setTripEnd(tripStart);
+      else setTripEnd(picked);
+    }
+  };
+
+  const confirmRange = (picked: Date) => {
+    if (rangeStep) applyRange(rangeStep, picked);
+    setRangeStep(null);
+  };
+
+  const onWebRangeChange = (step: "start" | "end", value: string) => {
+    const d = fromDateInputValue(value);
+    if (d) applyRange(step, d);
+  };
+
+  const handleRangeAndroid = (_: DateTimePickerEvent, d?: Date) => {
+    if (!d) { setRangeStep(null); return; }
+    confirmRange(d);
   };
 
   const openDatePicker = () => {
@@ -220,7 +349,7 @@ export default function CreateEventScreen() {
         >
           <Ionicons name="chevron-back" size={26} color={colors.foreground} />
         </TouchableOpacity>
-        <Text style={[styles.title, { color: colors.foreground }]}>New Event</Text>
+        <Text style={[styles.title, { color: colors.foreground }]}>{kind === "trip" ? "New Trip" : "New Event"}</Text>
       </View>
 
       {atLimit && (
@@ -251,15 +380,141 @@ export default function CreateEventScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.section}>
-          <Text style={[styles.label, { color: colors.mutedForeground }]}>Event icon</Text>
+          <Text style={[styles.label, { color: colors.mutedForeground }]}>What are you planning?</Text>
+          <View style={[styles.kindRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            {(["event", "trip"] as const).map((k) => {
+              const active = kind === k;
+              return (
+                <TouchableOpacity
+                  key={k}
+                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setKind(k); }}
+                  style={[styles.kindOption, active && { backgroundColor: colors.primary }]}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons
+                    name={k === "trip" ? "airplane" : "calendar"}
+                    size={16}
+                    color={active ? "#fff" : colors.mutedForeground}
+                  />
+                  <Text style={[styles.kindText, { color: active ? "#fff" : colors.mutedForeground }]}>
+                    {k === "trip" ? "Trip" : "Event"}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          {kind === "trip" ? (
+            <Text style={[styles.kindHint, { color: colors.mutedForeground }]}>
+              Multi-day plan with a shared itinerary, budget & packing list.
+            </Text>
+          ) : null}
+        </View>
+
+        <View style={styles.section}>
+          <Text style={[styles.label, { color: colors.mutedForeground }]}>{kind === "trip" ? "Trip icon" : "Event icon"}</Text>
           <IconPicker value={selectedEmoji} onChange={setSelectedEmoji} />
         </View>
 
         <View style={styles.section}>
-          <Text style={[styles.label, { color: colors.mutedForeground }]}>Event name</Text>
-          <Field icon="text-outline" placeholder="What are you planning?" value={title} onChangeText={setTitle} colors={colors} />
+          <Text style={[styles.label, { color: colors.mutedForeground }]}>{kind === "trip" ? "Trip name" : "Event name"}</Text>
+          <Field icon="text-outline" placeholder={kind === "trip" ? "Where are you headed?" : "What are you planning?"} value={title} onChangeText={setTitle} colors={colors} />
         </View>
 
+        {kind === "trip" ? (
+          <>
+            <View style={styles.section}>
+              <Text style={[styles.label, { color: colors.mutedForeground }]}>Dates</Text>
+              {Platform.OS === "web" ? (
+                <View style={styles.rangeRow}>
+                  <View style={[styles.rangeBtn, { backgroundColor: colors.card, borderColor: tripStart ? colors.primary : colors.border }]}>
+                    <Text style={[styles.rangeLabel, { color: colors.mutedForeground }]}>Start</Text>
+                    {createElement("input", {
+                      type: "date",
+                      value: toDateInputValue(tripStart),
+                      max: toDateInputValue(tripEnd),
+                      onChange: (e: { target: { value: string } }) => onWebRangeChange("start", e.target.value),
+                      style: { ...webDateInputStyle, color: tripStart ? colors.foreground : colors.textDim },
+                    })}
+                  </View>
+                  <View style={[styles.rangeBtn, { backgroundColor: colors.card, borderColor: tripEnd ? colors.primary : colors.border }]}>
+                    <Text style={[styles.rangeLabel, { color: colors.mutedForeground }]}>End</Text>
+                    {createElement("input", {
+                      type: "date",
+                      value: toDateInputValue(tripEnd),
+                      min: toDateInputValue(tripStart),
+                      onChange: (e: { target: { value: string } }) => onWebRangeChange("end", e.target.value),
+                      style: { ...webDateInputStyle, color: tripEnd ? colors.foreground : colors.textDim },
+                    })}
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.rangeRow}>
+                  <TouchableOpacity
+                    onPress={() => openRangePicker("start")}
+                    style={[styles.rangeBtn, { backgroundColor: colors.card, borderColor: tripStart ? colors.primary : colors.border }]}
+                  >
+                    <Text style={[styles.rangeLabel, { color: colors.mutedForeground }]}>Start</Text>
+                    <Text style={[styles.rangeValue, { color: tripStart ? colors.foreground : colors.textDim }]}>
+                      {tripStart ? formatPickedDay(tripStart) : "Pick a day"}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => openRangePicker("end")}
+                    style={[styles.rangeBtn, { backgroundColor: colors.card, borderColor: tripEnd ? colors.primary : colors.border }]}
+                  >
+                    <Text style={[styles.rangeLabel, { color: colors.mutedForeground }]}>End</Text>
+                    <Text style={[styles.rangeValue, { color: tripEnd ? colors.foreground : colors.textDim }]}>
+                      {tripEnd ? formatPickedDay(tripEnd) : tripStart ? "Same day" : "Pick a day"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+              {tripStart ? (
+                <Text style={[styles.rangePreview, { color: colors.primary }]}>
+                  {formatTripRange({ startAt: dayAt(tripStart, 9), endAt: dayAt(tripEnd ?? tripStart, 18) })}
+                </Text>
+              ) : null}
+              <View style={[styles.toggleRow, { backgroundColor: colors.card, borderColor: colors.border, marginTop: 12 }]}>
+                <Ionicons name="time-outline" size={20} color={colors.mutedForeground} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.toggleTitle, { color: colors.foreground }]}>All-day trip</Text>
+                  <Text style={[styles.toggleSub, { color: colors.mutedForeground }]}>Times live on each itinerary stop</Text>
+                </View>
+                <Switch
+                  value={allDay}
+                  onValueChange={(v) => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setAllDay(v); }}
+                  trackColor={{ false: colors.border, true: colors.primary }}
+                  thumbColor="#fff"
+                />
+              </View>
+            </View>
+
+            <View style={styles.section}>
+              <Text style={[styles.label, { color: colors.mutedForeground }]}>Cover</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
+                {TRIP_COVER_KEYS.map((key) => {
+                  const grad = TRIP_COVERS[key];
+                  const active = coverStyle === key;
+                  return (
+                    <TouchableOpacity
+                      key={key}
+                      onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setCoverStyle(key); }}
+                      activeOpacity={0.85}
+                    >
+                      <LinearGradient
+                        colors={grad}
+                        start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                        style={[styles.coverSwatch, active && { borderColor: colors.foreground, borderWidth: 3 }]}
+                      >
+                        {active ? <Ionicons name="checkmark" size={20} color="#fff" /> : null}
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          </>
+        ) : (
         <View style={styles.section}>
           <Text style={[styles.label, { color: colors.mutedForeground }]}>Date & time</Text>
           {Platform.OS === "web" ? (
@@ -301,6 +556,7 @@ export default function CreateEventScreen() {
             <Ionicons name="chevron-forward" size={14} color={colors.primary} />
           </TouchableOpacity>
         </View>
+        )}
 
         <View style={styles.section}>
           <Text style={[styles.label, { color: colors.mutedForeground }]}>Location</Text>
@@ -391,7 +647,7 @@ export default function CreateEventScreen() {
             >
               <Ionicons name={creating ? "hourglass-outline" : "add-circle-outline"} size={20} color="#fff" />
               <Text style={[styles.createBtnText, { color: "#fff" }]}>
-                {creating ? "Creating…" : "Create Event"}
+                {creating ? "Creating…" : kind === "trip" ? "Create Trip" : "Create Event"}
               </Text>
             </LinearGradient>
           ) : (
@@ -444,6 +700,46 @@ export default function CreateEventScreen() {
         />
       )}
 
+      {/* Trip date-range picker (start / end). */}
+      {Platform.OS === "ios" && rangeStep !== null && (
+        <Modal visible animationType="slide" transparent onRequestClose={() => setRangeStep(null)}>
+          <View style={styles.pickerOverlay}>
+            <View style={[styles.pickerSheet, { backgroundColor: colors.card, paddingBottom: insets.bottom + 8 }]}>
+              <View style={[styles.pickerToolbar, { borderBottomColor: colors.border }]}>
+                <TouchableOpacity onPress={() => setRangeStep(null)} style={styles.pickerBtn}>
+                  <Text style={[styles.pickerBtnText, { color: colors.mutedForeground }]}>Cancel</Text>
+                </TouchableOpacity>
+                <Text style={[styles.pickerTitle, { color: colors.foreground }]}>
+                  {rangeStep === "start" ? "Start date" : "End date"}
+                </Text>
+                <TouchableOpacity onPress={() => confirmRange(rangeTmp)} style={styles.pickerBtn}>
+                  <Text style={[styles.pickerBtnText, { color: colors.primary, fontWeight: "700" }]}>Done</Text>
+                </TouchableOpacity>
+              </View>
+              <DateTimePicker
+                value={rangeTmp}
+                mode="date"
+                display="spinner"
+                onChange={(_, d) => { if (d) setRangeTmp(d); }}
+                minimumDate={rangeStep === "end" && tripStart ? tripStart : new Date()}
+                themeVariant="dark"
+                style={{ width: "100%", height: 200 }}
+              />
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {Platform.OS === "android" && rangeStep !== null && (
+        <DateTimePicker
+          value={rangeTmp}
+          mode="date"
+          display="default"
+          onChange={handleRangeAndroid}
+          minimumDate={rangeStep === "end" && tripStart ? tripStart : new Date()}
+        />
+      )}
+
       <UpgradeModal
         visible={showUpgradeModal}
         trigger="events"
@@ -453,6 +749,20 @@ export default function CreateEventScreen() {
     </View>
   );
 }
+
+// Plain DOM style for the web-only <input type="date"> range fields. Kept out
+// of StyleSheet.create because it's passed straight to a DOM element on web.
+const webDateInputStyle = {
+  border: "none",
+  outline: "none",
+  background: "transparent",
+  fontSize: 15,
+  fontWeight: 700,
+  fontFamily: "inherit",
+  width: "100%",
+  padding: 0,
+  cursor: "pointer",
+} as const;
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
@@ -469,6 +779,16 @@ const styles = StyleSheet.create({
   body: { flex: 1, paddingHorizontal: 20 },
   section: { paddingTop: 20 },
   label: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 10 },
+  kindRow: { flexDirection: "row", borderRadius: 14, borderWidth: 1, padding: 4, gap: 4 },
+  kindOption: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 10, paddingVertical: 11 },
+  kindText: { fontSize: 14, fontWeight: "800" },
+  kindHint: { fontSize: 12, marginTop: 8, lineHeight: 17 },
+  rangeRow: { flexDirection: "row", gap: 10 },
+  rangeBtn: { flex: 1, borderRadius: 13, borderWidth: 1.5, paddingHorizontal: 14, paddingVertical: 11 },
+  rangeLabel: { fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 4 },
+  rangeValue: { fontSize: 15, fontWeight: "700" },
+  rangePreview: { fontSize: 13, fontWeight: "700", marginTop: 10 },
+  coverSwatch: { width: 64, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   field: {
     flexDirection: "row", alignItems: "center", gap: 12,
     borderRadius: 13, borderWidth: 1.5, paddingHorizontal: 14, height: 52,

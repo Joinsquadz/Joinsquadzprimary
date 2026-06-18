@@ -352,6 +352,8 @@ function RootLayoutNav() {
         <Stack.Screen name="profile" />
         <Stack.Screen name="create" />
         <Stack.Screen name="event/[id]" />
+        <Stack.Screen name="trip/[id]" />
+        <Stack.Screen name="trip/start" />
         <Stack.Screen name="squad/[id]" />
         <Stack.Screen name="squad/join" />
         <Stack.Screen name="squad/join-public" />

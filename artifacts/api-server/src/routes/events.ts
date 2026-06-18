@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { eq, count, or, sql, and, gte, isNull } from "drizzle-orm";
+import { eq, count, or, sql, and, gte, isNull, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db, eventsTable, eventCreationsTable, usersTable } from "@workspace/db";
 import { storage } from "../storage";
@@ -44,10 +44,16 @@ function parseId(raw: unknown): string {
 }
 
 const CreateEventBody = z.object({
+  type: z.enum(["event", "trip"]).default("event"),
   emoji: z.string().default("🎉"),
   title: z.string().min(1),
   date: z.string().default("TBD"),
   eventAt: z.string().datetime().optional(),
+  // Trip date range (machine-readable). For trips, eventAt defaults to startAt.
+  startAt: z.string().datetime().optional(),
+  endAt: z.string().datetime().optional(),
+  allDay: z.boolean().default(false),
+  coverStyle: z.string().default(""),
   location: z.string().default("TBD"),
   squadId: z.string().default(""),
   squadName: z.string().default("Personal"),
@@ -62,11 +68,61 @@ const UpdateEventBody = z.object({
   description: z.string().optional(),
   date: z.string().optional(),
   eventAt: z.string().datetime().optional(),
+  startAt: z.string().datetime().nullable().optional(),
+  endAt: z.string().datetime().nullable().optional(),
+  allDay: z.boolean().optional(),
+  coverStyle: z.string().optional(),
   location: z.string().optional(),
   emoji: z.string().optional(),
   budget: z.number().optional(),
   isPublic: z.boolean().optional(),
   version: z.number().int().optional(),
+});
+
+// ── Itinerary (trip) request bodies ──────────────────────────────────────────
+const STOP_CATEGORIES = ["food", "activity", "lodging", "travel", "other"] as const;
+
+const AddStopBody = z.object({
+  day: z.string().min(1), // ISO calendar date the stop belongs to
+  time: z.string().default(""),
+  title: z.string().min(1),
+  placeName: z.string().default(""),
+  address: z.string().default(""),
+  note: z.string().default(""),
+  category: z.enum(STOP_CATEGORIES).default("other"),
+  status: z.enum(["confirmed", "proposed"]).default("confirmed"),
+  cost: z.number().nullable().optional(),
+  paidById: z.string().nullable().optional(),
+  version: z.number().int(),
+});
+
+const PatchStopBody = z.object({
+  day: z.string().optional(),
+  time: z.string().optional(),
+  title: z.string().optional(),
+  placeName: z.string().optional(),
+  address: z.string().optional(),
+  note: z.string().optional(),
+  category: z.enum(STOP_CATEGORIES).optional(),
+  status: z.enum(["confirmed", "proposed"]).optional(),
+  cost: z.number().nullable().optional(),
+  paidById: z.string().nullable().optional(),
+  version: z.number().int(),
+});
+
+const VoteStopBody = z.object({ version: z.number().int() });
+const ConfirmStopBody = z.object({ version: z.number().int() });
+
+// ── Packing checklist request bodies ─────────────────────────────────────────
+const AddPackingBody = z.object({
+  label: z.string().min(1),
+  version: z.number().int(),
+});
+const PatchPackingBody = z.object({
+  label: z.string().min(1).optional(),
+  done: z.boolean().optional(),
+  assigneeId: z.string().nullable().optional(),
+  version: z.number().int(),
 });
 
 const SetRsvpBody = z.object({
@@ -117,6 +173,18 @@ const JoinEventBody = z.object({
   inviteCode: z.string().min(1),
 });
 
+// A trip is visible to (and editable by) every CURRENT member of its squad,
+// without requiring an RSVP — re-read live so a removed member loses access
+// immediately. Plain events keep their stricter host-or-RSVP gate.
+async function canAccessAsTripMember(
+  event: typeof eventsTable.$inferSelect,
+  userId: string,
+): Promise<boolean> {
+  if (event.type !== "trip" || !event.squadId) return false;
+  const squad = await storage.getSquad(event.squadId);
+  return !!squad && ((squad.memberIds ?? []) as string[]).includes(userId);
+}
+
 async function getEventAsMember(
   id: string,
   userId: string,
@@ -128,7 +196,11 @@ async function getEventAsMember(
     return null;
   }
   const rsvps = (event.rsvps ?? {}) as Record<string, string>;
-  if (event.hostId !== userId && !(userId in rsvps)) {
+  const isMember =
+    event.hostId === userId ||
+    userId in rsvps ||
+    (await canAccessAsTripMember(event, userId));
+  if (!isMember) {
     res.status(403).json({ error: "Access denied" });
     return null;
   }
@@ -222,27 +294,37 @@ router.get("/events/count", requireAuth, async (req: Request, res: Response): Pr
 
 router.get("/events", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const userId = (req.user as { id: string }).id;
-  // Hide events once their concrete time has fully passed: an event drops off at
-  // midnight at the start of the FOLLOWING day, i.e. keep events whose eventAt is
-  // >= the start of today. Events with no concrete time yet (eventAt IS NULL —
-  // still being planned / "TBD") are always kept.
+  // The Trips·Events·Past hub needs past items too; everywhere else wants only
+  // current/upcoming. `?includePast=1` drops the time filter (keeping the
+  // who-can-see-it scoping) so the hub can render its "Past" segment.
+  const includePast = req.query.includePast === "1" || req.query.includePast === "true";
+  // Hide items once their time has fully passed: keep an item whose eventAt (or,
+  // for trips, the last day of the range, endAt) is >= the start of today. Items
+  // with no concrete time yet (eventAt IS NULL — still being planned / "TBD")
+  // are always kept.
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
+
+  // Trips are visible to every CURRENT member of their squad, with no RSVP
+  // required (events keep the host-or-RSVP gate).
+  const squadIds = await storage.getSquadIdsForUser(userId);
+  const visibility = or(
+    eq(eventsTable.hostId, userId),
+    sql`${eventsTable.rsvps} ? ${userId}`,
+    ...(squadIds.length > 0
+      ? [and(eq(eventsTable.type, "trip"), inArray(eventsTable.squadId, squadIds))]
+      : []),
+  );
+  const notExpired = or(
+    isNull(eventsTable.eventAt),
+    gte(eventsTable.eventAt, startOfToday),
+    gte(eventsTable.endAt, startOfToday),
+  );
+
   const events = await db
     .select()
     .from(eventsTable)
-    .where(
-      and(
-        or(
-          eq(eventsTable.hostId, userId),
-          sql`${eventsTable.rsvps} ? ${userId}`,
-        ),
-        or(
-          isNull(eventsTable.eventAt),
-          gte(eventsTable.eventAt, startOfToday),
-        ),
-      ),
-    )
+    .where(includePast ? visibility : and(visibility, notExpired))
     .orderBy(eventsTable.eventAt, eventsTable.createdAt);
   res.json(events);
 });
@@ -274,13 +356,18 @@ router.post("/events", requireAuth, async (req: Request, res: Response): Promise
       return false;
     })();
 
-    const { inviteCode, hostId: _bodyHostId, eventAt, ...rest } = parsed.data;
+    const { inviteCode, hostId: _bodyHostId, eventAt, startAt, endAt, ...rest } = parsed.data;
     const hostId = authUser.id;
+    // For trips, eventAt defaults to startAt so existing reminder/expiry logic
+    // (which keys on eventAt) still works; endAt drives range-aware expiry.
+    const resolvedEventAt = eventAt ?? (rest.type === "trip" ? startAt : undefined);
     const insertValues = {
       ...rest,
       hostId,
       inviteCode: inviteCode ?? randomCode(),
-      ...(eventAt ? { eventAt: new Date(eventAt) } : {}),
+      ...(resolvedEventAt ? { eventAt: new Date(resolvedEventAt) } : {}),
+      ...(startAt ? { startAt: new Date(startAt) } : {}),
+      ...(endAt ? { endAt: new Date(endAt) } : {}),
     };
 
     // Enforce the free-tier event cap and append the ledger row atomically. A
@@ -461,7 +548,7 @@ router.get("/events/:id", requireAuth, async (req: Request, res: Response): Prom
   const rsvps = (event.rsvps ?? {}) as Record<string, string>;
   const isHost = event.hostId === userId;
   const hasRsvp = userId in rsvps;
-  if (!isHost && !hasRsvp) {
+  if (!isHost && !hasRsvp && !(await canAccessAsTripMember(event, userId))) {
     res.status(403).json({ error: "Access denied" });
     return;
   }
@@ -495,6 +582,12 @@ router.patch("/events/:id", requireAuth, async (req: Request, res: Response): Pr
   }
   if (fieldsToUpdate.eventAt !== undefined) {
     patch.eventAt = new Date(fieldsToUpdate.eventAt);
+  }
+  if (fieldsToUpdate.startAt !== undefined) {
+    patch.startAt = fieldsToUpdate.startAt === null ? null : new Date(fieldsToUpdate.startAt);
+  }
+  if (fieldsToUpdate.endAt !== undefined) {
+    patch.endAt = fieldsToUpdate.endAt === null ? null : new Date(fieldsToUpdate.endAt);
   }
   const updateWhere = clientVersion !== undefined
     ? and(eq(eventsTable.id, id), eq(eventsTable.version, clientVersion))
@@ -1065,7 +1158,7 @@ router.get("/events/:id/stream", requireAuth, async (req: Request, res: Response
     return;
   }
   const rsvps = (event.rsvps ?? {}) as Record<string, string>;
-  if (event.hostId !== userId && !(userId in rsvps)) {
+  if (event.hostId !== userId && !(userId in rsvps) && !(await canAccessAsTripMember(event, userId))) {
     res.status(403).json({ error: "Access denied" });
     return;
   }
@@ -1136,6 +1229,334 @@ router.get('/events/:id/photos', requireAuth, async (req, res): Promise<void> =>
     logger.error({ err }, 'Error fetching event photos');
     res.status(500).json({ error: 'Failed to fetch photos' });
   }
+});
+
+// ── Itinerary stops (trips) ──────────────────────────────────────────────────
+// Every member of the trip's squad can manage the itinerary (authz via
+// getEventAsMember, which grants live squad members access without an RSVP).
+// Each write is version-checked against the shared events row so concurrent
+// edits to the JSON column can't clobber each other (409 → client refetches).
+//
+// Itinerary + packing live only on trip events, so every handler also rejects
+// non-trip events (after the membership check) to keep that behavior scoped to
+// the trip resource type on the shared events object.
+function ensureTripEvent(existing: { type?: string | null }, res: Response): boolean {
+  if (existing.type !== "trip") {
+    res.status(400).json({ error: "Itinerary and packing are only available on trips" });
+    return false;
+  }
+  return true;
+}
+
+router.post("/events/:id/itinerary", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const id = parseId(req.params.id);
+  const userId = (req.user as { id: string }).id;
+  const parsed = AddStopBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const existing = await getEventAsMember(id, userId, res);
+  if (!existing) return;
+  if (!ensureTripEvent(existing, res)) return;
+  const { version: clientVersion, day, ...rest } = parsed.data;
+  const current = (existing.itinerary ?? []) as ItineraryStop[];
+  // Order new stops after the last stop already on that day.
+  const sortOrder = current
+    .filter((s) => s.day === day)
+    .reduce((max, s) => Math.max(max, s.sortOrder), -1) + 1;
+  const stop: ItineraryStop = {
+    id: `s${Date.now()}`,
+    day,
+    time: rest.time,
+    title: rest.title,
+    placeName: rest.placeName,
+    address: rest.address,
+    note: rest.note,
+    category: rest.category,
+    status: rest.status,
+    cost: rest.cost ?? null,
+    paidById: rest.paidById ?? null,
+    createdBy: userId,
+    votes: [],
+    sortOrder,
+  };
+  const itinerary = [...current, stop];
+  const updateWhere = clientVersion !== undefined
+    ? and(eq(eventsTable.id, id), eq(eventsTable.version, clientVersion))
+    : eq(eventsTable.id, id);
+  const [event] = await db.update(eventsTable)
+    .set({ itinerary, version: sql`${eventsTable.version} + 1` })
+    .where(updateWhere)
+    .returning();
+  if (!event) {
+    res.status(409).json({ error: "Someone else just updated this — refresh to see the latest", conflict: true });
+    return;
+  }
+  res.json(event);
+  emitEventUpdate(id);
+});
+
+router.patch("/events/:id/itinerary/:stopId", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const id = parseId(req.params.id);
+  const stopId = parseId(req.params.stopId);
+  const userId = (req.user as { id: string }).id;
+  const parsed = PatchStopBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const existing = await getEventAsMember(id, userId, res);
+  if (!existing) return;
+  if (!ensureTripEvent(existing, res)) return;
+  const { version: clientVersion, cost, ...stopFields } = parsed.data;
+  const current = (existing.itinerary ?? []) as ItineraryStop[];
+  if (!current.some((s) => s.id === stopId)) {
+    res.status(404).json({ error: "Stop not found" });
+    return;
+  }
+  const itinerary = current.map((s) =>
+    s.id === stopId ? { ...s, ...stopFields, ...(cost !== undefined ? { cost } : {}) } : s,
+  );
+  const updateWhere = clientVersion !== undefined
+    ? and(eq(eventsTable.id, id), eq(eventsTable.version, clientVersion))
+    : eq(eventsTable.id, id);
+  const [event] = await db.update(eventsTable)
+    .set({ itinerary, version: sql`${eventsTable.version} + 1` })
+    .where(updateWhere)
+    .returning();
+  if (!event) {
+    res.status(409).json({ error: "Someone else just updated this — refresh to see the latest", conflict: true });
+    return;
+  }
+  res.json(event);
+  emitEventUpdate(id);
+});
+
+router.delete("/events/:id/itinerary/:stopId", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const id = parseId(req.params.id);
+  const stopId = parseId(req.params.stopId);
+  const userId = (req.user as { id: string }).id;
+  const clientVersion = typeof req.body?.version === "number" ? req.body.version : undefined;
+  if (clientVersion === undefined) {
+    res.status(400).json({ error: "version is required" });
+    return;
+  }
+  const existing = await getEventAsMember(id, userId, res);
+  if (!existing) return;
+  if (!ensureTripEvent(existing, res)) return;
+  const current = (existing.itinerary ?? []) as ItineraryStop[];
+  const target = current.find((s) => s.id === stopId);
+  if (!target) {
+    res.status(404).json({ error: "Stop not found" });
+    return;
+  }
+  // Only the trip host or the stop's author can remove it.
+  if (existing.hostId !== userId && target.createdBy !== userId) {
+    res.status(403).json({ error: "Only the host or the person who added this stop can remove it" });
+    return;
+  }
+  const itinerary = current.filter((s) => s.id !== stopId);
+  const updateWhere = clientVersion !== undefined
+    ? and(eq(eventsTable.id, id), eq(eventsTable.version, clientVersion))
+    : eq(eventsTable.id, id);
+  const [event] = await db.update(eventsTable)
+    .set({ itinerary, version: sql`${eventsTable.version} + 1` })
+    .where(updateWhere)
+    .returning();
+  if (!event) {
+    res.status(409).json({ error: "Someone else just updated this — refresh to see the latest", conflict: true });
+    return;
+  }
+  res.json(event);
+  emitEventUpdate(id);
+});
+
+router.post("/events/:id/itinerary/:stopId/vote", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const id = parseId(req.params.id);
+  const stopId = parseId(req.params.stopId);
+  const userId = (req.user as { id: string }).id;
+  const parsed = VoteStopBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const existing = await getEventAsMember(id, userId, res);
+  if (!existing) return;
+  if (!ensureTripEvent(existing, res)) return;
+  const { version: clientVersion } = parsed.data;
+  const current = (existing.itinerary ?? []) as ItineraryStop[];
+  if (!current.some((s) => s.id === stopId)) {
+    res.status(404).json({ error: "Stop not found" });
+    return;
+  }
+  // Toggle this user's upvote on the proposed stop.
+  const itinerary = current.map((s) => {
+    if (s.id !== stopId) return s;
+    const votes = s.votes.includes(userId)
+      ? s.votes.filter((v) => v !== userId)
+      : [...s.votes, userId];
+    return { ...s, votes };
+  });
+  const updateWhere = clientVersion !== undefined
+    ? and(eq(eventsTable.id, id), eq(eventsTable.version, clientVersion))
+    : eq(eventsTable.id, id);
+  const [event] = await db.update(eventsTable)
+    .set({ itinerary, version: sql`${eventsTable.version} + 1` })
+    .where(updateWhere)
+    .returning();
+  if (!event) {
+    res.status(409).json({ error: "Someone else just updated this — refresh to see the latest", conflict: true });
+    return;
+  }
+  res.json(event);
+  emitEventUpdate(id);
+});
+
+router.post("/events/:id/itinerary/:stopId/confirm", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const id = parseId(req.params.id);
+  const stopId = parseId(req.params.stopId);
+  const userId = (req.user as { id: string }).id;
+  const parsed = ConfirmStopBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const existing = await getEventAsMember(id, userId, res);
+  if (!existing) return;
+  if (!ensureTripEvent(existing, res)) return;
+  const { version: clientVersion } = parsed.data;
+  const current = (existing.itinerary ?? []) as ItineraryStop[];
+  if (!current.some((s) => s.id === stopId)) {
+    res.status(404).json({ error: "Stop not found" });
+    return;
+  }
+  const itinerary = current.map((s) =>
+    s.id === stopId ? { ...s, status: "confirmed" as const } : s,
+  );
+  const updateWhere = clientVersion !== undefined
+    ? and(eq(eventsTable.id, id), eq(eventsTable.version, clientVersion))
+    : eq(eventsTable.id, id);
+  const [event] = await db.update(eventsTable)
+    .set({ itinerary, version: sql`${eventsTable.version} + 1` })
+    .where(updateWhere)
+    .returning();
+  if (!event) {
+    res.status(409).json({ error: "Someone else just updated this — refresh to see the latest", conflict: true });
+    return;
+  }
+  res.json(event);
+  emitEventUpdate(id);
+});
+
+// ── Packing checklist (trips) ────────────────────────────────────────────────
+
+router.post("/events/:id/packing", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const id = parseId(req.params.id);
+  const userId = (req.user as { id: string }).id;
+  const parsed = AddPackingBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const existing = await getEventAsMember(id, userId, res);
+  if (!existing) return;
+  if (!ensureTripEvent(existing, res)) return;
+  const { version: clientVersion, label } = parsed.data;
+  const current = (existing.packing ?? []) as PackingItem[];
+  const item: PackingItem = {
+    id: `p${Date.now()}`,
+    label,
+    done: false,
+    assigneeId: null,
+    createdBy: userId,
+  };
+  const packing = [...current, item];
+  const updateWhere = clientVersion !== undefined
+    ? and(eq(eventsTable.id, id), eq(eventsTable.version, clientVersion))
+    : eq(eventsTable.id, id);
+  const [event] = await db.update(eventsTable)
+    .set({ packing, version: sql`${eventsTable.version} + 1` })
+    .where(updateWhere)
+    .returning();
+  if (!event) {
+    res.status(409).json({ error: "Someone else just updated this — refresh to see the latest", conflict: true });
+    return;
+  }
+  res.json(event);
+  emitEventUpdate(id);
+});
+
+router.patch("/events/:id/packing/:itemId", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const id = parseId(req.params.id);
+  const itemId = parseId(req.params.itemId);
+  const userId = (req.user as { id: string }).id;
+  const parsed = PatchPackingBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const existing = await getEventAsMember(id, userId, res);
+  if (!existing) return;
+  if (!ensureTripEvent(existing, res)) return;
+  const { version: clientVersion, ...itemFields } = parsed.data;
+  const current = (existing.packing ?? []) as PackingItem[];
+  if (!current.some((p) => p.id === itemId)) {
+    res.status(404).json({ error: "Item not found" });
+    return;
+  }
+  const packing = current.map((p) => (p.id === itemId ? { ...p, ...itemFields } : p));
+  const updateWhere = clientVersion !== undefined
+    ? and(eq(eventsTable.id, id), eq(eventsTable.version, clientVersion))
+    : eq(eventsTable.id, id);
+  const [event] = await db.update(eventsTable)
+    .set({ packing, version: sql`${eventsTable.version} + 1` })
+    .where(updateWhere)
+    .returning();
+  if (!event) {
+    res.status(409).json({ error: "Someone else just updated this — refresh to see the latest", conflict: true });
+    return;
+  }
+  res.json(event);
+  emitEventUpdate(id);
+});
+
+router.delete("/events/:id/packing/:itemId", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const id = parseId(req.params.id);
+  const itemId = parseId(req.params.itemId);
+  const userId = (req.user as { id: string }).id;
+  const clientVersion = typeof req.body?.version === "number" ? req.body.version : undefined;
+  if (clientVersion === undefined) {
+    res.status(400).json({ error: "version is required" });
+    return;
+  }
+  const existing = await getEventAsMember(id, userId, res);
+  if (!existing) return;
+  if (!ensureTripEvent(existing, res)) return;
+  const current = (existing.packing ?? []) as PackingItem[];
+  const target = current.find((p) => p.id === itemId);
+  if (!target) {
+    res.status(404).json({ error: "Item not found" });
+    return;
+  }
+  if (existing.hostId !== userId && target.createdBy !== userId) {
+    res.status(403).json({ error: "Only the host or the person who added this item can remove it" });
+    return;
+  }
+  const packing = current.filter((p) => p.id !== itemId);
+  const updateWhere = clientVersion !== undefined
+    ? and(eq(eventsTable.id, id), eq(eventsTable.version, clientVersion))
+    : eq(eventsTable.id, id);
+  const [event] = await db.update(eventsTable)
+    .set({ packing, version: sql`${eventsTable.version} + 1` })
+    .where(updateWhere)
+    .returning();
+  if (!event) {
+    res.status(409).json({ error: "Someone else just updated this — refresh to see the latest", conflict: true });
+    return;
+  }
+  res.json(event);
+  emitEventUpdate(id);
 });
 
 export default router;

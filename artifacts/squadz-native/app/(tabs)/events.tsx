@@ -1,5 +1,5 @@
-import { useState, useRef, useMemo, useEffect, useCallback } from "react";
-import { router } from "expo-router";
+import { useState, useRef, useMemo, useCallback } from "react";
+import { router, useFocusEffect } from "expo-router";
 import {
   View,
   Text,
@@ -17,12 +17,20 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
-import { useData } from "@/context/AppContext";
+import { useData, useAuth, dbEventToEvent } from "@/context/AppContext";
 import { EventCard } from "@/components/EventCard";
+import { TripCard } from "@/components/TripCard";
 import type { Event } from "@/types";
 import { goingCount, parseEventDate } from "@/lib/eventUtils";
+import { isTripPast, isHappeningNow } from "@/lib/tripUtils";
+import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
-const FILTERS = ["All", "This Week", "Hosting", "Going", "Maybe"];
+type Segment = "trips" | "events" | "past";
+const SEGMENTS: { key: Segment; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { key: "trips", label: "Trips", icon: "airplane-outline" },
+  { key: "events", label: "Events", icon: "calendar-outline" },
+  { key: "past", label: "Past", icon: "time-outline" },
+];
 
 function JoinCodeModal({
   visible,
@@ -88,7 +96,7 @@ function JoinCodeModal({
               </View>
               <Text style={[styles.successTitle, { color: colors.foreground }]}>You're in!</Text>
               <Text style={[styles.successSub, { color: colors.mutedForeground }]}>
-                The event was added to your list.
+                It was added to your list.
               </Text>
               <TouchableOpacity
                 onPress={handleClose}
@@ -99,7 +107,7 @@ function JoinCodeModal({
             </View>
           ) : (
             <>
-              <Text style={[styles.sheetTitle, { color: colors.foreground }]}>Join an Event</Text>
+              <Text style={[styles.sheetTitle, { color: colors.foreground }]}>Join with a code</Text>
               <Text style={[styles.sheetSub, { color: colors.mutedForeground }]}>
                 Enter the invite code shared with you (e.g. SQ-AB12)
               </Text>
@@ -109,7 +117,7 @@ function JoinCodeModal({
                   styles.codeInputRow,
                   {
                     backgroundColor: colors.background,
-                    borderColor: errorMsg ? "#FF5C3A" : colors.border,
+                    borderColor: errorMsg ? colors.primary : colors.border,
                   },
                 ]}
               >
@@ -141,8 +149,8 @@ function JoinCodeModal({
 
               {errorMsg ? (
                 <View style={styles.errorRow}>
-                  <Ionicons name="warning-outline" size={14} color="#FF5C3A" />
-                  <Text style={styles.errorText}>{errorMsg}</Text>
+                  <Ionicons name="warning-outline" size={14} color={colors.primary} />
+                  <Text style={[styles.errorText, { color: colors.primary }]}>{errorMsg}</Text>
                 </View>
               ) : null}
 
@@ -161,7 +169,7 @@ function JoinCodeModal({
                 {status === "loading" ? (
                   <ActivityIndicator color="#fff" size="small" />
                 ) : (
-                  <Text style={styles.joinBtnText}>Join Event →</Text>
+                  <Text style={styles.joinBtnText}>Join →</Text>
                 )}
               </TouchableOpacity>
             </>
@@ -172,90 +180,110 @@ function JoinCodeModal({
   );
 }
 
-type ListItem =
-  | { type: "event"; data: Event }
-  | { type: "past-header"; count: number };
-
-export default function EventsScreen() {
+export default function PlansScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { events, currentUser, eventsLoading, refreshEvents } = useData();
+  const { joinEvent } = useData();
+  const { authToken } = useAuth();
+  const [segment, setSegment] = useState<Segment>("trips");
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState("All");
   const [showJoinModal, setShowJoinModal] = useState(false);
-  const [showPast, setShowPast] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+
+  // The hub aggregates upcoming AND past plans across every squad, so it keeps
+  // its own list (AppContext.events stays upcoming-only for Home etc.).
+  const [allPlans, setAllPlans] = useState<Event[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    if (!authToken) { setLoading(false); return; }
+    try {
+      const res = await fetch(`${API_BASE}/api/events?includePast=1`, { headers: buildAuthHeaders(authToken) });
+      if (!res.ok) return;
+      const data = (await res.json()) as Record<string, unknown>[];
+      setAllPlans(data.map(dbEventToEvent));
+    } catch {
+      // Keep whatever is already shown; pull-to-refresh can retry.
+    } finally {
+      setLoading(false);
+    }
+  }, [authToken]);
+
+  useFocusEffect(useCallback(() => { void load(); }, [load]));
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await refreshEvents();
+    await load();
     setRefreshing(false);
-  }, [refreshEvents]);
+  }, [load]);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
 
-  const now = useMemo(() => new Date(), []);
-  const weekFromNow = useMemo(() => new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000), [now]);
-
-  const matchesFilter = useMemo(() => (e: Event): boolean => {
-    switch (filter) {
-      case "This Week": {
-        const d = parseEventDate(e.date);
-        return !!d && d >= now && d <= weekFromNow;
-      }
-      case "Hosting":
-        return e.hostId === currentUser.id;
-      case "Going":
-        return e.rsvps[currentUser.id] === "going";
-      case "Maybe":
-        return e.rsvps[currentUser.id] === "maybe";
-      default:
-        return true;
-    }
-  }, [filter, currentUser.id, now, weekFromNow]);
-
-  const matchesSearch = useMemo(() => (e: Event): boolean =>
-    e.title.toLowerCase().includes(search.toLowerCase()) ||
-    e.location.toLowerCase().includes(search.toLowerCase()),
-  [search]);
-
-  const isPast = useMemo(() => (e: Event): boolean => {
+  const isPastPlan = useCallback((e: Event): boolean => {
+    if (e.type === "trip") return isTripPast(e);
     const d = parseEventDate(e.date);
-    return !!d && d < now;
-  }, [now]);
+    return !!d && d < new Date();
+  }, []);
 
-  const { upcoming, past } = useMemo(() => {
-    const base = events.filter(e => matchesFilter(e) && matchesSearch(e));
+  const matchesSearch = useCallback((e: Event): boolean => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return e.title.toLowerCase().includes(q) || e.location.toLowerCase().includes(q);
+  }, [search]);
+
+  const { trips, events, past } = useMemo(() => {
+    const filtered = allPlans.filter((e) => !e.cancelled && matchesSearch(e));
+    const upcoming = filtered.filter((e) => !isPastPlan(e));
+    // Happening-now trips float to the top of the Trips segment.
+    const tripList = upcoming
+      .filter((e) => e.type === "trip")
+      .sort((a, b) => {
+        const an = isHappeningNow(a) ? 1 : 0;
+        const bn = isHappeningNow(b) ? 1 : 0;
+        if (an !== bn) return bn - an;
+        return (a.startAt ?? "").localeCompare(b.startAt ?? "");
+      });
     return {
-      upcoming: base.filter(e => !isPast(e)),
-      past: base.filter(e => isPast(e)),
+      trips: tripList,
+      events: upcoming.filter((e) => e.type !== "trip"),
+      past: filtered.filter((e) => isPastPlan(e)),
     };
-  }, [events, matchesFilter, matchesSearch, isPast]);
+  }, [allPlans, matchesSearch, isPastPlan]);
 
-  const effectiveShowPast = search.length > 0 ? true : showPast;
+  const listData = segment === "trips" ? trips : segment === "events" ? events : past;
 
-  useEffect(() => {
-    if (search.length > 0 && upcoming.length === 0 && past.length > 0) {
-      setShowPast(true);
-    }
-  }, [search, upcoming.length, past.length]);
+  const primaryCta = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (segment === "events") router.push("/create" as never);
+    else router.push("/trip/start" as never);
+  }, [segment]);
 
-  const listData = useMemo((): ListItem[] => {
-    const items: ListItem[] = upcoming.map(e => ({ type: "event" as const, data: e }));
-    if (past.length > 0) {
-      items.push({ type: "past-header" as const, count: past.length });
-      if (effectiveShowPast) {
-        items.push(...past.map(e => ({ type: "event" as const, data: e })));
-      }
-    }
-    return items;
-  }, [upcoming, past, effectiveShowPast]);
+  const renderItem = useCallback(({ item }: { item: Event }) => {
+    if (item.type === "trip") return <TripCard trip={item} />;
+    return (
+      <EventCard
+        id={item.id}
+        emoji={item.emoji}
+        title={item.title}
+        date={item.date}
+        location={item.location}
+        hostId={item.hostId}
+        attendeeCount={goingCount(item)}
+      />
+    );
+  }, []);
+
+  const emptyCopy: Record<Segment, { icon: keyof typeof Ionicons.glyphMap; title: string; sub: string; cta?: string }> = {
+    trips: { icon: "airplane-outline", title: "No trips yet", sub: "Plan a multi-day getaway with your squad — build an itinerary together.", cta: "Start a Trip" },
+    events: { icon: "calendar-outline", title: "No events yet", sub: "Plan something with your squad — or find a time everyone's free first.", cta: "Plan an Event" },
+    past: { icon: "time-outline", title: "Nothing in the past", sub: "Your wrapped-up trips and events will live here." },
+  };
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: topPad + 8 }]}>
         <View style={styles.titleRow}>
-          <Text style={[styles.title, { color: colors.foreground }]}>Events</Text>
+          <Text style={[styles.title, { color: colors.foreground }]}>Plans</Text>
           <TouchableOpacity
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -267,10 +295,11 @@ export default function EventsScreen() {
             <Text style={[styles.joinCodeText, { color: colors.primary }]}>Join with code</Text>
           </TouchableOpacity>
         </View>
+
         <View style={[styles.searchBar, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Ionicons name="search-outline" size={18} color={colors.mutedForeground} />
           <TextInput
-            placeholder="Search events..."
+            placeholder="Search plans..."
             placeholderTextColor={colors.textDim}
             value={search}
             onChangeText={setSearch}
@@ -282,37 +311,34 @@ export default function EventsScreen() {
             </TouchableOpacity>
           )}
         </View>
-        <FlatList
-          data={FILTERS}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          keyExtractor={(f) => f}
-          contentContainerStyle={{ gap: 8, paddingVertical: 10 }}
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setFilter(item); }}
-              style={[
-                styles.filterChip,
-                {
-                  backgroundColor: filter === item ? colors.primary : colors.card,
-                  borderColor: filter === item ? colors.primary : colors.border,
-                },
-              ]}
-            >
-              <Text style={[styles.filterText, { color: filter === item ? "#fff" : colors.mutedForeground }]}>
-                {item}
-              </Text>
-            </TouchableOpacity>
-          )}
-        />
+
+        <View style={[styles.segmentRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          {SEGMENTS.map((s) => {
+            const active = segment === s.key;
+            const count = s.key === "trips" ? trips.length : s.key === "events" ? events.length : past.length;
+            return (
+              <TouchableOpacity
+                key={s.key}
+                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSegment(s.key); }}
+                style={[styles.segment, active && { backgroundColor: colors.primary }]}
+                activeOpacity={0.8}
+              >
+                <Ionicons name={s.icon} size={15} color={active ? "#fff" : colors.mutedForeground} />
+                <Text style={[styles.segmentText, { color: active ? "#fff" : colors.mutedForeground }]}>
+                  {s.label}{count > 0 ? ` ${count}` : ""}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
       </View>
 
       <FlatList
         data={listData}
-        keyExtractor={(item) => item.type === "past-header" ? "past-header" : item.data.id}
+        keyExtractor={(item) => item.id}
         contentContainerStyle={{
           paddingHorizontal: 20,
-          paddingTop: 8,
+          paddingTop: 12,
           paddingBottom: insets.bottom + (Platform.OS === "web" ? 84 : 100),
         }}
         showsVerticalScrollIndicator={false}
@@ -324,74 +350,45 @@ export default function EventsScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
         }
         ListEmptyComponent={
-          eventsLoading ? (
+          loading ? (
             <View style={styles.empty}>
               <ActivityIndicator size="large" color={colors.primary} />
             </View>
-          ) : events.length === 0 && !search && filter === "All" ? (
-            <View style={styles.empty}>
-              <Ionicons name="calendar-outline" size={48} color={colors.textDim} />
-              <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No events yet</Text>
-              <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>
-                Plan something with your squad — or find a time everyone's free first.
-              </Text>
-              <TouchableOpacity
-                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push("/create" as never); }}
-                style={[styles.emptyBtn, { backgroundColor: colors.primary }]}
-              >
-                <Ionicons name="add-circle-outline" size={18} color="#fff" />
-                <Text style={styles.emptyBtnText}>Plan an Event</Text>
-              </TouchableOpacity>
-            </View>
           ) : (
             <View style={styles.empty}>
-              <Ionicons name="search-outline" size={40} color={colors.textDim} />
-              <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No events match</Text>
-              <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>
-                Try a different search or filter
-              </Text>
+              <Ionicons name={emptyCopy[segment].icon} size={48} color={colors.textDim} />
+              <Text style={[styles.emptyTitle, { color: colors.foreground }]}>{emptyCopy[segment].title}</Text>
+              <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>{emptyCopy[segment].sub}</Text>
+              {emptyCopy[segment].cta ? (
+                <TouchableOpacity
+                  onPress={primaryCta}
+                  style={[styles.emptyBtn, { backgroundColor: colors.primary }]}
+                >
+                  <Ionicons name="add-circle-outline" size={18} color="#fff" />
+                  <Text style={styles.emptyBtnText}>{emptyCopy[segment].cta}</Text>
+                </TouchableOpacity>
+              ) : null}
             </View>
           )
         }
-        renderItem={({ item }) => {
-          if (item.type === "past-header") {
-            return (
-              <TouchableOpacity
-                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setShowPast(p => !p); }}
-                style={[styles.pastHeader, { borderColor: colors.border }]}
-                activeOpacity={0.7}
-              >
-                <View style={styles.pastHeaderLeft}>
-                  <Ionicons name="time-outline" size={16} color={colors.mutedForeground} />
-                  <Text style={[styles.pastHeaderText, { color: colors.mutedForeground }]}>
-                    Past Events
-                  </Text>
-                  <View style={[styles.pastCount, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                    <Text style={[styles.pastCountText, { color: colors.mutedForeground }]}>{item.count}</Text>
-                  </View>
-                </View>
-                <Ionicons
-                  name={effectiveShowPast ? "chevron-up" : "chevron-down"}
-                  size={16}
-                  color={colors.mutedForeground}
-                />
-              </TouchableOpacity>
-            );
-          }
-          const e = item.data;
-          return (
-            <EventCard
-              id={e.id}
-              emoji={e.emoji}
-              title={e.title}
-              date={e.date}
-              location={e.location}
-              hostId={e.hostId}
-              attendeeCount={goingCount(e)}
-            />
-          );
-        }}
+        renderItem={renderItem}
       />
+
+      {segment !== "past" && (
+        <TouchableOpacity
+          onPress={primaryCta}
+          activeOpacity={0.9}
+          style={[
+            styles.fab,
+            {
+              backgroundColor: colors.primary,
+              bottom: insets.bottom + (Platform.OS === "web" ? 96 : 24),
+            },
+          ]}
+        >
+          <Ionicons name="add" size={26} color="#fff" />
+        </TouchableOpacity>
+      )}
 
       <JoinCodeModal visible={showJoinModal} onClose={() => setShowJoinModal(false)} />
     </View>
@@ -400,7 +397,7 @@ export default function EventsScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  header: { paddingHorizontal: 20, paddingBottom: 4 },
+  header: { paddingHorizontal: 20, paddingBottom: 8 },
   titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
   title: { fontSize: 28, fontWeight: "900" },
   joinCodeBtn: {
@@ -411,25 +408,27 @@ const styles = StyleSheet.create({
   searchBar: {
     flexDirection: "row", alignItems: "center", gap: 10,
     borderRadius: 13, borderWidth: 1.5, paddingHorizontal: 14, height: 48,
-    marginBottom: 0,
+    marginBottom: 12,
   },
   searchInput: { flex: 1, fontSize: 15 },
-  filterChip: { borderRadius: 20, borderWidth: 1.5, paddingHorizontal: 14, paddingVertical: 6 },
-  filterText: { fontSize: 13, fontWeight: "600" },
+  segmentRow: { flexDirection: "row", borderRadius: 14, borderWidth: 1, padding: 4, gap: 4 },
+  segment: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5,
+    borderRadius: 10, paddingVertical: 9,
+  },
+  segmentText: { fontSize: 13, fontWeight: "800" },
   empty: { alignItems: "center", paddingTop: 60, gap: 8 },
   emptyTitle: { fontSize: 17, fontWeight: "700" },
-  emptySub: { fontSize: 14, textAlign: "center", paddingHorizontal: 24 },
+  emptySub: { fontSize: 14, textAlign: "center", paddingHorizontal: 24, lineHeight: 20 },
   emptyBtn: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 20, borderRadius: 24, paddingHorizontal: 24, paddingVertical: 12 },
   emptyBtnText: { fontSize: 15, fontWeight: "700", color: "#fff" },
-  pastHeader: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    paddingVertical: 12, marginTop: 4, marginBottom: 4,
-    borderTopWidth: 1,
+  fab: {
+    position: "absolute", right: 20,
+    width: 56, height: 56, borderRadius: 28,
+    alignItems: "center", justifyContent: "center",
+    shadowColor: "#000", shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
   },
-  pastHeaderLeft: { flexDirection: "row", alignItems: "center", gap: 6 },
-  pastHeaderText: { fontSize: 14, fontWeight: "700" },
-  pastCount: { borderRadius: 10, borderWidth: 1, paddingHorizontal: 7, paddingVertical: 1 },
-  pastCountText: { fontSize: 12, fontWeight: "600" },
 
   modalOverlay: { flex: 1, justifyContent: "flex-end" },
   sheet: {
@@ -449,7 +448,7 @@ const styles = StyleSheet.create({
   },
   codeInput: { flex: 1, fontSize: 18, fontWeight: "700", letterSpacing: 2 },
   errorRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8 },
-  errorText: { fontSize: 13, color: "#FF5C3A", fontWeight: "600", flex: 1 },
+  errorText: { fontSize: 13, fontWeight: "600", flex: 1 },
   joinBtn: { borderRadius: 14, paddingVertical: 15, alignItems: "center" },
   joinBtnText: { fontSize: 16, fontWeight: "800", color: "#fff" },
   successContent: { alignItems: "center", paddingVertical: 12 },

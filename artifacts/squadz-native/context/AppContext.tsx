@@ -10,7 +10,7 @@ import { API_BASE } from "@/lib/api";
 import { fetch as streamFetch } from "expo/fetch";
 import { clearProfileCache } from "@/hooks/useUserProfiles";
 import { ME } from "@/data/mock";
-import type { Event, Squad, RsvpStatus, Cost, CostShare } from "@/types";
+import type { Event, Squad, RsvpStatus, Cost, CostShare, ItineraryStop } from "@/types";
 import { track, identify, reset as analyticsReset } from "@/lib/analytics";
 
 const AUTH_TOKEN_KEY = "@squadz/authToken";
@@ -116,6 +116,15 @@ export type NewEventInput = {
   description?: string;
   squadId: string | null;
   isPublic?: boolean;
+  /** "trip" creates a multi-day trip; defaults to a one-off event. */
+  type?: "event" | "trip";
+  /** Trip date range (ISO). startAt also seeds eventAt server-side. */
+  startAt?: string;
+  endAt?: string;
+  allDay?: boolean;
+  coverStyle?: string;
+  /** Optional preloaded itinerary stops (template flow). */
+  itinerary?: ItineraryStop[];
 };
 
 export type ConflictSnapshot = {
@@ -162,7 +171,7 @@ type AppContextType = {
   addEvent: (input: NewEventInput) => Promise<string>;
   updateEvent: (
     eventId: string,
-    patch: Partial<Pick<Event, "title" | "description" | "date" | "location" | "emoji" | "budget" | "isPublic">>,
+    patch: Partial<Pick<Event, "title" | "description" | "date" | "location" | "emoji" | "budget" | "isPublic" | "startAt" | "endAt" | "allDay" | "coverStyle">>,
   ) => void;
   joinEvent: (inviteCode: string) => Promise<{ error?: string }>;
   cancelEvent: (eventId: string) => void;
@@ -277,13 +286,18 @@ const AppContext = createContext<AppContextType>({
   retrySquadStream: noop,
 });
 
-function dbEventToEvent(e: Record<string, unknown>): Event {
+export function dbEventToEvent(e: Record<string, unknown>): Event {
   return {
     id: e.id as string,
     emoji: e.emoji as string,
     title: e.title as string,
     date: e.date as string,
+    type: (e.type as Event["type"]) ?? "event",
     eventAt: (e.eventAt as string | null | undefined) ?? null,
+    startAt: (e.startAt as string | null | undefined) ?? null,
+    endAt: (e.endAt as string | null | undefined) ?? null,
+    allDay: (e.allDay as boolean) ?? false,
+    coverStyle: (e.coverStyle as string | undefined) ?? "",
     location: e.location as string,
     squadId: e.squadId as string,
     squadName: e.squadName as string,
@@ -297,6 +311,8 @@ function dbEventToEvent(e: Record<string, unknown>): Event {
     costs: (e.costs as Event["costs"]) ?? [],
     polls: (e.polls as Event["polls"]) ?? [],
     messages: (e.messages as Event["messages"]) ?? [],
+    itinerary: (e.itinerary as Event["itinerary"]) ?? [],
+    packing: (e.packing as Event["packing"]) ?? [],
     isPublic: (e.isPublic as boolean) ?? false,
     version: (e.version as number) ?? 1,
   };
@@ -1038,6 +1054,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const addEvent = useCallback(async (input: NewEventInput): Promise<string> => {
     const squad = squads.find((s) => s.id === input.squadId);
     const hostId = apiUser?.id ?? currentUserIdRef.current;
+    const isTrip = input.type === "trip";
     const body = {
       emoji: input.emoji,
       title: input.title,
@@ -1049,6 +1066,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       hostId,
       description: input.description ?? "",
       isPublic: input.isPublic ?? false,
+      ...(isTrip ? { type: "trip" } : {}),
+      ...(input.startAt ? { startAt: input.startAt } : {}),
+      ...(input.endAt ? { endAt: input.endAt } : {}),
+      ...(input.allDay !== undefined ? { allDay: input.allDay } : {}),
+      ...(input.coverStyle ? { coverStyle: input.coverStyle } : {}),
+      ...(input.itinerary && input.itinerary.length > 0 ? { itinerary: input.itinerary } : {}),
     };
 
     let res: Response;
@@ -1063,6 +1086,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         emoji: input.emoji,
         title: input.title,
         date: input.date || "Date TBD",
+        type: input.type === "trip" ? "trip" : "event",
+        eventAt: input.eventAt ?? input.startAt ?? null,
+        startAt: input.startAt ?? null,
+        endAt: input.endAt ?? null,
+        allDay: input.allDay ?? false,
+        coverStyle: input.coverStyle ?? "",
         location: input.location || "Location TBD",
         squadId: squad?.id ?? "",
         squadName: squad?.name ?? "Personal",
@@ -1074,6 +1103,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         costs: [],
         polls: [],
         messages: [],
+        itinerary: input.itinerary ?? [],
+        packing: [],
         version: 1,
       };
       setEvents((prev) => [newEvent, ...prev]);

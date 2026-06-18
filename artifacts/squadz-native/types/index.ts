@@ -51,13 +51,55 @@ export type Message = {
   time: string;
 };
 
+export type StopCategory = "food" | "activity" | "lodging" | "travel" | "other";
+
+/** A single ordered stop in a trip's itinerary (freeform location text, no maps). */
+export type ItineraryStop = {
+  id: string;
+  /** ISO calendar date the stop belongs to, e.g. "2026-07-18". */
+  day: string;
+  /** Freeform display time, e.g. "9:00 AM" or "". */
+  time: string;
+  title: string;
+  placeName: string;
+  address: string;
+  note: string;
+  category: StopCategory;
+  status: "confirmed" | "proposed";
+  cost: number | null;
+  paidById: string | null;
+  createdBy: string;
+  votes: string[];
+  sortOrder: number;
+};
+
+/** A shared packing-list item for a trip. */
+export type PackingItem = {
+  id: string;
+  label: string;
+  done: boolean;
+  assigneeId: string | null;
+  createdBy: string;
+};
+
+export type EventType = "event" | "trip";
+
 export type Event = {
   id: string;
   emoji: string;
   title: string;
   date: string;
+  /** Discriminates a one-off event from a multi-day trip. */
+  type: EventType;
   /** Machine-readable ISO datetime when a concrete time is set; null/undefined = TBD. */
   eventAt?: string | null;
+  /** Trip date range (ISO). For trips, startAt mirrors eventAt; endAt is the last day. */
+  startAt?: string | null;
+  endAt?: string | null;
+  /** Trips: all-day (times set per stop) vs a single concrete time. */
+  allDay?: boolean;
+  /** Cover gradient style key for trip cards/headers. */
+  coverStyle?: string;
   location: string;
   squadId: string;
   squadName: string;
@@ -69,6 +111,10 @@ export type Event = {
   costs: Cost[];
   polls: Poll[];
   messages: Message[];
+  /** Ordered itinerary stops (trips only; empty for plain events). */
+  itinerary: ItineraryStop[];
+  /** Shared packing checklist (trips only; empty for plain events). */
+  packing: PackingItem[];
   cancelled?: boolean;
   budget?: number;
   isPublic?: boolean;

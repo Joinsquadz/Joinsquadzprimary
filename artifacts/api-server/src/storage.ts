@@ -169,6 +169,19 @@ export class Storage {
     return squad ?? null;
   }
 
+  /**
+   * All squad IDs the user is CURRENTLY a member of. Used to make trips (and
+   * other squad-scoped resources) visible to every squad member without an RSVP.
+   * Always re-read live (never trust a cached membership snapshot).
+   */
+  async getSquadIdsForUser(userId: string): Promise<string[]> {
+    const rows = await db
+      .select({ id: squadsTable.id })
+      .from(squadsTable)
+      .where(sql`${squadsTable.memberIds} @> ${JSON.stringify([userId])}::jsonb`);
+    return rows.map((r) => r.id);
+  }
+
   async getUserByStripeCustomerId(stripeCustomerId: string) {
     const [user] = await db
       .select()
