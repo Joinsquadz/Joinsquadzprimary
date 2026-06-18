@@ -190,6 +190,20 @@ async function canAccessAsTripMember(
   return !!squad && ((squad.memberIds ?? []) as string[]).includes(userId);
 }
 
+// Single source of truth for "can this user see/touch this event?".
+// Trips are CURRENT-squad-membership based and deliberately IGNORE the rsvps map
+// — a stale RSVP key (left over from before a member was removed from the squad)
+// must NOT keep granting access. Plain events keep their host-or-RSVP gate.
+export async function userCanAccessEvent(
+  event: typeof eventsTable.$inferSelect,
+  userId: string,
+): Promise<boolean> {
+  if (event.hostId === userId) return true;
+  if (event.type === "trip") return canAccessAsTripMember(event, userId);
+  const rsvps = (event.rsvps ?? {}) as Record<string, string>;
+  return userId in rsvps;
+}
+
 async function getEventAsMember(
   id: string,
   userId: string,
@@ -200,12 +214,7 @@ async function getEventAsMember(
     res.status(404).json({ error: "Event not found" });
     return null;
   }
-  const rsvps = (event.rsvps ?? {}) as Record<string, string>;
-  const isMember =
-    event.hostId === userId ||
-    userId in rsvps ||
-    (await canAccessAsTripMember(event, userId));
-  if (!isMember) {
+  if (!(await userCanAccessEvent(event, userId))) {
     res.status(403).json({ error: "Access denied" });
     return null;
   }
@@ -315,7 +324,9 @@ router.get("/events", requireAuth, async (req: Request, res: Response): Promise<
   const squadIds = await storage.getSquadIdsForUser(userId);
   const visibility = or(
     eq(eventsTable.hostId, userId),
-    sql`${eventsTable.rsvps} ? ${userId}`,
+    // RSVP visibility is for plain events only — a trip must never be visible
+    // via a stale RSVP key after the user is removed from its squad.
+    and(sql`${eventsTable.type} <> 'trip'`, sql`${eventsTable.rsvps} ? ${userId}`),
     ...(squadIds.length > 0
       ? [and(eq(eventsTable.type, "trip"), inArray(eventsTable.squadId, squadIds))]
       : []),
@@ -550,10 +561,7 @@ router.get("/events/:id", requireAuth, async (req: Request, res: Response): Prom
     res.status(404).json({ error: "Event not found" });
     return;
   }
-  const rsvps = (event.rsvps ?? {}) as Record<string, string>;
-  const isHost = event.hostId === userId;
-  const hasRsvp = userId in rsvps;
-  if (!isHost && !hasRsvp && !(await canAccessAsTripMember(event, userId))) {
+  if (!(await userCanAccessEvent(event, userId))) {
     res.status(403).json({ error: "Access denied" });
     return;
   }
@@ -1162,8 +1170,7 @@ router.get("/events/:id/stream", requireAuth, async (req: Request, res: Response
     res.status(404).json({ error: "Event not found" });
     return;
   }
-  const rsvps = (event.rsvps ?? {}) as Record<string, string>;
-  if (event.hostId !== userId && !(userId in rsvps) && !(await canAccessAsTripMember(event, userId))) {
+  if (!(await userCanAccessEvent(event, userId))) {
     res.status(403).json({ error: "Access denied" });
     return;
   }

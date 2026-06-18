@@ -36,6 +36,10 @@ vi.mock("@workspace/db", () => ({
     id: "id",
     hostId: "host_id",
     rsvps: "rsvps",
+    type: "type",
+    squadId: "squad_id",
+    eventAt: "event_at",
+    endAt: "end_at",
     createdAt: "created_at",
     version: "version",
   },
@@ -50,6 +54,8 @@ vi.mock("../storage", () => ({
     getActiveSubscriptionByCustomerId: vi.fn().mockResolvedValue(null),
     getPhotosByEventId: vi.fn().mockResolvedValue([]),
     getEvent: vi.fn().mockResolvedValue(null),
+    getSquad: vi.fn().mockResolvedValue(null),
+    getSquadIdsForUser: vi.fn().mockResolvedValue([]),
   },
 }));
 
@@ -62,6 +68,7 @@ vi.mock("../lib/logger");
 // out of the timed test/hook window, which otherwise flakes under parallel
 // CPU/transform contention.
 import eventsRouter from "../routes/events";
+import { storage } from "../storage";
 import { makeTestApp, type TestUser } from "./helpers/makeTestApp";
 import {
   HOST_ID,
@@ -71,6 +78,10 @@ import {
 } from "./helpers/fixtures";
 
 const makeApp = (user?: TestUser) => makeTestApp(eventsRouter, user);
+const storageMock = storage as unknown as {
+  getSquad: ReturnType<typeof vi.fn>;
+  getSquadIdsForUser: ReturnType<typeof vi.fn>;
+};
 
 const baseEvent = makeBaseEvent();
 
@@ -275,6 +286,53 @@ describe("PATCH /api/events/:id/tasks/:taskId — concurrent-edit version guard"
     expect(res.status).toBe(200);
     expect(deepContains(capturedUpdateWhere.arg, TASK_CLIENT_VERSION)).toBe(false);
     expect(deepContains(capturedUpdateWhere.arg, TASK_STALE_VERSION)).toBe(false);
+  });
+});
+
+// Regression guard: a TRIP is visible to CURRENT squad members only. A stale
+// RSVP key left in event.rsvps (e.g. a member RSVP'd "going", then was removed
+// from the squad) must NOT keep granting access — trip access ignores rsvps and
+// re-checks live squad membership on every request.
+describe("GET /api/events/:id — trip access is live-squad-membership based", () => {
+  const REMOVED_MEMBER_ID = "removed-member-id";
+  const CURRENT_MEMBER_ID = "current-member-id";
+  const trip = makeBaseEvent({
+    type: "trip",
+    squadId: "squad-1",
+    // Both users RSVP'd while they were members; one was later removed.
+    rsvps: { [REMOVED_MEMBER_ID]: "going", [CURRENT_MEMBER_ID]: "going" },
+  });
+
+  beforeEach(() => {
+    mockRows.value = [trip];
+    // Live squad roster no longer contains the removed member.
+    storageMock.getSquad.mockResolvedValue({
+      id: "squad-1",
+      memberIds: [CURRENT_MEMBER_ID],
+    });
+  });
+
+  it("denies a removed squad member even though their RSVP key is still present", async () => {
+    const app = await makeApp({ id: REMOVED_MEMBER_ID });
+    const res = await request(app).get("/api/events/evt-1");
+    expect(res.status).toBe(403);
+  });
+
+  it("grants a current squad member without requiring an RSVP", async () => {
+    storageMock.getSquad.mockResolvedValue({
+      id: "squad-1",
+      memberIds: [CURRENT_MEMBER_ID, "someone-with-no-rsvp"],
+    });
+    const app = await makeApp({ id: "someone-with-no-rsvp" });
+    const res = await request(app).get("/api/events/evt-1");
+    expect(res.status).toBe(200);
+    expect(res.body.id).toBe("evt-1");
+  });
+
+  it("still grants the host", async () => {
+    const app = await makeApp({ id: HOST_ID });
+    const res = await request(app).get("/api/events/evt-1");
+    expect(res.status).toBe(200);
   });
 });
 
