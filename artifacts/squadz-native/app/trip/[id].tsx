@@ -20,6 +20,7 @@ import { useUserCache } from "@/context/UserCacheContext";
 import { useEventStream } from "@/hooks/useEventStream";
 import { UserAvatar } from "@/components/UserAvatar";
 import { StopSheet } from "@/components/StopSheet";
+import FriendPickerSheet from "@/components/FriendPickerSheet";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import type { Event, ItineraryStop } from "@/types";
 import {
@@ -53,7 +54,7 @@ export default function TripDetailScreen() {
   const { id, tab: tabParam } = useLocalSearchParams<{ id: string; tab?: string }>();
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { getEvent, refreshEvents, currentUser, getSquad } = useData();
+  const { getEvent, refreshEvents, currentUser, getSquad, inviteToEvent, uninviteFromEvent } = useData();
   const { resolveUser } = useUserCache();
   const { authToken } = useAuth();
 
@@ -100,14 +101,26 @@ export default function TripDetailScreen() {
   const [packingDraft, setPackingDraft] = useState("");
   const [liveView, setLiveView] = useState(false);
   const [arrivedIdx, setArrivedIdx] = useState(0);
+  const [showInvitePicker, setShowInvitePicker] = useState(false);
 
   const dayKeys = useMemo(() => (event ? tripDayKeys(event) : []), [event]);
   const today = todayKey();
 
-  // Squad roster for the assignee picker (empty for personal trips).
+  // Roster for the assignee picker: squad members PLUS directly-invited friends
+  // (deduped). Empty for personal trips with no invites.
   const memberOptions = useMemo(() => {
     const sq = event ? getSquad(event.squadId) : undefined;
-    return (sq?.memberIds ?? []).map((mid) => ({ id: mid, name: resolveUser(mid).name }));
+    const ids = new Set<string>([...(sq?.memberIds ?? []), ...(event?.invitedUserIds ?? [])]);
+    return [...ids].map((mid) => ({ id: mid, name: resolveUser(mid).name }));
+  }, [event, getSquad, resolveUser]);
+
+  // Invited friends not already in the squad — shown in the "Who's invited" row.
+  const invitedExtras = useMemo(() => {
+    const sq = event ? getSquad(event.squadId) : undefined;
+    const memberSet = new Set(sq?.memberIds ?? []);
+    return (event?.invitedUserIds ?? [])
+      .filter((uid) => !memberSet.has(uid))
+      .map((uid) => resolveUser(uid));
   }, [event, getSquad, resolveUser]);
 
   useEventStream({
@@ -160,6 +173,12 @@ export default function TripDetailScreen() {
 
   const squad = getSquad(event.squadId);
   const isHost = event.hostId === currentUser.id;
+  // Anyone with trip access can invite (matches the backend, which gates invites
+  // on getEventAsMember): host, a current squad member, or an invited friend.
+  const canInvite =
+    isHost ||
+    (squad?.memberIds.includes(currentUser.id) ?? false) ||
+    (event.invitedUserIds ?? []).includes(currentUser.id);
   const stops = event.itinerary ?? [];
   const packing = event.packing ?? [];
   const cover = coverFor(event.coverStyle);
@@ -425,6 +444,51 @@ export default function TripDetailScreen() {
           ) : null}
         </LinearGradient>
 
+        {/* Who's invited */}
+        <View style={styles.invitePanel}>
+          <View style={styles.inviteHeaderRow}>
+            <Text style={[styles.inviteHeading, { color: colors.foreground }]}>Who's invited</Text>
+            {canInvite ? (
+              <TouchableOpacity
+                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setShowInvitePicker(true); }}
+                style={styles.inviteAddBtn}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="person-add-outline" size={16} color={colors.primary} />
+                <Text style={[styles.inviteAddText, { color: colors.primary }]}>Invite friends</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+          {invitedExtras.length === 0 ? (
+            <Text style={[styles.inviteEmpty, { color: colors.mutedForeground }]}>
+              {squad ? "Everyone in the squad, plus anyone you invite." : "Invite friends to join this trip."}
+            </Text>
+          ) : (
+            <View style={styles.inviteChipWrap}>
+              {invitedExtras.map((u) => (
+                <View key={u.id} style={[styles.inviteChip, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                  <UserAvatar initials={u.initials} color={u.color} imageUrl={u.profileImageUrl} size={22} />
+                  <Text style={[styles.inviteChipName, { color: colors.foreground }]} numberOfLines={1}>{u.name}</Text>
+                  {isHost || u.id === currentUser.id ? (
+                    <TouchableOpacity
+                      onPress={() => {
+                        Haptics.selectionAsync();
+                        void uninviteFromEvent(event.id, u.id).then((r) => {
+                          if (r.error) Alert.alert("Couldn't remove", r.error);
+                          else void refresh();
+                        });
+                      }}
+                      hitSlop={6}
+                    >
+                      <Ionicons name="close-circle" size={16} color={colors.mutedForeground} />
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
+
         {/* Sticky tab bar */}
         <View style={[styles.tabBar, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
           {(["itinerary", "budget", "packing"] as const).map((t) => {
@@ -628,6 +692,20 @@ export default function TripDetailScreen() {
         onClose={() => setSheetOpen(false)}
         onSubmit={submitStop}
       />
+
+      <FriendPickerSheet
+        visible={showInvitePicker}
+        title="Invite to trip"
+        confirmLabel="Invite"
+        excludeIds={[event.hostId, ...(squad?.memberIds ?? []), ...(event.invitedUserIds ?? [])]}
+        onClose={() => setShowInvitePicker(false)}
+        onConfirm={async (ids) => {
+          const res = await inviteToEvent(event.id, ids);
+          setShowInvitePicker(false);
+          if (res.error) Alert.alert("Couldn't invite", res.error);
+          else void refresh();
+        }}
+      />
     </View>
   );
 }
@@ -637,6 +715,16 @@ const styles = StyleSheet.create({
   center: { alignItems: "center", justifyContent: "center", gap: 12, padding: 32 },
   missingText: { fontSize: 15, fontWeight: "600" },
   missingBtn: { borderRadius: 12, borderWidth: 1, paddingHorizontal: 18, paddingVertical: 10 },
+
+  invitePanel: { paddingHorizontal: 20, paddingTop: 14, paddingBottom: 4, gap: 8 },
+  inviteHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  inviteHeading: { fontSize: 15, fontWeight: "700" },
+  inviteAddBtn: { flexDirection: "row", alignItems: "center", gap: 5 },
+  inviteAddText: { fontSize: 13, fontWeight: "700" },
+  inviteEmpty: { fontSize: 13, lineHeight: 18 },
+  inviteChipWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  inviteChip: { flexDirection: "row", alignItems: "center", gap: 6, borderWidth: 1, borderRadius: 20, paddingVertical: 4, paddingLeft: 4, paddingRight: 9, maxWidth: "100%" },
+  inviteChipName: { fontSize: 13, fontWeight: "600", maxWidth: 120 },
 
   cover: { paddingHorizontal: 20, paddingBottom: 22 },
   coverTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 },

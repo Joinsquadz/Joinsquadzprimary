@@ -19,6 +19,60 @@ function displayName(user: { firstName?: string | null; lastName?: string | null
   return user.email?.split("@")[0] ?? "Someone";
 }
 
+// Returns the subset of `targetIds` that `inviterId` is actually allowed to
+// invite: their friends, or current members of the given squad. Used so an
+// invite can never grant access to an arbitrary user id. De-duplicated.
+async function filterInvitableTargets(
+  inviterId: string,
+  targetIds: string[],
+  squadId?: string | null,
+): Promise<string[]> {
+  const unique = [...new Set(targetIds)];
+  if (unique.length === 0) return [];
+  const allowed = new Set<string>(await storage.getFriendIds(inviterId));
+  if (squadId) {
+    const squad = await storage.getSquad(squadId);
+    for (const m of (squad?.memberIds ?? []) as string[]) allowed.add(m);
+  }
+  return unique.filter((id) => allowed.has(id));
+}
+
+// Fire-and-forget push to friends who were invited directly (not via the squad
+// fan-out). Respects the Event Invites preference and squad mute.
+async function notifyInvitees(
+  event: typeof eventsTable.$inferSelect,
+  inviterId: string,
+  inviteeIds: string[],
+): Promise<void> {
+  try {
+    const recipients = inviteeIds.filter((id) => id !== inviterId);
+    if (recipients.length === 0) return;
+    const unmuted = event.squadId
+      ? await storage.filterUnmutedForSquad(recipients, event.squadId)
+      : recipients;
+    const tokens = await storage.getPushTokensForUsers(unmuted, {
+      requireNotifyEventInvites: true,
+    });
+    if (tokens.length === 0) return;
+    const inviter = await storage.getUser(inviterId);
+    const kind = event.type === "trip" ? "a trip" : "an event";
+    await sendPushNotifications(
+      tokens,
+      {
+        title: `${event.emoji} ${event.title}`,
+        body: `${displayName(inviter)} invited you to ${kind}`,
+        data: {
+          screen: event.type === "trip" ? "trip" : "event",
+          eventId: event.id,
+        },
+      },
+      { onStaleToken: (token) => storage.clearPushToken(token) },
+    );
+  } catch (err) {
+    logger.error({ err }, "Error sending personal invite push notifications");
+  }
+}
+
 const RSVP_LABEL: Record<string, string> = {
   going: "is going",
   maybe: "might come",
@@ -62,6 +116,14 @@ const CreateEventBody = z.object({
   description: z.string().default(""),
   inviteCode: z.string().optional(),
   isPublic: z.boolean().default(false),
+  // Friends invited directly at creation time (by user id). They gain access
+  // immediately and are notified, in addition to any squad members.
+  invitedUserIds: z.array(z.string().min(1)).default([]),
+});
+
+// Body for inviting friends to an existing event/trip after creation.
+const InviteUsersBody = z.object({
+  userIds: z.array(z.string().min(1)).min(1),
 });
 
 const UpdateEventBody = z.object({
@@ -199,6 +261,10 @@ export async function userCanAccessEvent(
   userId: string,
 ): Promise<boolean> {
   if (event.hostId === userId) return true;
+  // An explicit personal invite grants access to BOTH trips and events. This is
+  // separate from the rsvps map (so it's not subject to the stale-RSVP trap) and
+  // separate from squad membership (so a non-squad friend can be invited).
+  if (((event.invitedUserIds ?? []) as string[]).includes(userId)) return true;
   if (event.type === "trip") return canAccessAsTripMember(event, userId);
   const rsvps = (event.rsvps ?? {}) as Record<string, string>;
   return userId in rsvps;
@@ -230,6 +296,7 @@ async function allowedParticipantIds(
 ): Promise<Set<string>> {
   const ids = new Set<string>([event.hostId]);
   for (const k of Object.keys((event.rsvps ?? {}) as Record<string, string>)) ids.add(k);
+  for (const u of ((event.invitedUserIds ?? []) as string[])) ids.add(u);
   if (event.squadId) {
     const squad = await storage.getSquad(event.squadId);
     if (squad) for (const m of squad.memberIds) ids.add(m);
@@ -327,6 +394,9 @@ router.get("/events", requireAuth, async (req: Request, res: Response): Promise<
     // RSVP visibility is for plain events only — a trip must never be visible
     // via a stale RSVP key after the user is removed from its squad.
     and(sql`${eventsTable.type} <> 'trip'`, sql`${eventsTable.rsvps} ? ${userId}`),
+    // An explicit personal invite makes the trip/event visible regardless of
+    // squad membership (and is safe for trips: it's never written by an RSVP).
+    sql`${eventsTable.invitedUserIds} ? ${userId}`,
     ...(squadIds.length > 0
       ? [and(eq(eventsTable.type, "trip"), inArray(eventsTable.squadId, squadIds))]
       : []),
@@ -372,14 +442,31 @@ router.post("/events", requireAuth, async (req: Request, res: Response): Promise
       return false;
     })();
 
-    const { inviteCode, hostId: _bodyHostId, eventAt, startAt, endAt, ...rest } = parsed.data;
+    const {
+      inviteCode,
+      hostId: _bodyHostId,
+      eventAt,
+      startAt,
+      endAt,
+      invitedUserIds: requestedInvites,
+      ...rest
+    } = parsed.data;
     const hostId = authUser.id;
+    // Only allow inviting people the host can actually reach: their friends or
+    // current members of the squad this is being created in. Anything else is
+    // silently dropped (never invite arbitrary user ids).
+    const invitedUserIds = await filterInvitableTargets(
+      hostId,
+      requestedInvites.filter((u) => u !== hostId),
+      rest.squadId,
+    );
     // For trips, eventAt defaults to startAt so existing reminder/expiry logic
     // (which keys on eventAt) still works; endAt drives range-aware expiry.
     const resolvedEventAt = eventAt ?? (rest.type === "trip" ? startAt : undefined);
     const insertValues = {
       ...rest,
       hostId,
+      invitedUserIds,
       inviteCode: inviteCode ?? randomCode(),
       ...(resolvedEventAt ? { eventAt: new Date(resolvedEventAt) } : {}),
       ...(startAt ? { startAt: new Date(startAt) } : {}),
@@ -437,6 +524,11 @@ router.post("/events", requireAuth, async (req: Request, res: Response): Promise
 
     const event = result.event;
     res.status(201).json(event);
+
+    // Fire-and-forget: notify the friends invited directly at creation time.
+    if (invitedUserIds.length > 0) {
+      void notifyInvitees(event, hostId, invitedUserIds);
+    }
 
     // Fire-and-forget: a squad event invites the rest of the squad.
     if (event.squadId) {
@@ -741,6 +833,98 @@ router.post("/events/:id/rsvp", requireAuth, async (req: Request, res: Response)
       }
     })();
   }
+});
+
+// POST /events/:id/invite — invite one or more friends directly to this
+// trip/event. The inviter must already have access; each target must be a
+// friend of the inviter OR a current member of the squad (others are dropped).
+// Newly-invited people gain access immediately and are push-notified.
+router.post("/events/:id/invite", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const id = parseId(req.params.id);
+  const userId = (req.user as { id: string }).id;
+  const parsed = InviteUsersBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const existing = await getEventAsMember(id, userId, res);
+  if (!existing) return;
+
+  const targets = await filterInvitableTargets(
+    userId,
+    parsed.data.userIds.filter((u) => u !== existing.hostId),
+    existing.squadId,
+  );
+  // Drop anyone who can already access (host, existing invitee, squad member for
+  // trips, or RSVP'd for events) so we only notify genuinely-new invitees.
+  const alreadyInvited = new Set((existing.invitedUserIds ?? []) as string[]);
+  const newInvitees: string[] = [];
+  for (const t of targets) {
+    if (alreadyInvited.has(t)) continue;
+    if (await userCanAccessEvent(existing, t)) continue;
+    newInvitees.push(t);
+  }
+
+  if (newInvitees.length === 0) {
+    // Nothing to add — return the event unchanged (idempotent).
+    res.json(existing);
+    return;
+  }
+
+  // Atomic dedupe-append: union the new ids into the jsonb array server-side so
+  // concurrent invites don't lose each other and we never need a version gate.
+  const [event] = await db.update(eventsTable)
+    .set({
+      invitedUserIds: sql`(
+        SELECT COALESCE(jsonb_agg(DISTINCT elem), '[]'::jsonb)
+        FROM jsonb_array_elements(
+          COALESCE(${eventsTable.invitedUserIds}, '[]'::jsonb) || ${JSON.stringify(newInvitees)}::jsonb
+        ) AS elem
+      )`,
+      version: sql`${eventsTable.version} + 1`,
+    })
+    .where(eq(eventsTable.id, id))
+    .returning();
+  if (!event) {
+    res.status(404).json({ error: "Event not found" });
+    return;
+  }
+  res.json(event);
+  emitEventUpdate(id);
+  void notifyInvitees(event, userId, newInvitees);
+});
+
+// DELETE /events/:id/invite/:userId — remove a personal invite. Allowed for the
+// host (uninvite anyone) or the invitee themselves (leave). This only revokes
+// the explicit invite grant; squad members keep their squad-based access.
+router.delete("/events/:id/invite/:userId", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const id = parseId(req.params.id);
+  const userId = (req.user as { id: string }).id;
+  const targetId = req.params.userId;
+  const existing = await getEventAsMember(id, userId, res);
+  if (!existing) return;
+  if (existing.hostId !== userId && targetId !== userId) {
+    res.status(403).json({ error: "Only the host can remove other people's invites" });
+    return;
+  }
+  // Atomic remove of the single id from the jsonb array; bump version.
+  const [event] = await db.update(eventsTable)
+    .set({
+      invitedUserIds: sql`(
+        SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)
+        FROM jsonb_array_elements(COALESCE(${eventsTable.invitedUserIds}, '[]'::jsonb)) AS elem
+        WHERE elem <> ${JSON.stringify(targetId)}::jsonb
+      )`,
+      version: sql`${eventsTable.version} + 1`,
+    })
+    .where(eq(eventsTable.id, id))
+    .returning();
+  if (!event) {
+    res.status(404).json({ error: "Event not found" });
+    return;
+  }
+  res.json(event);
+  emitEventUpdate(id);
 });
 
 router.post("/events/:id/tasks", requireAuth, async (req: Request, res: Response): Promise<void> => {

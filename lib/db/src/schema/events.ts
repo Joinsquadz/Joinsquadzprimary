@@ -76,6 +76,14 @@ export const eventsTable = pgTable("events", {
   itinerary: jsonb("itinerary").$type<ItineraryStop[]>().notNull().default(sql`'[]'::jsonb`),
   // Shared packing checklist (trips only; empty for plain events).
   packing: jsonb("packing").$type<PackingItem[]>().notNull().default(sql`'[]'::jsonb`),
+  // Explicit per-person invite list. Grants access IN ADDITION to squad
+  // membership (trips) / the rsvps map (events) — used so a friend who isn't in
+  // the squad can be invited to a trip/event directly. Deliberately separate
+  // from `rsvps`: it is only ever written by an explicit invite/uninvite action
+  // (never by RSVP), so it is immune to the stale-RSVP trap that made
+  // squad-trip access ignore the rsvps map. Removing a squad member still
+  // revokes squad-only access; an explicit invitee is a separate intentional grant.
+  invitedUserIds: jsonb("invited_user_ids").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   isPublic: boolean("is_public").notNull().default(false),
   reminderSentAt: timestamp("reminder_sent_at", { withTimezone: true }),
   // Fire-once marker for the "day-of" heads-up reminder (sent the morning of /

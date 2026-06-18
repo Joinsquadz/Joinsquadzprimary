@@ -30,6 +30,7 @@ import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { UserAvatar } from "@/components/UserAvatar";
 import { ProAvatar } from "@/components/ProAvatar";
 import { ContactSheet } from "@/components/ContactSheet";
+import FriendPickerSheet from "@/components/FriendPickerSheet";
 import { CelebrationOverlay } from "@/components/CelebrationOverlay";
 import { claimOnce } from "@/lib/seenFlags";
 import { goingCount } from "@/lib/eventUtils";
@@ -88,6 +89,8 @@ export default function EventDetailScreen() {
     votePoll,
     sendMessage,
     refreshEvents,
+    inviteToEvent,
+    uninviteFromEvent,
     getSquad,
     currentUser,
     conflictEventId,
@@ -111,6 +114,7 @@ export default function EventDetailScreen() {
   }, []);
   const [contactOpen, setContactOpen] = useState(false);
   const [contactMember, setContactMember] = useState<ResolvedUser | null>(null);
+  const [showInvitePicker, setShowInvitePicker] = useState(false);
   const { resolveUser, prefetchUsers } = useUserCache();
 
   // Contextual cost-split coach mark: fires the first time the user opens an
@@ -399,6 +403,19 @@ export default function EventDetailScreen() {
     user: resolveForDisplay(uid),
     status,
   }));
+
+  // Friends invited directly who haven't responded yet (RSVP'd invitees already
+  // appear in `attendees`). Shown as a "pending" group so the host can see who
+  // still owes a reply.
+  const invitedPending = (event.invitedUserIds ?? [])
+    .filter((uid) => !(uid in event.rsvps))
+    .map((uid) => resolveForDisplay(uid));
+  // Anyone with access can invite (matches the backend, which gates invites on
+  // getEventAsMember): host, an RSVP'd guest, or a directly-invited friend.
+  const canInvite =
+    event.hostId === currentUser.id ||
+    currentUser.id in event.rsvps ||
+    (event.invitedUserIds ?? []).includes(currentUser.id);
 
   const statusColor = (s: RsvpStatus) =>
     s === "going" ? colors.green : s === "maybe" ? colors.gold : colors.destructive;
@@ -1035,6 +1052,16 @@ export default function EventDetailScreen() {
             <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>
               {goingCount(event)} going · {attendees.length} responded
             </Text>
+            {canInvite && (
+              <TouchableOpacity
+                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setShowInvitePicker(true); }}
+                style={[styles.inviteFriendsRow, { borderColor: colors.primary + "50" }]}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="person-add-outline" size={20} color={colors.primary} />
+                <Text style={[styles.inviteFriendsText, { color: colors.primary }]}>Invite friends</Text>
+              </TouchableOpacity>
+            )}
             {attendees.map(({ user: u, status }) => (
               <TouchableOpacity
                 key={u.id}
@@ -1061,6 +1088,41 @@ export default function EventDetailScreen() {
                 )}
               </TouchableOpacity>
             ))}
+            {invitedPending.length > 0 && (
+              <>
+                <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginTop: 6 }]}>
+                  Invited · {invitedPending.length} pending
+                </Text>
+                {invitedPending.map((u) => {
+                  const canRemove = event.hostId === currentUser.id || u.id === currentUser.id;
+                  return (
+                    <View
+                      key={u.id}
+                      style={[styles.guestRow, { backgroundColor: colors.card, borderColor: colors.border }]}
+                    >
+                      <ProAvatar initials={u.initials} color={u.color} imageUrl={u.profileImageUrl} size={44} fontSize={15} isPro={u.isPro} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.guestName, { color: colors.foreground }]}>{u.name}{u.id === currentUser.id ? " (You)" : ""}</Text>
+                        <Text style={[styles.guestStatus, { color: colors.mutedForeground }]}>Invited — no reply yet</Text>
+                      </View>
+                      {canRemove && (
+                        <TouchableOpacity
+                          onPress={() => {
+                            Haptics.selectionAsync();
+                            void uninviteFromEvent(event.id, u.id).then((r) => {
+                              if (r.error) Alert.alert("Couldn't remove", r.error);
+                            });
+                          }}
+                          hitSlop={8}
+                        >
+                          <Ionicons name="close-circle-outline" size={22} color={colors.mutedForeground} />
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  );
+                })}
+              </>
+            )}
           </View>
         )}
 
@@ -1844,6 +1906,18 @@ export default function EventDetailScreen() {
         member={contactMember}
         onClose={() => setContactOpen(false)}
       />
+      <FriendPickerSheet
+        visible={showInvitePicker}
+        title="Invite friends"
+        confirmLabel="Invite"
+        excludeIds={[event.hostId, ...Object.keys(event.rsvps), ...(event.invitedUserIds ?? [])]}
+        onClose={() => setShowInvitePicker(false)}
+        onConfirm={async (ids) => {
+          const res = await inviteToEvent(event.id, ids);
+          setShowInvitePicker(false);
+          if (res.error) Alert.alert("Couldn't invite", res.error);
+        }}
+      />
       <CelebrationOverlay
         visible={firstRsvpCelebration}
         emoji="🎉"
@@ -1914,6 +1988,8 @@ const styles = StyleSheet.create({
   hostName: { fontSize: 15, fontWeight: "700" },
   sectionLabel: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 4 },
   guestRow: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 12, borderWidth: 1, padding: 12 },
+  inviteFriendsRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 12, borderWidth: 1.5, borderStyle: "dashed", paddingVertical: 12 },
+  inviteFriendsText: { fontSize: 14, fontWeight: "700" },
   guestName: { fontSize: 14, fontWeight: "700" },
   guestStatus: { fontSize: 12, fontWeight: "600", marginTop: 1 },
   hostBadge: { borderRadius: 20, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 3 },

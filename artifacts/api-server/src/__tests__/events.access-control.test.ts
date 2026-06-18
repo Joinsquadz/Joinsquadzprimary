@@ -42,6 +42,7 @@ vi.mock("@workspace/db", () => ({
     endAt: "end_at",
     createdAt: "created_at",
     version: "version",
+    invitedUserIds: "invited_user_ids",
   },
 }));
 
@@ -56,6 +57,9 @@ vi.mock("../storage", () => ({
     getEvent: vi.fn().mockResolvedValue(null),
     getSquad: vi.fn().mockResolvedValue(null),
     getSquadIdsForUser: vi.fn().mockResolvedValue([]),
+    getFriendIds: vi.fn().mockResolvedValue([]),
+    filterUnmutedForSquad: vi.fn().mockImplementation((ids: string[]) => Promise.resolve(ids)),
+    getPushTokensForUsers: vi.fn().mockResolvedValue([]),
   },
 }));
 
@@ -81,6 +85,7 @@ const makeApp = (user?: TestUser) => makeTestApp(eventsRouter, user);
 const storageMock = storage as unknown as {
   getSquad: ReturnType<typeof vi.fn>;
   getSquadIdsForUser: ReturnType<typeof vi.fn>;
+  getFriendIds: ReturnType<typeof vi.fn>;
 };
 
 const baseEvent = makeBaseEvent();
@@ -333,6 +338,93 @@ describe("GET /api/events/:id — trip access is live-squad-membership based", (
     const app = await makeApp({ id: HOST_ID });
     const res = await request(app).get("/api/events/evt-1");
     expect(res.status).toBe(200);
+  });
+});
+
+// Personal invites (events.invitedUserIds) grant access IN ADDITION to squad
+// membership / rsvps, and are only written by explicit invite/uninvite — so
+// they're immune to the stale-RSVP trap. These cover the access grant, the
+// invite-authz (friend-or-squad-member only), and that uninvite revokes.
+describe("personal invites (events.invitedUserIds)", () => {
+  const INVITED_ID = "invited-friend-id";
+
+  beforeEach(() => {
+    storageMock.getSquad.mockResolvedValue(null);
+    storageMock.getSquadIdsForUser.mockResolvedValue([]);
+    storageMock.getFriendIds.mockResolvedValue([]);
+  });
+
+  it("grants GET access to a directly-invited non-member", async () => {
+    mockRows.value = [makeBaseEvent({ invitedUserIds: [INVITED_ID] })];
+    const app = await makeApp({ id: INVITED_ID });
+    const res = await request(app).get("/api/events/evt-1");
+    expect(res.status).toBe(200);
+    expect(res.body.id).toBe("evt-1");
+  });
+
+  it("denies GET to a stranger who was never invited", async () => {
+    mockRows.value = [makeBaseEvent({ invitedUserIds: [INVITED_ID] })];
+    const app = await makeApp({ id: STRANGER_ID });
+    const res = await request(app).get("/api/events/evt-1");
+    expect(res.status).toBe(403);
+  });
+
+  it("POST /invite adds a friend and returns the updated event", async () => {
+    mockRows.value = [makeBaseEvent()];
+    storageMock.getFriendIds.mockResolvedValue([INVITED_ID]);
+    mockUpdateRows.value = [makeBaseEvent({ invitedUserIds: [INVITED_ID], version: 1 })];
+    const app = await makeApp({ id: HOST_ID });
+    const res = await request(app)
+      .post("/api/events/evt-1/invite")
+      .send({ userIds: [INVITED_ID] });
+    expect(res.status).toBe(200);
+    expect(res.body.invitedUserIds).toContain(INVITED_ID);
+  });
+
+  it("POST /invite drops a non-friend / non-member target (idempotent no-op)", async () => {
+    const ev = makeBaseEvent();
+    mockRows.value = [ev];
+    storageMock.getFriendIds.mockResolvedValue([]); // not a friend
+    const app = await makeApp({ id: HOST_ID });
+    const res = await request(app)
+      .post("/api/events/evt-1/invite")
+      .send({ userIds: [STRANGER_ID] });
+    // Nothing invitable → returns the unchanged event without an update.
+    expect(res.status).toBe(200);
+    expect(res.body.invitedUserIds ?? []).not.toContain(STRANGER_ID);
+  });
+
+  it("POST /invite returns 403 for someone without access", async () => {
+    mockRows.value = [makeBaseEvent()];
+    const app = await makeApp({ id: STRANGER_ID });
+    const res = await request(app)
+      .post("/api/events/evt-1/invite")
+      .send({ userIds: [INVITED_ID] });
+    expect(res.status).toBe(403);
+  });
+
+  it("DELETE /invite/:userId lets the host revoke an invite", async () => {
+    mockRows.value = [makeBaseEvent({ invitedUserIds: [INVITED_ID] })];
+    mockUpdateRows.value = [makeBaseEvent({ invitedUserIds: [], version: 1 })];
+    const app = await makeApp({ id: HOST_ID });
+    const res = await request(app).delete(`/api/events/evt-1/invite/${INVITED_ID}`);
+    expect(res.status).toBe(200);
+    expect(res.body.invitedUserIds ?? []).not.toContain(INVITED_ID);
+  });
+
+  it("DELETE /invite/:userId lets the invitee remove themselves", async () => {
+    mockRows.value = [makeBaseEvent({ invitedUserIds: [INVITED_ID] })];
+    mockUpdateRows.value = [makeBaseEvent({ invitedUserIds: [], version: 1 })];
+    const app = await makeApp({ id: INVITED_ID });
+    const res = await request(app).delete(`/api/events/evt-1/invite/${INVITED_ID}`);
+    expect(res.status).toBe(200);
+  });
+
+  it("DELETE /invite/:userId returns 403 when a non-host tries to remove someone else", async () => {
+    mockRows.value = [makeBaseEvent({ invitedUserIds: [INVITED_ID, RSVP_USER_ID] })];
+    const app = await makeApp({ id: RSVP_USER_ID });
+    const res = await request(app).delete(`/api/events/evt-1/invite/${INVITED_ID}`);
+    expect(res.status).toBe(403);
   });
 });
 

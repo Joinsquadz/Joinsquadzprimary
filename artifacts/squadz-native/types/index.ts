@@ -109,6 +109,8 @@ export type Event = {
   squadName: string;
   hostId: string;
   rsvps: Record<string, RsvpStatus>;
+  /** Friends invited directly (by user id), in addition to squad members. */
+  invitedUserIds: string[];
   description: string;
   inviteCode: string;
   tasks: Task[];

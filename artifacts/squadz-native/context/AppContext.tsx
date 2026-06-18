@@ -125,6 +125,8 @@ export type NewEventInput = {
   coverStyle?: string;
   /** Optional preloaded itinerary stops (template flow). */
   itinerary?: ItineraryStop[];
+  /** Friend user ids to invite directly at creation time. */
+  invitedUserIds?: string[];
 };
 
 export type ConflictSnapshot = {
@@ -174,6 +176,8 @@ type AppContextType = {
     patch: Partial<Pick<Event, "title" | "description" | "date" | "location" | "emoji" | "budget" | "isPublic" | "startAt" | "endAt" | "allDay" | "coverStyle">>,
   ) => void;
   joinEvent: (inviteCode: string) => Promise<{ error?: string }>;
+  inviteToEvent: (eventId: string, userIds: string[]) => Promise<{ error?: string }>;
+  uninviteFromEvent: (eventId: string, userId: string) => Promise<{ error?: string }>;
   cancelEvent: (eventId: string) => void;
   toggleTask: (eventId: string, taskId: string) => Promise<void>;
   claimTask: (eventId: string, taskId: string) => Promise<void>;
@@ -247,6 +251,8 @@ const AppContext = createContext<AppContextType>({
   addEvent: asyncNoop,
   updateEvent: noop,
   joinEvent: async () => ({}),
+  inviteToEvent: async () => ({}),
+  uninviteFromEvent: async () => ({}),
   cancelEvent: noop,
   toggleTask: async () => {},
   claimTask: async () => {},
@@ -304,6 +310,7 @@ export function dbEventToEvent(e: Record<string, unknown>): Event {
     hostId: e.hostId as string,
     description: e.description as string,
     inviteCode: e.inviteCode as string,
+    invitedUserIds: (e.invitedUserIds as string[]) ?? [],
     cancelled: (e.cancelled as boolean) ?? false,
     budget: e.budget ? Number(e.budget) : undefined,
     rsvps: (e.rsvps as Record<string, RsvpStatus>) ?? {},
@@ -1051,6 +1058,52 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [apiFetch, applyEventUpdate, apiUser, events, refreshEvents, showToast],
   );
 
+  // Invite friends directly to an existing trip/event. The server validates each
+  // target (friend-or-squad-member) and returns the updated event, which we map
+  // into state (so newly-invited people show up immediately).
+  const inviteToEvent = useCallback(
+    async (eventId: string, userIds: string[]): Promise<{ error?: string }> => {
+      if (userIds.length === 0) return {};
+      try {
+        const res = await apiFetch(`/api/events/${eventId}/invite`, {
+          method: "POST",
+          body: JSON.stringify({ userIds }),
+        });
+        if (!res.ok) {
+          const data = (await res.json().catch(() => ({}))) as { error?: string };
+          return { error: data.error ?? "Couldn't send the invite" };
+        }
+        const data = (await res.json()) as Record<string, unknown>;
+        applyEventUpdate(data);
+        return {};
+      } catch {
+        return { error: "Couldn't send the invite — please try again" };
+      }
+    },
+    [apiFetch, applyEventUpdate],
+  );
+
+  // Remove a personal invite (host removing anyone, or the invitee leaving).
+  const uninviteFromEvent = useCallback(
+    async (eventId: string, userId: string): Promise<{ error?: string }> => {
+      try {
+        const res = await apiFetch(`/api/events/${eventId}/invite/${userId}`, {
+          method: "DELETE",
+        });
+        if (!res.ok) {
+          const data = (await res.json().catch(() => ({}))) as { error?: string };
+          return { error: data.error ?? "Couldn't remove the invite" };
+        }
+        const data = (await res.json()) as Record<string, unknown>;
+        applyEventUpdate(data);
+        return {};
+      } catch {
+        return { error: "Couldn't remove the invite — please try again" };
+      }
+    },
+    [apiFetch, applyEventUpdate],
+  );
+
   const addEvent = useCallback(async (input: NewEventInput): Promise<string> => {
     const squad = squads.find((s) => s.id === input.squadId);
     const hostId = apiUser?.id ?? currentUserIdRef.current;
@@ -1072,6 +1125,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       ...(input.allDay !== undefined ? { allDay: input.allDay } : {}),
       ...(input.coverStyle ? { coverStyle: input.coverStyle } : {}),
       ...(input.itinerary && input.itinerary.length > 0 ? { itinerary: input.itinerary } : {}),
+      ...(input.invitedUserIds && input.invitedUserIds.length > 0
+        ? { invitedUserIds: input.invitedUserIds }
+        : {}),
     };
 
     let res: Response;
@@ -1097,6 +1153,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         squadName: squad?.name ?? "Personal",
         hostId,
         rsvps: { [hostId]: "going" },
+        invitedUserIds: input.invitedUserIds ?? [],
         description: input.description ?? "",
         inviteCode: `SQ-${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
         tasks: [],
@@ -1919,6 +1976,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       addEvent,
       updateEvent,
       joinEvent,
+      inviteToEvent,
+      uninviteFromEvent,
       cancelEvent,
       toggleTask,
       claimTask,
@@ -1982,6 +2041,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       addEvent,
       updateEvent,
       joinEvent,
+      inviteToEvent,
+      uninviteFromEvent,
       cancelEvent,
       toggleTask,
       claimTask,

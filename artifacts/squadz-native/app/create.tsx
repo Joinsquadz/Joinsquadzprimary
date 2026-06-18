@@ -20,8 +20,11 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { useData, useAuth } from "@/context/AppContext";
+import { useUserCache } from "@/context/UserCacheContext";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { IconPicker } from "@/components/IconPicker";
+import FriendPickerSheet from "@/components/FriendPickerSheet";
+import { UserAvatar } from "@/components/UserAvatar";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { addStop } from "@/lib/tripApi";
 import { TRIP_COVER_KEYS, TRIP_COVERS, formatTripRange, dayKey } from "@/lib/tripUtils";
@@ -99,6 +102,7 @@ export default function CreateEventScreen() {
   const insets = useSafeAreaInsets();
   const { addEvent, squads } = useData();
   const { authToken } = useAuth();
+  const { resolveUser } = useUserCache();
   const prefill = useLocalSearchParams<{ prefillDate?: string; prefillEventAt?: string; prefillSquad?: string; prefillTitle?: string; prefillEmoji?: string; mode?: string; templateId?: string }>();
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
@@ -135,6 +139,8 @@ export default function CreateEventScreen() {
   const [eventLimit, setEventLimit] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [invitedUserIds, setInvitedUserIds] = useState<string[]>([]);
+  const [showInvitePicker, setShowInvitePicker] = useState(false);
 
   const atLimit = !isPro && eventLimit !== null && myEventCount >= eventLimit;
 
@@ -217,6 +223,7 @@ export default function CreateEventScreen() {
           location: location.trim(), description: description.trim(),
           squadId: selectedSquad, isPublic,
           type: "trip", startAt: startISO, endAt: endISO, allDay, coverStyle,
+          invitedUserIds,
         });
         // Templates are a Squadz+ feature: only materialize their stops for pro
         // users. This re-checks entitlement server-trust-free at create time so
@@ -241,7 +248,7 @@ export default function CreateEventScreen() {
           title: title.trim(), emoji: selectedEmoji,
           date: date.trim(), eventAt: eventAtISO, location: location.trim(),
           description: description.trim(), squadId: selectedSquad,
-          isPublic,
+          isPublic, invitedUserIds,
         });
       }
       fetch(`${API_BASE}/api/events/count`, { headers: authHeaders() })
@@ -630,7 +637,54 @@ export default function CreateEventScreen() {
             ))}
           </View>
         </View>
+
+        <View style={styles.section}>
+          <Text style={[styles.label, { color: colors.mutedForeground }]}>Invite friends</Text>
+          <Text style={[styles.inviteHint, { color: colors.mutedForeground }]}>
+            Add specific friends to this {kind === "trip" ? "trip" : "event"}, even if they&apos;re not in the squad.
+          </Text>
+          {invitedUserIds.length > 0 && (
+            <View style={styles.inviteChips}>
+              {invitedUserIds.map((uid) => {
+                const u = resolveUser(uid);
+                return (
+                  <View key={uid} style={[styles.inviteChip, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                    <UserAvatar initials={u.initials} color={u.color} imageUrl={u.profileImageUrl} size={22} />
+                    <Text style={[styles.inviteChipName, { color: colors.foreground }]} numberOfLines={1}>{u.name}</Text>
+                    <TouchableOpacity
+                      onPress={() => { Haptics.selectionAsync(); setInvitedUserIds((prev) => prev.filter((x) => x !== uid)); }}
+                      hitSlop={8}
+                    >
+                      <Ionicons name="close-circle" size={18} color={colors.mutedForeground} />
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+          <TouchableOpacity
+            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setShowInvitePicker(true); }}
+            style={[styles.newSquadRow, { borderColor: colors.primary + "50" }]}
+          >
+            <Ionicons name="person-add-outline" size={20} color={colors.primary} />
+            <Text style={[styles.newSquadText, { color: colors.primary }]}>
+              {invitedUserIds.length > 0 ? "Add more friends" : "Invite friends"}
+            </Text>
+          </TouchableOpacity>
+        </View>
       </KeyboardAwareScrollViewCompat>
+
+      <FriendPickerSheet
+        visible={showInvitePicker}
+        title={kind === "trip" ? "Invite to trip" : "Invite to event"}
+        confirmLabel="Add"
+        excludeIds={invitedUserIds}
+        onConfirm={(ids) => {
+          setInvitedUserIds((prev) => [...new Set([...prev, ...ids])]);
+          setShowInvitePicker(false);
+        }}
+        onClose={() => setShowInvitePicker(false)}
+      />
 
       <View style={[styles.bottomBar, { borderTopColor: colors.border, paddingBottom: botPad + 8, backgroundColor: colors.background }]}>
         <TouchableOpacity
@@ -818,6 +872,10 @@ const styles = StyleSheet.create({
   squadList: { gap: 8 },
   newSquadRow: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 13, borderWidth: 1.5, borderStyle: "dashed", padding: 14 },
   newSquadText: { fontSize: 14, fontWeight: "700" },
+  inviteHint: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 18, marginBottom: 10 },
+  inviteChips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 10 },
+  inviteChip: { flexDirection: "row", alignItems: "center", gap: 7, borderWidth: 1, borderRadius: 20, paddingVertical: 5, paddingLeft: 5, paddingRight: 10, maxWidth: "100%" },
+  inviteChipName: { fontSize: 13, fontFamily: "Inter_500Medium", maxWidth: 120 },
   squadOption: {
     flexDirection: "row", alignItems: "center", gap: 12,
     borderRadius: 13, borderWidth: 1.5, padding: 12,
