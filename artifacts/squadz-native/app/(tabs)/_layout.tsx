@@ -40,9 +40,8 @@ function NativeTabLayout() {
         <Label>Vibe</Label>
       </NativeTabs.Trigger>
       {/* Hidden destinations: navigable via router.navigate but not shown in the tab bar.
-          Activity is reachable from the bell icon in the Home header.
-          Profile ("You") is a root Stack route (app/profile.tsx), reached from the Home header avatar. */}
-      <NativeTabs.Trigger name="activity" hidden />
+          Activity ("notifications") and Profile ("You") are root Stack routes
+          (app/activity.tsx, app/profile.tsx), reached from the Home header bell + avatar. */}
       <NativeTabs.Trigger name="photos" hidden />
     </NativeTabs>
   );
@@ -147,7 +146,6 @@ function ClassicTabLayout() {
             ),
         }}
       />
-      <Tabs.Screen name="activity" options={{ tabBarButton: () => null }} />
       <Tabs.Screen name="photos" options={{ tabBarButton: () => null }} />
     </Tabs>
   );

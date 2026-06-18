@@ -86,7 +86,7 @@ export default function ActivityScreen() {
   const [sheetActors, setSheetActors] = useState<ResolvedUser[] | null>(null);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
-  const botPad = insets.bottom + (Platform.OS === "web" ? 84 : 100);
+  const botPad = insets.bottom + 24;
 
   const fetchPage = useCallback(
     async (pageNum: number): Promise<{ items: ActivityItem[]; hasMore: boolean } | null> => {
@@ -309,6 +309,15 @@ export default function ActivityScreen() {
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: topPad + 8, borderBottomColor: colors.border }]}>
+        <TouchableOpacity
+          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); if (router.canGoBack()) { router.back(); } else { router.replace("/(tabs)"); } }}
+          style={[styles.backBtn, { backgroundColor: colors.card }]}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          hitSlop={8}
+        >
+          <Ionicons name="arrow-back" size={20} color={colors.foreground} />
+        </TouchableOpacity>
         <Text style={[styles.title, { color: colors.foreground }]}>Activity</Text>
       </View>
 
@@ -389,7 +398,8 @@ export default function ActivityScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  header: { paddingHorizontal: 20, paddingBottom: 12, borderBottomWidth: 1 },
+  header: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 20, paddingBottom: 12, borderBottomWidth: 1 },
+  backBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   title: { fontSize: 28, fontWeight: "900" },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   row: {

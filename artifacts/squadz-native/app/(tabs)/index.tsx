@@ -371,8 +371,11 @@ export default function HomeScreen() {
         </View>
         <View style={styles.headerRight}>
           <TouchableOpacity
-            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.navigate("/(tabs)/activity"); }}
+            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push("/activity"); }}
             style={[styles.bellBtn, { backgroundColor: colors.card }]}
+            accessibilityRole="button"
+            accessibilityLabel="Notifications and recent activity"
+            hitSlop={8}
           >
             <Ionicons name="notifications-outline" size={22} color={colors.foreground} />
             {unreadActivity > 0 ? (

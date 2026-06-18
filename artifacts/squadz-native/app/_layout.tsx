@@ -350,6 +350,7 @@ function RootLayoutNav() {
         <Stack.Screen name="invite" />
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="profile" />
+        <Stack.Screen name="activity" />
         <Stack.Screen name="create" />
         <Stack.Screen name="event/[id]" />
         <Stack.Screen name="trip/[id]" />
