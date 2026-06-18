@@ -1,0 +1,177 @@
+SquadZ — Trips & Itineraries Build Prompt
+
+Implement a Trips & Itineraries layer inside the existing SquadZ app. Integrate into the current codebase and reuse what already exists — squads, events, the budget tracker, polls/voting, and the brand system (dark theme, orange→gold gradient #FF6B2C → #FFB23E, Syne for display, Inter for body). Do not fork a new design language or a parallel data layer.
+
+The core idea: a trip is just an event with a date range and an itinerary. Build them on one shared object so we don't maintain two schemas, two creation flows, or two sets of budget/poll wiring.
+
+
+1. Where it lives (navigation + squad association)
+
+
+Add a Trips / Events section inside the existing SquadZ tab. Segmented filter at the top: Trips · Events · Past.
+Every trip/event is associated with exactly one squad (squadId, required). The squad is the audience — no separate audience picker. Itinerary edits are visible only to that squad's members.
+Two creation entry points, same flow:
+
+From the Trips/Events section → user picks which squad it belongs to.
+From inside a squad → squad is pre-filled.
+
+
+
+A trip must be visible in both places: in the global Trips/Events section (aggregated across all the user's squads) and inside its own squad's view.
+Surface an active trip (today falls within its date range) with a "Happening now" badge in the list so the current trip is obvious on open.
+
+
+
+2. Data model
+
+Plan (unified Event/Trip object)
+
+FieldTypeNotesidstringsquadIdstringRequired. Defines audience + where it surfaces.type"event" | "trip"Same object; drives defaults only.titlestringstartDatedatetimeendDatedatetimeNEW. Same day as start for events; spans days for trips.allDaybooleanTrips default true (times live on stops); events default false.locationTextstring (optional)Freeform text only — no map integration.coverStylestringGradient/cover for the card.createdByuserIditineraryItineraryItem[]Ordered collection below.
+
+ItineraryItem (a stop)
+
+FieldTypeNotesidstringplanIdstringtitlestringRequired — the only mandatory field.category"stay" | "food" | "activity" | "travel" | "other"Drives the timeline icon + scan-ability.startTimedatetime (optional)Used to sort within a day.endTimedatetime (optional)NEW. Optional; renders the stop as a time range when present.placeNamestring (optional)Name of the place, e.g. "Tahoe Watersports". Freeform text.addressstring (optional)NEW. Typed street address. Freeform text — no geocoding/autocomplete.detailsstring (optional)NEW. Multi-line notes for the stop (reservation name, what to bring, parking, etc.).costPerPersonnumber (optional)Defaults to 0 (shown as "Free").assigneeuserId (optional)"who's on it" (e.g. "Maya booked").status"confirmed" | "proposed"See interaction rules.votesuserId[]Only relevant when proposed.ordernumberSort order within its day.createdByuserId
+
+Group stops into days by their date (derived from startTime, falling back to plan dates for unscheduled stops).
+
+
+3. Screens & flows
+
+Build in this order. Reuse existing components and brand tokens throughout.
+
+A. Trips/Events section (list) — segmented filter, + to start, trip cards showing dates, stop count, people going, and the "Happening now" badge when active.
+
+B. Start a plan — fork screen: Start blank (→ create form) or pick a Template (Squadz+, preloads the itinerary — see §5).
+
+C. Create plan — Event/Trip toggle (shared object), title, squad selector (pre-filled if entered from a squad), start + end date range, all-day toggle, optional location text.
+
+D. Itinerary (plan detail) — header with dates + people; tabs Itinerary · Budget · Packing; stops on a time rail grouped by day, each with its category icon, set-vs-voting state, place name + address, cost, and assignee. When a stop has details, show them beneath the stop. When a stop has an endTime, show the range (e.g. 9:00 – 11:30 AM). A "Today" shortcut in the header jumps to screen F. Add stop button at the bottom.
+
+E. Add / edit stop (sheet) — category row (sets icon + helps sort), title (required), startTime, optional endTime, optional placeName, optional address (typed text), optional details (multi-line notes), optional costPerPerson (defaults Free), optional assignee. Plus the creator's choice control (see §4).
+
+F. Today / live view — during the trip: opens to an "Up next" hero (next stop, time, cost, Directions, "We're here"), then the rest of today's stops and a running per-person cost. Keep behind the header shortcut for now; not a separate tab.
+
+
+4. Interaction rules
+
+
+Creator chooses propose-vs-add, per stop. In the Add-stop sheet, a toggle: Add directly (default → status: confirmed) or Propose to squad (→ status: proposed). The person who creates the stop decides each time; there is no separate flow.
+Voting: proposed stops collect votes from squad members (reuse the existing poll/vote mechanic). Any squad member can move a proposed stop to confirmed once there's agreement.
+No implicit or automatic posting — ever. Adding/editing a stop is visible to the plan's squad only because the plan already belongs to that squad. Nothing auto-posts to any feed, and there is no friends-wide exposure from this feature.
+Cost rollup: sum costPerPerson across confirmed stops → feed the existing Budget tab. Proposed stops' costs show as a tentative estimate and are excluded from the committed total until confirmed.
+Defaults that keep it fast: only title is required; costPerPerson defaults to Free; trips default to all-day so no trip-level time entry is needed; new stops default to "Add directly."
+
+
+
+5. Freemium gates
+
+
+Free: create events and trips, build full itineraries, propose + vote, budget rollup, Today view. The existing 2-squad free limit continues to apply.
+Squadz+: Templates (preloaded itineraries — ski trip, beach week, city break, road trip, etc.). Lock state shown on template cards.
+Keep the gate light: do not gate core itinerary building.
+
+
+
+6. Out of scope / deferred
+
+
+Integrated map / map view — NOT in this build. No maps SDK, no pins, no routing, no address geocoding or autocomplete. placeName and address are typed freeform text. (Map view is a planned future Squadz+ feature; leave room for it but do not implement it.)
+Squad Plan group pricing — out of scope (unchanged).
+No auto-posting of RSVPs, poll responses, or cost activity anywhere.
+
+
+
+7. Build sequence (tiers)
+
+Tier 1 — Foundation
+
+
+Add startDate + endDate (date range) and allDay to the event model; single-day events use same-day start/end.
+Add type: "event" | "trip" to the shared object.
+Trips/Events section in the SquadZ tab + squad association + visibility in both the section and the squad view.
+Itinerary data model + add/edit stop sheet (category, start time, optional end time, cost, assignee, creator's propose-or-add choice).
+Read-only itinerary timeline grouped by day; chronological sort.
+
+
+Tier 2 — Coordination & live use
+6. Proposed/confirmed states + voting UI + confirm action (reuse poll mechanic).
+7. Cost rollup from confirmed stops into the Budget tab.
+8. Today / live view behind the header shortcut.
+
+Tier 3 — Squadz+
+9. Templates picker with preloaded itineraries (gated).
+
+Phase 4 — Multi-user test & fix (run after Tiers 1–3)
+10. Run the multi-user test plan in §9 with at least three simulated accounts. Log every issue found, fix it, and re-run until all scenarios pass. Report what broke and how it was fixed.
+
+Future (do not build now): map view.
+
+
+8. Definition of done
+
+
+ An event can carry a start and end date; trips span multiple days, events are same-day.
+ A trip can be created from the Trips/Events section (choosing a squad) and from inside a squad (pre-filled), and appears in both afterward.
+ Itinerary stops render grouped by day with category icons; a stop with an end time shows a time range.
+ Adding a stop requires only a title; the creator can choose Add directly or Propose to squad.
+ Proposed stops can be voted on and confirmed; confirmed stop costs roll into the Budget tab.
+ Nothing posts anywhere automatically; visibility is scoped to the plan's squad.
+ Templates are gated behind Squadz+; core itinerary building is free; 2-squad limit still enforced.
+ A stop can carry an optional place name, typed address, and multi-line details; all three persist and show to every squad member.
+ No map functionality is present; place and address are freeform text.
+
+
+
+9. Multi-user test & fix (final phase)
+
+Trips are inherently multi-user — a single-account run hides the bugs that matter. After building Tiers 1–3, simulate at least three accounts: A and B in the same squad ("The Usual Suspects"), and C in a different squad. Walk every scenario below, log each failure, fix it, and re-run until all pass. Report issues found and fixes applied.
+
+Visibility & association
+
+
+A creates a trip in the shared squad → it appears for B in both the Trips/Events section and the squad view. C does not see it anywhere.
+A creates a trip from the Trips tab and picks the squad; B creates one from inside the squad (pre-filled). Both appear correctly in both places for A and B.
+Removing B from the squad revokes B's access to the trip; adding a new member grants it. A non-member opening a trip's deep link is denied.
+
+
+Stops, voting, confirmation
+
+
+A adds a stop with Add directly → B sees it as confirmed (Set) without any action.
+A adds a stop with Propose to squad → B and other squad members see it as proposed and can vote; votes aggregate across users (no overwrite). C cannot vote (not in squad).
+Any squad member can confirm a proposed stop; once confirmed it reads as Set for everyone.
+A and B edit the same stop at nearly the same time → last-write-wins, no crash, no lost trip or duplicated stop. Reordering stops concurrently resolves to a single consistent order.
+
+
+Cost rollup
+
+
+Confirmed-stop costPerPerson values sum into the Budget tab identically for A and B.
+A proposed stop's cost shows as a tentative estimate and is excluded from the committed total until confirmed; on confirm, every user's Budget updates.
+
+
+Times & dates
+
+
+A stop with an optional endTime renders as a time range for all users; a stop without one renders a single start time. Trip-level all-day date range is unaffected by stop times.
+
+
+Privacy (non-negotiable)
+
+
+No itinerary action posts to any feed for any user — not RSVPs, not votes, not cost changes, not new stops. Confirm nothing leaks to the Vibe Feed or any friends-wide surface. Visibility never exceeds the plan's squad.
+
+
+Freemium under multi-user
+
+
+The 2-squad free limit still enforces correctly when a user is pulled into trips across multiple squads (shared trips don't bypass the gate). Templates remain Squadz+-gated for every account.
+
+
+Sync & empty/error states
+
+
+Changes by one user propagate to others (on refresh at minimum). A trip with zero stops shows a clear empty state inviting the first stop; a failed save shows an actionable error, not a silent drop.
+
+
+Exit criteria: all 13 scenarios pass across the three accounts, with a short written log of bugs found and fixes made.
