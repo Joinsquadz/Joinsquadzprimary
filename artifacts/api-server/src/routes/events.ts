@@ -2,6 +2,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, count, or, sql, and, gte, isNull, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db, eventsTable, eventCreationsTable, usersTable } from "@workspace/db";
+import type { ItineraryStop, PackingItem } from "@workspace/db";
 import { storage } from "../storage";
 import { requireAuth } from "../middleware/currentUser";
 import { logger } from "../lib/logger";
