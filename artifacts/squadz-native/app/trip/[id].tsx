@@ -98,9 +98,17 @@ export default function TripDetailScreen() {
   const [editingStop, setEditingStop] = useState<ItineraryStop | null>(null);
   const [sheetDay, setSheetDay] = useState<string | null>(null);
   const [packingDraft, setPackingDraft] = useState("");
+  const [liveView, setLiveView] = useState(false);
+  const [arrivedIdx, setArrivedIdx] = useState(0);
 
   const dayKeys = useMemo(() => (event ? tripDayKeys(event) : []), [event]);
   const today = todayKey();
+
+  // Squad roster for the assignee picker (empty for personal trips).
+  const memberOptions = useMemo(() => {
+    const sq = event ? getSquad(event.squadId) : undefined;
+    return (sq?.memberIds ?? []).map((mid) => ({ id: mid, name: resolveUser(mid).name }));
+  }, [event, getSquad, resolveUser]);
 
   useEventStream({
     eventId: id ?? null,
@@ -217,7 +225,11 @@ export default function TripDetailScreen() {
         </View>
         <View style={{ flex: 1 }}>
           <View style={styles.stopHead}>
-            {stop.time ? <Text style={[styles.stopTime, { color: colors.mutedForeground }]}>{stop.time}</Text> : null}
+            {stop.time ? (
+              <Text style={[styles.stopTime, { color: colors.mutedForeground }]}>
+                {stop.endTime ? `${stop.time} – ${stop.endTime}` : stop.time}
+              </Text>
+            ) : null}
             {proposed ? (
               <View style={[styles.proposedPill, { backgroundColor: colors.gold + "22" }]}>
                 <Text style={[styles.proposedPillText, { color: colors.gold }]}>Proposed</Text>
@@ -228,6 +240,15 @@ export default function TripDetailScreen() {
           {stop.placeName ? <Text style={[styles.stopPlace, { color: colors.mutedForeground }]}>{stop.placeName}</Text> : null}
           {stop.address ? <Text style={[styles.stopAddress, { color: colors.textDim }]}>{stop.address}</Text> : null}
           {stop.note ? <Text style={[styles.stopNote, { color: colors.mutedForeground }]}>{stop.note}</Text> : null}
+          {stop.assigneeId ? (() => {
+            const u = resolveUser(stop.assigneeId);
+            return (
+              <View style={styles.stopAssignee}>
+                <UserAvatar initials={u.initials} color={u.color} imageUrl={u.profileImageUrl} size={18} fontSize={8} />
+                <Text style={[styles.stopAssigneeText, { color: colors.mutedForeground }]}>{u.name}</Text>
+              </View>
+            );
+          })() : null}
           <View style={styles.stopFooter}>
             {typeof stop.cost === "number" && stop.cost > 0 ? (
               <Text style={[styles.stopCost, { color: colors.green }]}>${stop.cost.toFixed(0)}/person</Text>
@@ -243,7 +264,7 @@ export default function TripDetailScreen() {
                 </Text>
               </TouchableOpacity>
             ) : null}
-            {proposed && (isHost || mine) ? (
+            {proposed ? (
               <TouchableOpacity
                 onPress={() => void runMut(() => confirmStop(event.id, stop.id, authToken, event.version))}
                 style={[styles.confirmBtn, { backgroundColor: colors.green + "1F" }]}
@@ -268,6 +289,92 @@ export default function TripDetailScreen() {
     );
   };
 
+  // ── Today / live view ──────────────────────────────────────────────────────
+  // Reached from the cover "Today" shortcut: an "Up next" hero (advanced with
+  // "We're here"), the rest of today, and a running per-person spend.
+  if (liveView) {
+    const todayStops = grouped[today] ?? [];
+    const upNext = arrivedIdx < todayStops.length ? todayStops[arrivedIdx] : null;
+    const restToday = todayStops.slice(arrivedIdx + 1);
+    const runningSpend = todayStops
+      .slice(0, arrivedIdx + 1)
+      .filter((s) => s.status === "confirmed" && typeof s.cost === "number")
+      .reduce((sum, s) => sum + (s.cost ?? 0), 0);
+    const timeLabel = (s: ItineraryStop) => (s.time ? (s.endTime ? `${s.time} – ${s.endTime}` : s.time) : "");
+    return (
+      <View style={[styles.screen, { backgroundColor: colors.background }]}>
+        <LinearGradient colors={cover} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.liveHeader, { paddingTop: insets.top + (Platform.OS === "web" ? 67 : 12) }]}>
+          <View style={styles.coverTopRow}>
+            <TouchableOpacity onPress={() => setLiveView(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} style={styles.coverIconBtn}>
+              <Ionicons name="chevron-back" size={24} color="#fff" />
+            </TouchableOpacity>
+            <View style={styles.nowBadge}>
+              <View style={styles.nowDot} />
+              <Text style={styles.nowText}>Live · Today</Text>
+            </View>
+          </View>
+          <Text style={styles.liveTitle}>{event.title}</Text>
+          <Text style={styles.liveSpend}>${runningSpend.toFixed(0)}/person spent so far today</Text>
+        </LinearGradient>
+
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 40 }}>
+          {todayStops.length === 0 ? (
+            <View style={styles.empty}>
+              <Ionicons name="sunny-outline" size={40} color={colors.textDim} />
+              <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Nothing planned today</Text>
+              <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>Add a stop for today to see it light up here.</Text>
+            </View>
+          ) : upNext ? (
+            <>
+              <Text style={[styles.liveSectionLabel, { color: colors.primary }]}>UP NEXT</Text>
+              <View style={[styles.liveHero, { backgroundColor: colors.card, borderColor: colors.primary + "55" }]}>
+                {timeLabel(upNext) ? <Text style={[styles.liveHeroTime, { color: colors.mutedForeground }]}>{timeLabel(upNext)}</Text> : null}
+                <Text style={[styles.liveHeroTitle, { color: colors.foreground }]}>{upNext.title}</Text>
+                {upNext.placeName ? <Text style={[styles.liveHeroPlace, { color: colors.mutedForeground }]}>{upNext.placeName}</Text> : null}
+                {typeof upNext.cost === "number" && upNext.cost > 0 ? (
+                  <Text style={[styles.liveHeroCost, { color: colors.green }]}>${upNext.cost.toFixed(0)}/person</Text>
+                ) : null}
+                <TouchableOpacity
+                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setArrivedIdx((i) => i + 1); }}
+                  style={styles.liveHereBtn}
+                >
+                  <LinearGradient colors={["#FF5C3A", "#FF8050"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.liveHereInner}>
+                    <Ionicons name="checkmark-done" size={18} color="#fff" />
+                    <Text style={styles.liveHereText}>We're here</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              </View>
+
+              {restToday.length > 0 ? (
+                <>
+                  <Text style={[styles.liveSectionLabel, { color: colors.mutedForeground, marginTop: 24 }]}>REST OF TODAY</Text>
+                  {restToday.map((s) => (
+                    <View key={s.id} style={[styles.liveRestRow, { borderBottomColor: colors.border }]}>
+                      {timeLabel(s) ? <Text style={[styles.liveRestTime, { color: colors.mutedForeground }]}>{timeLabel(s)}</Text> : null}
+                      <Text style={[styles.liveRestTitle, { color: colors.foreground }]} numberOfLines={1}>{s.title}</Text>
+                      {typeof s.cost === "number" && s.cost > 0 ? (
+                        <Text style={[styles.liveRestCost, { color: colors.green }]}>${s.cost.toFixed(0)}</Text>
+                      ) : null}
+                    </View>
+                  ))}
+                </>
+              ) : null}
+            </>
+          ) : (
+            <View style={styles.empty}>
+              <Ionicons name="checkmark-circle-outline" size={44} color={colors.green} />
+              <Text style={[styles.emptyTitle, { color: colors.foreground }]}>That's a wrap for today</Text>
+              <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>You've made it through every stop. ${runningSpend.toFixed(0)}/person spent today.</Text>
+              <TouchableOpacity onPress={() => setArrivedIdx(0)} style={[styles.missingBtn, { borderColor: colors.border, marginTop: 8 }]}>
+                <Text style={{ color: colors.foreground, fontWeight: "700" }}>Replay today</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </ScrollView>
+      </View>
+    );
+  }
+
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <ScrollView
@@ -285,12 +392,23 @@ export default function TripDetailScreen() {
             >
               <Ionicons name="chevron-back" size={24} color="#fff" />
             </TouchableOpacity>
-            {happening ? (
-              <View style={styles.nowBadge}>
-                <View style={styles.nowDot} />
-                <Text style={styles.nowText}>Happening now</Text>
-              </View>
-            ) : null}
+            <View style={styles.coverTopRight}>
+              {happening ? (
+                <View style={styles.nowBadge}>
+                  <View style={styles.nowDot} />
+                  <Text style={styles.nowText}>Happening now</Text>
+                </View>
+              ) : null}
+              {dayKeys.includes(today) ? (
+                <TouchableOpacity
+                  onPress={() => { setArrivedIdx(0); setLiveView(true); }}
+                  style={styles.todayBtn}
+                >
+                  <Ionicons name="navigate" size={13} color="#fff" />
+                  <Text style={styles.todayBtnText}>Today</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
           </View>
           <Text style={styles.coverTitle}>{event.title}</Text>
           <View style={styles.coverMetaRow}>
@@ -506,6 +624,7 @@ export default function TripDetailScreen() {
         defaultDay={sheetDay ?? dayKeys[0] ?? today}
         editing={editingStop}
         saving={busy}
+        members={memberOptions}
         onClose={() => setSheetOpen(false)}
         onSubmit={submitStop}
       />
@@ -522,6 +641,9 @@ const styles = StyleSheet.create({
   cover: { paddingHorizontal: 20, paddingBottom: 22 },
   coverTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 },
   coverIconBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: "rgba(0,0,0,0.22)", alignItems: "center", justifyContent: "center" },
+  coverTopRight: { flexDirection: "row", alignItems: "center", gap: 8 },
+  todayBtn: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(0,0,0,0.28)", borderRadius: 20, paddingHorizontal: 11, paddingVertical: 6 },
+  todayBtnText: { color: "#fff", fontSize: 12, fontWeight: "800" },
   nowBadge: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(0,0,0,0.28)", borderRadius: 20, paddingHorizontal: 11, paddingVertical: 5 },
   nowDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#2ECC8A" },
   nowText: { color: "#fff", fontSize: 12, fontWeight: "800" },
@@ -560,7 +682,26 @@ const styles = StyleSheet.create({
   stopPlace: { fontSize: 13, fontWeight: "600", marginTop: 2 },
   stopAddress: { fontSize: 12, marginTop: 1 },
   stopNote: { fontSize: 13, marginTop: 5, lineHeight: 18 },
+  stopAssignee: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6 },
+  stopAssigneeText: { fontSize: 12, fontWeight: "700" },
   stopFooter: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" },
+
+  liveHeader: { paddingHorizontal: 20, paddingBottom: 22 },
+  liveTitle: { color: "#fff", fontSize: 26, fontWeight: "900", marginTop: 6 },
+  liveSpend: { color: "rgba(255,255,255,0.95)", fontSize: 14, fontWeight: "700", marginTop: 6 },
+  liveSectionLabel: { fontSize: 12, fontWeight: "900", letterSpacing: 1, marginBottom: 10 },
+  liveHero: { borderRadius: 20, borderWidth: 1.5, padding: 18 },
+  liveHeroTime: { fontSize: 13, fontWeight: "800", marginBottom: 4 },
+  liveHeroTitle: { fontSize: 22, fontWeight: "900" },
+  liveHeroPlace: { fontSize: 14, fontWeight: "600", marginTop: 4 },
+  liveHeroCost: { fontSize: 14, fontWeight: "800", marginTop: 8 },
+  liveHereBtn: { marginTop: 16, borderRadius: 14, overflow: "hidden" },
+  liveHereInner: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 13 },
+  liveHereText: { color: "#fff", fontSize: 15, fontWeight: "800" },
+  liveRestRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 12, borderBottomWidth: 1 },
+  liveRestTime: { fontSize: 12, fontWeight: "800", width: 96 },
+  liveRestTitle: { fontSize: 15, fontWeight: "700", flex: 1 },
+  liveRestCost: { fontSize: 13, fontWeight: "800" },
   stopCost: { fontSize: 13, fontWeight: "800" },
   voteBtn: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 20, borderWidth: 1.5, paddingHorizontal: 11, paddingVertical: 5 },
   voteText: { fontSize: 12, fontWeight: "800" },

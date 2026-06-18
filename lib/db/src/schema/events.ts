@@ -11,7 +11,8 @@ import { z } from "zod/v4";
 export type ItineraryStop = {
   id: string;
   day: string; // ISO calendar date the stop belongs to, e.g. "2026-06-18"
-  time: string; // freeform display time, e.g. "9:00 AM" or ""
+  time: string; // freeform display start time, e.g. "9:00 AM" or ""
+  endTime: string; // freeform display end time, e.g. "11:00 AM" or ""; renders a time range when set
   title: string;
   placeName: string; // freeform place label (no maps)
   address: string; // freeform address (no maps)
@@ -20,6 +21,7 @@ export type ItineraryStop = {
   status: "confirmed" | "proposed";
   cost: number | null; // optional estimated cost, rolled up into the trip budget line
   paidById: string | null;
+  assigneeId: string | null; // optional squad member responsible for this stop
   createdBy: string;
   votes: string[]; // userIds who upvoted a proposed stop
   sortOrder: number; // tiebreak ordering within a day when times are equal/blank

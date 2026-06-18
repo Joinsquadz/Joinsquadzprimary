@@ -23,6 +23,7 @@ export type TripMutResult = {
 export type NewStopInput = {
   day: string;
   time?: string;
+  endTime?: string;
   title: string;
   placeName?: string;
   address?: string;
@@ -31,11 +32,13 @@ export type NewStopInput = {
   status?: "confirmed" | "proposed";
   cost?: number | null;
   paidById?: string | null;
+  assigneeId?: string | null;
 };
 
 export type StopPatch = {
   day?: string;
   time?: string;
+  endTime?: string;
   title?: string;
   placeName?: string;
   address?: string;
@@ -44,6 +47,7 @@ export type StopPatch = {
   status?: "confirmed" | "proposed";
   cost?: number | null;
   paidById?: string | null;
+  assigneeId?: string | null;
 };
 
 export type PackingPatch = {

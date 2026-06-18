@@ -58,8 +58,10 @@ export type ItineraryStop = {
   id: string;
   /** ISO calendar date the stop belongs to, e.g. "2026-07-18". */
   day: string;
-  /** Freeform display time, e.g. "9:00 AM" or "". */
+  /** Freeform display start time, e.g. "9:00 AM" or "". */
   time: string;
+  /** Freeform display end time; when set, the stop renders a time range. */
+  endTime: string;
   title: string;
   placeName: string;
   address: string;
@@ -68,6 +70,8 @@ export type ItineraryStop = {
   status: "confirmed" | "proposed";
   cost: number | null;
   paidById: string | null;
+  /** Optional squad member responsible for this stop. */
+  assigneeId: string | null;
   createdBy: string;
   votes: string[];
   sortOrder: number;

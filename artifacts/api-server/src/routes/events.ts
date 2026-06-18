@@ -85,6 +85,7 @@ const STOP_CATEGORIES = ["food", "activity", "lodging", "travel", "other"] as co
 const AddStopBody = z.object({
   day: z.string().min(1), // ISO calendar date the stop belongs to
   time: z.string().default(""),
+  endTime: z.string().default(""),
   title: z.string().min(1),
   placeName: z.string().default(""),
   address: z.string().default(""),
@@ -93,12 +94,14 @@ const AddStopBody = z.object({
   status: z.enum(["confirmed", "proposed"]).default("confirmed"),
   cost: z.number().nullable().optional(),
   paidById: z.string().nullable().optional(),
+  assigneeId: z.string().nullable().optional(),
   version: z.number().int(),
 });
 
 const PatchStopBody = z.object({
   day: z.string().optional(),
   time: z.string().optional(),
+  endTime: z.string().optional(),
   title: z.string().optional(),
   placeName: z.string().optional(),
   address: z.string().optional(),
@@ -107,6 +110,7 @@ const PatchStopBody = z.object({
   status: z.enum(["confirmed", "proposed"]).optional(),
   cost: z.number().nullable().optional(),
   paidById: z.string().nullable().optional(),
+  assigneeId: z.string().nullable().optional(),
   version: z.number().int(),
 });
 
@@ -1269,6 +1273,7 @@ router.post("/events/:id/itinerary", requireAuth, async (req: Request, res: Resp
     id: `s${Date.now()}`,
     day,
     time: rest.time,
+    endTime: rest.endTime,
     title: rest.title,
     placeName: rest.placeName,
     address: rest.address,
@@ -1277,6 +1282,7 @@ router.post("/events/:id/itinerary", requireAuth, async (req: Request, res: Resp
     status: rest.status,
     cost: rest.cost ?? null,
     paidById: rest.paidById ?? null,
+    assigneeId: rest.assigneeId ?? null,
     createdBy: userId,
     votes: [],
     sortOrder,

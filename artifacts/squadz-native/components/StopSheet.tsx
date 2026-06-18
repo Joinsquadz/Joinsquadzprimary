@@ -21,6 +21,7 @@ import type { NewStopInput, StopPatch } from "@/lib/tripApi";
 export type StopDraft = {
   day: string;
   time: string;
+  endTime: string;
   title: string;
   placeName: string;
   address: string;
@@ -28,10 +29,11 @@ export type StopDraft = {
   category: StopCategory;
   status: "confirmed" | "proposed";
   cost: string;
+  assigneeId: string | null;
 };
 
 function emptyDraft(day: string): StopDraft {
-  return { day, time: "", title: "", placeName: "", address: "", note: "", category: "activity", status: "confirmed", cost: "" };
+  return { day, time: "", endTime: "", title: "", placeName: "", address: "", note: "", category: "activity", status: "confirmed", cost: "", assigneeId: null };
 }
 
 export function StopSheet({
@@ -40,6 +42,7 @@ export function StopSheet({
   defaultDay,
   editing,
   saving,
+  members = [],
   onClose,
   onSubmit,
 }: {
@@ -48,6 +51,7 @@ export function StopSheet({
   defaultDay: string;
   editing: ItineraryStop | null;
   saving: boolean;
+  members?: { id: string; name: string }[];
   onClose: () => void;
   onSubmit: (data: NewStopInput | StopPatch, isEdit: boolean) => void;
 }) {
@@ -61,6 +65,7 @@ export function StopSheet({
       setDraft({
         day: editing.day,
         time: editing.time ?? "",
+        endTime: editing.endTime ?? "",
         title: editing.title ?? "",
         placeName: editing.placeName ?? "",
         address: editing.address ?? "",
@@ -68,6 +73,7 @@ export function StopSheet({
         category: editing.category,
         status: editing.status,
         cost: typeof editing.cost === "number" ? String(editing.cost) : "",
+        assigneeId: editing.assigneeId ?? null,
       });
     } else {
       setDraft(emptyDraft(defaultDay));
@@ -81,6 +87,7 @@ export function StopSheet({
     const payload = {
       day: draft.day,
       time: draft.time.trim(),
+      endTime: draft.endTime.trim(),
       title: draft.title.trim(),
       placeName: draft.placeName.trim(),
       address: draft.address.trim(),
@@ -88,6 +95,7 @@ export function StopSheet({
       category: draft.category,
       status: draft.status,
       cost: parsedCost !== null && !Number.isNaN(parsedCost) ? parsedCost : null,
+      assigneeId: draft.assigneeId,
     };
     onSubmit(payload, !!editing);
   };
@@ -138,14 +146,28 @@ export function StopSheet({
               })}
             </ScrollView>
 
-            <Text style={[styles.label, { color: colors.mutedForeground }]}>Time (optional)</Text>
-            <TextInput
-              value={draft.time}
-              onChangeText={(t) => setDraft((d) => ({ ...d, time: t }))}
-              placeholder="e.g. 7:00 PM"
-              placeholderTextColor={colors.textDim}
-              style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
-            />
+            <View style={styles.timeRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.label, { color: colors.mutedForeground }]}>Start time (optional)</Text>
+                <TextInput
+                  value={draft.time}
+                  onChangeText={(t) => setDraft((d) => ({ ...d, time: t }))}
+                  placeholder="e.g. 7:00 PM"
+                  placeholderTextColor={colors.textDim}
+                  style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.label, { color: colors.mutedForeground }]}>End time (optional)</Text>
+                <TextInput
+                  value={draft.endTime}
+                  onChangeText={(t) => setDraft((d) => ({ ...d, endTime: t }))}
+                  placeholder="e.g. 9:00 PM"
+                  placeholderTextColor={colors.textDim}
+                  style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+                />
+              </View>
+            </View>
 
             <Text style={[styles.label, { color: colors.mutedForeground }]}>Category</Text>
             <View style={styles.catRow}>
@@ -191,6 +213,32 @@ export function StopSheet({
               keyboardType="decimal-pad"
               style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
             />
+
+            {members.length > 0 ? (
+              <>
+                <Text style={[styles.label, { color: colors.mutedForeground }]}>Assignee (optional)</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                  <TouchableOpacity
+                    onPress={() => setDraft((d) => ({ ...d, assigneeId: null }))}
+                    style={[styles.assigneeChip, { borderColor: draft.assigneeId === null ? colors.primary : colors.border, backgroundColor: draft.assigneeId === null ? colors.primary + "18" : colors.background }]}
+                  >
+                    <Text style={[styles.assigneeChipText, { color: draft.assigneeId === null ? colors.primary : colors.mutedForeground }]}>Unassigned</Text>
+                  </TouchableOpacity>
+                  {members.map((m) => {
+                    const active = draft.assigneeId === m.id;
+                    return (
+                      <TouchableOpacity
+                        key={m.id}
+                        onPress={() => setDraft((d) => ({ ...d, assigneeId: m.id }))}
+                        style={[styles.assigneeChip, { borderColor: active ? colors.primary : colors.border, backgroundColor: active ? colors.primary + "18" : colors.background }]}
+                      >
+                        <Text style={[styles.assigneeChipText, { color: active ? colors.primary : colors.foreground }]} numberOfLines={1}>{m.name}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </>
+            ) : null}
 
             <Text style={[styles.label, { color: colors.mutedForeground }]}>Note (optional)</Text>
             <TextInput
@@ -252,6 +300,9 @@ const styles = StyleSheet.create({
   dayChip: { borderRadius: 12, borderWidth: 1.5, paddingHorizontal: 14, paddingVertical: 8, minWidth: 92 },
   dayChipLabel: { fontSize: 14, fontWeight: "800" },
   dayChipSub: { fontSize: 11, marginTop: 1 },
+  timeRow: { flexDirection: "row", gap: 12 },
+  assigneeChip: { borderRadius: 20, borderWidth: 1.5, paddingHorizontal: 14, paddingVertical: 8, maxWidth: 160 },
+  assigneeChipText: { fontSize: 13, fontWeight: "700" },
   catRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   catChip: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 20, borderWidth: 1.5, paddingHorizontal: 12, paddingVertical: 8 },
   catChipText: { fontSize: 13, fontWeight: "700" },
