@@ -21,6 +21,9 @@ import { useEventStream } from "@/hooks/useEventStream";
 import { UserAvatar } from "@/components/UserAvatar";
 import { StopSheet } from "@/components/StopSheet";
 import FriendPickerSheet from "@/components/FriendPickerSheet";
+import { ChatMessages, ChatComposer } from "@/components/EventChatPanel";
+import { EventCostsPanel } from "@/components/EventCostsPanel";
+import { EventVaultPanel } from "@/components/EventVaultPanel";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import type { Event, ItineraryStop } from "@/types";
 import {
@@ -48,7 +51,17 @@ import {
   type StopPatch,
 } from "@/lib/tripApi";
 
-type TripTab = "itinerary" | "budget" | "packing";
+type TripTab = "itinerary" | "chat" | "costs" | "vault" | "budget" | "packing";
+
+const TRIP_TABS: TripTab[] = ["itinerary", "chat", "costs", "vault", "budget", "packing"];
+const TRIP_TAB_LABELS: Record<TripTab, string> = {
+  itinerary: "Itinerary",
+  chat: "Chat",
+  costs: "Costs",
+  vault: "Vault",
+  budget: "Budget",
+  packing: "Packing",
+};
 
 export default function TripDetailScreen() {
   const { id, tab: tabParam } = useLocalSearchParams<{ id: string; tab?: string }>();
@@ -92,7 +105,7 @@ export default function TripDetailScreen() {
   }, [ctxEvent, id, authToken, fetchDetail]);
 
   const [tab, setTab] = useState<TripTab>(
-    tabParam === "budget" ? "budget" : tabParam === "packing" ? "packing" : "itinerary",
+    TRIP_TABS.includes(tabParam as TripTab) ? (tabParam as TripTab) : "itinerary",
   );
   const [busy, setBusy] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -122,6 +135,19 @@ export default function TripDetailScreen() {
       .filter((uid) => !memberSet.has(uid))
       .map((uid) => resolveUser(uid));
   }, [event, getSquad, resolveUser]);
+
+  // Everyone who can be included in a cost split: squad members + invited
+  // friends (deduped), each fully resolved. Always includes the current user so
+  // a solo/personal trip can still split (just with themselves listed).
+  const costParticipants = useMemo(() => {
+    const sq = event ? getSquad(event.squadId) : undefined;
+    const ids = new Set<string>([
+      ...(sq?.memberIds ?? []),
+      ...(event?.invitedUserIds ?? []),
+      currentUser.id,
+    ]);
+    return [...ids].map((uid) => resolveUser(uid));
+  }, [event, getSquad, resolveUser, currentUser.id]);
 
   useEventStream({
     eventId: id ?? null,
@@ -490,18 +516,43 @@ export default function TripDetailScreen() {
         </View>
 
         {/* Sticky tab bar */}
-        <View style={[styles.tabBar, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
-          {(["itinerary", "budget", "packing"] as const).map((t) => {
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={[styles.tabBar, { backgroundColor: colors.background, borderBottomColor: colors.border }]}
+          contentContainerStyle={styles.tabBarContent}
+        >
+          {TRIP_TABS.map((t) => {
             const active = tab === t;
-            const labels = { itinerary: "Itinerary", budget: "Budget", packing: "Packing" };
             return (
-              <TouchableOpacity key={t} onPress={() => setTab(t)} style={styles.tabBtn}>
-                <Text style={[styles.tabText, { color: active ? colors.primary : colors.mutedForeground }]}>{labels[t]}</Text>
+              <TouchableOpacity key={t} onPress={() => { Haptics.selectionAsync(); setTab(t); }} style={styles.tabBtn}>
+                <Text style={[styles.tabText, { color: active ? colors.primary : colors.mutedForeground }]}>{TRIP_TAB_LABELS[t]}</Text>
                 {active ? <View style={[styles.tabUnderline, { backgroundColor: colors.primary }]} /> : null}
               </TouchableOpacity>
             );
           })}
-        </View>
+        </ScrollView>
+
+        {/* CHAT */}
+        {tab === "chat" ? (
+          <View style={styles.tabBody}>
+            <ChatMessages event={event} />
+          </View>
+        ) : null}
+
+        {/* COSTS */}
+        {tab === "costs" ? (
+          <View style={styles.tabBody}>
+            <EventCostsPanel event={event} isHost={isHost} botPad={insets.bottom} participants={costParticipants} />
+          </View>
+        ) : null}
+
+        {/* VAULT */}
+        {tab === "vault" ? (
+          <View style={styles.tabBody}>
+            <EventVaultPanel event={event} />
+          </View>
+        ) : null}
 
         {/* ITINERARY */}
         {tab === "itinerary" ? (
@@ -590,7 +641,7 @@ export default function TripDetailScreen() {
             )}
 
             <TouchableOpacity
-              onPress={() => router.push(`/event/${event.id}?tab=costs` as never)}
+              onPress={() => { Haptics.selectionAsync(); setTab("costs"); }}
               style={[styles.costSplitBtn, { borderColor: colors.border, backgroundColor: colors.card }]}
             >
               <Ionicons name="cash-outline" size={18} color={colors.green} />
@@ -668,6 +719,9 @@ export default function TripDetailScreen() {
         ) : null}
       </ScrollView>
 
+      {/* Sticky chat composer — sibling of the ScrollView so it pins to the bottom */}
+      {tab === "chat" ? <ChatComposer event={event} botPad={insets.bottom} /> : null}
+
       {/* FAB for itinerary */}
       {tab === "itinerary" ? (
         <TouchableOpacity
@@ -740,8 +794,9 @@ const styles = StyleSheet.create({
   coverMeta: { color: "rgba(255,255,255,0.95)", fontSize: 14, fontWeight: "700" },
   coverDot: { color: "rgba(255,255,255,0.7)", fontSize: 14, fontWeight: "700" },
 
-  tabBar: { flexDirection: "row", borderBottomWidth: 1 },
-  tabBtn: { flex: 1, alignItems: "center", paddingVertical: 14 },
+  tabBar: { borderBottomWidth: 1, flexGrow: 0 },
+  tabBarContent: { paddingHorizontal: 8 },
+  tabBtn: { alignItems: "center", paddingVertical: 14, paddingHorizontal: 16 },
   tabText: { fontSize: 14, fontWeight: "800" },
   tabUnderline: { position: "absolute", bottom: 0, height: 2.5, width: "55%", borderRadius: 2 },
 

@@ -174,6 +174,7 @@ type AppContextType = {
   updateEvent: (
     eventId: string,
     patch: Partial<Pick<Event, "title" | "description" | "date" | "location" | "emoji" | "budget" | "isPublic" | "startAt" | "endAt" | "allDay" | "coverStyle">>,
+    explicitVersion?: number,
   ) => void;
   joinEvent: (inviteCode: string) => Promise<{ error?: string }>;
   inviteToEvent: (eventId: string, userIds: string[]) => Promise<{ error?: string }>;
@@ -182,9 +183,9 @@ type AppContextType = {
   toggleTask: (eventId: string, taskId: string) => Promise<void>;
   claimTask: (eventId: string, taskId: string) => Promise<void>;
   addTask: (eventId: string, title: string, category?: string) => Promise<{ error?: string }>;
-  addCost: (eventId: string, input: { description: string; amount: number; shares: CostShare[] }) => Promise<{ error?: string }>;
-  markSharePaid: (eventId: string, costId: string, paid: boolean) => void;
-  confirmShare: (eventId: string, costId: string, debtorId: string, confirmed: boolean) => void;
+  addCost: (eventId: string, input: { description: string; amount: number; shares: CostShare[] }, explicitVersion?: number) => Promise<{ error?: string }>;
+  markSharePaid: (eventId: string, costId: string, paid: boolean, explicitVersion?: number) => void;
+  confirmShare: (eventId: string, costId: string, debtorId: string, confirmed: boolean, explicitVersion?: number) => void;
   ownPaymentHandles: PaymentHandles;
   updateOwnPaymentHandles: (patch: Partial<PaymentHandles>) => void;
   fetchPaymentHandles: (
@@ -1180,8 +1181,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [squads, apiFetch, apiUser]);
 
   const updateEvent = useCallback(
-    (eventId: string, patch: Partial<Pick<Event, "title" | "description" | "date" | "location" | "emoji" | "budget" | "isPublic">>) => {
-      const currentVersion = events.find((e) => e.id === eventId)?.version;
+    (eventId: string, patch: Partial<Pick<Event, "title" | "description" | "date" | "location" | "emoji" | "budget" | "isPublic">>, explicitVersion?: number) => {
+      const currentVersion = explicitVersion ?? events.find((e) => e.id === eventId)?.version;
       // Optimistic update
       setEvents((prev) => prev.map((e) => (e.id === eventId ? { ...e, ...patch } : e)));
       const body = currentVersion !== undefined ? { ...patch, version: currentVersion } : patch;
@@ -1384,13 +1385,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   const addCost = useCallback(
-    async (eventId: string, input: { description: string; amount: number; shares: CostShare[] }): Promise<{ error?: string }> => {
+    async (eventId: string, input: { description: string; amount: number; shares: CostShare[] }, explicitVersion?: number): Promise<{ error?: string }> => {
       const hasInvalid = input.shares.some((s) => s.amount < 0);
       const assigned = input.shares.reduce((sum, s) => sum + s.amount, 0);
       if (input.amount <= 0 || hasInvalid || Math.abs(input.amount - assigned) >= 0.01)
         return { error: "Invalid cost input." };
       const userId = apiUser?.id ?? currentUserIdRef.current;
-      const currentVersion = events.find((e) => e.id === eventId)?.version;
+      const currentVersion = explicitVersion ?? events.find((e) => e.id === eventId)?.version;
       const tempId = `c${Date.now()}`;
       const cost: Cost = {
         id: tempId,
@@ -1450,7 +1451,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   const markSharePaid = useCallback(
-    (eventId: string, costId: string, paid: boolean) => {
+    (eventId: string, costId: string, paid: boolean, explicitVersion?: number) => {
       const userId = apiUser?.id ?? currentUserIdRef.current;
       const nowIso = new Date().toISOString();
       // Optimistic update: stamp/clear my own share on this cost.
@@ -1473,7 +1474,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               },
         ),
       );
-      const currentVersion = events.find((e) => e.id === eventId)?.version;
+      const currentVersion = explicitVersion ?? events.find((e) => e.id === eventId)?.version;
       const body: Record<string, unknown> = { paid };
       if (currentVersion !== undefined) body.version = currentVersion;
       void apiFetch(`/api/events/${eventId}/costs/${costId}/mark-paid`, {
@@ -1490,7 +1491,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   const confirmShare = useCallback(
-    (eventId: string, costId: string, debtorId: string, confirmed: boolean) => {
+    (eventId: string, costId: string, debtorId: string, confirmed: boolean, explicitVersion?: number) => {
       const nowIso = new Date().toISOString();
       // Optimistic update: confirm sets confirmedAt; un-mark clears both stamps.
       setEvents((prev) =>
@@ -1516,7 +1517,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               },
         ),
       );
-      const currentVersion = events.find((e) => e.id === eventId)?.version;
+      const currentVersion = explicitVersion ?? events.find((e) => e.id === eventId)?.version;
       const body: Record<string, unknown> = { confirmed };
       if (currentVersion !== undefined) body.version = currentVersion;
       void apiFetch(`/api/events/${eventId}/costs/${costId}/shares/${encodeURIComponent(debtorId)}/confirm`, {

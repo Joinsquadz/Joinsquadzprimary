@@ -197,6 +197,25 @@ export default function HomeScreen() {
     }) ?? null;
   }, [events]);
 
+  // Count events/trips that actually fall within the current week (today
+  // through the upcoming Sunday). Used for an accurate header subgreeting —
+  // `events` itself is every upcoming plan, which may be months out.
+  const eventsThisWeek = useMemo(() => {
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const daysUntilSunday = (7 - todayStart.getDay()) % 7;
+    const weekEnd = new Date(todayStart);
+    weekEnd.setDate(todayStart.getDate() + daysUntilSunday);
+    weekEnd.setHours(23, 59, 59, 999);
+    return events.filter((e) => {
+      const iso = e.eventAt ?? e.startAt ?? null;
+      if (!iso) return false;
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return false;
+      return d >= todayStart && d <= weekEnd;
+    }).length;
+  }, [events]);
+
   type EventBalance = {
     eventId: string;
     eventEmoji: string;
@@ -366,7 +385,9 @@ export default function HomeScreen() {
             Hey, {currentUser.name.split(" ")[0]} 👋
           </Text>
           <Text style={[styles.subGreeting, { color: colors.mutedForeground }]}>
-            {squads.length} squad{squads.length !== 1 ? "s" : ""} · {events.length} event{events.length !== 1 ? "s" : ""} this week
+            {squads.length} squad{squads.length !== 1 ? "s" : ""} · {eventsThisWeek > 0
+              ? `${eventsThisWeek} event${eventsThisWeek !== 1 ? "s" : ""} this week`
+              : `${events.length} upcoming`}
           </Text>
         </View>
         <View style={styles.headerRight}>
