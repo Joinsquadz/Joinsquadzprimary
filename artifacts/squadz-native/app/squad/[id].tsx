@@ -34,6 +34,7 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { ProAvatar } from "@/components/ProAvatar";
 import { ContactSheet } from "@/components/ContactSheet";
 import { EventCard } from "@/components/EventCard";
+import { TripCard } from "@/components/TripCard";
 import { SquadzPlusBanner } from "@/components/SquadzPlusBanner";
 import { goingCount } from "@/lib/eventUtils";
 import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
@@ -870,7 +871,7 @@ export default function SquadDetailScreen() {
           }}
           style={{ marginTop: 24 }}
         >
-          <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Events</Text>
+          <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Plans</Text>
         </View>
         {squadEvents.length === 0 ? (
           <TouchableOpacity
@@ -891,25 +892,29 @@ export default function SquadDetailScreen() {
                 <Ionicons name="add" size={24} color="#fff" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.findTimeTitle}>Plan an event</Text>
-                <Text style={styles.findTimeSub}>No events yet · get the squad together</Text>
+                <Text style={styles.findTimeTitle}>Plan together</Text>
+                <Text style={styles.findTimeSub}>No plans yet · start an event or a trip</Text>
               </View>
               <Ionicons name="chevron-forward" size={20} color="#fff" />
             </LinearGradient>
           </TouchableOpacity>
         ) : (
-          squadEvents.map((e) => (
-            <EventCard
-              key={e.id}
-              id={e.id}
-              emoji={e.emoji}
-              title={e.title}
-              date={e.date}
-              location={e.location}
-              hostId={e.hostId}
-              attendeeCount={goingCount(e)}
-            />
-          ))
+          squadEvents.map((e) =>
+            e.type === "trip" ? (
+              <TripCard key={e.id} trip={e} />
+            ) : (
+              <EventCard
+                key={e.id}
+                id={e.id}
+                emoji={e.emoji}
+                title={e.title}
+                date={e.date}
+                location={e.location}
+                hostId={e.hostId}
+                attendeeCount={goingCount(e)}
+              />
+            ),
+          )
         )}
       </ScrollView>
 
