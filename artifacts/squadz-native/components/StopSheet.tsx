@@ -8,6 +8,7 @@ import {
   Modal,
   ScrollView,
   Platform,
+  Keyboard,
   KeyboardAvoidingView,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -95,6 +96,9 @@ export function StopSheet({
 
   const openTimePicker = (which: "start" | "end") => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    // Dismiss the keyboard first — in "Add" mode the title field autofocuses, and
+    // a raised keyboard would hide the spinner overlay (it renders at the bottom).
+    Keyboard.dismiss();
     setTimeTmp(parseTimeToDate(which === "start" ? draft.time : draft.endTime));
     setTimeStep(which);
   };

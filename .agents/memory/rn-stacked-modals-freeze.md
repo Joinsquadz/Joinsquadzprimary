@@ -18,3 +18,10 @@ picker sheet) *inside* the existing Modal's view tree. Android's date/time picke
 with `display="default"` is a native dialog (not a JS Modal), so it's safe to
 mount inline. A full-screen-route component (not a Modal itself) CAN open a real
 Modal picker — the freeze only happens when two Modals overlap.
+
+**Related gotcha (bottom-sheet pickers + keyboard):** a bottom-anchored picker
+overlay renders *behind* a raised software keyboard, so it looks like "nothing
+opens." If the sheet autofocuses a text field (e.g. `autoFocus` on the title in
+"add/create" mode but not "edit" mode), call `Keyboard.dismiss()` when opening
+the picker. Symptom signature: picker works when editing (no autofocus) but not
+when adding (autofocus on).
