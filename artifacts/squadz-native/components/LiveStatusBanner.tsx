@@ -1,6 +1,7 @@
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/context/AppContext";
+import { useDelayedFlag } from "@/hooks/useDelayedFlag";
 
 /**
  * Global live-connection status banner driven by the shared squad SSE stream
@@ -11,8 +12,11 @@ import { useAuth } from "@/context/AppContext";
  */
 export function LiveStatusBanner() {
   const { squadStreamStatus, retrySquadStream } = useAuth();
+  // Only surface "Reconnecting…" if the stream is still down after 3s — brief
+  // blips that recover quickly never flash a banner.
+  const showReconnecting = useDelayedFlag(squadStreamStatus === "reconnecting", 3000);
 
-  if (squadStreamStatus === "reconnecting") {
+  if (showReconnecting) {
     return (
       <View style={styles.banner} pointerEvents="none">
         <ActivityIndicator size="small" color="#6B7280" style={{ marginRight: 6 }} />

@@ -25,6 +25,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useSquadStream } from "@/hooks/useSquadStream";
+import { useDelayedFlag } from "@/hooks/useDelayedFlag";
 import { runSquadPoll, squadSignature } from "@/lib/squadLiveRefresh";
 import { useData, useAuth, type FoundUser } from "@/context/AppContext";
 import { useMutedSquads } from "@/context/MutedSquadsContext";
@@ -70,6 +71,8 @@ export default function SquadDetailScreen() {
     authToken,
     onUpdate: refreshSquads,
   });
+  // Only show "Reconnecting…" if the stream is still down after 3s.
+  const showReconnecting = useDelayedFlag(streamStatus === "reconnecting", 3000);
 
   const [openingChat, setOpeningChat] = useState(false);
   const [availabilityTitle, setAvailabilityTitle] = useState<string | null>(null);
@@ -621,7 +624,7 @@ export default function SquadDetailScreen() {
       </View>
 
       {/* Stream reconnecting indicator */}
-      {streamStatus === "reconnecting" && (
+      {showReconnecting && (
         <View style={styles.reconnectBanner} pointerEvents="none">
           <ActivityIndicator size="small" color="#6B7280" style={{ marginRight: 6 }} />
           <Text style={styles.reconnectBannerText}>Reconnecting…</Text>

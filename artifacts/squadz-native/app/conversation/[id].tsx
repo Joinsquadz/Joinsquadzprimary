@@ -20,6 +20,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AppContext";
 import { useConversationStream } from "@/hooks/useConversationStream";
+import { useDelayedFlag } from "@/hooks/useDelayedFlag";
 import { useToast } from "@/context/ToastContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import {
@@ -139,6 +140,8 @@ export default function ConversationScreen() {
       void loadThread(false).then(() => markRead(conversationId));
     }, [loadThread, markRead, conversationId]),
   });
+  // Only show "Reconnecting…" if the stream is still down after 3s.
+  const showReconnecting = useDelayedFlag(streamStatus === "reconnecting", 3000);
 
   // 30 s safety-net poll: catches messages missed when the stream is
   // temporarily unavailable (network blip, proxy timeout, etc.).
@@ -393,7 +396,7 @@ export default function ConversationScreen() {
       </View>
 
       {/* Stream reconnecting indicator */}
-      {streamStatus === "reconnecting" && (
+      {showReconnecting && (
         <View style={styles.reconnectBanner} pointerEvents="none">
           <ActivityIndicator size="small" color="#6B7280" style={{ marginRight: 6 }} />
           <Text style={styles.reconnectBannerText}>Reconnecting…</Text>
