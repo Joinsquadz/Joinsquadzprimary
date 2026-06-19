@@ -43,3 +43,17 @@ resumable "Existing" option. Trips are events under the hood, so they convert th
 
 **How to apply:** any new read path that surfaces a "current/latest poll" for a scope must filter
 out converted polls, not just rely on `eventId IS NULL` / row existence.
+
+## Best-time resolution → Event vs Trip is chosen at lock-in (not at entry)
+
+- For an UNBOUND poll (squad / personal / ad-hoc — no `eventId`), `useThisTime` does NOT pre-decide
+  event vs trip. It shows an Event/Trip chooser; the pick routes to `/create` with `prefillPollId`
+  (so create.tsx converts the poll on success). **Event** path passes `prefillDate` + `prefillEventAt`
+  (day + winning time). **Trip** path passes `mode=trip` + `prefillTripStart` = the winning DAY only
+  (date `YYYY-MM-DD`, no time) — trips coordinate on days, never time slots. create.tsx seeds
+  `tripStart` from `prefillTripStart` (local noon to avoid UTC day-shift); end stays open.
+- An `eventId`-bound poll (existing event, or the trip/[id] itinerary card) still PATCHes that event
+  directly — no chooser, since it's already bound.
+
+**Why:** user decision — a "find a time" poll is generic; whether it becomes a one-off event or a
+multi-day trip is only known when you lock in the best time.

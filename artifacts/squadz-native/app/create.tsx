@@ -104,7 +104,7 @@ export default function CreateEventScreen() {
   const { addEvent, squads } = useData();
   const { authToken } = useAuth();
   const { resolveUser } = useUserCache();
-  const prefill = useLocalSearchParams<{ prefillDate?: string; prefillEventAt?: string; prefillSquad?: string; prefillTitle?: string; prefillEmoji?: string; prefillPollId?: string; mode?: string; templateId?: string }>();
+  const prefill = useLocalSearchParams<{ prefillDate?: string; prefillEventAt?: string; prefillSquad?: string; prefillTitle?: string; prefillEmoji?: string; prefillPollId?: string; prefillTripStart?: string; mode?: string; templateId?: string }>();
   const [findTimeOpen, setFindTimeOpen] = useState(false);
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
@@ -118,8 +118,14 @@ export default function CreateEventScreen() {
   const [title, setTitle] = useState("");
   const [location, setLocation] = useState("");
   const [date, setDate] = useState("");
-  // Trip date range + presentation.
-  const [tripStart, setTripStart] = useState<Date | null>(null);
+  // Trip date range + presentation. When coming from a "Find the Best Time" poll
+  // resolved into a Trip, seed the start with the winning day (date only — trips
+  // don't carry a time). The end stays open for the user to pick.
+  const [tripStart, setTripStart] = useState<Date | null>(
+    prefill.prefillTripStart && /^\d{4}-\d{2}-\d{2}$/.test(prefill.prefillTripStart)
+      ? new Date(`${prefill.prefillTripStart}T12:00:00`)
+      : null,
+  );
   const [tripEnd, setTripEnd] = useState<Date | null>(null);
   const [allDay, setAllDay] = useState(true);
   const [coverStyle, setCoverStyle] = useState<string>(template?.coverStyle ?? "sunset");

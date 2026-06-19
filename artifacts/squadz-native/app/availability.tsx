@@ -998,17 +998,34 @@ export default function AvailabilityScreen() {
       }
       return;
     }
-    // Squad / create flow → start an event prefilled with the winning slot. Pass
-    // the pollId so create.tsx marks the poll converted once the event is made.
-    router.push({
-      pathname: "/create",
-      params: {
-        prefillDate: friendly,
-        ...(eventAtISO ? { prefillEventAt: eventAtISO } : {}),
-        prefillSquad: squadId ?? "",
-        ...(data?.poll.id ? { prefillPollId: data.poll.id } : {}),
-      },
-    } as never);
+    // Squad / personal / ad-hoc flow → the poll isn't bound to anything yet, so
+    // let the user decide what they're planning: a one-off Event (keeps the
+    // winning day + time) or a Trip (multi-day — only the day matters, no time).
+    // Either way we pass the pollId so create.tsx marks the poll converted once
+    // the event/trip is made.
+    const dayISO = splitCell(data.best.cell).day;
+    const tripStartDay = parseISODate(dayISO) ? dayISO : undefined;
+    const goCreate = (mode: "event" | "trip") => {
+      router.push({
+        pathname: "/create",
+        params: {
+          prefillSquad: squadId ?? "",
+          ...(data?.poll.id ? { prefillPollId: data.poll.id } : {}),
+          ...(mode === "trip"
+            ? { mode: "trip", ...(tripStartDay ? { prefillTripStart: tripStartDay } : {}) }
+            : { prefillDate: friendly, ...(eventAtISO ? { prefillEventAt: eventAtISO } : {}) }),
+        },
+      } as never);
+    };
+    Alert.alert(
+      "Lock in the best time",
+      `${friendly} works best. What are you planning?`,
+      [
+        { text: "Event", onPress: () => goCreate("event") },
+        { text: "Trip", onPress: () => goCreate("trip") },
+        { text: "Cancel", style: "cancel" },
+      ],
+    );
   };
 
   // Creator-only: delete the poll and everyone's responses, then leave the screen.
