@@ -112,7 +112,10 @@ export function StopSheet({
   };
 
   useEffect(() => {
-    if (!visible) return;
+    if (!visible) {
+      setTimeStep(null);
+      return;
+    }
     if (editing) {
       setDraft({
         day: editing.day,
@@ -153,7 +156,6 @@ export function StopSheet({
   };
 
   return (
-    <>
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.overlay}>
         <TouchableOpacity style={StyleSheet.absoluteFill} onPress={onClose} activeOpacity={1} />
@@ -371,49 +373,51 @@ export function StopSheet({
             </TouchableOpacity>
           </View>
         </View>
+
+        {/* iOS spinner rendered as an in-sheet overlay (NOT a second Modal —
+            stacking two Modals freezes the UI on iOS). */}
+        {Platform.OS === "ios" && timeStep !== null && (
+          <View style={StyleSheet.absoluteFill}>
+            <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setTimeStep(null)} />
+            <View style={styles.pickerOverlay} pointerEvents="box-none">
+              <View style={[styles.pickerSheet, { backgroundColor: colors.card, paddingBottom: insets.bottom + 8 }]}>
+                <View style={[styles.pickerToolbar, { borderBottomColor: colors.border }]}>
+                  <TouchableOpacity onPress={() => setTimeStep(null)} style={styles.pickerBtn}>
+                    <Text style={[styles.pickerBtnText, { color: colors.mutedForeground }]}>Cancel</Text>
+                  </TouchableOpacity>
+                  <Text style={[styles.pickerTitle, { color: colors.foreground }]}>
+                    {timeStep === "start" ? "Start time" : "End time"}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => { applyTime(timeStep, timeTmp); setTimeStep(null); }}
+                    style={styles.pickerBtn}
+                  >
+                    <Text style={[styles.pickerBtnText, { color: colors.primary, fontWeight: "700" }]}>Done</Text>
+                  </TouchableOpacity>
+                </View>
+                <DateTimePicker
+                  value={timeTmp}
+                  mode="time"
+                  display="spinner"
+                  onChange={(_, d) => { if (d) setTimeTmp(d); }}
+                  themeVariant="dark"
+                  style={{ width: "100%", height: 200 }}
+                />
+              </View>
+            </View>
+          </View>
+        )}
+
+        {Platform.OS === "android" && timeStep !== null && (
+          <DateTimePicker
+            value={timeTmp}
+            mode="time"
+            display="default"
+            onChange={handleAndroidTime}
+          />
+        )}
       </KeyboardAvoidingView>
     </Modal>
-
-    {Platform.OS === "ios" && timeStep !== null && (
-      <Modal visible animationType="slide" transparent onRequestClose={() => setTimeStep(null)}>
-        <View style={styles.pickerOverlay}>
-          <View style={[styles.pickerSheet, { backgroundColor: colors.card, paddingBottom: insets.bottom + 8 }]}>
-            <View style={[styles.pickerToolbar, { borderBottomColor: colors.border }]}>
-              <TouchableOpacity onPress={() => setTimeStep(null)} style={styles.pickerBtn}>
-                <Text style={[styles.pickerBtnText, { color: colors.mutedForeground }]}>Cancel</Text>
-              </TouchableOpacity>
-              <Text style={[styles.pickerTitle, { color: colors.foreground }]}>
-                {timeStep === "start" ? "Start time" : "End time"}
-              </Text>
-              <TouchableOpacity
-                onPress={() => { applyTime(timeStep, timeTmp); setTimeStep(null); }}
-                style={styles.pickerBtn}
-              >
-                <Text style={[styles.pickerBtnText, { color: colors.primary, fontWeight: "700" }]}>Done</Text>
-              </TouchableOpacity>
-            </View>
-            <DateTimePicker
-              value={timeTmp}
-              mode="time"
-              display="spinner"
-              onChange={(_, d) => { if (d) setTimeTmp(d); }}
-              themeVariant="dark"
-              style={{ width: "100%", height: 200 }}
-            />
-          </View>
-        </View>
-      </Modal>
-    )}
-
-    {Platform.OS === "android" && timeStep !== null && (
-      <DateTimePicker
-        value={timeTmp}
-        mode="time"
-        display="default"
-        onChange={handleAndroidTime}
-      />
-    )}
-    </>
   );
 }
 
