@@ -63,6 +63,9 @@ export const eventsTable = pgTable("events", {
   squadId: text("squad_id").notNull().default(""),
   squadName: text("squad_name").notNull().default("Personal"),
   hostId: text("host_id").notNull(),
+  // User ids granted host-level "manage" rights (edit details/color/itinerary).
+  // They cannot cancel the event or change co-admins — that stays host-only.
+  coAdminIds: jsonb("co_admin_ids").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   description: text("description").notNull().default(""),
   inviteCode: text("invite_code").notNull(),
   cancelled: boolean("cancelled").notNull().default(false),

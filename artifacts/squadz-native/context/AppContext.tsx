@@ -177,9 +177,13 @@ type AppContextType = {
   addEvent: (input: NewEventInput) => Promise<string>;
   updateEvent: (
     eventId: string,
-    patch: Partial<Pick<Event, "title" | "description" | "date" | "location" | "emoji" | "budget" | "isPublic" | "startAt" | "endAt" | "allDay" | "coverStyle">>,
+    patch: Partial<Pick<Event, "title" | "description" | "date" | "location" | "emoji" | "budget" | "isPublic" | "startAt" | "endAt" | "allDay" | "coverStyle" | "squadId">>,
     explicitVersion?: number,
   ) => void;
+  addEventCoAdmin: (eventId: string, userId: string) => Promise<{ error?: string }>;
+  removeEventCoAdmin: (eventId: string, userId: string) => Promise<{ error?: string }>;
+  addSquadCoAdmin: (squadId: string, userId: string) => Promise<{ error?: string }>;
+  removeSquadCoAdmin: (squadId: string, userId: string) => Promise<{ error?: string }>;
   joinEvent: (inviteCode: string) => Promise<{ error?: string }>;
   inviteToEvent: (eventId: string, userIds: string[]) => Promise<{ error?: string }>;
   uninviteFromEvent: (eventId: string, userId: string) => Promise<{ error?: string }>;
@@ -256,6 +260,10 @@ const AppContext = createContext<AppContextType>({
   setRsvp: noop,
   addEvent: asyncNoop,
   updateEvent: noop,
+  addEventCoAdmin: async () => ({}),
+  removeEventCoAdmin: async () => ({}),
+  addSquadCoAdmin: async () => ({}),
+  removeSquadCoAdmin: async () => ({}),
   joinEvent: async () => ({}),
   inviteToEvent: async () => ({}),
   uninviteFromEvent: async () => ({}),
@@ -314,6 +322,7 @@ export function dbEventToEvent(e: Record<string, unknown>): Event {
     squadId: e.squadId as string,
     squadName: e.squadName as string,
     hostId: e.hostId as string,
+    coAdminIds: (e.coAdminIds as string[]) ?? [],
     description: e.description as string,
     inviteCode: e.inviteCode as string,
     invitedUserIds: (e.invitedUserIds as string[]) ?? [],
@@ -341,6 +350,7 @@ function dbSquadToSquad(s: Record<string, unknown>): Squad {
     memberIds: (s.memberIds as string[]) ?? [],
     isPublic: (s.isPublic as boolean) ?? false,
     creatorId: s.creatorId as string | undefined,
+    coAdminIds: (s.coAdminIds as string[]) ?? [],
     inviteCode: s.inviteCode as string | null | undefined,
     membersCanInvite: (s.membersCanInvite as boolean) ?? false,
     muted: (s.muted as boolean) ?? false,
@@ -1193,7 +1203,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [squads, apiFetch, apiUser]);
 
   const updateEvent = useCallback(
-    (eventId: string, patch: Partial<Pick<Event, "title" | "description" | "date" | "location" | "emoji" | "budget" | "isPublic">>, explicitVersion?: number) => {
+    (eventId: string, patch: Partial<Pick<Event, "title" | "description" | "date" | "location" | "emoji" | "budget" | "isPublic" | "startAt" | "endAt" | "allDay" | "coverStyle" | "squadId">>, explicitVersion?: number) => {
       const currentVersion = explicitVersion ?? events.find((e) => e.id === eventId)?.version;
       // Optimistic update
       setEvents((prev) => prev.map((e) => (e.id === eventId ? { ...e, ...patch } : e)));
@@ -1218,6 +1228,82 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         .catch(() => { void refreshEvents(); showToast("Couldn't save changes — please try again"); });
     },
     [events, apiFetch, applyEventUpdate, refreshEvents, showToast],
+  );
+
+  const addEventCoAdmin = useCallback(
+    async (eventId: string, userId: string): Promise<{ error?: string }> => {
+      try {
+        const res = await apiFetch(`/api/events/${eventId}/co-admins`, {
+          method: "POST",
+          body: JSON.stringify({ userId }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({})) as { error?: string };
+          return { error: data.error ?? "Couldn't add co-admin. Please try again." };
+        }
+        applyEventUpdate(await res.json() as Record<string, unknown>);
+        return {};
+      } catch {
+        return { error: "Network error. Please try again." };
+      }
+    },
+    [apiFetch, applyEventUpdate],
+  );
+
+  const removeEventCoAdmin = useCallback(
+    async (eventId: string, userId: string): Promise<{ error?: string }> => {
+      try {
+        const res = await apiFetch(`/api/events/${eventId}/co-admins/${userId}`, { method: "DELETE" });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({})) as { error?: string };
+          return { error: data.error ?? "Couldn't remove co-admin. Please try again." };
+        }
+        applyEventUpdate(await res.json() as Record<string, unknown>);
+        return {};
+      } catch {
+        return { error: "Network error. Please try again." };
+      }
+    },
+    [apiFetch, applyEventUpdate],
+  );
+
+  const addSquadCoAdmin = useCallback(
+    async (squadId: string, userId: string): Promise<{ error?: string }> => {
+      try {
+        const res = await apiFetch(`/api/squads/${squadId}/co-admins`, {
+          method: "POST",
+          body: JSON.stringify({ userId }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({})) as { error?: string };
+          return { error: data.error ?? "Couldn't add co-admin. Please try again." };
+        }
+        const updated = dbSquadToSquad(await res.json() as Record<string, unknown>);
+        setSquads((prev) => prev.map((s) => (s.id === squadId ? { ...updated, muted: s.muted } : s)));
+        return {};
+      } catch {
+        return { error: "Network error. Please try again." };
+      }
+    },
+    [apiFetch],
+  );
+
+  const removeSquadCoAdmin = useCallback(
+    async (squadId: string, userId: string): Promise<{ error?: string }> => {
+      try {
+        const res = await apiFetch(`/api/squads/${squadId}/co-admins/${userId}`, { method: "DELETE" });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({})) as { error?: string };
+          return { error: data.error ?? "Couldn't remove co-admin. Please try again." };
+        }
+        const updated = dbSquadToSquad(await res.json() as Record<string, unknown>);
+        setSquads((prev) => prev.map((s) => (s.id === squadId ? { ...updated, muted: s.muted } : s)));
+        return {};
+      } catch {
+        return { error: "Network error. Please try again." };
+      }
+    },
+    [apiFetch],
   );
 
   const joinEvent = useCallback(async (inviteCode: string): Promise<{ error?: string }> => {
@@ -1989,6 +2075,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setRsvp,
       addEvent,
       updateEvent,
+      addEventCoAdmin,
+      removeEventCoAdmin,
+      addSquadCoAdmin,
+      removeSquadCoAdmin,
       joinEvent,
       inviteToEvent,
       uninviteFromEvent,
@@ -2055,6 +2145,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setRsvp,
       addEvent,
       updateEvent,
+      addEventCoAdmin,
+      removeEventCoAdmin,
+      addSquadCoAdmin,
+      removeSquadCoAdmin,
       joinEvent,
       inviteToEvent,
       uninviteFromEvent,

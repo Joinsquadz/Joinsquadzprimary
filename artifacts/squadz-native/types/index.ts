@@ -108,6 +108,8 @@ export type Event = {
   squadId: string;
   squadName: string;
   hostId: string;
+  /** User ids granted "help manage" rights (edit details/color/itinerary). */
+  coAdminIds?: string[];
   rsvps: Record<string, RsvpStatus>;
   /** Friends invited directly (by user id), in addition to squad members. */
   invitedUserIds: string[];
@@ -136,6 +138,8 @@ export type Squad = {
   color: string;
   isPublic?: boolean;
   creatorId?: string | null;
+  /** User ids granted "help manage" rights (settings, members/invites). */
+  coAdminIds?: string[];
   inviteCode?: string | null;
   membersCanInvite?: boolean;
   muted?: boolean;

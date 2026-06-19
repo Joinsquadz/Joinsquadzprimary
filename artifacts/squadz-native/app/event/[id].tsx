@@ -96,6 +96,8 @@ export default function EventDetailScreen() {
     conflictEventId,
     conflictSnapshot,
     clearConflictEvent,
+    addEventCoAdmin,
+    removeEventCoAdmin,
   } = useData();
 
   const event = getEvent(id ?? "");
@@ -371,6 +373,10 @@ export default function EventDetailScreen() {
   }
 
   const isHost = event.hostId === currentUser.id;
+  const eventCoAdminIds = event.coAdminIds ?? [];
+  // "Help manage": host + co-admins can edit details. Only the host can cancel
+  // the event or change who the co-admins are.
+  const canManage = isHost || eventCoAdminIds.includes(currentUser.id);
   const squad = getSquad(event.squadId);
 
   function resolveForDisplay(userId: string): ResolvedUser {
@@ -416,6 +422,19 @@ export default function EventDetailScreen() {
     event.hostId === currentUser.id ||
     currentUser.id in event.rsvps ||
     (event.invitedUserIds ?? []).includes(currentUser.id);
+
+  // Co-admins: people with event access (squad members + RSVP'd + invited),
+  // minus the host and anyone already a co-admin, can be promoted.
+  const coAdmins = eventCoAdminIds.map((uid) => resolveForDisplay(uid));
+  const coAdminCandidates = [
+    ...new Set([
+      ...(squad?.memberIds ?? []),
+      ...Object.keys(event.rsvps),
+      ...(event.invitedUserIds ?? []),
+    ]),
+  ]
+    .filter((uid) => uid !== event.hostId && !eventCoAdminIds.includes(uid))
+    .map((uid) => resolveForDisplay(uid));
 
   const statusColor = (s: RsvpStatus) =>
     s === "going" ? colors.green : s === "maybe" ? colors.gold : colors.destructive;
@@ -481,7 +500,7 @@ export default function EventDetailScreen() {
     { key: "costs", label: "Costs" },
     { key: "chat", label: "Chat" },
     { key: "photos", label: "📷 Vault" },
-    ...(isHost ? [{ key: "admin" as EventTab, label: "Admin" }] : []),
+    ...(canManage ? [{ key: "admin" as EventTab, label: "Admin" }] : []),
   ];
 
   // ---- Cost modal helpers ----
@@ -706,7 +725,7 @@ export default function EventDetailScreen() {
         >
           <Ionicons name="share-outline" size={22} color="#fff" />
         </TouchableOpacity>
-        {isHost && (
+        {canManage && (
           <TouchableOpacity onPress={openEdit} style={[styles.gearBtn, { top: btnTop }]}>
             <Ionicons name="settings-outline" size={21} color="#fff" />
           </TouchableOpacity>
@@ -1497,14 +1516,70 @@ export default function EventDetailScreen() {
               <Text style={[styles.adminLabel, { color: colors.foreground }]}>Send reminder to guests</Text>
               <Ionicons name="chevron-forward" size={16} color={colors.textDim} />
             </TouchableOpacity>
-            <TouchableOpacity
-              onPress={confirmCancel}
-              style={[styles.adminRow, { backgroundColor: colors.card, borderColor: colors.border }]}
-            >
-              <Ionicons name="trash-outline" size={20} color={colors.destructive} />
-              <Text style={[styles.adminLabel, { color: colors.destructive }]}>Cancel event</Text>
-              <Ionicons name="chevron-forward" size={16} color={colors.textDim} />
-            </TouchableOpacity>
+
+            {/* Co-admins — host only */}
+            {isHost && (
+              <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <Text style={[styles.cardTitle, { color: colors.mutedForeground }]}>Co-admins</Text>
+                <Text style={[styles.coAdminHint, { color: colors.mutedForeground }]}>
+                  Co-admins can edit event details. Only you can cancel the event or change co-admins.
+                </Text>
+                {coAdmins.map((u) => (
+                  <View key={u.id} style={[styles.coAdminRow, { borderColor: colors.border }]}>
+                    <UserAvatar initials={u.initials} color={u.color} imageUrl={u.profileImageUrl} size={30} />
+                    <Text style={[styles.coAdminName, { color: colors.foreground }]} numberOfLines={1}>{u.name}</Text>
+                    <TouchableOpacity
+                      onPress={() => {
+                        Haptics.selectionAsync();
+                        void removeEventCoAdmin(event.id, u.id).then((r) => {
+                          if (r.error) Alert.alert("Couldn't update", r.error);
+                          else void refreshEvents();
+                        });
+                      }}
+                      hitSlop={8}
+                    >
+                      <Ionicons name="close-circle" size={20} color={colors.mutedForeground} />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+                {coAdminCandidates.length === 0 ? (
+                  <Text style={[styles.coAdminHint, { color: colors.mutedForeground }]}>
+                    Invite guests first — then you can make them co-admins.
+                  </Text>
+                ) : (
+                  coAdminCandidates.map((u) => (
+                    <TouchableOpacity
+                      key={u.id}
+                      onPress={() => {
+                        Haptics.selectionAsync();
+                        void addEventCoAdmin(event.id, u.id).then((r) => {
+                          if (r.error) Alert.alert("Couldn't update", r.error);
+                          else void refreshEvents();
+                        });
+                      }}
+                      activeOpacity={0.8}
+                      style={[styles.coAdminRow, { borderColor: colors.border }]}
+                    >
+                      <UserAvatar initials={u.initials} color={u.color} imageUrl={u.profileImageUrl} size={30} />
+                      <Text style={[styles.coAdminName, { color: colors.foreground }]} numberOfLines={1}>{u.name}</Text>
+                      <Ionicons name="add-circle-outline" size={20} color={colors.primary} />
+                    </TouchableOpacity>
+                  ))
+                )}
+              </View>
+            )}
+
+            {/* Cancel — host only */}
+            {isHost && (
+              <TouchableOpacity
+                onPress={confirmCancel}
+                style={[styles.adminRow, { backgroundColor: colors.card, borderColor: colors.border }]}
+              >
+                <Ionicons name="trash-outline" size={20} color={colors.destructive} />
+                <Text style={[styles.adminLabel, { color: colors.destructive }]}>Cancel event</Text>
+                <Ionicons name="chevron-forward" size={16} color={colors.textDim} />
+              </TouchableOpacity>
+            )}
           </View>
         )}
       </ScrollView>
@@ -2023,6 +2098,9 @@ const styles = StyleSheet.create({
   shareInviteText: { fontSize: 13, fontWeight: "700" },
   adminRow: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 12, borderWidth: 1, padding: 14 },
   adminLabel: { flex: 1, fontSize: 15 },
+  coAdminHint: { fontSize: 13, lineHeight: 18, marginTop: 4, marginBottom: 8 },
+  coAdminRow: { flexDirection: "row", alignItems: "center", gap: 10, borderTopWidth: 1, paddingVertical: 10 },
+  coAdminName: { flex: 1, fontSize: 15, fontWeight: "600" },
   emptyState: { alignItems: "center", paddingTop: 40, gap: 8 },
   emptyTitle: { fontSize: 17, fontWeight: "700" },
   emptySub: { fontSize: 14, textAlign: "center" },

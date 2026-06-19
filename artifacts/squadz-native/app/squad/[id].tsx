@@ -57,7 +57,7 @@ function getFriendCodeInitials(u: FoundUser): string {
 export default function SquadDetailScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { events, squads, getSquad, updateSquad, regenerateInviteCode, leaveSquad, currentUser, addMemberByFriendCode, removeMember, conflictSquadId, clearConflictSquad, refreshSquads } = useData();
+  const { events, squads, getSquad, updateSquad, regenerateInviteCode, leaveSquad, currentUser, addMemberByFriendCode, removeMember, conflictSquadId, clearConflictSquad, refreshSquads, addSquadCoAdmin, removeSquadCoAdmin } = useData();
   const { resolveUser, prefetchUsers, seedUser } = useUserCache();
   const { getSquadConversation } = useMessages();
   const { authToken } = useAuth();
@@ -464,6 +464,14 @@ export default function SquadDetailScreen() {
 
   const creatorId = squad.creatorId ?? squad.memberIds[0] ?? null;
   const isCreator = currentUser.id === creatorId;
+
+  // Co-admins: any member (except the creator) can be promoted. Only the creator
+  // manages this list. Co-admins can edit details, manage members, and the link.
+  const squadCoAdminIds = squad.coAdminIds ?? [];
+  const squadCoAdmins = squadCoAdminIds.map((uid) => resolveUser(uid));
+  const squadCoAdminCandidates = squad.memberIds
+    .filter((uid) => uid !== creatorId && !squadCoAdminIds.includes(uid))
+    .map((uid) => resolveUser(uid));
 
   const handleRemoveMember = (memberId: string, memberName: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -1164,6 +1172,57 @@ export default function SquadDetailScreen() {
             )}
 
             {isCreator && (
+              <View style={[styles.coAdminCard, { borderColor: colors.border }]}>
+                <Text style={[styles.actionText, { color: colors.foreground }]}>Co-admins</Text>
+                <Text style={[styles.actionSub, { color: colors.mutedForeground, marginBottom: 6 }]}>
+                  Co-admins can edit details, manage members, and the invite link. Only you can delete the squad or change co-admins.
+                </Text>
+                {squadCoAdmins.map((u) => (
+                  <View key={u.id} style={[styles.coAdminRow, { borderColor: colors.border }]}>
+                    <UserAvatar initials={u.initials} color={u.color} imageUrl={u.profileImageUrl} size={30} />
+                    <Text style={[styles.coAdminName, { color: colors.foreground }]} numberOfLines={1}>{u.name}</Text>
+                    <TouchableOpacity
+                      onPress={() => {
+                        Haptics.selectionAsync();
+                        void removeSquadCoAdmin(squad.id, u.id).then((r) => {
+                          if (r.error) Alert.alert("Couldn't update", r.error);
+                          else void refreshSquads();
+                        });
+                      }}
+                      hitSlop={8}
+                    >
+                      <Ionicons name="close-circle" size={20} color={colors.mutedForeground} />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+                {squadCoAdminCandidates.length === 0 ? (
+                  <Text style={[styles.actionSub, { color: colors.mutedForeground, marginTop: 6 }]}>
+                    Add more members to the squad — then you can make them co-admins.
+                  </Text>
+                ) : (
+                  squadCoAdminCandidates.map((u) => (
+                    <TouchableOpacity
+                      key={u.id}
+                      onPress={() => {
+                        Haptics.selectionAsync();
+                        void addSquadCoAdmin(squad.id, u.id).then((r) => {
+                          if (r.error) Alert.alert("Couldn't update", r.error);
+                          else void refreshSquads();
+                        });
+                      }}
+                      activeOpacity={0.8}
+                      style={[styles.coAdminRow, { borderColor: colors.border }]}
+                    >
+                      <UserAvatar initials={u.initials} color={u.color} imageUrl={u.profileImageUrl} size={30} />
+                      <Text style={[styles.coAdminName, { color: colors.foreground }]} numberOfLines={1}>{u.name}</Text>
+                      <Ionicons name="add-circle-outline" size={20} color={colors.primary} />
+                    </TouchableOpacity>
+                  ))
+                )}
+              </View>
+            )}
+
+            {isCreator && (
               <View style={[styles.actionRow, { borderColor: colors.border }]}>
                 <Ionicons name="globe-outline" size={20} color={colors.foreground} />
                 <View style={{ flex: 1 }}>
@@ -1334,6 +1393,9 @@ const styles = StyleSheet.create({
   actionRow: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 13, borderWidth: 1, padding: 14, marginTop: 12 },
   actionText: { fontSize: 15, fontWeight: "600" },
   actionSub: { fontSize: 12, marginTop: 2 },
+  coAdminCard: { borderRadius: 13, borderWidth: 1, padding: 14, marginTop: 12 },
+  coAdminRow: { flexDirection: "row", alignItems: "center", gap: 10, borderTopWidth: 1, paddingVertical: 10 },
+  coAdminName: { flex: 1, fontSize: 15, fontWeight: "600" },
   modalActions: { flexDirection: "row", gap: 10, marginTop: 20 },
   modalBtn: { flex: 1, borderRadius: 13, padding: 14, alignItems: "center" },
   modalBtnText: { fontSize: 15, fontWeight: "800" },

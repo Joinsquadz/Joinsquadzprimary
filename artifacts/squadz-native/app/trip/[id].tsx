@@ -8,6 +8,7 @@ import {
   Alert,
   Platform,
   TextInput,
+  Modal,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
@@ -37,6 +38,8 @@ import {
   sumStopCosts,
   isHappeningNow,
   STOP_CATEGORY_META,
+  TRIP_COVER_KEYS,
+  TRIP_COVERS,
 } from "@/lib/tripUtils";
 import {
   addStop,
@@ -67,7 +70,19 @@ export default function TripDetailScreen() {
   const { id, tab: tabParam } = useLocalSearchParams<{ id: string; tab?: string }>();
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { getEvent, refreshEvents, currentUser, getSquad, inviteToEvent, uninviteFromEvent } = useData();
+  const {
+    getEvent,
+    refreshEvents,
+    currentUser,
+    getSquad,
+    squads,
+    inviteToEvent,
+    uninviteFromEvent,
+    updateEvent,
+    cancelEvent,
+    addEventCoAdmin,
+    removeEventCoAdmin,
+  } = useData();
   const { resolveUser } = useUserCache();
   const { authToken } = useAuth();
 
@@ -115,6 +130,9 @@ export default function TripDetailScreen() {
   const [liveView, setLiveView] = useState(false);
   const [arrivedIdx, setArrivedIdx] = useState(0);
   const [showInvitePicker, setShowInvitePicker] = useState(false);
+  const [adminOpen, setAdminOpen] = useState(false);
+  const [edit, setEdit] = useState({ title: "", location: "", description: "", emoji: "" });
+  const [coverDraft, setCoverDraft] = useState("");
 
   const dayKeys = useMemo(() => (event ? tripDayKeys(event) : []), [event]);
   const today = todayKey();
@@ -199,12 +217,74 @@ export default function TripDetailScreen() {
 
   const squad = getSquad(event.squadId);
   const isHost = event.hostId === currentUser.id;
+  const coAdminIds = event.coAdminIds ?? [];
+  // "Help manage" rights: host plus co-admins can edit details/color/itinerary.
+  const canManage = isHost || coAdminIds.includes(currentUser.id);
   // Anyone with trip access can invite (matches the backend, which gates invites
   // on getEventAsMember): host, a current squad member, or an invited friend.
   const canInvite =
     isHost ||
     (squad?.memberIds.includes(currentUser.id) ?? false) ||
     (event.invitedUserIds ?? []).includes(currentUser.id);
+
+  // Members who can be promoted to co-admin: squad members + invited friends,
+  // minus the host and anyone already a co-admin. Resolved for display.
+  const coAdminCandidates = [...new Set([...(squad?.memberIds ?? []), ...(event.invitedUserIds ?? [])])]
+    .filter((uid) => uid !== event.hostId && !coAdminIds.includes(uid))
+    .map((uid) => resolveUser(uid));
+  const coAdmins = coAdminIds.map((uid) => resolveUser(uid));
+  // Squads the current user can re-associate this trip with (those they're in).
+  const mySquads = squads;
+
+  const openAdmin = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setEdit({
+      title: event.title,
+      location: event.location,
+      description: event.description,
+      emoji: event.emoji,
+    });
+    setCoverDraft(event.coverStyle || "sunset");
+    setAdminOpen(true);
+  };
+
+  const saveDetails = () => {
+    if (!edit.title.trim()) {
+      Alert.alert("Missing info", "A trip needs a title.");
+      return;
+    }
+    updateEvent(event.id, {
+      title: edit.title.trim(),
+      location: edit.location.trim(),
+      description: edit.description.trim(),
+      emoji: edit.emoji.trim() || event.emoji,
+      coverStyle: coverDraft,
+    });
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setAdminOpen(false);
+  };
+
+  const reassignSquad = (squadId: string) => {
+    if (squadId === event.squadId) return;
+    Haptics.selectionAsync();
+    updateEvent(event.id, { squadId });
+  };
+
+  const confirmCancelTrip = () => {
+    Alert.alert("Cancel trip", `Cancel "${event.title}"? This can't be undone.`, [
+      { text: "Keep trip", style: "cancel" },
+      {
+        text: "Cancel trip",
+        style: "destructive",
+        onPress: () => {
+          cancelEvent(event.id);
+          setAdminOpen(false);
+          if (router.canGoBack()) router.back();
+          else router.replace("/(tabs)/events" as never);
+        },
+      },
+    ]);
+  };
   const stops = event.itinerary ?? [];
   const packing = event.packing ?? [];
   const cover = coverFor(event.coverStyle);
@@ -451,6 +531,11 @@ export default function TripDetailScreen() {
                 >
                   <Ionicons name="navigate" size={13} color="#fff" />
                   <Text style={styles.todayBtnText}>Today</Text>
+                </TouchableOpacity>
+              ) : null}
+              {canManage ? (
+                <TouchableOpacity onPress={openAdmin} style={styles.coverIconBtn} hitSlop={8}>
+                  <Ionicons name="settings-outline" size={20} color="#fff" />
                 </TouchableOpacity>
               ) : null}
             </View>
@@ -760,6 +845,179 @@ export default function TripDetailScreen() {
           else void refresh();
         }}
       />
+
+      {/* ---- Admin sheet ---- */}
+      <Modal visible={adminOpen} transparent animationType="slide" onRequestClose={() => setAdminOpen(false)}>
+        <View style={styles.adminBackdrop}>
+          <View style={[styles.adminSheet, { backgroundColor: colors.background, maxHeight: "88%" }]}>
+            <View style={styles.adminHeader}>
+              <Text style={[styles.adminTitle, { color: colors.foreground }]}>Manage trip</Text>
+              <TouchableOpacity onPress={() => setAdminOpen(false)} hitSlop={10} style={styles.adminCloseBtn}>
+                <Ionicons name="close" size={22} color={colors.mutedForeground} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+            >
+              {/* Details */}
+              <Text style={[styles.adminSection, { color: colors.mutedForeground }]}>Details</Text>
+              <View style={styles.adminFieldRow}>
+                <TextInput
+                  value={edit.emoji}
+                  onChangeText={(t) => setEdit((e) => ({ ...e, emoji: t }))}
+                  placeholder="🏝️"
+                  placeholderTextColor={colors.mutedForeground}
+                  maxLength={2}
+                  style={[styles.adminEmoji, { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.card }]}
+                />
+                <TextInput
+                  value={edit.title}
+                  onChangeText={(t) => setEdit((e) => ({ ...e, title: t }))}
+                  placeholder="Trip title"
+                  placeholderTextColor={colors.mutedForeground}
+                  style={[styles.adminInput, { flex: 1, color: colors.foreground, borderColor: colors.border, backgroundColor: colors.card }]}
+                />
+              </View>
+              <TextInput
+                value={edit.location}
+                onChangeText={(t) => setEdit((e) => ({ ...e, location: t }))}
+                placeholder="Location"
+                placeholderTextColor={colors.mutedForeground}
+                style={[styles.adminInput, { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.card }]}
+              />
+              <TextInput
+                value={edit.description}
+                onChangeText={(t) => setEdit((e) => ({ ...e, description: t }))}
+                placeholder="What's the plan?"
+                placeholderTextColor={colors.mutedForeground}
+                multiline
+                style={[styles.adminInput, styles.adminTextarea, { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.card }]}
+              />
+
+              {/* Color */}
+              <Text style={[styles.adminSection, { color: colors.mutedForeground }]}>Cover color</Text>
+              <View style={styles.coverSwatchRow}>
+                {TRIP_COVER_KEYS.map((key) => {
+                  const c = TRIP_COVERS[key];
+                  const active = coverDraft === key;
+                  return (
+                    <TouchableOpacity
+                      key={key}
+                      onPress={() => { Haptics.selectionAsync(); setCoverDraft(key); }}
+                      activeOpacity={0.85}
+                      style={[styles.coverSwatchWrap, active && { borderColor: colors.primary }]}
+                    >
+                      <LinearGradient colors={c} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.coverSwatch}>
+                        {active ? <Ionicons name="checkmark" size={16} color="#fff" /> : null}
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <TouchableOpacity onPress={saveDetails} activeOpacity={0.85} style={[styles.adminSaveBtn, { backgroundColor: colors.primary }]}>
+                <Text style={styles.adminSaveText}>Save changes</Text>
+              </TouchableOpacity>
+
+              {/* Co-admins (host only) */}
+              {isHost ? (
+                <>
+                  <Text style={[styles.adminSection, { color: colors.mutedForeground }]}>Co-admins</Text>
+                  <Text style={[styles.adminHint, { color: colors.mutedForeground }]}>
+                    Co-admins can edit details, the cover, and the itinerary. Only you can cancel the trip or change co-admins.
+                  </Text>
+                  {coAdmins.length === 0 ? null : (
+                    <View style={{ gap: 8, marginBottom: 8 }}>
+                      {coAdmins.map((u) => (
+                        <View key={u.id} style={[styles.adminPersonRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                          <UserAvatar initials={u.initials} color={u.color} imageUrl={u.profileImageUrl} size={30} />
+                          <Text style={[styles.adminPersonName, { color: colors.foreground }]} numberOfLines={1}>{u.name}</Text>
+                          <TouchableOpacity
+                            onPress={() => {
+                              Haptics.selectionAsync();
+                              void removeEventCoAdmin(event.id, u.id).then((r) => {
+                                if (r.error) Alert.alert("Couldn't update", r.error);
+                                else void refresh();
+                              });
+                            }}
+                            hitSlop={8}
+                          >
+                            <Ionicons name="close-circle" size={20} color={colors.mutedForeground} />
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                  {coAdminCandidates.length === 0 ? (
+                    <Text style={[styles.adminHint, { color: colors.mutedForeground }]}>
+                      Invite people to the trip first — then you can make them co-admins.
+                    </Text>
+                  ) : (
+                    coAdminCandidates.map((u) => (
+                      <TouchableOpacity
+                        key={u.id}
+                        onPress={() => {
+                          Haptics.selectionAsync();
+                          void addEventCoAdmin(event.id, u.id).then((r) => {
+                            if (r.error) Alert.alert("Couldn't update", r.error);
+                            else void refresh();
+                          });
+                        }}
+                        activeOpacity={0.8}
+                        style={[styles.adminPersonRow, { backgroundColor: colors.card, borderColor: colors.border }]}
+                      >
+                        <UserAvatar initials={u.initials} color={u.color} imageUrl={u.profileImageUrl} size={30} />
+                        <Text style={[styles.adminPersonName, { color: colors.foreground }]} numberOfLines={1}>{u.name}</Text>
+                        <Ionicons name="add-circle-outline" size={20} color={colors.primary} />
+                      </TouchableOpacity>
+                    ))
+                  )}
+                </>
+              ) : null}
+
+              {/* Associate squad (host only) */}
+              {isHost ? (
+                <>
+                  <Text style={[styles.adminSection, { color: colors.mutedForeground }]}>Squad</Text>
+                  <TouchableOpacity
+                    onPress={() => reassignSquad("")}
+                    activeOpacity={0.8}
+                    style={[styles.adminPersonRow, { backgroundColor: colors.card, borderColor: !event.squadId ? colors.primary : colors.border }]}
+                  >
+                    <Ionicons name="person-outline" size={20} color={colors.foreground} />
+                    <Text style={[styles.adminPersonName, { color: colors.foreground }]}>Personal (no squad)</Text>
+                    {!event.squadId ? <Ionicons name="checkmark-circle" size={20} color={colors.primary} /> : null}
+                  </TouchableOpacity>
+                  {mySquads.map((sq) => {
+                    const active = event.squadId === sq.id;
+                    return (
+                      <TouchableOpacity
+                        key={sq.id}
+                        onPress={() => reassignSquad(sq.id)}
+                        activeOpacity={0.8}
+                        style={[styles.adminPersonRow, { backgroundColor: colors.card, borderColor: active ? colors.primary : colors.border }]}
+                      >
+                        <Ionicons name="people-outline" size={20} color={colors.foreground} />
+                        <Text style={[styles.adminPersonName, { color: colors.foreground }]} numberOfLines={1}>{sq.name}</Text>
+                        {active ? <Ionicons name="checkmark-circle" size={20} color={colors.primary} /> : null}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </>
+              ) : null}
+
+              {/* Cancel (host only) */}
+              {isHost ? (
+                <TouchableOpacity onPress={confirmCancelTrip} activeOpacity={0.85} style={[styles.adminCancelBtn, { borderColor: colors.destructive }]}>
+                  <Ionicons name="trash-outline" size={18} color={colors.destructive} />
+                  <Text style={[styles.adminCancelText, { color: colors.destructive }]}>Cancel trip</Text>
+                </TouchableOpacity>
+              ) : null}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -881,4 +1139,25 @@ const styles = StyleSheet.create({
   fab: { position: "absolute", right: 20, borderRadius: 26, overflow: "hidden", shadowColor: "#FF5C3A", shadowOpacity: 0.4, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 6 },
   fabInner: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 18, paddingVertical: 14 },
   fabText: { color: "#fff", fontSize: 15, fontWeight: "800" },
+
+  adminBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" },
+  adminSheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 20, paddingTop: 16 },
+  adminHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
+  adminTitle: { fontSize: 19, fontWeight: "800" },
+  adminCloseBtn: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
+  adminSection: { fontSize: 12, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.6, marginTop: 18, marginBottom: 8 },
+  adminHint: { fontSize: 13, lineHeight: 18, marginBottom: 10 },
+  adminFieldRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 },
+  adminInput: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, marginBottom: 10 },
+  adminEmoji: { width: 52, height: 48, borderWidth: 1, borderRadius: 12, textAlign: "center", fontSize: 22 },
+  adminTextarea: { minHeight: 80, textAlignVertical: "top" },
+  coverSwatchRow: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  coverSwatchWrap: { borderRadius: 16, borderWidth: 2, borderColor: "transparent", padding: 2 },
+  coverSwatch: { width: 44, height: 44, borderRadius: 13, alignItems: "center", justifyContent: "center" },
+  adminSaveBtn: { borderRadius: 14, paddingVertical: 14, alignItems: "center", marginTop: 18 },
+  adminSaveText: { color: "#fff", fontSize: 15, fontWeight: "800" },
+  adminPersonRow: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 8 },
+  adminPersonName: { flex: 1, fontSize: 15, fontWeight: "600" },
+  adminCancelBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderWidth: 1, borderRadius: 14, paddingVertical: 14, marginTop: 24 },
+  adminCancelText: { fontSize: 15, fontWeight: "800" },
 });

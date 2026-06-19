@@ -12,6 +12,9 @@ export const squadsTable = pgTable("squads", {
   memberIds: jsonb("member_ids").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   isPublic: boolean("is_public").notNull().default(false),
   creatorId: text("creator_id"),
+  // User ids granted creator-level "manage" rights (edit settings, manage
+  // members/invites). They cannot delete the squad or change co-admins.
+  coAdminIds: jsonb("co_admin_ids").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   membersCanInvite: boolean("members_can_invite").notNull().default(false),
   inviteCode: text("invite_code").unique(),
   version: integer("version").notNull().default(1),

@@ -139,8 +139,13 @@ const UpdateEventBody = z.object({
   emoji: z.string().optional(),
   budget: z.number().optional(),
   isPublic: z.boolean().optional(),
+  // Re-associate a trip/event with a squad (or clear it with ""). Host-only —
+  // co-admins cannot move an event between squads.
+  squadId: z.string().optional(),
   version: z.number().int().optional(),
 });
+
+const CoAdminBody = z.object({ userId: z.string().min(1) });
 
 // ── Itinerary (trip) request bodies ──────────────────────────────────────────
 const STOP_CATEGORIES = ["food", "activity", "lodging", "travel", "other"] as const;
@@ -285,6 +290,15 @@ async function getEventAsMember(
     return null;
   }
   return event;
+}
+
+// "Help manage" rights: the host plus any co-admin may edit details, color and
+// itinerary. Cancelling the event and changing co-admins stay host-only.
+function canManageEvent(
+  event: typeof eventsTable.$inferSelect,
+  userId: string,
+): boolean {
+  return event.hostId === userId || ((event.coAdminIds ?? []) as string[]).includes(userId);
 }
 
 // The set of user IDs legitimately allowed to appear in an event's costs:
@@ -673,11 +687,32 @@ router.patch("/events/:id", requireAuth, async (req: Request, res: Response): Pr
     res.status(404).json({ error: "Event not found" });
     return;
   }
-  if (existing.hostId !== userId) {
+  if (!canManageEvent(existing, userId)) {
     res.status(403).json({ error: "Access denied" });
     return;
   }
   const { version: clientVersion, ...fieldsToUpdate } = parsed.data;
+  // Re-associating the event with a different squad is a structural change
+  // reserved for the host; co-admins only get details/color/itinerary.
+  if (
+    fieldsToUpdate.squadId !== undefined &&
+    fieldsToUpdate.squadId !== existing.squadId &&
+    existing.hostId !== userId
+  ) {
+    res.status(403).json({ error: "Only the host can change which squad this belongs to." });
+    return;
+  }
+  // When the host moves the event to a squad, keep the denormalized squadName
+  // in sync (or reset it to "Personal" when cleared).
+  if (
+    fieldsToUpdate.squadId !== undefined &&
+    fieldsToUpdate.squadId !== existing.squadId
+  ) {
+    const targetSquad = fieldsToUpdate.squadId
+      ? await storage.getSquad(fieldsToUpdate.squadId)
+      : null;
+    (fieldsToUpdate as Record<string, unknown>).squadName = targetSquad?.name ?? "Personal";
+  }
   const patch: Record<string, unknown> = {
     ...fieldsToUpdate,
     version: sql`${eventsTable.version} + 1`,
@@ -741,6 +776,103 @@ router.patch("/events/:id", requireAuth, async (req: Request, res: Response): Pr
       }
     })();
   }
+});
+
+// Grant a co-admin "help manage" rights. Host-only. The target must already be
+// able to access the event (squad member or personally invited), so we don't
+// accidentally grant management to an outsider.
+router.post("/events/:id/co-admins", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const id = parseId(req.params.id);
+  const userId = (req.user as { id: string }).id;
+  const parsed = CoAdminBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const targetId = parsed.data.userId;
+  const [existing] = await db.select().from(eventsTable).where(eq(eventsTable.id, id));
+  if (!existing) {
+    res.status(404).json({ error: "Event not found" });
+    return;
+  }
+  if (existing.hostId !== userId) {
+    res.status(403).json({ error: "Only the host can change co-admins." });
+    return;
+  }
+  if (targetId === existing.hostId) {
+    res.status(400).json({ error: "The host already manages this." });
+    return;
+  }
+  if (!(await userCanAccessEvent(existing, targetId))) {
+    res.status(400).json({ error: "Only people on this event can be made co-admins." });
+    return;
+  }
+  const current = (existing.coAdminIds ?? []) as string[];
+  if (current.includes(targetId)) {
+    res.json(existing);
+    return;
+  }
+  // Atomic, dedupe-safe append so concurrent grants can't duplicate or lose entries.
+  const [event] = await db
+    .update(eventsTable)
+    .set({
+      coAdminIds: sql`CASE WHEN ${eventsTable.coAdminIds} @> ${JSON.stringify([targetId])}::jsonb THEN ${eventsTable.coAdminIds} ELSE ${eventsTable.coAdminIds} || ${JSON.stringify([targetId])}::jsonb END`,
+      version: sql`${eventsTable.version} + 1`,
+    })
+    .where(eq(eventsTable.id, id))
+    .returning();
+  res.json(event);
+  emitEventUpdate(id);
+
+  void (async () => {
+    try {
+      const tokens = await storage.getPushTokensForUsers([targetId]);
+      if (tokens.length === 0) return;
+      await sendPushNotifications(
+        tokens,
+        {
+          title: `${event.emoji} ${event.title}`,
+          body: `You're now a co-admin — you can help manage this ${event.type === "trip" ? "trip" : "event"}.`,
+          data: { screen: event.type === "trip" ? "trip" : "event", eventId: event.id },
+        },
+        { onStaleToken: (token) => storage.clearPushToken(token) },
+      );
+    } catch (err) {
+      logger.error({ err }, "Error sending co-admin-added push notification");
+    }
+  })();
+});
+
+// Revoke a co-admin. Host-only.
+router.delete("/events/:id/co-admins/:userId", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const id = parseId(req.params.id);
+  const targetId = parseId(req.params.userId);
+  const userId = (req.user as { id: string }).id;
+  const [existing] = await db.select().from(eventsTable).where(eq(eventsTable.id, id));
+  if (!existing) {
+    res.status(404).json({ error: "Event not found" });
+    return;
+  }
+  if (existing.hostId !== userId) {
+    res.status(403).json({ error: "Only the host can change co-admins." });
+    return;
+  }
+  const current = (existing.coAdminIds ?? []) as string[];
+  if (!current.includes(targetId)) {
+    res.json(existing);
+    return;
+  }
+  // Atomic removal so concurrent revocations can't lose updates (no read-modify-write).
+  const [event] = await db
+    .update(eventsTable)
+    .set({
+      coAdminIds: sql`COALESCE((SELECT jsonb_agg(elem) FROM jsonb_array_elements_text(${eventsTable.coAdminIds}) AS elem WHERE elem <> ${targetId}), '[]'::jsonb)`,
+      version: sql`${eventsTable.version} + 1`,
+    })
+    .where(eq(eventsTable.id, id))
+    .returning();
+  res.json(event);
+  emitEventUpdate(id);
 });
 
 router.delete("/events/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {

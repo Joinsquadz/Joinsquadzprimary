@@ -84,6 +84,18 @@ async function getSquadIfMember(squadId: string, userId: string) {
   return { squad, isMember: memberIds.includes(userId) };
 }
 
+// "Help manage" rights: the creator plus any co-admin may change squad settings
+// and manage members/invites. Deleting the squad and changing co-admins stay
+// creator-only.
+function canManageSquad(
+  squad: typeof squadsTable.$inferSelect,
+  userId: string,
+): boolean {
+  return squad.creatorId === userId || ((squad.coAdminIds ?? []) as string[]).includes(userId);
+}
+
+const CoAdminBody = z.object({ userId: z.string().min(1) });
+
 const ShareToVaultBody = z.object({
   photoIds: z.array(z.number().int()).min(1),
 });
@@ -498,9 +510,9 @@ router.patch("/squads/:id", requireAuth, async (req: Request, res: Response): Pr
     return;
   }
 
-  // Only the squad creator can change invite permissions.
-  if (parsed.data.membersCanInvite !== undefined && existing.creatorId !== userId) {
-    res.status(403).json({ error: "Only the squad creator can change invite permissions." });
+  // The creator or a co-admin can change invite permissions.
+  if (parsed.data.membersCanInvite !== undefined && !canManageSquad(existing, userId)) {
+    res.status(403).json({ error: "Only the squad creator or a co-admin can change invite permissions." });
     return;
   }
 
@@ -876,17 +888,25 @@ router.delete("/squads/:id/members/:userId", requireAuth, async (req: Request, r
     return;
   }
   const isCreator = squad.creatorId === requesterId;
+  const isManager = canManageSquad(squad, requesterId);
   const isSelf = requesterId === targetUserId;
-  if (!isCreator && !isSelf) {
-    res.status(403).json({ error: "Only the squad creator or the member themselves can remove a member." });
+  if (!isManager && !isSelf) {
+    res.status(403).json({ error: "Only the squad creator, a co-admin, or the member themselves can remove a member." });
     return;
   }
   if (!memberIds.includes(targetUserId)) {
     res.status(404).json({ error: "User is not in this squad." });
     return;
   }
-  if (isCreator && targetUserId === squad.creatorId && !isSelf) {
+  if (isManager && targetUserId === squad.creatorId && !isSelf) {
     res.status(400).json({ error: "The creator cannot be removed. Transfer ownership or delete the squad instead." });
+    return;
+  }
+  // A co-admin (who isn't the creator) cannot remove another co-admin — managing
+  // co-admins is reserved for the creator.
+  const targetIsCoAdmin = ((squad.coAdminIds ?? []) as string[]).includes(targetUserId);
+  if (isManager && !isCreator && targetIsCoAdmin && !isSelf) {
+    res.status(403).json({ error: "Only the squad creator can remove a co-admin." });
     return;
   }
   const updatedMemberIds = memberIds.filter((uid) => uid !== targetUserId);
@@ -1020,8 +1040,8 @@ router.post("/squads/:id/invite/regenerate", requireAuth, async (req: Request, r
     res.status(404).json({ error: "Squad not found" });
     return;
   }
-  if (existing.creatorId !== userId) {
-    res.status(403).json({ error: "Only the squad creator can regenerate the invite link." });
+  if (!canManageSquad(existing, userId)) {
+    res.status(403).json({ error: "Only the squad creator or a co-admin can regenerate the invite link." });
     return;
   }
   const newCode = generateInviteCode();
@@ -1031,6 +1051,102 @@ router.post("/squads/:id/invite/regenerate", requireAuth, async (req: Request, r
     .where(eq(squadsTable.id, id))
     .returning();
   res.json(updated);
+});
+
+// Grant a co-admin "help manage" rights. Creator-only. Target must be a member.
+router.post("/squads/:id/co-admins", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const id = parseId(req.params.id);
+  const userId = (req.user as { id: string }).id;
+  const parsed = CoAdminBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const targetId = parsed.data.userId;
+  const [existing] = await db.select().from(squadsTable).where(eq(squadsTable.id, id));
+  if (!existing) {
+    res.status(404).json({ error: "Squad not found" });
+    return;
+  }
+  if (existing.creatorId !== userId) {
+    res.status(403).json({ error: "Only the squad creator can change co-admins." });
+    return;
+  }
+  if (targetId === existing.creatorId) {
+    res.status(400).json({ error: "The creator already manages this squad." });
+    return;
+  }
+  const memberIds = (existing.memberIds ?? []) as string[];
+  if (!memberIds.includes(targetId)) {
+    res.status(400).json({ error: "Only squad members can be made co-admins." });
+    return;
+  }
+  const current = (existing.coAdminIds ?? []) as string[];
+  if (current.includes(targetId)) {
+    res.json(existing);
+    return;
+  }
+  // Atomic, dedupe-safe append so concurrent grants can't duplicate or lose entries.
+  const [squad] = await db
+    .update(squadsTable)
+    .set({
+      coAdminIds: sql`CASE WHEN ${squadsTable.coAdminIds} @> ${JSON.stringify([targetId])}::jsonb THEN ${squadsTable.coAdminIds} ELSE ${squadsTable.coAdminIds} || ${JSON.stringify([targetId])}::jsonb END`,
+      version: sql`${squadsTable.version} + 1`,
+    })
+    .where(eq(squadsTable.id, id))
+    .returning();
+  res.json(squad);
+  emitSquadUpdate(id);
+
+  void (async () => {
+    try {
+      const tokens = await storage.getPushTokensForUsers([targetId]);
+      if (tokens.length === 0) return;
+      await sendPushNotifications(
+        tokens,
+        {
+          title: squad.name,
+          body: `You're now a co-admin of "${squad.name}" — you can help manage it.`,
+          data: { screen: "squad", squadId: squad.id },
+        },
+        { onStaleToken: (token) => storage.clearPushToken(token) },
+      );
+    } catch (err) {
+      logger.error({ err }, "Error sending squad co-admin-added push notification");
+    }
+  })();
+});
+
+// Revoke a co-admin. Creator-only.
+router.delete("/squads/:id/co-admins/:userId", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const id = parseId(req.params.id);
+  const targetId = parseId(req.params.userId);
+  const userId = (req.user as { id: string }).id;
+  const [existing] = await db.select().from(squadsTable).where(eq(squadsTable.id, id));
+  if (!existing) {
+    res.status(404).json({ error: "Squad not found" });
+    return;
+  }
+  if (existing.creatorId !== userId) {
+    res.status(403).json({ error: "Only the squad creator can change co-admins." });
+    return;
+  }
+  const current = (existing.coAdminIds ?? []) as string[];
+  if (!current.includes(targetId)) {
+    res.json(existing);
+    return;
+  }
+  // Atomic removal so concurrent revocations can't lose updates (no read-modify-write).
+  const [squad] = await db
+    .update(squadsTable)
+    .set({
+      coAdminIds: sql`COALESCE((SELECT jsonb_agg(elem) FROM jsonb_array_elements_text(${squadsTable.coAdminIds}) AS elem WHERE elem <> ${targetId}), '[]'::jsonb)`,
+      version: sql`${squadsTable.version} + 1`,
+    })
+    .where(eq(squadsTable.id, id))
+    .returning();
+  res.json(squad);
+  emitSquadUpdate(id);
 });
 
 router.post("/squads/:id/join", requireAuth, async (req: Request, res: Response): Promise<void> => {
