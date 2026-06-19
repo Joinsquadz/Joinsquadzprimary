@@ -49,10 +49,22 @@ export function IconPicker({ value, onChange, accent }: IconPickerProps) {
   const q = query.trim().toLowerCase();
   const filtered = useMemo(() => {
     if (!q) return EMOJI_CATEGORIES;
-    return EMOJI_CATEGORIES.map((cat) => ({
-      label: cat.label,
-      items: cat.items.filter((it) => it.keywords.includes(q) || it.emoji === q),
-    })).filter((cat) => cat.items.length > 0);
+    // Tokenized substring match: every typed word must appear somewhere in the
+    // entry's keywords or its category label. This makes partial ("foo") and
+    // multi-word ("soccer ball") queries both populate, instead of requiring an
+    // exact keyword match. A pasted emoji also matches directly.
+    const tokens = q.split(/\s+/).filter(Boolean);
+    return EMOJI_CATEGORIES.map((cat) => {
+      const haystackLabel = cat.label.toLowerCase();
+      return {
+        label: cat.label,
+        items: cat.items.filter(
+          (it) =>
+            it.emoji === q ||
+            tokens.every((t) => it.keywords.includes(t) || haystackLabel.includes(t)),
+        ),
+      };
+    }).filter((cat) => cat.items.length > 0);
   }, [q]);
 
   const quickSelect = (e: string) => {

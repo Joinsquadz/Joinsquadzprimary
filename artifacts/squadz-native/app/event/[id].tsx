@@ -16,6 +16,7 @@ import {
   Switch,
   Animated,
 } from "react-native";
+import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { SettleUp } from "@/components/SettleUp";
 import { addEventToCalendar, parseEventStart } from "@/lib/calendar";
 import { scheduleRsvpReminder } from "@/lib/reminders";
@@ -37,9 +38,22 @@ import { goingCount } from "@/lib/eventUtils";
 import type { RsvpStatus } from "@/types";
 import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
 import { useTips } from "@/context/TipsContext";
-import { EMOJI_CHOICES as EMOJIS } from "@/constants/emojis";
+import { IconPicker } from "@/components/IconPicker";
 
 type EventTab = "overview" | "guests" | "tasks" | "food" | "costs" | "chat" | "photos" | "admin";
+
+/** "Sat, Jun 7 · 8:00 PM" label for an event end time (ISO). */
+function formatEndLabel(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const h = d.getHours();
+  const ampm = h >= 12 ? "PM" : "AM";
+  const h12 = h % 12 || 12;
+  const mm = d.getMinutes().toString().padStart(2, "0");
+  return `${DAYS[d.getDay()]}, ${MONTHS[d.getMonth()]} ${d.getDate()} · ${h12}:${mm} ${ampm}`;
+}
 
 /**
  * Human-friendly countdown to an event start. Returns null when the event is
@@ -302,6 +316,10 @@ export default function EventDetailScreen() {
 
   const [editModal, setEditModal] = useState(false);
   const [edit, setEdit] = useState({ title: "", date: "", location: "", description: "", emoji: "🔥" });
+  // Optional event end time (editable). null = explicitly none; seeded in openEdit.
+  const [editEndAt, setEditEndAt] = useState<string | null>(null);
+  const [endPickerDate, setEndPickerDate] = useState(new Date());
+  const [endPickerStep, setEndPickerStep] = useState<"date" | "time" | null>(null);
 
   const [budgetModal, setBudgetModal] = useState(false);
   const [budgetInput, setBudgetInput] = useState("");
@@ -660,11 +678,21 @@ export default function EventDetailScreen() {
       description: event.description,
       emoji: event.emoji,
     });
+    setEditEndAt(event.endAt ?? null);
     setEditModal(true);
   };
+  const eventStart = event?.startAt
+    ? new Date(event.startAt)
+    : event?.eventAt
+      ? new Date(event.eventAt)
+      : parseEventStart(event?.date ?? "");
   const saveEdit = () => {
     if (!edit.title.trim()) {
       Alert.alert("Missing info", "Event needs a title.");
+      return;
+    }
+    if (editEndAt && eventStart && new Date(editEndAt).getTime() < eventStart.getTime()) {
+      Alert.alert("Check the end time", "The end time can't be before the event starts.");
       return;
     }
     updateEvent(event.id, {
@@ -673,9 +701,39 @@ export default function EventDetailScreen() {
       location: edit.location.trim(),
       description: edit.description.trim(),
       emoji: edit.emoji,
+      // null clears the end time; a string sets it.
+      endAt: editEndAt,
     });
     setEditModal(false);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  };
+
+  const openEndPicker = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setEndPickerDate(editEndAt ? new Date(editEndAt) : eventStart ?? new Date());
+    setEndPickerStep("date");
+  };
+  const handleEndIOSConfirm = () => {
+    if (endPickerStep === "date") {
+      setEndPickerStep("time");
+    } else {
+      setEditEndAt(endPickerDate.toISOString());
+      setEndPickerStep(null);
+    }
+  };
+  const handleEndAndroidChange = (_: DateTimePickerEvent, d?: Date) => {
+    if (!d) { setEndPickerStep(null); return; }
+    const updated = new Date(endPickerDate);
+    if (endPickerStep === "date") {
+      updated.setFullYear(d.getFullYear(), d.getMonth(), d.getDate());
+      setEndPickerDate(updated);
+      setTimeout(() => setEndPickerStep("time"), 50);
+    } else {
+      updated.setHours(d.getHours(), d.getMinutes());
+      setEndPickerDate(updated);
+      setEditEndAt(updated.toISOString());
+      setEndPickerStep(null);
+    }
   };
 
   const confirmCancel = () => {
@@ -760,6 +818,9 @@ export default function EventDetailScreen() {
         >
           <Text style={styles.heroDate}>{event.date}</Text>
         </Animated.View>
+        {event.endAt ? (
+          <Text style={styles.heroDate}>Ends {formatEndLabel(event.endAt)}</Text>
+        ) : null}
         <Animated.View
           style={{
             backgroundColor: locationHighlightAnim.interpolate({ inputRange: [0, 1], outputRange: ["rgba(245,158,11,0)", "rgba(245,158,11,0.28)"] }),
@@ -1885,17 +1946,7 @@ export default function EventDetailScreen() {
             <Text style={[styles.modalTitle, { color: colors.foreground }]}>Edit event</Text>
             <ScrollView style={{ maxHeight: 460 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
               <Text style={[styles.assignLabel, { color: colors.mutedForeground }]}>Icon</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-                {EMOJIS.map((e) => (
-                  <TouchableOpacity
-                    key={e}
-                    onPress={() => setEdit((p) => ({ ...p, emoji: e }))}
-                    style={[styles.emojiOption, { backgroundColor: edit.emoji === e ? colors.primary + "25" : colors.card, borderColor: edit.emoji === e ? colors.primary : colors.border }]}
-                  >
-                    <Text style={{ fontSize: 22 }}>{e}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
+              <IconPicker value={edit.emoji} onChange={(e) => setEdit((p) => ({ ...p, emoji: e }))} />
               <TextInput
                 placeholder="Event title"
                 placeholderTextColor={colors.textDim}
@@ -1910,6 +1961,23 @@ export default function EventDetailScreen() {
                 onChangeText={(v) => setEdit((p) => ({ ...p, date: v }))}
                 style={[styles.modalInput, { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
               />
+              <Text style={[styles.assignLabel, { color: colors.mutedForeground, marginTop: 4 }]}>End time (optional)</Text>
+              <View style={styles.endRow}>
+                <TouchableOpacity
+                  onPress={openEndPicker}
+                  style={[styles.endPickBtn, { backgroundColor: colors.card, borderColor: editEndAt ? colors.primary : colors.border }]}
+                >
+                  <Ionicons name="time-outline" size={18} color={editEndAt ? colors.primary : colors.mutedForeground} />
+                  <Text style={[styles.endPickText, { color: editEndAt ? colors.foreground : colors.textDim }]} numberOfLines={1}>
+                    {editEndAt ? formatEndLabel(editEndAt) : "Add an end time"}
+                  </Text>
+                </TouchableOpacity>
+                {editEndAt ? (
+                  <TouchableOpacity onPress={() => setEditEndAt(null)} hitSlop={8} style={{ paddingHorizontal: 4 }}>
+                    <Ionicons name="close-circle" size={20} color={colors.textDim} />
+                  </TouchableOpacity>
+                ) : null}
+              </View>
               <TextInput
                 placeholder="Location"
                 placeholderTextColor={colors.textDim}
@@ -1935,8 +2003,48 @@ export default function EventDetailScreen() {
               </TouchableOpacity>
             </View>
           </View>
+          {/* End-time picker rendered IN-SHEET (not a nested Modal) to avoid iOS stacked-modal freeze */}
+          {Platform.OS === "ios" && endPickerStep !== null && (
+            <View style={styles.endPickerOverlay}>
+              <View style={[styles.endPickerSheet, { backgroundColor: colors.card, paddingBottom: insets.bottom + 8 }]}>
+                <View style={[styles.endPickerToolbar, { borderBottomColor: colors.border }]}>
+                  <TouchableOpacity onPress={() => setEndPickerStep(null)} style={{ minWidth: 60 }}>
+                    <Text style={{ color: colors.mutedForeground, fontSize: 16 }}>Cancel</Text>
+                  </TouchableOpacity>
+                  <Text style={{ color: colors.foreground, fontSize: 16, fontWeight: "700" }}>
+                    {endPickerStep === "date" ? "End date" : "End time"}
+                  </Text>
+                  <TouchableOpacity onPress={handleEndIOSConfirm} style={{ minWidth: 60 }}>
+                    <Text style={{ color: colors.primary, fontSize: 16, fontWeight: "700", textAlign: "right" }}>
+                      {endPickerStep === "date" ? "Next →" : "Done"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                <DateTimePicker
+                  value={endPickerDate}
+                  mode={endPickerStep}
+                  display="spinner"
+                  minimumDate={eventStart ?? undefined}
+                  onChange={(_, d) => { if (d) setEndPickerDate(d); }}
+                  themeVariant="dark"
+                  style={{ width: "100%", height: 200 }}
+                />
+              </View>
+            </View>
+          )}
         </View>
       </Modal>
+
+      {/* Android end-time picker (native dialog — safe outside the modal) */}
+      {Platform.OS === "android" && endPickerStep !== null && (
+        <DateTimePicker
+          value={endPickerDate}
+          mode={endPickerStep}
+          display="default"
+          minimumDate={eventStart ?? undefined}
+          onChange={handleEndAndroidChange}
+        />
+      )}
 
       {/* ---- Budget Modal ---- */}
       <Modal visible={budgetModal} transparent animationType="fade" onRequestClose={() => setBudgetModal(false)}>
@@ -2145,6 +2253,12 @@ const styles = StyleSheet.create({
   splitToggleBtn: { flex: 1, paddingVertical: 9, alignItems: "center", justifyContent: "center" },
   splitToggleText: { fontSize: 13, fontWeight: "700" },
   assignLabel: { fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.8, marginTop: 14, marginBottom: 6 },
+  endRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  endPickBtn: { flex: 1, flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 12, borderWidth: 1.5, paddingHorizontal: 14, height: 50 },
+  endPickText: { flex: 1, fontSize: 15, fontWeight: "600" },
+  endPickerOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end", zIndex: 50 },
+  endPickerSheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24 },
+  endPickerToolbar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1 },
   assignRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6, paddingHorizontal: 4, borderRadius: 10, borderWidth: 1, borderColor: "transparent" },
   assignName: { flex: 1, fontSize: 14, fontWeight: "600" },
   participantCheckbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },

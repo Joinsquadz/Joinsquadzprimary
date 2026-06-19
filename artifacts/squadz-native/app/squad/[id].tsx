@@ -40,7 +40,7 @@ import { SquadzPlusBanner } from "@/components/SquadzPlusBanner";
 import { goingCount } from "@/lib/eventUtils";
 import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
 
-import { EMOJI_CHOICES as EMOJIS } from "@/constants/emojis";
+import { IconPicker } from "@/components/IconPicker";
 
 function getFriendCodeDisplayName(u: FoundUser): string {
   if (u.firstName && u.lastName) return `${u.firstName} ${u.lastName}`;
@@ -1118,17 +1118,7 @@ export default function SquadDetailScreen() {
             />
 
             <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>Icon</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-              {EMOJIS.map((e) => (
-                <TouchableOpacity
-                  key={e}
-                  onPress={() => setEditEmoji(e)}
-                  style={[styles.emojiOption, { backgroundColor: editEmoji === e ? colors.primary + "25" : colors.card, borderColor: editEmoji === e ? colors.primary : colors.border }]}
-                >
-                  <Text style={{ fontSize: 22 }}>{e}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
+            <IconPicker value={editEmoji} onChange={setEditEmoji} />
 
             <View style={[styles.actionRow, { borderColor: colors.border }]}>
               <Ionicons name={muted ? "notifications-off-outline" : "notifications-outline"} size={20} color={colors.foreground} />

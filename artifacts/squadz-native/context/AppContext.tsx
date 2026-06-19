@@ -177,7 +177,7 @@ type AppContextType = {
   addEvent: (input: NewEventInput) => Promise<string>;
   updateEvent: (
     eventId: string,
-    patch: Partial<Pick<Event, "title" | "description" | "date" | "location" | "emoji" | "budget" | "isPublic" | "startAt" | "endAt" | "allDay" | "coverStyle" | "squadId">>,
+    patch: Partial<Pick<Event, "title" | "description" | "date" | "location" | "emoji" | "budget" | "isPublic" | "startAt" | "endAt" | "eventAt" | "allDay" | "coverStyle" | "squadId">>,
     explicitVersion?: number,
   ) => void;
   addEventCoAdmin: (eventId: string, userId: string) => Promise<{ error?: string }>;
@@ -1203,7 +1203,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [squads, apiFetch, apiUser]);
 
   const updateEvent = useCallback(
-    (eventId: string, patch: Partial<Pick<Event, "title" | "description" | "date" | "location" | "emoji" | "budget" | "isPublic" | "startAt" | "endAt" | "allDay" | "coverStyle" | "squadId">>, explicitVersion?: number) => {
+    (eventId: string, patch: Partial<Pick<Event, "title" | "description" | "date" | "location" | "emoji" | "budget" | "isPublic" | "startAt" | "endAt" | "eventAt" | "allDay" | "coverStyle" | "squadId">>, explicitVersion?: number) => {
       const currentVersion = explicitVersion ?? events.find((e) => e.id === eventId)?.version;
       // Optimistic update
       setEvents((prev) => prev.map((e) => (e.id === eventId ? { ...e, ...patch } : e)));

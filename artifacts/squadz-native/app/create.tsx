@@ -169,6 +169,11 @@ export default function CreateEventScreen() {
 
   const [pickerDate, setPickerDate] = useState(new Date());
   const [pickerStep, setPickerStep] = useState<"date" | "time" | null>(null);
+  // Optional event end time. Only relevant for plain events with a concrete
+  // start (eventAtISO). Stored as ISO; the picker scratch lives in endPickerDate.
+  const [endAtISO, setEndAtISO] = useState<string | undefined>(undefined);
+  const [endPickerDate, setEndPickerDate] = useState(new Date());
+  const [endPickerStep, setEndPickerStep] = useState<"date" | "time" | null>(null);
 
   // Apply a time / squad chosen via the "Find the Best Time" picker, or a
   // title / emoji passed from an AI suggestion on the Home screen.
@@ -190,6 +195,7 @@ export default function CreateEventScreen() {
 
   const resetForm = () => {
     setTitle(""); setLocation(""); setDate(""); setEventAtISO(undefined); setDescription("");
+    setEndAtISO(undefined);
     setSelectedSquad(null); setSelectedEmoji("🔥");
     setTripStart(null); setTripEnd(null); setAllDay(true); setCoverStyle("sunset");
     setPickerDate(new Date());
@@ -246,7 +252,10 @@ export default function CreateEventScreen() {
       } else {
         id = await addEvent({
           title: title.trim(), emoji: selectedEmoji,
-          date: date.trim(), eventAt: eventAtISO, location: location.trim(),
+          date: date.trim(), eventAt: eventAtISO,
+          // Only send an end time when there's a concrete start to anchor it to.
+          endAt: eventAtISO ? endAtISO : undefined,
+          location: location.trim(),
           description: description.trim(), squadId: selectedSquad,
           isPublic, invitedUserIds,
         });
@@ -344,6 +353,46 @@ export default function CreateEventScreen() {
     setDate("");
     setEventAtISO(undefined);
     setPickerDate(new Date());
+    // An end time without a start is meaningless — clear it too.
+    setEndAtISO(undefined);
+  };
+
+  const openEndPicker = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    // Default the end picker to the start time + 1h so the common case is one tap.
+    const base = eventAtISO ? new Date(eventAtISO) : new Date();
+    const seed = endAtISO ? new Date(endAtISO) : new Date(base.getTime() + 60 * 60 * 1000);
+    setEndPickerDate(seed);
+    setEndPickerStep("date");
+  };
+
+  const handleEndIOSConfirm = () => {
+    if (endPickerStep === "date") {
+      setEndPickerStep("time");
+    } else {
+      setEndAtISO(endPickerDate.toISOString());
+      setEndPickerStep(null);
+    }
+  };
+
+  const handleEndAndroidChange = (_: DateTimePickerEvent, d?: Date) => {
+    if (!d) { setEndPickerStep(null); return; }
+    const updated = new Date(endPickerDate);
+    if (endPickerStep === "date") {
+      updated.setFullYear(d.getFullYear(), d.getMonth(), d.getDate());
+      setEndPickerDate(updated);
+      setTimeout(() => setEndPickerStep("time"), 50);
+    } else {
+      updated.setHours(d.getHours(), d.getMinutes());
+      setEndPickerDate(updated);
+      setEndAtISO(updated.toISOString());
+      setEndPickerStep(null);
+    }
+  };
+
+  const clearEnd = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setEndAtISO(undefined);
   };
 
   return (
@@ -562,6 +611,42 @@ export default function CreateEventScreen() {
             <Text style={[styles.bestTimeText, { color: colors.primary }]}>Find the best time with your squad</Text>
             <Ionicons name="chevron-forward" size={14} color={colors.primary} />
           </TouchableOpacity>
+
+          {/* Optional end time — only meaningful once a concrete start is set. */}
+          {eventAtISO ? (
+            <View style={{ marginTop: 12 }}>
+              <Text style={[styles.label, { color: colors.mutedForeground }]}>End time (optional)</Text>
+              {Platform.OS === "web" ? (
+                <Field
+                  icon="time-outline"
+                  placeholder="e.g. Sat, Jun 7 · 8:00 PM"
+                  value={endAtISO ? formatPickedDate(new Date(endAtISO)) : ""}
+                  onChangeText={() => {}}
+                  colors={colors}
+                />
+              ) : endAtISO ? (
+                <View style={[styles.dateDisplay, { backgroundColor: colors.card, borderColor: colors.primary }]}>
+                  <Ionicons name="time" size={20} color={colors.primary} />
+                  <Text style={[styles.dateText, { color: colors.foreground }]}>{formatPickedDate(new Date(endAtISO))}</Text>
+                  <TouchableOpacity onPress={openEndPicker} style={[styles.editDateBtn, { borderColor: colors.border }]}>
+                    <Text style={[styles.editDateText, { color: colors.mutedForeground }]}>Edit</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={clearEnd}>
+                    <Ionicons name="close-circle" size={20} color={colors.textDim} />
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  onPress={openEndPicker}
+                  style={[styles.dateBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+                >
+                  <Ionicons name="time-outline" size={20} color={colors.mutedForeground} />
+                  <Text style={[styles.dateBtnText, { color: colors.textDim }]}>Add an end time</Text>
+                  <Ionicons name="chevron-forward" size={16} color={colors.textDim} />
+                </TouchableOpacity>
+              )}
+            </View>
+          ) : null}
         </View>
         )}
 
@@ -751,6 +836,48 @@ export default function CreateEventScreen() {
           display="default"
           onChange={handleAndroidChange}
           minimumDate={new Date()}
+        />
+      )}
+
+      {/* Optional event end-time picker (date → time), mirrors the start picker. */}
+      {Platform.OS === "ios" && endPickerStep !== null && (
+        <Modal visible animationType="slide" transparent onRequestClose={() => setEndPickerStep(null)}>
+          <View style={styles.pickerOverlay}>
+            <View style={[styles.pickerSheet, { backgroundColor: colors.card, paddingBottom: insets.bottom + 8 }]}>
+              <View style={[styles.pickerToolbar, { borderBottomColor: colors.border }]}>
+                <TouchableOpacity onPress={() => setEndPickerStep(null)} style={styles.pickerBtn}>
+                  <Text style={[styles.pickerBtnText, { color: colors.mutedForeground }]}>Cancel</Text>
+                </TouchableOpacity>
+                <Text style={[styles.pickerTitle, { color: colors.foreground }]}>
+                  {endPickerStep === "date" ? "End date" : "End time"}
+                </Text>
+                <TouchableOpacity onPress={handleEndIOSConfirm} style={styles.pickerBtn}>
+                  <Text style={[styles.pickerBtnText, { color: colors.primary, fontWeight: "700" }]}>
+                    {endPickerStep === "date" ? "Next →" : "Done"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              <DateTimePicker
+                value={endPickerDate}
+                mode={endPickerStep}
+                display="spinner"
+                onChange={(_, d) => { if (d) setEndPickerDate(d); }}
+                minimumDate={eventAtISO ? new Date(eventAtISO) : new Date()}
+                themeVariant="dark"
+                style={{ width: "100%", height: 200 }}
+              />
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {Platform.OS === "android" && endPickerStep !== null && (
+        <DateTimePicker
+          value={endPickerDate}
+          mode={endPickerStep}
+          display="default"
+          onChange={handleEndAndroidChange}
+          minimumDate={eventAtISO ? new Date(eventAtISO) : new Date()}
         />
       )}
 

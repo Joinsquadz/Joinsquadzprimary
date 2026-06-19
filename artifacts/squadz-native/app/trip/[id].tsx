@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect, createElement } from "react";
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   Modal,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -20,6 +21,7 @@ import { useData, useAuth, dbEventToEvent } from "@/context/AppContext";
 import { useUserCache } from "@/context/UserCacheContext";
 import { useEventStream } from "@/hooks/useEventStream";
 import { UserAvatar } from "@/components/UserAvatar";
+import { IconPicker } from "@/components/IconPicker";
 import { StopSheet } from "@/components/StopSheet";
 import FriendPickerSheet from "@/components/FriendPickerSheet";
 import { ChatMessages, ChatComposer } from "@/components/EventChatPanel";
@@ -29,6 +31,7 @@ import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import type { Event, ItineraryStop } from "@/types";
 import {
   coverFor,
+  parseISO,
   formatTripRange,
   tripNights,
   tripDayKeys,
@@ -53,6 +56,50 @@ import {
   type NewStopInput,
   type StopPatch,
 } from "@/lib/tripApi";
+
+/** Short calendar-day label, e.g. "Mon, Jun 3". */
+function formatPickedDay(d: Date): string {
+  const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${DAYS[d.getDay()]}, ${MONTHS[d.getMonth()]} ${d.getDate()}`;
+}
+
+/** Date → "YYYY-MM-DD" for an HTML <input type="date"> (web date fields). */
+function toDateInputValue(d: Date | null): string {
+  if (!d) return "";
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** "YYYY-MM-DD" from an HTML date input → local Date (noon, to dodge DST edges). */
+function fromDateInputValue(s: string): Date | null {
+  if (!s) return null;
+  const [y, m, d] = s.split("-").map((n) => parseInt(n, 10));
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d, 12, 0, 0, 0);
+}
+
+/** Combine a calendar day with a wall-clock hour → ISO. */
+function dayAtHour(d: Date, hour: number): string {
+  const out = new Date(d.getFullYear(), d.getMonth(), d.getDate(), hour, 0, 0, 0);
+  return out.toISOString();
+}
+
+// Plain DOM style for the web-only <input type="date"> fields. Kept out of
+// StyleSheet.create because it's passed straight to a DOM element on web.
+const webDateInputStyle = {
+  border: "none",
+  outline: "none",
+  background: "transparent",
+  fontSize: 15,
+  fontWeight: 700,
+  fontFamily: "inherit",
+  width: "100%",
+  padding: 0,
+  cursor: "pointer",
+} as const;
 
 type TripTab = "itinerary" | "chat" | "costs" | "vault" | "budget" | "packing";
 
@@ -133,6 +180,13 @@ export default function TripDetailScreen() {
   const [adminOpen, setAdminOpen] = useState(false);
   const [edit, setEdit] = useState({ title: "", location: "", description: "", emoji: "" });
   const [coverDraft, setCoverDraft] = useState("");
+  // Editable trip date range (admin sheet). Seeded from the trip's startAt/endAt
+  // when the sheet opens; saved back as startAt/endAt/eventAt on "Save changes".
+  const [startDraft, setStartDraft] = useState<Date | null>(null);
+  const [endDraft, setEndDraft] = useState<Date | null>(null);
+  // Native date-range picker: which end of the range is being picked + scratch value.
+  const [dateStep, setDateStep] = useState<"start" | "end" | null>(null);
+  const [dateTmp, setDateTmp] = useState<Date>(new Date());
 
   const dayKeys = useMemo(() => (event ? tripDayKeys(event) : []), [event]);
   const today = todayKey();
@@ -245,6 +299,8 @@ export default function TripDetailScreen() {
       emoji: event.emoji,
     });
     setCoverDraft(event.coverStyle || "sunset");
+    setStartDraft(parseISO(event.startAt));
+    setEndDraft(parseISO(event.endAt) ?? parseISO(event.startAt));
     setAdminOpen(true);
   };
 
@@ -253,15 +309,64 @@ export default function TripDetailScreen() {
       Alert.alert("Missing info", "A trip needs a title.");
       return;
     }
+    if (!startDraft) {
+      Alert.alert("Missing dates", "A trip needs a start date.");
+      return;
+    }
+    const end = endDraft ?? startDraft;
+    if (end < startDraft) {
+      Alert.alert("Check the dates", "The end date can't be before the start date.");
+      return;
+    }
+    // Mirror create.tsx: startAt at 9am, endAt at 6pm on the last day, and
+    // eventAt = startAt so reminder/visibility logic still has a value.
+    const startISO = dayAtHour(startDraft, 9);
+    const endISO = dayAtHour(end, 18);
     updateEvent(event.id, {
       title: edit.title.trim(),
       location: edit.location.trim(),
       description: edit.description.trim(),
       emoji: edit.emoji.trim() || event.emoji,
       coverStyle: coverDraft,
+      startAt: startISO,
+      endAt: endISO,
+      eventAt: startISO,
+      date: formatTripRange({ startAt: startISO, endAt: endISO }),
     });
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setAdminOpen(false);
+  };
+
+  const openDatePicker = (which: "start" | "end") => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const seed = which === "start" ? startDraft : endDraft ?? startDraft;
+    setDateTmp(seed ?? new Date());
+    setDateStep(which);
+  };
+
+  const applyDate = (which: "start" | "end", d: Date) => {
+    if (which === "start") {
+      setStartDraft(d);
+      // Keep the range valid: if the end is now before the start, snap it up.
+      setEndDraft((prev) => (prev && prev < d ? d : prev));
+    } else {
+      setEndDraft(d);
+    }
+  };
+
+  const confirmDate = (d: Date) => {
+    if (dateStep) applyDate(dateStep, d);
+    setDateStep(null);
+  };
+
+  const handleDateAndroid = (_: DateTimePickerEvent, d?: Date) => {
+    if (!d) { setDateStep(null); return; }
+    confirmDate(d);
+  };
+
+  const onWebDateChange = (which: "start" | "end", value: string) => {
+    const d = fromDateInputValue(value);
+    if (d) applyDate(which, d);
   };
 
   const reassignSquad = (squadId: string) => {
@@ -861,24 +966,18 @@ export default function TripDetailScreen() {
               contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
             >
               {/* Details */}
-              <Text style={[styles.adminSection, { color: colors.mutedForeground }]}>Details</Text>
-              <View style={styles.adminFieldRow}>
-                <TextInput
-                  value={edit.emoji}
-                  onChangeText={(t) => setEdit((e) => ({ ...e, emoji: t }))}
-                  placeholder="🏝️"
-                  placeholderTextColor={colors.mutedForeground}
-                  maxLength={2}
-                  style={[styles.adminEmoji, { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.card }]}
-                />
-                <TextInput
-                  value={edit.title}
-                  onChangeText={(t) => setEdit((e) => ({ ...e, title: t }))}
-                  placeholder="Trip title"
-                  placeholderTextColor={colors.mutedForeground}
-                  style={[styles.adminInput, { flex: 1, color: colors.foreground, borderColor: colors.border, backgroundColor: colors.card }]}
-                />
+              <Text style={[styles.adminSection, { color: colors.mutedForeground }]}>Icon</Text>
+              <View style={{ marginBottom: 14 }}>
+                <IconPicker value={edit.emoji} onChange={(e) => setEdit((s) => ({ ...s, emoji: e }))} />
               </View>
+              <Text style={[styles.adminSection, { color: colors.mutedForeground }]}>Details</Text>
+              <TextInput
+                value={edit.title}
+                onChangeText={(t) => setEdit((e) => ({ ...e, title: t }))}
+                placeholder="Trip title"
+                placeholderTextColor={colors.mutedForeground}
+                style={[styles.adminInput, { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.card }]}
+              />
               <TextInput
                 value={edit.location}
                 onChangeText={(t) => setEdit((e) => ({ ...e, location: t }))}
@@ -915,6 +1014,52 @@ export default function TripDetailScreen() {
                   );
                 })}
               </View>
+
+              {/* Dates */}
+              <Text style={[styles.adminSection, { color: colors.mutedForeground }]}>Dates</Text>
+              <View style={styles.rangeRow}>
+                <View style={[styles.rangeBtn, { borderColor: colors.border, backgroundColor: colors.card }]}>
+                  <Text style={[styles.rangeLabel, { color: colors.mutedForeground }]}>Start</Text>
+                  {Platform.OS === "web" ? (
+                    createElement("input", {
+                      type: "date",
+                      value: toDateInputValue(startDraft),
+                      max: toDateInputValue(endDraft),
+                      onChange: (e: { target: { value: string } }) => onWebDateChange("start", e.target.value),
+                      style: { ...webDateInputStyle, color: colors.foreground },
+                    })
+                  ) : (
+                    <TouchableOpacity onPress={() => openDatePicker("start")} activeOpacity={0.8}>
+                      <Text style={[styles.rangeValue, { color: startDraft ? colors.foreground : colors.mutedForeground }]}>
+                        {startDraft ? formatPickedDay(startDraft) : "Pick a date"}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+                <View style={[styles.rangeBtn, { borderColor: colors.border, backgroundColor: colors.card }]}>
+                  <Text style={[styles.rangeLabel, { color: colors.mutedForeground }]}>End</Text>
+                  {Platform.OS === "web" ? (
+                    createElement("input", {
+                      type: "date",
+                      value: toDateInputValue(endDraft),
+                      min: toDateInputValue(startDraft),
+                      onChange: (e: { target: { value: string } }) => onWebDateChange("end", e.target.value),
+                      style: { ...webDateInputStyle, color: colors.foreground },
+                    })
+                  ) : (
+                    <TouchableOpacity onPress={() => openDatePicker("end")} activeOpacity={0.8}>
+                      <Text style={[styles.rangeValue, { color: endDraft ? colors.foreground : colors.mutedForeground }]}>
+                        {endDraft ? formatPickedDay(endDraft) : "Pick a date"}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </View>
+              {startDraft ? (
+                <Text style={[styles.rangePreview, { color: colors.mutedForeground }]}>
+                  {formatTripRange({ startAt: dayAtHour(startDraft, 9), endAt: dayAtHour(endDraft ?? startDraft, 18) })}
+                </Text>
+              ) : null}
 
               <TouchableOpacity onPress={saveDetails} activeOpacity={0.85} style={[styles.adminSaveBtn, { backgroundColor: colors.primary }]}>
                 <Text style={styles.adminSaveText}>Save changes</Text>
@@ -1016,8 +1161,45 @@ export default function TripDetailScreen() {
               ) : null}
             </ScrollView>
           </View>
+          {/* Date picker rendered IN-SHEET (not a nested Modal) to avoid iOS stacked-modal freeze */}
+          {dateStep && Platform.OS === "ios" ? (
+            <View style={styles.pickerOverlay}>
+              <View style={[styles.pickerSheet, { backgroundColor: colors.surface }]}>
+                <View style={styles.pickerToolbar}>
+                  <TouchableOpacity onPress={() => setDateStep(null)} hitSlop={8}>
+                    <Text style={[styles.pickerBtn, { color: colors.mutedForeground }]}>Cancel</Text>
+                  </TouchableOpacity>
+                  <Text style={[styles.pickerTitle, { color: colors.foreground }]}>
+                    {dateStep === "start" ? "Start date" : "End date"}
+                  </Text>
+                  <TouchableOpacity onPress={() => confirmDate(dateTmp)} hitSlop={8}>
+                    <Text style={[styles.pickerBtn, { color: colors.primary, fontWeight: "800" }]}>Done</Text>
+                  </TouchableOpacity>
+                </View>
+                <DateTimePicker
+                  value={dateTmp}
+                  mode="date"
+                  display="spinner"
+                  minimumDate={dateStep === "end" ? startDraft ?? undefined : undefined}
+                  onChange={(_, d) => { if (d) setDateTmp(d); }}
+                  themeVariant="dark"
+                />
+              </View>
+            </View>
+          ) : null}
         </View>
       </Modal>
+
+      {/* Android native date dialog (safe outside the modal; web uses inline <input type="date">) */}
+      {dateStep && Platform.OS === "android" ? (
+        <DateTimePicker
+          value={dateTmp}
+          mode="date"
+          display="default"
+          minimumDate={dateStep === "end" ? startDraft ?? undefined : undefined}
+          onChange={handleDateAndroid}
+        />
+      ) : null}
     </View>
   );
 }
@@ -1154,6 +1336,19 @@ const styles = StyleSheet.create({
   coverSwatchRow: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
   coverSwatchWrap: { borderRadius: 16, borderWidth: 2, borderColor: "transparent", padding: 2 },
   coverSwatch: { width: 44, height: 44, borderRadius: 13, alignItems: "center", justifyContent: "center" },
+  rangeRow: { flexDirection: "row", gap: 10 },
+  rangeBtn: { flex: 1, borderRadius: 13, borderWidth: 1.5, paddingHorizontal: 14, paddingVertical: 11 },
+  rangeLabel: { fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 4 },
+  rangeValue: { fontSize: 15, fontWeight: "700" },
+  rangePreview: { fontSize: 13, fontWeight: "700", marginTop: 10 },
+  pickerOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end", zIndex: 50 },
+  pickerSheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24 },
+  pickerToolbar: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.08)",
+  },
+  pickerBtn: { minWidth: 60, fontSize: 16 },
+  pickerTitle: { fontSize: 16, fontWeight: "700" },
   adminSaveBtn: { borderRadius: 14, paddingVertical: 14, alignItems: "center", marginTop: 18 },
   adminSaveText: { color: "#fff", fontSize: 15, fontWeight: "800" },
   adminPersonRow: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 8 },
