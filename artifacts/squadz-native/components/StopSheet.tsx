@@ -13,10 +13,41 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { useColors } from "@/hooks/useColors";
 import type { ItineraryStop, StopCategory } from "@/types";
 import { STOP_CATEGORIES, STOP_CATEGORY_META, formatDayHeading } from "@/lib/tripUtils";
 import type { NewStopInput, StopPatch } from "@/lib/tripApi";
+
+/** A Date → "7:00 PM" wall-clock label (how stop times are stored). */
+function formatTimeLabel(d: Date): string {
+  const h = d.getHours();
+  const m = d.getMinutes();
+  const ampm = h >= 12 ? "PM" : "AM";
+  const h12 = h % 12 || 12;
+  return `${h12}:${m.toString().padStart(2, "0")} ${ampm}`;
+}
+
+/** Best-effort parse of a stored time label ("7:00 PM" / "19:00") → Date to seed the picker. */
+function parseTimeToDate(s: string): Date {
+  const base = new Date();
+  base.setSeconds(0, 0);
+  const t = (s ?? "").trim();
+  const match = t.match(/^(\d{1,2}):(\d{2})\s*([AaPp][Mm])?$/);
+  if (match) {
+    let hh = parseInt(match[1], 10);
+    const mm = parseInt(match[2], 10);
+    const ap = match[3]?.toUpperCase();
+    if (ap === "PM" && hh < 12) hh += 12;
+    if (ap === "AM" && hh === 12) hh = 0;
+    if (hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59) {
+      base.setHours(hh, mm);
+      return base;
+    }
+  }
+  base.setHours(9, 0);
+  return base;
+}
 
 export type StopDraft = {
   day: string;
@@ -58,6 +89,27 @@ export function StopSheet({
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const [draft, setDraft] = useState<StopDraft>(emptyDraft(defaultDay));
+  // Wheel time picker (native): which field is open + its working value.
+  const [timeStep, setTimeStep] = useState<"start" | "end" | null>(null);
+  const [timeTmp, setTimeTmp] = useState<Date>(new Date());
+
+  const openTimePicker = (which: "start" | "end") => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setTimeTmp(parseTimeToDate(which === "start" ? draft.time : draft.endTime));
+    setTimeStep(which);
+  };
+
+  const applyTime = (which: "start" | "end", d: Date) => {
+    const label = formatTimeLabel(d);
+    setDraft((dr) => (which === "start" ? { ...dr, time: label } : { ...dr, endTime: label }));
+  };
+
+  const handleAndroidTime = (_: DateTimePickerEvent, d?: Date) => {
+    const which = timeStep;
+    setTimeStep(null);
+    if (!d || !which) return;
+    applyTime(which, d);
+  };
 
   useEffect(() => {
     if (!visible) return;
@@ -101,6 +153,7 @@ export function StopSheet({
   };
 
   return (
+    <>
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.overlay}>
         <TouchableOpacity style={StyleSheet.absoluteFill} onPress={onClose} activeOpacity={1} />
@@ -149,23 +202,57 @@ export function StopSheet({
             <View style={styles.timeRow}>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.label, { color: colors.mutedForeground }]}>Start time (optional)</Text>
-                <TextInput
-                  value={draft.time}
-                  onChangeText={(t) => setDraft((d) => ({ ...d, time: t }))}
-                  placeholder="e.g. 7:00 PM"
-                  placeholderTextColor={colors.textDim}
-                  style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
-                />
+                {Platform.OS === "web" ? (
+                  <TextInput
+                    value={draft.time}
+                    onChangeText={(t) => setDraft((d) => ({ ...d, time: t }))}
+                    placeholder="e.g. 7:00 PM"
+                    placeholderTextColor={colors.textDim}
+                    style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+                  />
+                ) : (
+                  <TouchableOpacity
+                    onPress={() => openTimePicker("start")}
+                    style={[styles.input, styles.timeBtn, { backgroundColor: colors.background, borderColor: colors.border }]}
+                  >
+                    <Ionicons name="time-outline" size={16} color={colors.mutedForeground} />
+                    <Text style={[styles.timeBtnText, { color: draft.time ? colors.foreground : colors.textDim }]} numberOfLines={1}>
+                      {draft.time || "Set time"}
+                    </Text>
+                    {draft.time ? (
+                      <TouchableOpacity onPress={() => setDraft((d) => ({ ...d, time: "" }))} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                        <Ionicons name="close-circle" size={18} color={colors.textDim} />
+                      </TouchableOpacity>
+                    ) : null}
+                  </TouchableOpacity>
+                )}
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.label, { color: colors.mutedForeground }]}>End time (optional)</Text>
-                <TextInput
-                  value={draft.endTime}
-                  onChangeText={(t) => setDraft((d) => ({ ...d, endTime: t }))}
-                  placeholder="e.g. 9:00 PM"
-                  placeholderTextColor={colors.textDim}
-                  style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
-                />
+                {Platform.OS === "web" ? (
+                  <TextInput
+                    value={draft.endTime}
+                    onChangeText={(t) => setDraft((d) => ({ ...d, endTime: t }))}
+                    placeholder="e.g. 9:00 PM"
+                    placeholderTextColor={colors.textDim}
+                    style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+                  />
+                ) : (
+                  <TouchableOpacity
+                    onPress={() => openTimePicker("end")}
+                    style={[styles.input, styles.timeBtn, { backgroundColor: colors.background, borderColor: colors.border }]}
+                  >
+                    <Ionicons name="time-outline" size={16} color={colors.mutedForeground} />
+                    <Text style={[styles.timeBtnText, { color: draft.endTime ? colors.foreground : colors.textDim }]} numberOfLines={1}>
+                      {draft.endTime || "Set time"}
+                    </Text>
+                    {draft.endTime ? (
+                      <TouchableOpacity onPress={() => setDraft((d) => ({ ...d, endTime: "" }))} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                        <Ionicons name="close-circle" size={18} color={colors.textDim} />
+                      </TouchableOpacity>
+                    ) : null}
+                  </TouchableOpacity>
+                )}
               </View>
             </View>
 
@@ -286,6 +373,47 @@ export function StopSheet({
         </View>
       </KeyboardAvoidingView>
     </Modal>
+
+    {Platform.OS === "ios" && timeStep !== null && (
+      <Modal visible animationType="slide" transparent onRequestClose={() => setTimeStep(null)}>
+        <View style={styles.pickerOverlay}>
+          <View style={[styles.pickerSheet, { backgroundColor: colors.card, paddingBottom: insets.bottom + 8 }]}>
+            <View style={[styles.pickerToolbar, { borderBottomColor: colors.border }]}>
+              <TouchableOpacity onPress={() => setTimeStep(null)} style={styles.pickerBtn}>
+                <Text style={[styles.pickerBtnText, { color: colors.mutedForeground }]}>Cancel</Text>
+              </TouchableOpacity>
+              <Text style={[styles.pickerTitle, { color: colors.foreground }]}>
+                {timeStep === "start" ? "Start time" : "End time"}
+              </Text>
+              <TouchableOpacity
+                onPress={() => { applyTime(timeStep, timeTmp); setTimeStep(null); }}
+                style={styles.pickerBtn}
+              >
+                <Text style={[styles.pickerBtnText, { color: colors.primary, fontWeight: "700" }]}>Done</Text>
+              </TouchableOpacity>
+            </View>
+            <DateTimePicker
+              value={timeTmp}
+              mode="time"
+              display="spinner"
+              onChange={(_, d) => { if (d) setTimeTmp(d); }}
+              themeVariant="dark"
+              style={{ width: "100%", height: 200 }}
+            />
+          </View>
+        </View>
+      </Modal>
+    )}
+
+    {Platform.OS === "android" && timeStep !== null && (
+      <DateTimePicker
+        value={timeTmp}
+        mode="time"
+        display="default"
+        onChange={handleAndroidTime}
+      />
+    )}
+    </>
   );
 }
 
@@ -301,6 +429,14 @@ const styles = StyleSheet.create({
   dayChipLabel: { fontSize: 14, fontWeight: "800" },
   dayChipSub: { fontSize: 11, marginTop: 1 },
   timeRow: { flexDirection: "row", gap: 12 },
+  timeBtn: { flexDirection: "row", alignItems: "center", gap: 8 },
+  timeBtnText: { flex: 1, fontSize: 15 },
+  pickerOverlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.45)" },
+  pickerSheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingTop: 4 },
+  pickerToolbar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, paddingHorizontal: 8, paddingVertical: 6 },
+  pickerBtn: { paddingHorizontal: 12, paddingVertical: 8 },
+  pickerBtnText: { fontSize: 16 },
+  pickerTitle: { fontSize: 15, fontWeight: "700" },
   assigneeChip: { borderRadius: 20, borderWidth: 1.5, paddingHorizontal: 14, paddingVertical: 8, maxWidth: 160 },
   assigneeChipText: { fontSize: 13, fontWeight: "700" },
   catRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
