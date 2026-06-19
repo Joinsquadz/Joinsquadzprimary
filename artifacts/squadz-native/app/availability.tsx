@@ -976,6 +976,15 @@ export default function AvailabilityScreen() {
           body: JSON.stringify({ date: friendly, ...(eventAtISO ? { eventAt: eventAtISO } : {}) }),
         });
         if (res.ok) {
+          // The event now carries the winning time — mark this poll converted so
+          // it drops out of the squad/personal "Existing" lists.
+          if (data?.poll.id) {
+            fetch(`${API_BASE}/api/availability/polls/${data.poll.id}/convert`, {
+              method: "POST",
+              headers: authHeaders(),
+              body: JSON.stringify({ eventId }),
+            }).catch(() => {});
+          }
           Alert.alert("Time locked in", `${friendly} is now the event time.`, [
             { text: "Done", onPress: () => router.back() },
           ]);
@@ -989,15 +998,45 @@ export default function AvailabilityScreen() {
       }
       return;
     }
-    // Squad / create flow → start an event prefilled with the winning slot.
+    // Squad / create flow → start an event prefilled with the winning slot. Pass
+    // the pollId so create.tsx marks the poll converted once the event is made.
     router.push({
       pathname: "/create",
       params: {
         prefillDate: friendly,
         ...(eventAtISO ? { prefillEventAt: eventAtISO } : {}),
         prefillSquad: squadId ?? "",
+        ...(data?.poll.id ? { prefillPollId: data.poll.id } : {}),
       },
     } as never);
+  };
+
+  // Creator-only: delete the poll and everyone's responses, then leave the screen.
+  const deletePoll = () => {
+    if (!data?.poll.id) return;
+    const pollIdToDelete = data.poll.id;
+    const doDelete = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/availability/polls/${pollIdToDelete}`, {
+          method: "DELETE",
+          headers: authHeaders(),
+        });
+        if (res.ok) {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          router.canGoBack() ? router.back() : router.replace("/(tabs)" as never);
+        } else if (res.status === 403) {
+          Alert.alert("Creator only", "Only the person who started this poll can delete it.");
+        } else {
+          Alert.alert("Couldn't delete", "Please try again.");
+        }
+      } catch {
+        Alert.alert("Couldn't delete", "Network error. Please try again.");
+      }
+    };
+    Alert.alert("Delete poll?", "This removes the poll and everyone's responses. This can't be undone.", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Delete", style: "destructive", onPress: () => void doDelete() },
+    ]);
   };
 
   const openRangePicker = () => {
@@ -1145,6 +1184,11 @@ export default function AvailabilityScreen() {
           {isCreator && (
             <TouchableOpacity onPress={openEditRange} style={styles.headerActionBtn} hitSlop={8}>
               <Ionicons name="calendar-outline" size={20} color={colors.primary} />
+            </TouchableOpacity>
+          )}
+          {isCreator && data && (
+            <TouchableOpacity onPress={() => deletePoll()} style={styles.headerActionBtn} hitSlop={8}>
+              <Ionicons name="trash-outline" size={20} color={colors.mutedForeground} />
             </TouchableOpacity>
           )}
         </View>

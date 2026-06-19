@@ -36,6 +36,11 @@ export const availabilityPollsTable = pgTable("availability_polls", {
   // Fire-once marker for the automatic "almost there" organizer nudge, sent when
   // most invitees have responded but the poll isn't fully answered yet.
   nudgeSentAt: timestamp("nudge_sent_at", { withTimezone: true }),
+  // When a poll is "locked in" — the host picks a time and creates an event or
+  // trip from it — we stamp the resulting event/trip id here. A non-null value
+  // marks the poll as converted: it stops appearing in the "Existing" chooser so
+  // people don't resume a poll that already became a plan.
+  convertedEventId: text("converted_event_id"),
 });
 
 // One row per (poll, user). `cells` are the selected grid keys, e.g. "Mon-8PM".

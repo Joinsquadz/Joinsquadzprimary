@@ -28,6 +28,7 @@ import { useSquadStream } from "@/hooks/useSquadStream";
 import { useDelayedFlag } from "@/hooks/useDelayedFlag";
 import { runSquadPoll, squadSignature } from "@/lib/squadLiveRefresh";
 import { useData, useAuth, type FoundUser } from "@/context/AppContext";
+import { FindTimeChooser } from "@/components/FindTimeChooser";
 import { useMutedSquads } from "@/context/MutedSquadsContext";
 import { useMessages } from "@/context/MessagesContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
@@ -62,6 +63,7 @@ export default function SquadDetailScreen() {
   const { getSquadConversation } = useMessages();
   const { authToken } = useAuth();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const [findTimeOpen, setFindTimeOpen] = useState(false);
 
   // Per-screen SSE for live status feedback (reconnecting indicator).
   // The global AppContext stream already handles data refreshes; this connection
@@ -687,7 +689,7 @@ export default function SquadDetailScreen() {
         <TouchableOpacity
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            router.push({ pathname: "/availability", params: { squadId: squad.id } } as never);
+            setFindTimeOpen(true);
           }}
           activeOpacity={0.9}
         >
@@ -928,6 +930,15 @@ export default function SquadDetailScreen() {
           )
         )}
       </ScrollView>
+
+      <FindTimeChooser
+        visible={findTimeOpen}
+        scope={{ type: "squad", squadId: squad.id }}
+        onClose={() => setFindTimeOpen(false)}
+        onStartNew={() =>
+          router.push({ pathname: "/availability", params: { squadId: squad.id, from: "create" } } as never)
+        }
+      />
 
       {/* ---- Member Profile Sheet ---- */}
       <ContactSheet

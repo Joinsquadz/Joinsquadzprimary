@@ -720,7 +720,12 @@ export class Storage {
       const [poll] = await db
         .select()
         .from(availabilityPollsTable)
-        .where(eq(availabilityPollsTable.eventId, opts.eventId))
+        .where(
+          and(
+            eq(availabilityPollsTable.eventId, opts.eventId),
+            isNull(availabilityPollsTable.convertedEventId),
+          ),
+        )
         .orderBy(desc(availabilityPollsTable.createdAt))
         .limit(1);
       return poll ?? null;
@@ -733,6 +738,7 @@ export class Storage {
           and(
             eq(availabilityPollsTable.squadId, opts.squadId),
             sql`${availabilityPollsTable.eventId} IS NULL`,
+            isNull(availabilityPollsTable.convertedEventId),
           ),
         )
         .orderBy(desc(availabilityPollsTable.createdAt))
@@ -823,6 +829,65 @@ export class Storage {
     }
 
     return updated;
+  }
+
+  /**
+   * List ACTIVE (not-yet-converted) polls for the "Existing" chooser.
+   * - squadId → all squad-scoped polls for that squad (eventId IS NULL).
+   * - createdBy (no squadId) → the caller's personal/ad-hoc polls
+   *   (squadId & eventId both NULL). Converted polls are always excluded.
+   */
+  async listAvailabilityPolls(opts: {
+    squadId?: string;
+    createdBy?: string;
+  }): Promise<AvailabilityPoll[]> {
+    const conds = [isNull(availabilityPollsTable.convertedEventId)];
+    if (opts.squadId) {
+      conds.push(eq(availabilityPollsTable.squadId, opts.squadId));
+      conds.push(sql`${availabilityPollsTable.eventId} IS NULL`);
+    } else if (opts.createdBy) {
+      conds.push(sql`${availabilityPollsTable.squadId} IS NULL`);
+      conds.push(sql`${availabilityPollsTable.eventId} IS NULL`);
+      conds.push(eq(availabilityPollsTable.createdBy, opts.createdBy));
+    } else {
+      return [];
+    }
+    return db
+      .select()
+      .from(availabilityPollsTable)
+      .where(and(...conds))
+      .orderBy(desc(availabilityPollsTable.createdAt));
+  }
+
+  /** Count responses per poll for a set of poll ids (for list summaries). */
+  async countResponsesForPolls(pollIds: string[]): Promise<Map<string, number>> {
+    const out = new Map<string, number>();
+    if (pollIds.length === 0) return out;
+    const rows = await db
+      .select({
+        pollId: availabilityResponsesTable.pollId,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(availabilityResponsesTable)
+      .where(inArray(availabilityResponsesTable.pollId, pollIds))
+      .groupBy(availabilityResponsesTable.pollId);
+    for (const r of rows) out.set(r.pollId, Number(r.count));
+    return out;
+  }
+
+  /** Hard-delete a poll. Responses and nudges cascade via FK. Creator-only
+   *  gating is enforced at the route layer. */
+  async deleteAvailabilityPoll(pollId: string): Promise<void> {
+    await db.delete(availabilityPollsTable).where(eq(availabilityPollsTable.id, pollId));
+  }
+
+  /** Mark a poll converted into a concrete event/trip so it drops out of the
+   *  "Existing" chooser. */
+  async markAvailabilityPollConverted(pollId: string, eventId: string): Promise<void> {
+    await db
+      .update(availabilityPollsTable)
+      .set({ convertedEventId: eventId })
+      .where(eq(availabilityPollsTable.id, pollId));
   }
 
   async getAvailabilityResponses(pollId: string): Promise<AvailabilityResponse[]> {

@@ -29,3 +29,17 @@ or locking by participant set breaks the share-link UX.
 **How to apply:** any new entry point that creates a poll should pass `from=create` if it must
 start fresh; ad-hoc entry must pass `adhoc:1` + `participantIds` (CSV) as route params, which
 availability.tsx forwards as `{adhoc:true, participantIds}` in the POST body.
+
+## Converted polls drop off EVERYWHERE
+
+- A poll with non-null `convertedEventId` (resolved into an event/trip) must disappear from every
+  "Existing" surface. The list route (`GET /availability/polls?squadId=|scope=personal`) already
+  filters `convertedEventId IS NULL`, but the **event-scope chooser uses `findAvailabilityPoll`**,
+  which must ALSO exclude converted rows in BOTH the eventId and squadId branches — otherwise the
+  event chooser + squad CTA preview keep showing a poll that's already been turned into an event.
+
+**Why:** locked product decision — once a poll converts, it's done and should not reappear as a
+resumable "Existing" option. Trips are events under the hood, so they convert the same way.
+
+**How to apply:** any new read path that surfaces a "current/latest poll" for a scope must filter
+out converted polls, not just rely on `eventId IS NULL` / row existence.

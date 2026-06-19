@@ -20,6 +20,7 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { useData, useAuth } from "@/context/AppContext";
+import { FindTimeChooser } from "@/components/FindTimeChooser";
 import { useUserCache } from "@/context/UserCacheContext";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { IconPicker } from "@/components/IconPicker";
@@ -103,7 +104,8 @@ export default function CreateEventScreen() {
   const { addEvent, squads } = useData();
   const { authToken } = useAuth();
   const { resolveUser } = useUserCache();
-  const prefill = useLocalSearchParams<{ prefillDate?: string; prefillEventAt?: string; prefillSquad?: string; prefillTitle?: string; prefillEmoji?: string; mode?: string; templateId?: string }>();
+  const prefill = useLocalSearchParams<{ prefillDate?: string; prefillEventAt?: string; prefillSquad?: string; prefillTitle?: string; prefillEmoji?: string; prefillPollId?: string; mode?: string; templateId?: string }>();
+  const [findTimeOpen, setFindTimeOpen] = useState(false);
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
 
@@ -269,6 +271,15 @@ export default function CreateEventScreen() {
           }
         })
         .catch(() => {});
+      // If this event/trip was created from a "Find the Best Time" poll, mark the
+      // poll converted so it drops out of the squad/personal "Existing" lists.
+      if (prefill.prefillPollId && id) {
+        fetch(`${API_BASE}/api/availability/polls/${prefill.prefillPollId}/convert`, {
+          method: "POST",
+          headers: authHeaders(),
+          body: JSON.stringify({ eventId: id }),
+        }).catch(() => {});
+      }
       resetForm();
       router.replace((kind === "trip" ? `/trip/${id}` : `/event/${id}`) as never);
     } catch (err) {
@@ -603,7 +614,7 @@ export default function CreateEventScreen() {
                 Alert.alert("Pick a squad first", "Choose a squad below so we can poll everyone's availability.");
                 return;
               }
-              router.push({ pathname: "/availability", params: { squadId: selectedSquad, from: "create" } } as never);
+              setFindTimeOpen(true);
             }}
             style={[styles.bestTimeBtn, { borderColor: colors.primary + "55", backgroundColor: colors.primary + "10" }]}
           >
@@ -758,6 +769,15 @@ export default function CreateEventScreen() {
           </TouchableOpacity>
         </View>
       </KeyboardAwareScrollViewCompat>
+
+      <FindTimeChooser
+        visible={findTimeOpen}
+        scope={{ type: "squad", squadId: selectedSquad ?? "" }}
+        onClose={() => setFindTimeOpen(false)}
+        onStartNew={() =>
+          router.push({ pathname: "/availability", params: { squadId: selectedSquad ?? "", from: "create" } } as never)
+        }
+      />
 
       <FriendPickerSheet
         visible={showInvitePicker}

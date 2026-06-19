@@ -27,6 +27,7 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useEventStream } from "@/hooks/useEventStream";
 import { useData, useAuth } from "@/context/AppContext";
+import { FindTimeChooser } from "@/components/FindTimeChooser";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { UserAvatar } from "@/components/UserAvatar";
 import { ProAvatar } from "@/components/ProAvatar";
@@ -188,6 +189,7 @@ export default function EventDetailScreen() {
   const [availabilityTitle, setAvailabilityTitle] = useState<string | null>(null);
   const [newResponseCount, setNewResponseCount] = useState(0);
   const [firstRsvpCelebration, setFirstRsvpCelebration] = useState(false);
+  const [findTimeOpen, setFindTimeOpen] = useState(false);
   const { authToken } = useAuth();
 
   // B6: the host's first "going" RSVP (from anyone but themselves) is a moment —
@@ -959,7 +961,7 @@ export default function EventDetailScreen() {
             <TouchableOpacity
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                router.push({ pathname: "/availability", params: { eventId: event.id } } as never);
+                setFindTimeOpen(true);
               }}
               style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border, flexDirection: "row", alignItems: "center", gap: 12 }]}
             >
@@ -2083,6 +2085,15 @@ export default function EventDetailScreen() {
           </View>
         </View>
       </Modal>
+
+      <FindTimeChooser
+        visible={findTimeOpen}
+        scope={{ type: "event", eventId: event.id }}
+        onClose={() => setFindTimeOpen(false)}
+        onStartNew={() =>
+          router.push({ pathname: "/availability", params: { eventId: event.id, from: "create" } } as never)
+        }
+      />
 
       <ContactSheet
         visible={contactOpen}

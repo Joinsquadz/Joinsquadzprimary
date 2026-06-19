@@ -359,6 +359,75 @@ router.post("/availability/polls", requireAuth, async (req: Request, res: Respon
   }
 });
 
+const ListPollsQuery = z
+  .object({
+    squadId: z.string().optional(),
+    // "personal" → the caller's own ad-hoc polls (no squad, no event).
+    scope: z.enum(["personal"]).optional(),
+  })
+  .refine((d) => d.squadId || d.scope === "personal", {
+    message: "squadId or scope=personal is required",
+  });
+
+/**
+ * GET /api/availability/polls?squadId=  | ?scope=personal
+ * List ACTIVE (un-converted) polls for the New/Existing chooser. Squad scope is
+ * gated on squad membership; personal scope returns only the caller's own
+ * ad-hoc polls. Returns lightweight summaries (no heatmap).
+ */
+router.get("/availability/polls", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req.user as { id: string }).id;
+    const parsed = ListPollsQuery.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+    const { squadId, scope } = parsed.data;
+
+    let squadMemberCount = 0;
+    if (squadId) {
+      const member = await storage.canAccessAvailabilityPoll(
+        { squadId, eventId: null, createdBy: "" } as AvailabilityPoll,
+        userId,
+      );
+      if (!member) {
+        res.status(403).json({ error: "Not a member of this squad" });
+        return;
+      }
+      const squad = await storage.getSquad(squadId);
+      squadMemberCount = ((squad?.memberIds ?? []) as string[]).length;
+    }
+
+    const polls = squadId
+      ? await storage.listAvailabilityPolls({ squadId })
+      : await storage.listAvailabilityPolls({ createdBy: userId });
+
+    const counts = await storage.countResponsesForPolls(polls.map((p) => p.id));
+
+    const summaries = polls.map((p) => ({
+      id: p.id,
+      title: p.title,
+      squadId: p.squadId,
+      days: p.days,
+      slots: p.slots,
+      respondentCount: counts.get(p.id) ?? 0,
+      memberCount: p.squadId
+        ? squadMemberCount
+        : ((p.participantIds as string[] | null) ?? []).length,
+      createdBy: p.createdBy,
+      mine: p.createdBy === userId,
+      createdAt: p.createdAt?.toISOString() ?? null,
+      updatedAt: p.updatedAt?.toISOString() ?? null,
+    }));
+
+    res.json({ polls: summaries });
+  } catch (err) {
+    logger.error({ err }, "Error listing availability polls");
+    res.status(500).json({ error: "Failed to list polls" });
+  }
+});
+
 /**
  * GET /api/availability/polls/find?squadId=&eventId=
  * Look up the latest poll for a scope. Returns 404 if none exists yet.
@@ -428,6 +497,66 @@ router.get("/availability/polls/:id", requireAuth, async (req: Request, res: Res
   } catch (err) {
     logger.error({ err }, "Error fetching availability poll");
     res.status(500).json({ error: "Failed to fetch poll" });
+  }
+});
+
+/**
+ * DELETE /api/availability/polls/:id
+ * Permanently delete a poll. Only the poll creator may call this. Responses and
+ * nudges cascade-delete via FK.
+ */
+router.delete("/availability/polls/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req.user as { id: string }).id;
+    const poll = await storage.getAvailabilityPoll(parseId(req.params.id));
+    if (!poll) {
+      res.status(404).json({ error: "Poll not found" });
+      return;
+    }
+    if (poll.createdBy !== userId) {
+      res.status(403).json({ error: "Only the poll creator can delete this poll" });
+      return;
+    }
+    await storage.deleteAvailabilityPoll(poll.id);
+    res.json({ ok: true });
+    // Notify any connected watchers; their next refetch will 404 and they'll exit.
+    emitPollUpdate(poll.id);
+  } catch (err) {
+    logger.error({ err }, "Error deleting availability poll");
+    res.status(500).json({ error: "Failed to delete poll" });
+  }
+});
+
+const ConvertPollBody = z.object({ eventId: z.string().min(1).max(120) });
+
+/**
+ * POST /api/availability/polls/:id/convert
+ * Mark a poll as "locked in" — it became the event/trip identified by eventId.
+ * Only the poll creator may call this. A converted poll drops out of the
+ * New/Existing chooser. Idempotent: re-converting just re-stamps the id.
+ */
+router.post("/availability/polls/:id/convert", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req.user as { id: string }).id;
+    const poll = await storage.getAvailabilityPoll(parseId(req.params.id));
+    if (!poll) {
+      res.status(404).json({ error: "Poll not found" });
+      return;
+    }
+    if (poll.createdBy !== userId) {
+      res.status(403).json({ error: "Only the poll creator can convert this poll" });
+      return;
+    }
+    const parsed = ConvertPollBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+    await storage.markAvailabilityPollConverted(poll.id, parsed.data.eventId);
+    res.json({ ok: true, convertedEventId: parsed.data.eventId });
+  } catch (err) {
+    logger.error({ err }, "Error converting availability poll");
+    res.status(500).json({ error: "Failed to convert poll" });
   }
 });
 
