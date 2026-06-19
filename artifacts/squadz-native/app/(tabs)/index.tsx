@@ -21,6 +21,7 @@ import { useColors } from "@/hooks/useColors";
 import { useAuth, useData, SquadLimitError } from "@/context/AppContext";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { EventCard } from "@/components/EventCard";
+import { TripCard } from "@/components/TripCard";
 import { SkeletonBox } from "@/components/SkeletonBox";
 import { goingCount } from "@/lib/eventUtils";
 import { useUserCache } from "@/context/UserCacheContext";
@@ -465,7 +466,7 @@ export default function HomeScreen() {
         ) : upNext ? (
           <View style={styles.section}>
             <TouchableOpacity
-              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push(`/event/${upNext.id}`); }}
+              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push(upNext.type === "trip" ? `/trip/${upNext.id}` : `/event/${upNext.id}`); }}
               activeOpacity={0.92}
             >
               <LinearGradient
@@ -642,16 +643,22 @@ export default function HomeScreen() {
             keyExtractor={(e) => e.id}
             contentContainerStyle={{ gap: 12, paddingRight: 20 }}
             renderItem={({ item }) => (
-              <EventCard
-                id={item.id}
-                emoji={item.emoji}
-                title={item.title}
-                date={item.date}
-                location={item.location}
-                hostId={item.hostId}
-                attendeeCount={goingCount(item)}
-                horizontal
-              />
+              item.type === "trip" ? (
+                <View style={{ width: 260 }}>
+                  <TripCard trip={item} />
+                </View>
+              ) : (
+                <EventCard
+                  id={item.id}
+                  emoji={item.emoji}
+                  title={item.title}
+                  date={item.date}
+                  location={item.location}
+                  hostId={item.hostId}
+                  attendeeCount={goingCount(item)}
+                  horizontal
+                />
+              )
             )}
           />
         </View>
