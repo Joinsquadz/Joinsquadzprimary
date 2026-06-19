@@ -42,10 +42,15 @@ const queryClient = new QueryClient();
 const AUTH_SCREENS = ["login", "signup", "onboarding", "invite", "add"];
 
 function AuthGuard() {
-  const { isLoggedIn, pendingOnboarding } = useAuth();
+  const { isLoggedIn, isAuthRestoring, pendingOnboarding } = useAuth();
   const segments = useSegments();
 
   useEffect(() => {
+    // Wait for the AsyncStorage token restore to finish before making any
+    // routing decisions. Without this guard, the first render (isLoggedIn=false)
+    // would always redirect to /login before the stored session is checked.
+    if (isAuthRestoring) return;
+
     const isOnAuthScreen = AUTH_SCREENS.includes(segments[0] as string);
     // The public-squad preview is reachable by logged-out friends via a shared
     // deep-link, so it must be allowed even when unauthenticated. The screen

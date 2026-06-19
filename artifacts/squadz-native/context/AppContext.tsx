@@ -142,6 +142,10 @@ type AuthResult = { ok: boolean; error?: string };
 
 type AppContextType = {
   isLoggedIn: boolean;
+  /** True while the startup AsyncStorage check is still running. AuthGuard must
+   *  not redirect until this is false — otherwise the login screen flashes
+   *  briefly on every cold start even for users who are already logged in. */
+  isAuthRestoring: boolean;
   pendingOnboarding: boolean;
   currentUser: typeof ME;
   inviteCtx: InviteCtx | null;
@@ -229,6 +233,7 @@ const INITIAL_FRIENDS: string[] = [];
 
 const AppContext = createContext<AppContextType>({
   isLoggedIn: false,
+  isAuthRestoring: true,
   pendingOnboarding: false,
   currentUser: ME,
   inviteCtx: null,
@@ -346,6 +351,8 @@ function dbSquadToSquad(s: Record<string, unknown>): Squad {
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const { showToast } = useToast();
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  // True until the startup AsyncStorage token check has settled (found or not).
+  const [isAuthRestoring, setIsAuthRestoring] = useState(true);
   // True when a token exists but onboarding was never finished (registered then
   // closed the app). AuthGuard routes these users back into onboarding.
   const [pendingOnboarding, setPendingOnboarding] = useState(false);
@@ -786,7 +793,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           if (rt) refreshTokenRef.current = rt;
         }).catch(() => {});
       }
-    }).catch(() => {});
+    }).catch(() => {}).finally(() => {
+      // Signal AuthGuard that it is now safe to make routing decisions. Until
+      // this fires, AuthGuard holds off redirecting so a stored session token
+      // is honoured and the login screen never flashes on a warm relaunch.
+      setIsAuthRestoring(false);
+    });
   }, [fetchApiUser]);
 
   const refreshUser = useCallback(async () => {
@@ -1954,6 +1966,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo(
     () => ({
       isLoggedIn,
+      isAuthRestoring,
       pendingOnboarding,
       currentUser,
       inviteCtx,
@@ -2019,6 +2032,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }),
     [
       isLoggedIn,
+      isAuthRestoring,
       pendingOnboarding,
       currentUser,
       inviteCtx,
