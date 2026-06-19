@@ -175,6 +175,41 @@ describe("POST /api/events/:id/itinerary — add a stop", () => {
     expect(res.status).toBe(409);
     expect(res.body.conflict).toBe(true);
   });
+
+  // ── Cost-split spoofing: paidById/assigneeId must be a trip participant ──
+  // The squad members are HOST_ID + MEMBER_ID; STRANGER_ID is not on the trip.
+
+  it("accepts paidById/assigneeId that reference a current trip participant", async () => {
+    const app = makeApp({ id: HOST_ID });
+    const res = await request(app)
+      .post("/api/events/evt-1/itinerary")
+      .send({ ...body, cost: 40, paidById: MEMBER_ID, assigneeId: HOST_ID });
+    expect(res.status).toBe(200);
+  });
+
+  it("rejects a paidById that isn't a trip participant", async () => {
+    const app = makeApp({ id: HOST_ID });
+    const res = await request(app)
+      .post("/api/events/evt-1/itinerary")
+      .send({ ...body, cost: 40, paidById: STRANGER_ID });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects an assigneeId that isn't a trip participant", async () => {
+    const app = makeApp({ id: HOST_ID });
+    const res = await request(app)
+      .post("/api/events/evt-1/itinerary")
+      .send({ ...body, cost: 40, assigneeId: STRANGER_ID });
+    expect(res.status).toBe(400);
+  });
+
+  it("allows clearing the money fields with null", async () => {
+    const app = makeApp({ id: HOST_ID });
+    const res = await request(app)
+      .post("/api/events/evt-1/itinerary")
+      .send({ ...body, cost: null, paidById: null, assigneeId: null });
+    expect(res.status).toBe(200);
+  });
 });
 
 // ─── Edit itinerary stop ──────────────────────────────────────────────────────
@@ -227,6 +262,40 @@ describe("PATCH /api/events/:id/itinerary/:stopId — edit a stop", () => {
     const res = await request(app).patch("/api/events/evt-1/itinerary/s1").send(body);
     expect(res.status).toBe(409);
     expect(res.body.conflict).toBe(true);
+  });
+
+  // ── Cost-split spoofing on edit: paidById/assigneeId must be a participant ──
+
+  it("accepts editing money fields to a current trip participant", async () => {
+    const app = makeApp({ id: MEMBER_ID });
+    const res = await request(app)
+      .patch("/api/events/evt-1/itinerary/s1")
+      .send({ cost: 25, paidById: HOST_ID, assigneeId: MEMBER_ID, version: 0 });
+    expect(res.status).toBe(200);
+  });
+
+  it("rejects editing paidById to a non-participant", async () => {
+    const app = makeApp({ id: MEMBER_ID });
+    const res = await request(app)
+      .patch("/api/events/evt-1/itinerary/s1")
+      .send({ paidById: STRANGER_ID, version: 0 });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects editing assigneeId to a non-participant", async () => {
+    const app = makeApp({ id: MEMBER_ID });
+    const res = await request(app)
+      .patch("/api/events/evt-1/itinerary/s1")
+      .send({ assigneeId: STRANGER_ID, version: 0 });
+    expect(res.status).toBe(400);
+  });
+
+  it("allows clearing money fields to null on edit", async () => {
+    const app = makeApp({ id: MEMBER_ID });
+    const res = await request(app)
+      .patch("/api/events/evt-1/itinerary/s1")
+      .send({ cost: null, paidById: null, assigneeId: null, version: 0 });
+    expect(res.status).toBe(200);
   });
 });
 

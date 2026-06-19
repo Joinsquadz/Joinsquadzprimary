@@ -1444,6 +1444,29 @@ function ensureTripEvent(existing: { type?: string | null }, res: Response): boo
   return true;
 }
 
+// A stop's money fields (paidById/assigneeId) attribute a payment/owed amount to
+// a user, so — like event costs — they may only reference a legitimate trip
+// participant. Otherwise a member could spoof a debt onto someone who isn't on
+// the trip. null/unset clears the field and is always allowed.
+async function ensureStopParticipants(
+  existing: typeof eventsTable.$inferSelect,
+  fields: { paidById?: string | null; assigneeId?: string | null },
+  res: Response,
+): Promise<boolean> {
+  const refs = [fields.paidById, fields.assigneeId].filter(
+    (v): v is string => typeof v === "string" && v.length > 0,
+  );
+  if (refs.length === 0) return true;
+  const allowed = await allowedParticipantIds(existing);
+  for (const ref of refs) {
+    if (!allowed.has(ref)) {
+      res.status(400).json({ error: "Cost fields must reference a member of this trip" });
+      return false;
+    }
+  }
+  return true;
+}
+
 router.post("/events/:id/itinerary", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const id = parseId(req.params.id);
   const userId = (req.user as { id: string }).id;
@@ -1455,6 +1478,7 @@ router.post("/events/:id/itinerary", requireAuth, async (req: Request, res: Resp
   const existing = await getEventAsMember(id, userId, res);
   if (!existing) return;
   if (!ensureTripEvent(existing, res)) return;
+  if (!(await ensureStopParticipants(existing, parsed.data, res))) return;
   const { version: clientVersion, day, ...rest } = parsed.data;
   const current = (existing.itinerary ?? []) as ItineraryStop[];
   // Order new stops after the last stop already on that day.
@@ -1507,6 +1531,7 @@ router.patch("/events/:id/itinerary/:stopId", requireAuth, async (req: Request, 
   const existing = await getEventAsMember(id, userId, res);
   if (!existing) return;
   if (!ensureTripEvent(existing, res)) return;
+  if (!(await ensureStopParticipants(existing, parsed.data, res))) return;
   const { version: clientVersion, cost, ...stopFields } = parsed.data;
   const current = (existing.itinerary ?? []) as ItineraryStop[];
   if (!current.some((s) => s.id === stopId)) {
