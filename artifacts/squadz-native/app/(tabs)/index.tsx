@@ -108,8 +108,16 @@ export default function HomeScreen() {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [fabOpen, setFabOpen] = useState(false);
   const [pickerMode, setPickerMode] = useState<
-    "find-time" | "invite" | "invite-choose" | "invite-link" | null
+    "find-time" | "find-time-kind" | "invite" | "invite-choose" | "invite-link" | null
   >(null);
+  // After "Find a time", the user first picks Event vs Trip. We remember which
+  // target they tapped (a brand-new ad-hoc plan, or a specific squad) so the
+  // kind choice can route into the right flow. Events are day + time-slot
+  // focused; trips are date-range focused.
+  const [kindTarget, setKindTarget] = useState<
+    { type: "newplan" } | { type: "squad"; squadId: string } | null
+  >(null);
+  const [planKind, setPlanKind] = useState<"event" | "trip">("event");
   // The actual invite message + link to reveal, so the user can always read,
   // select, copy, or share it — even in the web preview where the native Share
   // sheet and clipboard API are blocked by the cross-origin iframe.
@@ -262,27 +270,46 @@ export default function HomeScreen() {
     setPickerMode("find-time");
   };
 
-  // Start a brand-new squad-scoped poll (from=create → forceNew on the server).
+  // Start a brand-new squad-scoped poll: first ask Event vs Trip, then route.
   const startSquadPoll = (squadId: string) => {
-    setPickerMode(null);
-    router.push({ pathname: "/availability", params: { squadId, from: "create" } } as never);
+    setKindTarget({ type: "squad", squadId });
+    setPickerMode("find-time-kind");
   };
 
-  // Open the participant picker for an ad-hoc plan that isn't tied to a squad.
+  // "New plan — pick people": ask Event vs Trip first, then pick the crew.
   const startNewPlan = () => {
+    setKindTarget({ type: "newplan" });
+    setPickerMode("find-time-kind");
+  };
+
+  // The user picked Event or Trip. Route into the appropriate flow: squad polls
+  // jump straight to the availability board; an ad-hoc "new plan" first opens the
+  // participant picker (its launch carries the chosen kind through).
+  const chooseKind = (kind: "event" | "trip") => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const target = kindTarget;
     setPickerMode(null);
+    setKindTarget(null);
+    if (target?.type === "squad") {
+      router.push({
+        pathname: "/availability",
+        params: { squadId: target.squadId, from: "create", kind },
+      } as never);
+      return;
+    }
+    setPlanKind(kind);
     setSelectedParticipants(new Set());
     setTimeout(() => setParticipantSheetOpen(true), Platform.OS === "ios" ? 350 : 0);
   };
 
-  // Launch the ad-hoc availability poll with the chosen invitees.
+  // Launch the ad-hoc availability poll with the chosen invitees + plan kind.
   const launchParticipantPoll = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setParticipantSheetOpen(false);
     const csv = [...selectedParticipants].join(",");
     router.push({
       pathname: "/availability",
-      params: { from: "create", adhoc: "1", participantIds: csv },
+      params: { from: "create", adhoc: "1", participantIds: csv, kind: planKind },
     } as never);
   };
 
@@ -979,6 +1006,45 @@ export default function HomeScreen() {
                   <Ionicons name="chevron-forward" size={18} color={colors.mutedForeground} />
                 </TouchableOpacity>
               ))}
+            </>
+          ) : pickerMode === "find-time-kind" ? (
+            <>
+              <Text style={[styles.pickerTitle, { color: colors.foreground }]}>What are you planning?</Text>
+              <Text style={[styles.pickerSub, { color: colors.mutedForeground }]}>
+                Pick the kind of plan and we'll set up the right way to find a time.
+              </Text>
+              <TouchableOpacity
+                style={[styles.pickerRow, { borderBottomColor: colors.border }]}
+                onPress={() => chooseKind("event")}
+                activeOpacity={0.8}
+              >
+                <View style={[styles.pickerSquadEmoji, { backgroundColor: colors.primary + "20" }]}>
+                  <Ionicons name="calendar" size={20} color={colors.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.pickerSquadName, { color: colors.foreground }]}>Event</Text>
+                  <Text style={[styles.pickerSquadCount, { color: colors.mutedForeground }]}>
+                    Pick a day and the time slots that work
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.mutedForeground} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.pickerRow, { borderBottomColor: colors.border }]}
+                onPress={() => chooseKind("trip")}
+                activeOpacity={0.8}
+              >
+                <View style={[styles.pickerSquadEmoji, { backgroundColor: colors.primary + "20" }]}>
+                  <Ionicons name="airplane" size={20} color={colors.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.pickerSquadName, { color: colors.foreground }]}>Trip</Text>
+                  <Text style={[styles.pickerSquadCount, { color: colors.mutedForeground }]}>
+                    Find the date range everyone's free
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.mutedForeground} />
+              </TouchableOpacity>
             </>
           ) : pickerMode === "invite-link" ? (
             <>

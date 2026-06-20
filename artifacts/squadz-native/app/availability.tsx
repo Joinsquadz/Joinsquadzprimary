@@ -45,6 +45,10 @@ const ALL_SLOT_OPTIONS: string[] = [
   "6PM","7PM","8PM","9PM","10PM","11PM",
 ];
 const DEFAULT_SLOTS: string[] = ["6PM","7PM","8PM","9PM","10PM"];
+// Trip polls are date-range focused: a single "All day" slot collapses the grid
+// to one per-day toggle so people just mark which dates they can travel.
+const TRIP_SLOT = "All day";
+const TRIP_SLOTS: string[] = [TRIP_SLOT];
 
 const SLOT_PERIODS = [
   { label: "Night",     slots: ["12AM","1AM","2AM","3AM","4AM","5AM"] as string[] },
@@ -214,7 +218,7 @@ export default function AvailabilityScreen() {
   const navigation = useNavigation();
   const { authToken, currentUser } = useAuth();
   const { showBanner } = useToastBanner();
-  const params = useLocalSearchParams<{ squadId?: string; eventId?: string; pollId?: string; from?: string; adhoc?: string; participantIds?: string }>();
+  const params = useLocalSearchParams<{ squadId?: string; eventId?: string; pollId?: string; from?: string; adhoc?: string; participantIds?: string; kind?: string }>();
   const squadId = params.squadId || undefined;
   const eventId = params.eventId || undefined;
   const pollId = params.pollId || undefined;
@@ -229,6 +233,10 @@ export default function AvailabilityScreen() {
   // we always start a fresh poll setup rather than reloading the squad's last
   // (possibly abandoned) board.
   const fromCreate = params.from === "create";
+  // Trip vs Event: events are day + time-slot focused; trips are date-range
+  // focused (a single "All day" slot, so the grid collapses to a per-day toggle).
+  const pollKind: "trip" | "event" = params.kind === "trip" ? "trip" : "event";
+  const isTrip = pollKind === "trip";
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
@@ -610,7 +618,7 @@ export default function AvailabilityScreen() {
     setError(null);
     try {
       const days = computeRange(rangeStart, rangeDays);
-      const slots = ALL_SLOT_OPTIONS.filter(s => selectedSlots.has(s));
+      const slots = isTrip ? TRIP_SLOTS : ALL_SLOT_OPTIONS.filter(s => selectedSlots.has(s));
       const scope: Record<string, unknown> = adhoc
         ? { adhoc: true, participantIds }
         : squadId
@@ -641,7 +649,7 @@ export default function AvailabilityScreen() {
     } finally {
       setCreating(false);
     }
-  }, [authHeaders, squadId, eventId, adhoc, fromCreate, params.participantIds, pollTitle, rangeStart, rangeDays, selectedSlots]);
+  }, [authHeaders, squadId, eventId, adhoc, fromCreate, isTrip, params.participantIds, pollTitle, rangeStart, rangeDays, selectedSlots]);
 
   // Silently re-fetches the poll and updates the heatmap + best-time card.
   // The user's own unsaved picks (mySet) are only synced when there are no
@@ -1240,9 +1248,13 @@ export default function AvailabilityScreen() {
                 <View style={styles.heroIcon}>
                   <Ionicons name="sparkles" size={22} color="#fff" />
                 </View>
-                <Text style={styles.setupHeroTitle}>Find the time that works for everyone</Text>
+                <Text style={styles.setupHeroTitle}>
+                  {isTrip ? "Find the dates that work for everyone" : "Find the time that works for everyone"}
+                </Text>
                 <Text style={styles.setupHeroSub}>
-                  Set a date range, everyone taps when they're free, and we surface the best time automatically.
+                  {isTrip
+                    ? "Set a date range, everyone marks the days they're free, and we surface the best dates automatically."
+                    : "Set a date range, everyone taps when they're free, and we surface the best time automatically."}
                 </Text>
               </LinearGradient>
             </View>
@@ -1316,53 +1328,57 @@ export default function AvailabilityScreen() {
               })}
             </View>
 
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-              <Text style={[styles.setupLabel, { color: colors.mutedForeground, marginBottom: 0 }]}>Time slots</Text>
-              <Text style={[styles.chipText, { color: colors.mutedForeground }]}>{selectedSlots.size} selected</Text>
-            </View>
-            <View style={[styles.chipRow, { marginBottom: 8 }]}>
-              {SLOT_PERIODS.map((p) => (
-                <TouchableOpacity
-                  key={p.label}
-                  onPress={() => { stampInteraction(); Haptics.selectionAsync(); setSlotPeriod(p.label); }}
-                  style={[styles.chip, { backgroundColor: slotPeriod === p.label ? colors.primary : colors.card, borderColor: slotPeriod === p.label ? colors.primary : colors.border }]}
-                >
-                  <Text style={[styles.chipText, { color: slotPeriod === p.label ? "#fff" : colors.foreground }]}>{p.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            <View style={styles.chipRow}>
-              {(SLOT_PERIODS.find(p => p.label === slotPeriod)?.slots ?? SLOT_PERIODS[3].slots).map((s) => {
-                const active = selectedSlots.has(s);
-                return (
-                  <TouchableOpacity
-                    key={s}
-                    onPress={() => {
-                      stampInteraction();
-                      Haptics.selectionAsync();
-                      setSelectedSlots((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(s)) {
-                          if (next.size > 1) next.delete(s);
-                        } else {
-                          next.add(s);
-                        }
-                        return next;
-                      });
-                    }}
-                    style={[
-                      styles.chip,
-                      {
-                        backgroundColor: active ? colors.primary : colors.card,
-                        borderColor: active ? colors.primary : colors.border,
-                      },
-                    ]}
-                  >
-                    <Text style={[styles.chipText, { color: active ? "#fff" : colors.foreground }]}>{s}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+            {isTrip ? null : (
+              <>
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                  <Text style={[styles.setupLabel, { color: colors.mutedForeground, marginBottom: 0 }]}>Time slots</Text>
+                  <Text style={[styles.chipText, { color: colors.mutedForeground }]}>{selectedSlots.size} selected</Text>
+                </View>
+                <View style={[styles.chipRow, { marginBottom: 8 }]}>
+                  {SLOT_PERIODS.map((p) => (
+                    <TouchableOpacity
+                      key={p.label}
+                      onPress={() => { stampInteraction(); Haptics.selectionAsync(); setSlotPeriod(p.label); }}
+                      style={[styles.chip, { backgroundColor: slotPeriod === p.label ? colors.primary : colors.card, borderColor: slotPeriod === p.label ? colors.primary : colors.border }]}
+                    >
+                      <Text style={[styles.chipText, { color: slotPeriod === p.label ? "#fff" : colors.foreground }]}>{p.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <View style={styles.chipRow}>
+                  {(SLOT_PERIODS.find(p => p.label === slotPeriod)?.slots ?? SLOT_PERIODS[3].slots).map((s) => {
+                    const active = selectedSlots.has(s);
+                    return (
+                      <TouchableOpacity
+                        key={s}
+                        onPress={() => {
+                          stampInteraction();
+                          Haptics.selectionAsync();
+                          setSelectedSlots((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(s)) {
+                              if (next.size > 1) next.delete(s);
+                            } else {
+                              next.add(s);
+                            }
+                            return next;
+                          });
+                        }}
+                        style={[
+                          styles.chip,
+                          {
+                            backgroundColor: active ? colors.primary : colors.card,
+                            borderColor: active ? colors.primary : colors.border,
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.chipText, { color: active ? "#fff" : colors.foreground }]}>{s}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </>
+            )}
 
             <View style={[styles.previewCard, { backgroundColor: colors.primary + "18", borderColor: colors.primary + "44" }]}>
               <Ionicons name="time-outline" size={16} color={colors.primary} />
@@ -1423,7 +1439,9 @@ export default function AvailabilityScreen() {
             showsVerticalScrollIndicator={false}
           >
             <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
-              Tap the times you're free — tap again to clear. Long-press a slot to see who's free. We'll highlight when the most people can make it.
+              {data.poll.slots.length === 1 && data.poll.slots[0] === TRIP_SLOT
+                ? "Tap the dates you're free — tap again to clear. Long-press a date to see who's free. We'll highlight when the most people can go."
+                : "Tap the times you're free — tap again to clear. Long-press a slot to see who's free. We'll highlight when the most people can make it."}
             </Text>
 
             {rangeUpdatedVisible && (
@@ -2026,7 +2044,11 @@ export default function AvailabilityScreen() {
               <TouchableOpacity onPress={() => void useThisTime()} style={[styles.secondaryBtn, { borderColor: colors.primary, backgroundColor: colors.primary + "14" }]}>
                 <Ionicons name={eventId ? "checkmark-circle-outline" : "calendar-outline"} size={18} color={colors.primary} />
                 <Text style={[styles.secondaryBtnText, { color: colors.primary }]}>
-                  {eventId ? `Use ${prettyCell(data.best.cell)}` : "Create event at best time"}
+                  {eventId
+                    ? `Use ${prettyCell(data.best.cell)}`
+                    : data.poll.slots.length === 1 && data.poll.slots[0] === TRIP_SLOT
+                      ? "Lock in the best dates"
+                      : "Create event at best time"}
                 </Text>
               </TouchableOpacity>
             )}
@@ -2319,52 +2341,56 @@ export default function AvailabilityScreen() {
                 })}
               </View>
 
-              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                <Text style={[styles.setupLabel, { color: colors.mutedForeground, marginBottom: 0 }]}>Time slots</Text>
-                <Text style={[styles.chipText, { color: colors.mutedForeground }]}>{editSlots.size} selected</Text>
-              </View>
-              <View style={[styles.chipRow, { marginBottom: 8 }]}>
-                {SLOT_PERIODS.map((p) => (
-                  <TouchableOpacity
-                    key={p.label}
-                    onPress={() => { Haptics.selectionAsync(); setEditSlotPeriod(p.label); }}
-                    style={[styles.chip, { backgroundColor: editSlotPeriod === p.label ? colors.primary : colors.card, borderColor: editSlotPeriod === p.label ? colors.primary : colors.border }]}
-                  >
-                    <Text style={[styles.chipText, { color: editSlotPeriod === p.label ? "#fff" : colors.foreground }]}>{p.label}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-              <View style={styles.chipRow}>
-                {(SLOT_PERIODS.find(p => p.label === editSlotPeriod)?.slots ?? SLOT_PERIODS[3].slots).map((s) => {
-                  const active = editSlots.has(s);
-                  return (
-                    <TouchableOpacity
-                      key={s}
-                      onPress={() => {
-                        Haptics.selectionAsync();
-                        setEditSlots((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(s)) {
-                            if (next.size > 1) next.delete(s);
-                          } else {
-                            next.add(s);
-                          }
-                          return next;
-                        });
-                      }}
-                      style={[
-                        styles.chip,
-                        {
-                          backgroundColor: active ? colors.primary : colors.card,
-                          borderColor: active ? colors.primary : colors.border,
-                        },
-                      ]}
-                    >
-                      <Text style={[styles.chipText, { color: active ? "#fff" : colors.foreground }]}>{s}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
+              {data && data.poll.slots.length === 1 && data.poll.slots[0] === TRIP_SLOT ? null : (
+                <>
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                    <Text style={[styles.setupLabel, { color: colors.mutedForeground, marginBottom: 0 }]}>Time slots</Text>
+                    <Text style={[styles.chipText, { color: colors.mutedForeground }]}>{editSlots.size} selected</Text>
+                  </View>
+                  <View style={[styles.chipRow, { marginBottom: 8 }]}>
+                    {SLOT_PERIODS.map((p) => (
+                      <TouchableOpacity
+                        key={p.label}
+                        onPress={() => { Haptics.selectionAsync(); setEditSlotPeriod(p.label); }}
+                        style={[styles.chip, { backgroundColor: editSlotPeriod === p.label ? colors.primary : colors.card, borderColor: editSlotPeriod === p.label ? colors.primary : colors.border }]}
+                      >
+                        <Text style={[styles.chipText, { color: editSlotPeriod === p.label ? "#fff" : colors.foreground }]}>{p.label}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  <View style={styles.chipRow}>
+                    {(SLOT_PERIODS.find(p => p.label === editSlotPeriod)?.slots ?? SLOT_PERIODS[3].slots).map((s) => {
+                      const active = editSlots.has(s);
+                      return (
+                        <TouchableOpacity
+                          key={s}
+                          onPress={() => {
+                            Haptics.selectionAsync();
+                            setEditSlots((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(s)) {
+                                if (next.size > 1) next.delete(s);
+                              } else {
+                                next.add(s);
+                              }
+                              return next;
+                            });
+                          }}
+                          style={[
+                            styles.chip,
+                            {
+                              backgroundColor: active ? colors.primary : colors.card,
+                              borderColor: active ? colors.primary : colors.border,
+                            },
+                          ]}
+                        >
+                          <Text style={[styles.chipText, { color: active ? "#fff" : colors.foreground }]}>{s}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </>
+              )}
 
               <View style={[styles.previewCard, { backgroundColor: colors.primary + "18", borderColor: colors.primary + "44" }]}>
                 <Ionicons name="time-outline" size={16} color={colors.primary} />

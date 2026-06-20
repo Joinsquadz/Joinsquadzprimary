@@ -57,3 +57,20 @@ out converted polls, not just rely on `eventId IS NULL` / row existence.
 
 **Why:** user decision — a "find a time" poll is generic; whether it becomes a one-off event or a
 multi-day trip is only known when you lock in the best time.
+
+## Trip vs Event is ALSO chosen UP FRONT at the Home "New plan" entry
+
+- Home "Find a time" → New plan (and each squad row) first opens an Event/Trip chooser
+  (`pickerMode "find-time-kind"`), then routes to `/availability` with a `kind` param.
+- availability.tsx reads `kind`: `pollKind/isTrip`. A **trip poll is created with a single slot
+  `["All day"]` (`TRIP_SLOT`/`TRIP_SLOTS`)** so the day×slot grid collapses to one per-day toggle —
+  that IS the "date-range focused" UX. Events keep selectable time slots.
+- Detect a trip poll AT VIEW TIME from the loaded poll, NOT the URL param (param is absent when a
+  trip poll is reopened via link/list): `poll.slots.length === 1 && poll.slots[0] === "All day"`.
+  Used to hide the setup + edit "Time slots" sections and to swap "times"→"dates" copy.
+- This up-front kind is independent of the lock-in chooser above; both still exist (entry picks the
+  poll's grid shape; lock-in picks what the resolved poll converts into).
+
+**Why:** user asked trips be date-range focused and events day+time-slot focused, decided before the
+poll is built. Single all-day slot reuses the whole existing grid/best-time/convert machinery with
+no schema change.
