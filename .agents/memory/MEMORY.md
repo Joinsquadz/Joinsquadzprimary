@@ -2,6 +2,7 @@
 - [stripe-replit-sync bundling](stripe-replit-sync-bundling.md) — externalize "stripe-replit-sync" in build.mjs + pass logger to runMigrations, else stripe.* tables (accounts) missing & sync half-works.
 - [Squadz design parity](squadz-design-parity.md) — web app is the visual source of truth; mobile mirrors it via SquadzIcon SVG + GradientButton, not PNG logo / flat buttons.
 - [Squadz auth flow invariants](squadz-auth-flow.md) — register must NOT flip isLoggedIn (onboarding's login() does); email confirm is non-blocking; never log raw token URLs in prod; leave /api/auth/user untouched (mobile uses /api/auth/me).
+- [Supabase password reset](supabase-password-reset.md) — don't use recovery action_link/redirectTo (silently falls back to Site URL localhost:3000); use generateLink hashed_token + server verifyOtp; "wrong password" on healthy user = real credential mismatch, prove via admin-set + direct login.
 - [Expo native modules](expo-native-modules.md) — pin expo-* to bundledNativeModules.json version (some were mis-pinned for SDK 54); dynamic-import no-web modules behind a Platform.OS web guard.
 - [RN-web Alert no-op](rn-web-alert.md) — `Alert.alert` does nothing in react-native-web; squadz-native patches it web-only in `lib/webAlert.ts` (installed from `app/_layout.tsx`). Dead alert buttons in the web preview are usually this, not broken screen logic.
 - [OIDC web iframe](oidc-web-iframe.md) — Replit-OIDC web sign-in can't complete in the canvas iframe (blocked storage + framed IdP); detect embedded, open standalone tab.
