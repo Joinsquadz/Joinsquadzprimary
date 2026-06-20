@@ -855,15 +855,126 @@ router.post("/auth/forgot-password", async (req: Request, res: Response) => {
       .select()
       .from(usersTable)
       .where(eq(usersTable.email, email));
-    if (user && user.passwordHash && user.email) {
-      const raw = await issueAuthToken(user.id, "password_reset", PASSWORD_RESET_TTL_MS);
-      const resetUrl = `${getOrigin(req)}/api/auth/reset-password?token=${raw}`;
-      try {
-        await sendPasswordResetEmail({ toEmail: user.email, resetUrl });
-      } catch (err) {
-        req.log.error({ err }, "Failed to send password reset email");
+    if (user && user.email) {
+      if (supabaseAdmin && !user.passwordHash) {
+        // Supabase Auth user — generate a recovery link and send it via our email service.
+        try {
+          const redirectTo = `${getOrigin(req)}/api/auth/reset-supabase`;
+          const { data: linkData, error: linkErr } = await supabaseAdmin.auth.admin.generateLink({
+            type: "recovery",
+            email,
+            options: { redirectTo },
+          });
+          if (linkErr) throw linkErr;
+          const actionLink = linkData?.properties?.action_link;
+          if (actionLink) {
+            await sendPasswordResetEmail({ toEmail: user.email, resetUrl: actionLink });
+          }
+        } catch (err) {
+          req.log.error({ err }, "Failed to send Supabase password reset email");
+        }
+      } else if (user.passwordHash) {
+        // Local auth user — existing token-based reset flow.
+        const raw = await issueAuthToken(user.id, "password_reset", PASSWORD_RESET_TTL_MS);
+        const resetUrl = `${getOrigin(req)}/api/auth/reset-password?token=${raw}`;
+        try {
+          await sendPasswordResetEmail({ toEmail: user.email, resetUrl });
+        } catch (err) {
+          req.log.error({ err }, "Failed to send password reset email");
+        }
       }
     }
+  }
+  res.json({ ok: true });
+});
+
+// ── Supabase password reset landing page ─────────────────────────────────────
+// Supabase redirects here after verifying the recovery token. The fragment
+// (#access_token=...&type=recovery) is read by inline JS; the form POSTs the
+// token + new password to the endpoint below.
+router.get("/auth/reset-supabase", (_req: Request, res: Response) => {
+  res.send(
+    htmlPage(
+      "Reset your password",
+      `<h1>Choose a new password</h1>
+<p>Enter a new password for your Squadz account.</p>
+<div id="loading"><p>Verifying your reset link…</p></div>
+<form id="form" style="display:none">
+  <input type="password" id="pw" placeholder="New password (8+ characters)" minlength="8" required autofocus />
+  <button type="submit" id="btn">Reset password</button>
+</form>
+<p id="msg" style="display:none"></p>
+<script>
+(function(){
+  var params=new URLSearchParams(location.hash.slice(1));
+  var token=params.get('access_token');
+  var type=params.get('type');
+  var loadEl=document.getElementById('loading');
+  var formEl=document.getElementById('form');
+  var msgEl=document.getElementById('msg');
+  if(!token||type!=='recovery'){
+    loadEl.innerHTML='<h1 class="err">Link expired</h1><p>This reset link is invalid or has expired. Tap <b>Forgot password?</b> in the app to request a new one.</p>';
+    return;
+  }
+  loadEl.style.display='none';
+  formEl.style.display='block';
+  formEl.addEventListener('submit',function(e){
+    e.preventDefault();
+    var btn=document.getElementById('btn');
+    btn.disabled=true;btn.textContent='Resetting…';
+    fetch('/api/auth/reset-supabase',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({access_token:token,password:document.getElementById('pw').value})
+    }).then(function(r){return r.json();}).then(function(d){
+      formEl.style.display='none';
+      msgEl.style.display='block';
+      if(d.ok){
+        msgEl.innerHTML='<h1 class="ok">Password updated ✓</h1><p>Your password has been changed. Open the Squadz app and sign in with your new password.</p>';
+      } else {
+        msgEl.innerHTML='<h1 class="err">Couldn\'t reset</h1><p>'+(d.error||'Please try again.')+'</p>';
+        formEl.style.display='block';btn.disabled=false;btn.textContent='Reset password';
+      }
+    }).catch(function(){
+      msgEl.innerHTML='<h1 class="err">Network error</h1><p>Please check your connection and try again.</p>';
+      msgEl.style.display='block';formEl.style.display='block';
+      btn.disabled=false;btn.textContent='Reset password';
+    });
+  });
+})();
+</script>`,
+    ),
+  );
+});
+
+router.post("/auth/reset-supabase", async (req: Request, res: Response) => {
+  if (rateLimited(req, "reset-supabase", 10)) {
+    res.status(429).json({ error: "Too many attempts. Please try again later." });
+    return;
+  }
+  if (!supabaseAdmin) {
+    res.status(400).json({ error: "This reset method is not available." });
+    return;
+  }
+  const { access_token, password } = req.body as { access_token?: string; password?: string };
+  if (!access_token || typeof access_token !== "string") {
+    res.status(400).json({ error: "Invalid reset link." });
+    return;
+  }
+  if (!password || password.length < 8) {
+    res.status(400).json({ error: "Password must be at least 8 characters." });
+    return;
+  }
+  const { data: { user }, error: userErr } = await supabaseAdmin.auth.getUser(access_token);
+  if (userErr || !user) {
+    res.status(400).json({ error: "This reset link is invalid or has expired." });
+    return;
+  }
+  const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(user.id, { password });
+  if (updateErr) {
+    req.log.error({ err: updateErr }, "Supabase password update failed");
+    res.status(400).json({ error: updateErr.message ?? "Couldn't update password. Please try again." });
+    return;
   }
   res.json({ ok: true });
 });
