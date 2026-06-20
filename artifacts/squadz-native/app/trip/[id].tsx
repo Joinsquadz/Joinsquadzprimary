@@ -27,7 +27,6 @@ import FriendPickerSheet from "@/components/FriendPickerSheet";
 import { ChatMessages, ChatComposer } from "@/components/EventChatPanel";
 import { EventCostsPanel } from "@/components/EventCostsPanel";
 import { EventVaultPanel } from "@/components/EventVaultPanel";
-import { FindTimeChooser } from "@/components/FindTimeChooser";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import type { Event, ItineraryStop } from "@/types";
 import {
@@ -175,7 +174,6 @@ export default function TripDetailScreen() {
   const [editingStop, setEditingStop] = useState<ItineraryStop | null>(null);
   const [sheetDay, setSheetDay] = useState<string | null>(null);
   const [packingDraft, setPackingDraft] = useState("");
-  const [findTimeOpen, setFindTimeOpen] = useState(false);
   const [liveView, setLiveView] = useState(false);
   const [arrivedIdx, setArrivedIdx] = useState(0);
   const [showInvitePicker, setShowInvitePicker] = useState(false);
@@ -749,25 +747,6 @@ export default function TripDetailScreen() {
         {/* ITINERARY */}
         {tab === "itinerary" ? (
           <View style={styles.tabBody}>
-            <TouchableOpacity
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setFindTimeOpen(true);
-              }}
-              style={[styles.findTimeCard, { backgroundColor: colors.card, borderColor: colors.border }]}
-              activeOpacity={0.85}
-            >
-              <View style={[styles.findTimeIconWrap, { backgroundColor: colors.primary + "20" }]}>
-                <Ionicons name="sparkles-outline" size={18} color={colors.primary} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.findTimeTitle, { color: colors.foreground }]}>Find the Best Time</Text>
-                <Text style={[styles.findTimeSub, { color: colors.mutedForeground }]}>
-                  Poll everyone & lock in trip dates that work
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
-            </TouchableOpacity>
 
             {happening && grouped[today]?.length ? (
               <View style={[styles.todayCard, { borderColor: colors.primary + "55", backgroundColor: colors.primary + "10" }]}>
@@ -948,14 +927,6 @@ export default function TripDetailScreen() {
         </TouchableOpacity>
       ) : null}
 
-      <FindTimeChooser
-        visible={findTimeOpen}
-        scope={{ type: "event", eventId: id ?? "" }}
-        onClose={() => setFindTimeOpen(false)}
-        onStartNew={() =>
-          router.push({ pathname: "/availability", params: { eventId: id ?? "", from: "create" } } as never)
-        }
-      />
 
       <StopSheet
         visible={sheetOpen}
@@ -1272,10 +1243,6 @@ const styles = StyleSheet.create({
   tabUnderline: { position: "absolute", bottom: 0, height: 2.5, width: "55%", borderRadius: 2 },
 
   tabBody: { paddingHorizontal: 20, paddingTop: 18 },
-  findTimeCard: { flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 18 },
-  findTimeIconWrap: { width: 36, height: 36, borderRadius: 11, alignItems: "center", justifyContent: "center" },
-  findTimeTitle: { fontSize: 14, fontWeight: "700" },
-  findTimeSub: { fontSize: 13, fontWeight: "500", marginTop: 2 },
 
   todayCard: { borderRadius: 16, borderWidth: 1.5, padding: 14, marginBottom: 20 },
   todayLabel: { fontSize: 12, fontWeight: "900", letterSpacing: 1, marginBottom: 8 },
