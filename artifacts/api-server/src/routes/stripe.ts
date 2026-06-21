@@ -19,12 +19,18 @@ let _foundingCache: { value: FoundingStatus; expiresAt: number } | null = null;
 router.get('/subscription/founding-status', async (_req, res): Promise<void> => {
   try {
     const now = Date.now();
-    if (!_foundingCache || now > _foundingCache.expiresAt) {
-      const status = await getFoundingStatus();
+    const isTest = process.env.NODE_ENV === 'test';
+    if (!isTest && _foundingCache && now <= _foundingCache.expiresAt) {
+      res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
+      res.json(_foundingCache.value);
+      return;
+    }
+    const status = await getFoundingStatus();
+    if (!isTest) {
       _foundingCache = { value: status, expiresAt: now + 30_000 };
     }
     res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
-    res.json(_foundingCache.value);
+    res.json(status);
   } catch (err) {
     logger.error({ err }, 'Error fetching founding status');
     res.status(500).json({ error: 'Failed to fetch founding status' });
