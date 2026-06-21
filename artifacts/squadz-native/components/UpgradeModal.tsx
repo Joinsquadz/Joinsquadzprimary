@@ -86,12 +86,15 @@ const welcomeSeenKey = (subId: string) => `hasSeenUpgradeWelcome_${subId}`;
 
 export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess }: Props) {
   const colors = useColors();
-  const { authToken, currentUser } = useAuth();
+  const { authToken, currentUser, resendVerification } = useAuth();
   const { refreshUsers } = useUserCache();
   const insets = useSafeAreaInsets();
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
   const [founding, setFounding] = useState<FoundingStatus | null>(null);
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [resentEmail, setResentEmail] = useState(false);
+  const [resending, setResending] = useState(false);
   // True between launching checkout and the next app-foreground, so we know the
   // foreground event is a checkout return and should confirm the upgrade.
   const awaitingUpgrade = useRef(false);
@@ -199,6 +202,9 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess }: Pr
       setPhase("idle");
       setError(null);
       setFounding(null);
+      setNeedsVerification(false);
+      setResentEmail(false);
+      setResending(false);
       awaitingUpgrade.current = false;
     }
   }, [visible]);
@@ -218,17 +224,31 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess }: Pr
     if (phase === "checkout" || phase === "confirming") return;
     setPhase("checkout");
     setError(null);
+    setNeedsVerification(false);
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     awaitingUpgrade.current = true;
     const result = await startProCheckout(authToken);
     if (!result.ok) {
       awaitingUpgrade.current = false;
       setError(result.error);
+      if (result.requiresEmailVerification) setNeedsVerification(true);
     }
     // On success the browser is now open; the AppState listener confirms on
     // return. Drop back to idle so the CTA isn't stuck spinning underneath it.
     setPhase("idle");
   }, [authToken, phase]);
+
+  const handleResendVerification = useCallback(async () => {
+    if (resending) return;
+    setResending(true);
+    setResentEmail(false);
+    try {
+      await resendVerification();
+      setResentEmail(true);
+    } finally {
+      setResending(false);
+    }
+  }, [resending, resendVerification]);
 
   const busy = phase === "checkout" || phase === "confirming";
   // While a checkout is starting or being confirmed, block dismissal so the
@@ -375,6 +395,32 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess }: Pr
           </View>
 
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+          {needsVerification && (
+            <View style={[styles.verifyBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Ionicons name="mail-outline" size={18} color={colors.primary} />
+              <View style={styles.verifyContent}>
+                {resentEmail ? (
+                  <Text style={[styles.verifyNote, { color: colors.foreground }]}>
+                    ✓ Verification email sent — check your inbox, then tap Upgrade again.
+                  </Text>
+                ) : (
+                  <Text style={[styles.verifyNote, { color: colors.mutedForeground }]}>
+                    Verify your email to continue. Didn't get the link?
+                  </Text>
+                )}
+                {!resentEmail && (
+                  <TouchableOpacity onPress={handleResendVerification} disabled={resending} hitSlop={8}>
+                    {resending ? (
+                      <ActivityIndicator size="small" color={colors.primary} />
+                    ) : (
+                      <Text style={[styles.resendLink, { color: colors.primary }]}>Resend verification email</Text>
+                    )}
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+          )}
 
           <TouchableOpacity
             style={styles.ctaWrap}
@@ -571,6 +617,19 @@ const styles = StyleSheet.create({
   },
   notNow: { paddingVertical: 8 },
   notNowLabel: { fontSize: 14, fontWeight: "500" },
+  verifyBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    width: "100%",
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 10,
+  },
+  verifyContent: { flex: 1, gap: 6 },
+  verifyNote: { fontSize: 13, lineHeight: 18, fontFamily: "Inter_400Regular" },
+  resendLink: { fontSize: 13, fontWeight: "700", fontFamily: "Inter_700Bold" },
   errorText: {
     color: "#FF6B6B",
     fontSize: 13,

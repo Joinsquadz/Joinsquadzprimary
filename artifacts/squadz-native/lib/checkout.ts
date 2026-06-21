@@ -2,7 +2,7 @@ import { Linking } from "react-native";
 import { buildAuthHeaders, resolveApiBase } from "@/lib/api";
 
 export type CheckoutTier = "founding" | "standard";
-export type CheckoutFailure = { ok: false; error: string };
+export type CheckoutFailure = { ok: false; error: string; requiresEmailVerification?: boolean };
 export type CheckoutResult = { ok: true; tier?: CheckoutTier } | CheckoutFailure;
 
 /**
@@ -29,13 +29,14 @@ export async function startProCheckout(token: string | null): Promise<CheckoutRe
       body: JSON.stringify({}),
     });
 
-    const { url, tier, error: apiError } = (await checkoutRes.json()) as {
+    const { url, tier, error: apiError, requiresEmailVerification } = (await checkoutRes.json()) as {
       url?: string;
       tier?: CheckoutTier;
       error?: string;
+      requiresEmailVerification?: boolean;
     };
     if (apiError || !url) {
-      return { ok: false, error: apiError ?? "Failed to start checkout. Please try again." };
+      return { ok: false, error: apiError ?? "Failed to start checkout. Please try again.", requiresEmailVerification };
     }
 
     await Linking.openURL(url);
