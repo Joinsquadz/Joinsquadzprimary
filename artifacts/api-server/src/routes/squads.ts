@@ -2,7 +2,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { and, eq, sql, inArray, isNull } from "drizzle-orm";
 import { randomBytes } from "crypto";
 import { z } from "zod";
-import { db, squadsTable, usersTable, squadMutesTable, squadRemovalNoticesTable } from "@workspace/db";
+import { db, squadsTable, usersTable, squadMutesTable, squadRemovalNoticesTable, squadInvitesTable, activityTable } from "@workspace/db";
 import { requireAuth } from "../middleware/currentUser";
 import { storage } from "../storage";
 import { logger } from "../lib/logger";
@@ -823,29 +823,56 @@ router.post("/squads/:id/members", requireAuth, async (req: Request, res: Respon
   }
   const memberIds = (squad.memberIds ?? []) as string[];
 
-  // Atomic append: the WHERE NOT @> guard prevents the concurrent race where
-  // two callers both read the same memberIds and each overwrite the other's
-  // write. 0 rows returned means the target was already a member.
-  const [updated] = await db
-    .update(squadsTable)
-    .set({ memberIds: sql`${squadsTable.memberIds} || ${JSON.stringify([target.id])}::jsonb` })
-    .where(
-      and(
-        eq(squadsTable.id, id),
-        sql`NOT (${squadsTable.memberIds} @> ${JSON.stringify([target.id])}::jsonb)`,
-      ),
-    )
-    .returning();
-
-  if (!updated) {
+  if (memberIds.includes(target.id)) {
     res.status(409).json({ error: "That user is already in the squad." });
     return;
   }
-  res.status(201).json({ squad: updated, addedUser: target });
-  emitSquadUpdate(id);
 
-  // Fire-and-forget: notify the newly added user that they were added to this squad,
-  // unless they have muted notifications for this squad.
+  // Check if there is already a pending invite for this user+squad.
+  const [existingInvite] = await db
+    .select({ id: squadInvitesTable.id })
+    .from(squadInvitesTable)
+    .where(
+      and(
+        eq(squadInvitesTable.squadId, id),
+        eq(squadInvitesTable.invitedUserId, target.id),
+        eq(squadInvitesTable.status, "pending"),
+      ),
+    );
+  if (existingInvite) {
+    res.status(409).json({ error: "An invite is already pending for that user." });
+    return;
+  }
+
+  // Create the pending invite instead of adding directly — the invitee
+  // will see it in their Activity tab and can Accept or Decline.
+  const [invite] = await db
+    .insert(squadInvitesTable)
+    .values({
+      squadId: id,
+      inviterUserId: requesterId,
+      invitedUserId: target.id,
+      squadName: squad.name,
+      squadEmoji: squad.emoji,
+    })
+    .returning();
+
+  res.status(201).json({
+    ok: true,
+    inviteId: invite.id,
+    invitedUser: { id: target.id, firstName: target.firstName, lastName: target.lastName },
+  });
+
+  // Notify the invitee via activity feed + push.
+  recordActivitySafe({
+    recipientId: target.id,
+    actorId: requesterId,
+    type: "squad_invite",
+    subjectType: "squad",
+    subjectId: invite.id,
+    meta: { subjectName: squad.name, subjectEmoji: squad.emoji, squadId: id },
+  });
+
   (async () => {
     try {
       const adder = await storage.getUser(requesterId);
@@ -861,14 +888,14 @@ router.post("/squads/:id/members", requireAuth, async (req: Request, res: Respon
       await sendPushNotifications(
         tokens,
         {
-          title: "You were added to a squad",
-          body: `${adderName} added you to "${squad.name}"`,
-          data: { screen: "squad", squadId: squad.id },
+          title: "Squad invite",
+          body: `${adderName} invited you to join "${squad.name}"`,
+          data: { screen: "activity" },
         },
         { onStaleToken: (token) => storage.clearPushToken(token) },
       );
     } catch (err) {
-      logger.error({ err }, "Error sending member-added push notification");
+      logger.error({ err }, "Error sending squad-invite push notification");
     }
   })();
 });

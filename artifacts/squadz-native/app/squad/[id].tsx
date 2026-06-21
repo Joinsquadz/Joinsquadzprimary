@@ -194,28 +194,14 @@ export default function SquadDetailScreen() {
   const handleAddUser = async (user: FoundUser): Promise<{ error?: string } | undefined> => {
     if (!id || !user.friendCode) return;
     setAddingUserId(user.id);
-    const squadBeforeAdd = getSquad(id);
     const result = await addMemberByFriendCode(id, user.friendCode);
     setAddingUserId(null);
     if (result.error) {
       return { error: result.error };
-    } else {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      if (squadBeforeAdd) {
-        const newMemberIds = squadBeforeAdd.memberIds.includes(user.id)
-          ? squadBeforeAdd.memberIds
-          : [...squadBeforeAdd.memberIds, user.id];
-        lastSquadSigRef.current = squadSignature({
-          name: squadBeforeAdd.name,
-          emoji: squadBeforeAdd.emoji,
-          description: squadBeforeAdd.description ?? null,
-          color: squadBeforeAdd.color,
-          isPublic: squadBeforeAdd.isPublic,
-          membersCanInvite: squadBeforeAdd.membersCanInvite,
-          memberIds: newMemberIds,
-        });
-      }
     }
+    // Invite sent — the user is NOT a member yet (pending acceptance).
+    // The squad list updates only after they accept, so no optimistic update needed.
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     return undefined;
   };
 

@@ -23,7 +23,9 @@ export type ActivityType =
   | "vault_reaction"
   | "vault_comment"
   | "rsvp"
-  | "squad_join";
+  | "squad_join"
+  | "squad_invite"
+  | "event_invite";
 
 export type ActivitySubjectType = "post" | "vault_photo" | "event" | "squad" | "user";
 
@@ -38,8 +40,10 @@ export type ActivityMeta = {
   subjectName?: string;
   /** Emoji of the subject (event / squad) for action text. */
   subjectEmoji?: string;
-  /** squad_join / squad subject: the squad id to navigate to. */
+  /** squad_join / squad_invite: the squad id to navigate to. */
   squadId?: string;
+  /** event_invite: the event id to navigate to after accepting. */
+  eventId?: string;
   /** vault_* : numeric photo id (vault uses serial ids) for navigation. */
   photoId?: number;
   /** Optional small thumbnail url for the content (vibe/vault media). */

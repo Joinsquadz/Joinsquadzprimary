@@ -9,6 +9,7 @@ import {
   Image,
   Animated,
   RefreshControl,
+  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -26,6 +27,17 @@ type RemovalNotice = {
   createdAt: string;
 };
 
+type PendingSquadInvite = {
+  id: string;
+  squadId: string;
+  squadName: string;
+  squadEmoji: string;
+  inviterUserId: string;
+  inviter: { id: string; firstName: string | null; lastName: string | null; profileImageUrl: string | null } | null;
+  status: string;
+  createdAt: string;
+};
+
 export default function SquadsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -34,9 +46,69 @@ export default function SquadsScreen() {
   const { mutedSquadIds, refreshMutedSquads } = useMutedSquads();
   const [notices, setNotices] = useState<RemovalNotice[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [pendingInvites, setPendingInvites] = useState<PendingSquadInvite[]>([]);
+  const [inviteProcessing, setInviteProcessing] = useState<Set<string>>(new Set());
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 84 : 100);
+
+  const fetchPendingInvites = useCallback(async () => {
+    if (!authToken) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/squads/invites/pending`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as PendingSquadInvite[];
+      setPendingInvites(data);
+    } catch {
+      // Network unavailable — keep current invites
+    }
+  }, [authToken]);
+
+  const handleAcceptInvite = useCallback(async (inviteId: string, squadId: string) => {
+    setInviteProcessing((prev) => new Set(prev).add(inviteId));
+    try {
+      const res = await fetch(`${API_BASE}/api/squads/invites/${inviteId}/accept`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (res.ok) {
+        setPendingInvites((prev) => prev.filter((i) => i.id !== inviteId));
+        void refreshSquads();
+        router.push(`/squad/${squadId}`);
+      }
+    } catch {
+      // Best-effort
+    } finally {
+      setInviteProcessing((prev) => {
+        const next = new Set(prev);
+        next.delete(inviteId);
+        return next;
+      });
+    }
+  }, [authToken, refreshSquads]);
+
+  const handleDeclineInvite = useCallback(async (inviteId: string) => {
+    setInviteProcessing((prev) => new Set(prev).add(inviteId));
+    try {
+      const res = await fetch(`${API_BASE}/api/squads/invites/${inviteId}/decline`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (res.ok) {
+        setPendingInvites((prev) => prev.filter((i) => i.id !== inviteId));
+      }
+    } catch {
+      // Best-effort
+    } finally {
+      setInviteProcessing((prev) => {
+        const next = new Set(prev);
+        next.delete(inviteId);
+        return next;
+      });
+    }
+  }, [authToken]);
 
   const fetchNotices = useCallback(async () => {
     if (!authToken) return;
@@ -67,15 +139,16 @@ export default function SquadsScreen() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([refreshSquads(), fetchNotices(), refreshMutedSquads()]);
+    await Promise.all([refreshSquads(), fetchNotices(), refreshMutedSquads(), fetchPendingInvites()]);
     setRefreshing(false);
-  }, [refreshSquads, fetchNotices, refreshMutedSquads]);
+  }, [refreshSquads, fetchNotices, refreshMutedSquads, fetchPendingInvites]);
 
-  // Fetch notices whenever the screen comes into focus
+  // Fetch notices + pending invites whenever the screen comes into focus
   useFocusEffect(
     useCallback(() => {
       void fetchNotices();
-    }, [fetchNotices]),
+      void fetchPendingInvites();
+    }, [fetchNotices, fetchPendingInvites]),
   );
 
   // Re-sync muted squad IDs on focus as a safety net (e.g. another device changed the state)
@@ -215,6 +288,53 @@ export default function SquadsScreen() {
           <Ionicons name="add-circle-outline" size={22} color={colors.primary} />
           <Text style={[styles.createBtnText, { color: colors.primary }]}>Create a new squad</Text>
         </TouchableOpacity>
+
+        {pendingInvites.length > 0 && (
+          <View style={styles.inviteSection}>
+            <Text style={[styles.inviteSectionTitle, { color: colors.mutedForeground }]}>
+              Pending Invites
+            </Text>
+            {pendingInvites.map((invite) => {
+              const inviterName = invite.inviter
+                ? [invite.inviter.firstName, invite.inviter.lastName].filter(Boolean).join(" ") || "Someone"
+                : "Someone";
+              const isProcessing = inviteProcessing.has(invite.id);
+              return (
+                <View key={invite.id} style={[styles.inviteCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                  <View style={[styles.inviteEmojiWrap, { backgroundColor: colors.primary + "18" }]}>
+                    <Text style={{ fontSize: 26 }}>{invite.squadEmoji}</Text>
+                  </View>
+                  <View style={styles.inviteBody}>
+                    <Text style={[styles.inviteName, { color: colors.foreground }]}>{invite.squadName}</Text>
+                    <Text style={[styles.inviteFrom, { color: colors.mutedForeground }]}>
+                      Invited by {inviterName}
+                    </Text>
+                  </View>
+                  <View style={styles.inviteActions}>
+                    <TouchableOpacity
+                      onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); void handleAcceptInvite(invite.id, invite.squadId); }}
+                      disabled={isProcessing}
+                      activeOpacity={0.8}
+                      style={[styles.inviteAcceptBtn, { backgroundColor: colors.primary, opacity: isProcessing ? 0.6 : 1 }]}
+                    >
+                      {isProcessing
+                        ? <ActivityIndicator size="small" color="#fff" />
+                        : <Text style={styles.inviteAcceptText}>Join</Text>}
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); void handleDeclineInvite(invite.id); }}
+                      disabled={isProcessing}
+                      activeOpacity={0.8}
+                      style={[styles.inviteDeclineBtn, { backgroundColor: colors.surfaceUp, opacity: isProcessing ? 0.6 : 1 }]}
+                    >
+                      <Text style={[styles.inviteDeclineText, { color: colors.mutedForeground }]}>Decline</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        )}
       </ScrollView>
     </View>
   );
@@ -313,4 +433,19 @@ const styles = StyleSheet.create({
     borderRadius: 16, borderWidth: 1.5, borderStyle: "dashed", padding: 16, marginTop: 6,
   },
   createBtnText: { fontSize: 15, fontWeight: "700" },
+  inviteSection: { marginTop: 24 },
+  inviteSectionTitle: { fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 10 },
+  inviteCard: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    borderRadius: 16, borderWidth: 1, padding: 14, marginBottom: 10,
+  },
+  inviteEmojiWrap: { width: 50, height: 50, borderRadius: 14, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  inviteBody: { flex: 1, gap: 2 },
+  inviteName: { fontSize: 15, fontWeight: "800" },
+  inviteFrom: { fontSize: 12 },
+  inviteActions: { flexDirection: "column", gap: 6, alignItems: "stretch", minWidth: 72 },
+  inviteAcceptBtn: { borderRadius: 10, paddingVertical: 7, paddingHorizontal: 14, alignItems: "center", justifyContent: "center", minHeight: 32 },
+  inviteAcceptText: { color: "#fff", fontSize: 13, fontWeight: "800" },
+  inviteDeclineBtn: { borderRadius: 10, paddingVertical: 7, paddingHorizontal: 14, alignItems: "center", justifyContent: "center", minHeight: 32 },
+  inviteDeclineText: { fontSize: 13, fontWeight: "600" },
 });

@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, count, or, sql, and, gte, isNull, inArray } from "drizzle-orm";
 import { z } from "zod";
-import { db, eventsTable, eventCreationsTable, usersTable } from "@workspace/db";
+import { db, eventsTable, eventCreationsTable, usersTable, eventInvitesTable, activityTable } from "@workspace/db";
 import type { ItineraryStop, PackingItem } from "@workspace/db";
 import { storage } from "../storage";
 import { requireAuth } from "../middleware/currentUser";
@@ -987,8 +987,7 @@ router.post("/events/:id/invite", requireAuth, async (req: Request, res: Respons
     parsed.data.userIds.filter((u) => u !== existing.hostId),
     existing.squadId,
   );
-  // Drop anyone who can already access (host, existing invitee, squad member for
-  // trips, or RSVP'd for events) so we only notify genuinely-new invitees.
+  // Drop anyone who can already access or already has a pending invite.
   const alreadyInvited = new Set((existing.invitedUserIds ?? []) as string[]);
   const newInvitees: string[] = [];
   for (const t of targets) {
@@ -998,32 +997,55 @@ router.post("/events/:id/invite", requireAuth, async (req: Request, res: Respons
   }
 
   if (newInvitees.length === 0) {
-    // Nothing to add — return the event unchanged (idempotent).
-    res.json(existing);
+    res.json({ ok: true, inviteCount: 0 });
     return;
   }
 
-  // Atomic dedupe-append: union the new ids into the jsonb array server-side so
-  // concurrent invites don't lose each other and we never need a version gate.
-  const [event] = await db.update(eventsTable)
-    .set({
-      invitedUserIds: sql`(
-        SELECT COALESCE(jsonb_agg(DISTINCT elem), '[]'::jsonb)
-        FROM jsonb_array_elements(
-          COALESCE(${eventsTable.invitedUserIds}, '[]'::jsonb) || ${JSON.stringify(newInvitees)}::jsonb
-        ) AS elem
-      )`,
-      version: sql`${eventsTable.version} + 1`,
-    })
-    .where(eq(eventsTable.id, id))
+  // Create pending event_invite rows — invitees see these in their Activity
+  // tab and can Accept or Decline. They gain event access on acceptance.
+  const inviteRows = newInvitees.map((invitedUserId) => ({
+    eventId: id,
+    inviterUserId: userId,
+    invitedUserId,
+    eventTitle: existing.title,
+    eventEmoji: existing.emoji ?? "🗓️",
+  }));
+  const inserted = await db
+    .insert(eventInvitesTable)
+    .values(inviteRows)
+    .onConflictDoNothing()
     .returning();
-  if (!event) {
-    res.status(404).json({ error: "Event not found" });
-    return;
+
+  res.json({ ok: true, inviteCount: inserted.length });
+
+  for (const inv of inserted) {
+    recordActivitySafe({
+      recipientId: inv.invitedUserId,
+      actorId: userId,
+      type: "event_invite",
+      subjectType: "event",
+      subjectId: inv.id,
+      meta: { subjectName: existing.title, subjectEmoji: existing.emoji ?? "🗓️", eventId: id },
+    });
   }
-  res.json(event);
-  emitEventUpdate(id);
-  void notifyInvitees(event, userId, newInvitees);
+
+  // Push notify invitees.
+  if (inserted.length > 0) {
+    const inviterUser = await storage.getUser(userId);
+    const inviterName = displayName(inviterUser);
+    const tokens = await storage.getPushTokensForUsers(inserted.map((i) => i.invitedUserId));
+    if (tokens.length > 0) {
+      void sendPushNotifications(
+        tokens,
+        {
+          title: "Trip invite",
+          body: `${inviterName} invited you to "${existing.title}"`,
+          data: { screen: "activity" },
+        },
+        { onStaleToken: (token) => storage.clearPushToken(token) },
+      );
+    }
+  }
 });
 
 // DELETE /events/:id/invite/:userId — remove a personal invite. Allowed for the

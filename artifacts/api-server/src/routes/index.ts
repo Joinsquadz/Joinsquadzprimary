@@ -22,6 +22,7 @@ import momentsRouter from "./moments";
 import accountRouter from "./account";
 import activityRouter from "./activity";
 import friendRequestsRouter from "./friendRequests";
+import invitesRouter from "./invites";
 
 const router: IRouter = Router();
 
@@ -48,5 +49,6 @@ router.use(momentsRouter);
 router.use(accountRouter);
 router.use(activityRouter);
 router.use(friendRequestsRouter);
+router.use(invitesRouter);
 
 export default router;

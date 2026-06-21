@@ -218,7 +218,7 @@ type AppContextType = {
   leaveSquad: (id: string) => void;
   joinSquad: (squadId: string) => Promise<{ error?: string }>;
   joinSquadByCode: (code: string) => Promise<{ error?: string; revoked?: boolean; limit?: boolean; squad?: Squad; alreadyMember?: boolean }>;
-  addMemberByFriendCode: (squadId: string, friendCode: string) => Promise<{ error?: string; user?: FoundUser }>;
+  addMemberByFriendCode: (squadId: string, friendCode: string) => Promise<{ error?: string; inviteSent?: boolean }>;
   removeMember: (squadId: string, userId: string) => Promise<{ error?: string }>;
 
   friends: string[];
@@ -1135,14 +1135,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           const data = (await res.json().catch(() => ({}))) as { error?: string };
           return { error: data.error ?? "Couldn't send the invite" };
         }
-        const data = (await res.json()) as Record<string, unknown>;
-        applyEventUpdate(data);
+        // Invitees now get a pending invite in their Activity tab; the event
+        // data doesn't change until each person accepts, so no applyEventUpdate.
         return {};
       } catch {
         return { error: "Couldn't send the invite — please try again" };
       }
     },
-    [apiFetch, applyEventUpdate],
+    [apiFetch],
   );
 
   // Remove a personal invite (host removing anyone, or the invitee leaving).
@@ -2023,35 +2023,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   const addMemberByFriendCode = useCallback(
-    async (squadId: string, friendCode: string): Promise<{ error?: string; user?: FoundUser }> => {
+    async (squadId: string, friendCode: string): Promise<{ error?: string; inviteSent?: boolean }> => {
       try {
         const res = await apiFetch(`/api/squads/${squadId}/members`, {
           method: "POST",
           body: JSON.stringify({ friendCode }),
         });
         const data = (await res.json().catch(() => ({}))) as {
-          squad?: Record<string, unknown>;
-          addedUser?: FoundUser;
+          ok?: boolean;
+          inviteId?: string;
+          invitedUser?: { id?: string; firstName?: string | null; lastName?: string | null };
           error?: string;
         };
         if (res.status === 409) {
-          showToast(data.error ?? "That user is already in the squad.");
-          setConflictSquadId(squadId);
-          void refreshSquads();
+          showToast(data.error ?? "An invite is already pending for that user.");
           return {};
         }
         if (res.status === 404) return { error: data.error ?? "No user found with that friend code." };
         if (!res.ok) return { error: data.error ?? "Something went wrong. Please try again." };
-        if (data.squad) {
-          const mapped = dbSquadToSquad(data.squad);
-          setSquads((prev) => prev.map((s) => (s.id === mapped.id ? mapped : s)));
-        }
-        return { user: data.addedUser };
+        const name = [data.invitedUser?.firstName, data.invitedUser?.lastName].filter(Boolean).join(" ") || "them";
+        showToast(`Invite sent to ${name}!`);
+        return { inviteSent: true };
       } catch {
         return { error: "Network error. Please try again." };
       }
     },
-    [apiFetch, refreshSquads, showToast],
+    [apiFetch, showToast],
   );
 
   const currentUser = apiUser
