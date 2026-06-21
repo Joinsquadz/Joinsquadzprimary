@@ -1077,6 +1077,10 @@ router.delete("/events/:id/invite/:userId", requireAuth, async (req: Request, re
     res.status(404).json({ error: "Event not found" });
     return;
   }
+  // Delete the invite row so the person can be re-invited later without hitting
+  // the onConflictDoNothing guard in the POST /invite route.
+  await db.delete(eventInvitesTable)
+    .where(and(eq(eventInvitesTable.eventId, id), eq(eventInvitesTable.invitedUserId, targetId)));
   res.json(event);
   emitEventUpdate(id);
 });

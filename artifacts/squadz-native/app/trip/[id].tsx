@@ -208,6 +208,17 @@ export default function TripDetailScreen() {
       .map((uid) => resolveUser(uid));
   }, [event, getSquad, resolveUser]);
 
+  // All trip participants in display order: squad members first, then direct invites.
+  const allTripMembers = useMemo(() => {
+    const sq = event ? getSquad(event.squadId) : undefined;
+    const squadIds = sq?.memberIds ?? [];
+    const extraIds = (event?.invitedUserIds ?? []).filter((uid) => !squadIds.includes(uid));
+    const result: Array<{ user: ReturnType<typeof resolveUser>; isSquadMember: boolean }> = [];
+    for (const uid of squadIds) result.push({ user: resolveUser(uid), isSquadMember: true });
+    for (const uid of extraIds) result.push({ user: resolveUser(uid), isSquadMember: false });
+    return result;
+  }, [event, getSquad, resolveUser]);
+
   // Everyone who can be included in a cost split: squad members + invited
   // friends (deduped), each fully resolved. Always includes the current user so
   // a solo/personal trip can still split (just with themselves listed).
@@ -397,6 +408,36 @@ export default function TripDetailScreen() {
   const happening = isHappeningNow(event);
   const grouped = groupStopsByDay(stops);
   const costs = sumStopCosts(stops);
+
+  const confirmUninvite = (u: ReturnType<typeof resolveUser>) => {
+    const firstName = u.name.split(" ")[0];
+    const isSelf = u.id === currentUser.id;
+    Alert.alert(
+      isSelf ? "Leave trip" : `Remove ${firstName}`,
+      isSelf
+        ? `Leave "${event.title}"? You can rejoin if invited again.`
+        : `Remove ${firstName} from "${event.title}"?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: isSelf ? "Leave" : "Remove",
+          style: "destructive",
+          onPress: () => {
+            void uninviteFromEvent(event.id, u.id).then((r) => {
+              if (r.error) Alert.alert("Couldn't remove", r.error);
+              else {
+                void refresh();
+                if (isSelf) {
+                  if (router.canGoBack()) router.back();
+                  else router.replace("/(tabs)/events" as never);
+                }
+              }
+            });
+          },
+        },
+      ],
+    );
+  };
 
   const openAddStop = (day?: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -660,49 +701,55 @@ export default function TripDetailScreen() {
           ) : null}
         </LinearGradient>
 
-        {/* Who's invited */}
+        {/* Who's coming */}
         <View style={styles.invitePanel}>
-          <View style={styles.inviteHeaderRow}>
-            <Text style={[styles.inviteHeading, { color: colors.foreground }]}>Who's invited</Text>
-            {canInvite ? (
+          <Text style={[styles.inviteHeading, { color: colors.foreground }]}>Who's coming</Text>
+          <View style={styles.memberGrid}>
+            {allTripMembers.map(({ user: u, isSquadMember }) => {
+              const isSelf = u.id === currentUser.id;
+              const canRemove = !isSquadMember && (isHost || isSelf);
+              return (
+                <View key={u.id} style={styles.memberCell}>
+                  <TouchableOpacity
+                    onPress={!isSelf ? () => router.push(`/user/${u.id}` as never) : undefined}
+                    activeOpacity={isSelf ? 1 : 0.7}
+                    style={{ alignItems: "center" }}
+                  >
+                    <UserAvatar initials={u.initials} color={u.color} imageUrl={u.profileImageUrl} size={44} fontSize={15} />
+                  </TouchableOpacity>
+                  <Text style={[styles.memberCellName, { color: colors.mutedForeground }]} numberOfLines={1}>
+                    {isSelf ? "You" : u.name.split(" ")[0]}
+                  </Text>
+                  {u.id === event.hostId && (
+                    <View style={[styles.memberHostBadge, { backgroundColor: colors.primary + "22" }]}>
+                      <Text style={[styles.memberHostBadgeText, { color: colors.primary }]}>host</Text>
+                    </View>
+                  )}
+                  {canRemove && (
+                    <TouchableOpacity
+                      onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); confirmUninvite(u); }}
+                      style={[styles.memberRemoveBtn, { backgroundColor: colors.destructive }]}
+                      hitSlop={{ top: 6, right: 6, bottom: 6, left: 6 }}
+                    >
+                      <Ionicons name="close" size={10} color="#fff" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              );
+            })}
+            {canInvite && (
               <TouchableOpacity
                 onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setShowInvitePicker(true); }}
-                style={styles.inviteAddBtn}
-                activeOpacity={0.8}
+                style={{ alignItems: "center" }}
+                activeOpacity={0.7}
               >
-                <Ionicons name="person-add-outline" size={16} color={colors.primary} />
-                <Text style={[styles.inviteAddText, { color: colors.primary }]}>Invite friends</Text>
-              </TouchableOpacity>
-            ) : null}
-          </View>
-          {invitedExtras.length === 0 ? (
-            <Text style={[styles.inviteEmpty, { color: colors.mutedForeground }]}>
-              {squad ? "Everyone in the squad, plus anyone you invite." : "Invite friends to join this trip."}
-            </Text>
-          ) : (
-            <View style={styles.inviteChipWrap}>
-              {invitedExtras.map((u) => (
-                <View key={u.id} style={[styles.inviteChip, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                  <UserAvatar initials={u.initials} color={u.color} imageUrl={u.profileImageUrl} size={22} />
-                  <Text style={[styles.inviteChipName, { color: colors.foreground }]} numberOfLines={1}>{u.name}</Text>
-                  {isHost || u.id === currentUser.id ? (
-                    <TouchableOpacity
-                      onPress={() => {
-                        Haptics.selectionAsync();
-                        void uninviteFromEvent(event.id, u.id).then((r) => {
-                          if (r.error) Alert.alert("Couldn't remove", r.error);
-                          else void refresh();
-                        });
-                      }}
-                      hitSlop={6}
-                    >
-                      <Ionicons name="close-circle" size={16} color={colors.mutedForeground} />
-                    </TouchableOpacity>
-                  ) : null}
+                <View style={[styles.memberAddCircle, { borderColor: colors.border }]}>
+                  <Ionicons name="add" size={22} color={colors.mutedForeground} />
                 </View>
-              ))}
-            </View>
-          )}
+                <Text style={[styles.memberCellName, { color: colors.mutedForeground }]}>Invite</Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
 
         {/* Sticky tab bar */}
@@ -1212,15 +1259,15 @@ const styles = StyleSheet.create({
   missingText: { fontSize: 15, fontWeight: "600" },
   missingBtn: { borderRadius: 12, borderWidth: 1, paddingHorizontal: 18, paddingVertical: 10 },
 
-  invitePanel: { paddingHorizontal: 20, paddingTop: 14, paddingBottom: 4, gap: 8 },
-  inviteHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  invitePanel: { paddingHorizontal: 20, paddingTop: 14, paddingBottom: 8, gap: 10 },
   inviteHeading: { fontSize: 15, fontWeight: "700" },
-  inviteAddBtn: { flexDirection: "row", alignItems: "center", gap: 5 },
-  inviteAddText: { fontSize: 13, fontWeight: "700" },
-  inviteEmpty: { fontSize: 13, lineHeight: 18 },
-  inviteChipWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  inviteChip: { flexDirection: "row", alignItems: "center", gap: 6, borderWidth: 1, borderRadius: 20, paddingVertical: 4, paddingLeft: 4, paddingRight: 9, maxWidth: "100%" },
-  inviteChipName: { fontSize: 13, fontWeight: "600", maxWidth: 120 },
+  memberGrid: { flexDirection: "row", flexWrap: "wrap", gap: 4 },
+  memberCell: { alignItems: "center", paddingVertical: 4, paddingHorizontal: 6, position: "relative" },
+  memberCellName: { fontSize: 11, fontWeight: "600", textAlign: "center", marginTop: 5, maxWidth: 56 },
+  memberHostBadge: { borderRadius: 6, paddingHorizontal: 5, paddingVertical: 1, marginTop: 2 },
+  memberHostBadgeText: { fontSize: 9, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.3 },
+  memberRemoveBtn: { position: "absolute", top: 2, right: 2, width: 16, height: 16, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  memberAddCircle: { width: 44, height: 44, borderRadius: 22, borderWidth: 1.5, borderStyle: "dashed", alignItems: "center", justifyContent: "center" },
 
   cover: { paddingHorizontal: 20, paddingBottom: 22 },
   coverTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 },
