@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useFocusEffect } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
@@ -85,6 +85,7 @@ export default function SquadDetailScreen() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searchResults, setSearchResults] = useState<FoundUser[]>([]);
+  const [friendSuggestions, setFriendSuggestions] = useState<FoundUser[]>([]);
   const [addingUserId, setAddingUserId] = useState<string | null>(null);
   const [selectedToAdd, setSelectedToAdd] = useState<Set<string>>(new Set());
   const [confirmingAdd, setConfirmingAdd] = useState(false);
@@ -106,11 +107,30 @@ export default function SquadDetailScreen() {
     setNameQuery("");
     setSearchError(null);
     setSearchResults([]);
+    setFriendSuggestions([]);
     setAddingUserId(null);
     setSearchLoading(false);
     setSelectedToAdd(new Set());
     setConfirmingAdd(false);
   };
+
+  // When the add-member modal opens, fetch the user's friends with full data
+  // (including friendCode) so they appear immediately without pressing Search.
+  useEffect(() => {
+    if (!addMemberOpen) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const headers: Record<string, string> = { "Content-Type": "application/json", ...buildAuthHeaders(authToken) };
+        const res = await fetch(`${API_BASE}/api/users/friends`, { headers });
+        if (res.ok && !cancelled) {
+          const data = (await res.json()) as FoundUser[];
+          setFriendSuggestions(data);
+        }
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, [addMemberOpen, authToken]);
 
   const toggleSelectToAdd = (user: FoundUser) => {
     if (!squad || squad.memberIds.includes(user.id)) return;
@@ -371,6 +391,23 @@ export default function SquadDetailScreen() {
   const btnTop = topPad + 8;
 
   const squad = getSquad(id ?? "");
+
+  // Merged display list for add-member modal: friends filtered live by nameQuery
+  // (appears immediately on open) + API search results for non-friends.
+  const addMemberDisplayList = useMemo(() => {
+    if (!squad) return searchResults;
+    const q = nameQuery.trim().toLowerCase();
+    const memberSet = new Set(squad.memberIds);
+    const filteredFriends = friendSuggestions.filter((u) => {
+      if (memberSet.has(u.id)) return false;
+      if (!q) return true;
+      const name = [u.firstName, u.lastName].filter(Boolean).join(" ").toLowerCase();
+      return name.includes(q);
+    });
+    const friendIds = new Set(friendSuggestions.map((u) => u.id));
+    const extraResults = searchResults.filter((u) => !friendIds.has(u.id));
+    return [...filteredFriends, ...extraResults];
+  }, [squad, nameQuery, friendSuggestions, searchResults]);
 
   // Pre-load member profiles
   useEffect(() => {
@@ -979,7 +1016,6 @@ export default function SquadDetailScreen() {
                 onChangeText={(t) => {
                   setNameQuery(t);
                   setSearchError(null);
-                  if (!t.trim()) setSearchResults([]);
                 }}
                 autoCorrect={false}
                 returnKeyType="search"
@@ -1006,9 +1042,9 @@ export default function SquadDetailScreen() {
               </View>
             )}
 
-            {searchResults.length > 0 && (
+            {addMemberDisplayList.length > 0 && (
               <ScrollView style={styles.addMemberResults} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-                {searchResults.map((user) => {
+                {addMemberDisplayList.map((user) => {
                   const alreadyMember = squad.memberIds.includes(user.id);
                   const isSelected = selectedToAdd.has(user.id);
                   const isAdding = addingUserId === user.id;

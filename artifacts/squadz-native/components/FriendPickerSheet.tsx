@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -53,14 +53,21 @@ export default function FriendPickerSheet({
   const [query, setQuery] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  // Track previous visible so we only reset state on open, not on every friends update.
+  const prevVisibleRef = useRef(false);
+
   useEffect(() => {
-    if (visible) {
+    if (visible && !prevVisibleRef.current) {
       setSelected([]);
       setQuery("");
       void fetchFriends();
-      if (friends.length > 0) prefetchUsers(friends);
     }
-  }, [visible, friends, prefetchUsers, fetchFriends]);
+    prevVisibleRef.current = visible;
+  }, [visible, fetchFriends]);
+
+  useEffect(() => {
+    if (visible && friends.length > 0) prefetchUsers(friends);
+  }, [visible, friends, prefetchUsers]);
 
   const exclude = useMemo(() => new Set(excludeIds), [excludeIds]);
 
