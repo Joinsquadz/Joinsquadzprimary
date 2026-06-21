@@ -19,6 +19,7 @@
 
 export * from "./users";
 export * from "./friendships";
+export * from "./friend-requests";
 export * from "./events";
 export * from "./event-creations";
 export * from "./squads";

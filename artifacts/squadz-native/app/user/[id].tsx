@@ -48,7 +48,7 @@ export default function UserProfileScreen() {
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { authToken, currentUser } = useAuth();
-  const { friends, addFriend, removeFriend } = useData();
+  const { friends, sentRequests, addFriend, removeFriend } = useData();
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -58,6 +58,7 @@ export default function UserProfileScreen() {
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const isSelf = id === currentUser?.id;
   const isFriend = friends.includes(id ?? "");
+  const isPending = !isFriend && sentRequests.includes(id ?? "");
 
   useEffect(() => {
     if (!id) return;
@@ -169,12 +170,12 @@ export default function UserProfileScreen() {
           {!isSelf && (
             <TouchableOpacity
               onPress={handleToggleFriend}
-              disabled={friendLoading}
+              disabled={friendLoading || isPending}
               style={[
                 styles.friendBtn,
                 {
-                  backgroundColor: isFriend ? colors.card : colors.primary,
-                  borderColor: isFriend ? colors.border : colors.primary,
+                  backgroundColor: isFriend ? colors.card : isPending ? colors.muted : colors.primary,
+                  borderColor: isFriend ? colors.border : isPending ? colors.border : colors.primary,
                 },
               ]}
             >
@@ -183,12 +184,12 @@ export default function UserProfileScreen() {
               ) : (
                 <>
                   <Ionicons
-                    name={isFriend ? "person-remove-outline" : "person-add-outline"}
+                    name={isFriend ? "person-remove-outline" : isPending ? "time-outline" : "person-add-outline"}
                     size={16}
-                    color={isFriend ? colors.foreground : "#fff"}
+                    color={isFriend || isPending ? colors.foreground : "#fff"}
                   />
-                  <Text style={[styles.friendBtnText, { color: isFriend ? colors.foreground : "#fff" }]}>
-                    {isFriend ? "Remove friend" : "Add friend"}
+                  <Text style={[styles.friendBtnText, { color: isFriend || isPending ? colors.foreground : "#fff" }]}>
+                    {isFriend ? "Remove friend" : isPending ? "Request sent" : "Add friend"}
                   </Text>
                 </>
               )}

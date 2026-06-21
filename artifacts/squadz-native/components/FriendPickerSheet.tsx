@@ -46,7 +46,7 @@ export default function FriendPickerSheet({
 }: Props) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { friends } = useData();
+  const { friends, fetchFriends } = useData();
   const { resolveUser, prefetchUsers } = useUserCache();
 
   const [selected, setSelected] = useState<string[]>([]);
@@ -57,9 +57,10 @@ export default function FriendPickerSheet({
     if (visible) {
       setSelected([]);
       setQuery("");
+      void fetchFriends();
       if (friends.length > 0) prefetchUsers(friends);
     }
-  }, [visible, friends, prefetchUsers]);
+  }, [visible, friends, prefetchUsers, fetchFriends]);
 
   const exclude = useMemo(() => new Set(excludeIds), [excludeIds]);
 

@@ -16,7 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { API_BASE, buildAuthHeaders, resolveUploadedUrl } from "@/lib/api";
-import { useAuth } from "@/context/AppContext";
+import { useAuth, useData } from "@/context/AppContext";
 import { useActivity } from "@/context/ActivityContext";
 import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
 import { ProAvatar } from "@/components/ProAvatar";
@@ -84,6 +84,9 @@ export default function ActivityScreen() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [sheetActors, setSheetActors] = useState<ResolvedUser[] | null>(null);
+  const [processing, setProcessing] = useState<Set<string>>(new Set());
+
+  const { fetchFriends } = useData();
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + 24;
@@ -209,12 +212,124 @@ export default function ActivityScreen() {
     [resolveUser],
   );
 
+  const handleAccept = useCallback(
+    async (requestId: string) => {
+      if (processing.has(requestId)) return;
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      setProcessing((prev) => new Set(prev).add(requestId));
+      try {
+        const res = await fetch(`${API_BASE}/api/users/friend-requests/${requestId}/accept`, {
+          method: "POST",
+          headers: buildAuthHeaders(authToken),
+        });
+        if (res.ok) {
+          void fetchFriends();
+          void loadFirst();
+        }
+      } catch {
+        /* silently ignore */
+      } finally {
+        setProcessing((prev) => {
+          const next = new Set(prev);
+          next.delete(requestId);
+          return next;
+        });
+      }
+    },
+    [authToken, fetchFriends, loadFirst, processing],
+  );
+
+  const handleDecline = useCallback(
+    async (requestId: string) => {
+      if (processing.has(requestId)) return;
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      setProcessing((prev) => new Set(prev).add(requestId));
+      try {
+        const res = await fetch(`${API_BASE}/api/users/friend-requests/${requestId}/decline`, {
+          method: "POST",
+          headers: buildAuthHeaders(authToken),
+        });
+        if (res.ok) void loadFirst();
+      } catch {
+        /* silently ignore */
+      } finally {
+        setProcessing((prev) => {
+          const next = new Set(prev);
+          next.delete(requestId);
+          return next;
+        });
+      }
+    },
+    [authToken, loadFirst, processing],
+  );
+
   const renderItem = useCallback(
     ({ item }: { item: ActivityItem }) => {
       const meta = item.meta ?? {};
       const names = item.actorIds.map((id) => resolveUser(id).name);
       const lead = actorsLabel(names, item.actorCount);
       const primary = resolveUser(item.actorIds[0] ?? "");
+
+      // Friend requests get their own layout with Accept / Decline inline
+      if (item.type === "friend_request") {
+        const requestId = item.subjectId ?? "";
+        const isProcessing = processing.has(requestId);
+        return (
+          <View
+            style={[
+              styles.row,
+              { borderBottomColor: colors.border, alignItems: "flex-start" },
+              !item.read && { backgroundColor: colors.primary + "0D" },
+            ]}
+          >
+            <TouchableOpacity
+              disabled={!item.grouped || item.actorCount <= 1}
+              onPress={() => openActorSheet(item)}
+              style={styles.avatarWrap}
+            >
+              <ProAvatar
+                initials={primary.initials}
+                color={primary.color}
+                imageUrl={primary.profileImageUrl}
+                isPro={primary.isPro}
+                size={44}
+                fontSize={16}
+              />
+              {item.grouped && item.actorCount > 1 ? (
+                <View style={[styles.countBadge, { backgroundColor: colors.primary, borderColor: colors.background }]}>
+                  <Text style={styles.countBadgeText}>+{item.actorCount - 1}</Text>
+                </View>
+              ) : null}
+            </TouchableOpacity>
+            <View style={styles.body}>
+              <Text style={[styles.text, { color: colors.foreground }]}>
+                <Text style={styles.bold}>{lead}</Text>{" "}wants to be your friend
+              </Text>
+              <Text style={[styles.time, { color: colors.textDim }]}>{relativeTime(item.createdAt)}</Text>
+              {requestId ? (
+                <View style={styles.requestActions}>
+                  <TouchableOpacity
+                    onPress={() => { void handleAccept(requestId); }}
+                    disabled={isProcessing}
+                    activeOpacity={0.8}
+                    style={[styles.acceptBtn, { backgroundColor: colors.primary, opacity: isProcessing ? 0.6 : 1 }]}
+                  >
+                    <Text style={styles.acceptBtnText}>Accept</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => { void handleDecline(requestId); }}
+                    disabled={isProcessing}
+                    activeOpacity={0.8}
+                    style={[styles.declineBtn, { backgroundColor: colors.card, borderColor: colors.border, opacity: isProcessing ? 0.6 : 1 }]}
+                  >
+                    <Text style={[styles.declineBtnText, { color: colors.foreground }]}>Decline</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+            </View>
+          </View>
+        );
+      }
 
       let action = "";
       let preview: string | null = null;
@@ -303,7 +418,7 @@ export default function ActivityScreen() {
         </TouchableOpacity>
       );
     },
-    [colors, navigate, openActorSheet, resolveUser],
+    [colors, navigate, openActorSheet, resolveUser, handleAccept, handleDecline, processing],
   );
 
   return (
@@ -431,6 +546,11 @@ const styles = StyleSheet.create({
   time: { fontSize: 12, marginTop: 3 },
   thumb: { width: 44, height: 44, borderRadius: 8, backgroundColor: "#0002" },
   unreadDot: { width: 9, height: 9, borderRadius: 5 },
+  requestActions: { flexDirection: "row", gap: 8, marginTop: 8 },
+  acceptBtn: { paddingVertical: 6, paddingHorizontal: 16, borderRadius: 20, alignItems: "center" as const },
+  acceptBtnText: { color: "#fff", fontSize: 13, fontWeight: "700" as const },
+  declineBtn: { paddingVertical: 6, paddingHorizontal: 16, borderRadius: 20, alignItems: "center" as const, borderWidth: 1 },
+  declineBtnText: { fontSize: 13, fontWeight: "600" as const },
   emptyState: { alignItems: "center", paddingVertical: 80, paddingHorizontal: 36 },
   emptyTitle: { fontSize: 17, fontWeight: "800", marginBottom: 6 },
   emptySub: { fontSize: 13, textAlign: "center", lineHeight: 18 },

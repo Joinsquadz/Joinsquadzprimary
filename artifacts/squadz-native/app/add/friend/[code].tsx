@@ -142,30 +142,31 @@ export default function AddFriendViaLinkScreen() {
   }
 
   if (added) {
+    const alreadyFriends = !!inviter && friends.includes(inviter.id);
     return (
       <View style={[styles.screen, styles.center, { backgroundColor: colors.background }]}>
         <View style={[styles.successIcon, { backgroundColor: colors.green + "20" }]}>
-          <Ionicons name="checkmark-circle" size={56} color={colors.green} />
+          <Ionicons name={alreadyFriends ? "checkmark-circle" : "paper-plane"} size={56} color={colors.green} />
         </View>
         <Text style={[styles.heading, { color: colors.foreground, marginTop: 16 }]}>
-          {isSelf ? "That's you!" : `You and ${inviterName} are friends!`}
+          {isSelf
+            ? "That's you!"
+            : alreadyFriends
+            ? `You and ${inviterName} are friends!`
+            : "Request sent!"}
         </Text>
         <Text style={[styles.sub, { color: colors.mutedForeground }]}>
           {isSelf
             ? "You can't add yourself as a friend."
-            : "You're now connected on SquadZ."}
+            : alreadyFriends
+            ? "You're already connected on SquadZ."
+            : `${inviterName} will get a notification to accept.`}
         </Text>
         <TouchableOpacity
-          onPress={() => router.replace("/friends" as never)}
+          onPress={() => router.replace("/(tabs)" as never)}
           style={[styles.btn, { backgroundColor: colors.primary, marginTop: 28 }]}
         >
-          <Text style={styles.btnText}>View Friends →</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          onPress={() => router.replace("/(tabs)" as never)}
-          style={{ marginTop: 14 }}
-        >
-          <Text style={[styles.link, { color: colors.mutedForeground }]}>Go to home</Text>
+          <Text style={styles.btnText}>Go to SquadZ →</Text>
         </TouchableOpacity>
       </View>
     );

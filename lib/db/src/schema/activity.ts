@@ -16,6 +16,7 @@ import { sql } from "drizzle-orm";
  * for your own actions).
  */
 export type ActivityType =
+  | "friend_request"
   | "friend_added"
   | "vibe_reaction"
   | "vibe_comment"

@@ -222,9 +222,11 @@ type AppContextType = {
   removeMember: (squadId: string, userId: string) => Promise<{ error?: string }>;
 
   friends: string[];
+  sentRequests: string[];
   friendCode: string;
   addFriend: (userId: string) => void;
   removeFriend: (userId: string) => void;
+  fetchFriends: () => Promise<void>;
   outstandingBalancesCount: number;
   squadStreamStatus: "connected" | "reconnecting" | "error";
   retrySquadStream: () => void;
@@ -298,9 +300,11 @@ const AppContext = createContext<AppContextType>({
   addMemberByFriendCode: async () => ({}),
   removeMember: async () => ({}),
   friends: INITIAL_FRIENDS,
+  sentRequests: [],
   friendCode: "",
   addFriend: noop,
   removeFriend: noop,
+  fetchFriends: async () => {},
   outstandingBalancesCount: 0,
   squadStreamStatus: "reconnecting",
   retrySquadStream: noop,
@@ -376,6 +380,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [eventsLoading, setEventsLoading] = useState(true);
   const [squadsLoading, setSquadsLoading] = useState(true);
   const [friends, setFriends] = useState<string[]>(INITIAL_FRIENDS);
+  const [sentRequests, setSentRequests] = useState<string[]>([]);
   const [ownPaymentHandles, setOwnPaymentHandles] = useState<PaymentHandles>({ venmo: null, cashapp: null, zelle: null });
   const [conflictEventId, setConflictEventId] = useState<string | null>(null);
   const [conflictSnapshot, setConflictSnapshot] = useState<ConflictSnapshot | null>(null);
@@ -471,21 +476,50 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [apiFetch]);
 
-  // Optimistically apply, then reconcile with the server on failure. Using a
-  // server re-fetch (rather than a blind local rollback) makes the result
-  // order-independent: the persisted state always wins, even if mutations race.
+  const fetchSentRequests = useCallback(async () => {
+    const startedToken = authTokenRef.current;
+    try {
+      const res = await apiFetch("/api/users/friend-requests/sent");
+      if (!res.ok) return;
+      const data = (await res.json()) as string[];
+      if (authTokenRef.current !== startedToken) return;
+      setSentRequests(data);
+    } catch {
+      // keep current list
+    }
+  }, [apiFetch]);
+
+  // Send a friend request. Optimistically marks the user as "sent" locally,
+  // rolls back if the server rejects (unless it was already-friends / auto-accept).
   const addFriend = useCallback(
     (userId: string) => {
-      setFriends((prev) => Array.from(new Set([...prev, userId])));
+      setSentRequests((prev) => Array.from(new Set([...prev, userId])));
       void (async () => {
         try {
-          const res = await apiFetch("/api/users/friends", {
+          const res = await apiFetch("/api/users/friend-requests", {
             method: "POST",
-            body: JSON.stringify({ friendId: userId }),
+            body: JSON.stringify({ toUserId: userId }),
           });
-          if (!res.ok) void fetchFriends();
+          if (!res.ok) {
+            if (res.status === 409) {
+              const data = (await res.json()) as { error: string };
+              // Auto-accepted (they already sent us a request) → refresh friends
+              if (data.error === "Already friends") {
+                void fetchFriends();
+                setSentRequests((prev) => prev.filter((id) => id !== userId));
+                return;
+              }
+            }
+            setSentRequests((prev) => prev.filter((id) => id !== userId));
+          } else {
+            const data = (await res.json()) as { ok: boolean; autoAccepted?: boolean };
+            if (data.autoAccepted) {
+              void fetchFriends();
+              setSentRequests((prev) => prev.filter((id) => id !== userId));
+            }
+          }
         } catch {
-          void fetchFriends();
+          setSentRequests((prev) => prev.filter((id) => id !== userId));
         }
       })();
     },
@@ -510,9 +544,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   useEffect(() => {
-    if (authToken) void fetchFriends();
-    else setFriends([]);
-  }, [authToken, fetchFriends]);
+    if (authToken) {
+      void fetchFriends();
+      void fetchSentRequests();
+    } else {
+      setFriends([]);
+      setSentRequests([]);
+    }
+  }, [authToken, fetchFriends, fetchSentRequests]);
 
   const fetchOwnHandles = useCallback(async () => {
     try {
@@ -2113,9 +2152,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       addMemberByFriendCode,
       removeMember,
       friends,
+      sentRequests,
       friendCode: apiUser?.friendCode ?? "",
       addFriend,
       removeFriend,
+      fetchFriends,
       outstandingBalancesCount,
       squadStreamStatus,
       retrySquadStream,
@@ -2183,9 +2224,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       addMemberByFriendCode,
       removeMember,
       friends,
+      sentRequests,
       apiUser,
       addFriend,
       removeFriend,
+      fetchFriends,
       outstandingBalancesCount,
       squadStreamStatus,
       retrySquadStream,
