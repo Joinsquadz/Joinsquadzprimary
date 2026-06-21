@@ -53,7 +53,6 @@ export default function FriendPickerSheet({
   const [query, setQuery] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  // Track previous visible so we only reset state on open, not on every friends update.
   const prevVisibleRef = useRef(false);
 
   useEffect(() => {
@@ -107,39 +106,17 @@ export default function FriendPickerSheet({
           ]}
         >
           <View style={styles.handle} />
+
+          {/* Header: Cancel + title only */}
           <View style={styles.header}>
-            <TouchableOpacity onPress={onClose} hitSlop={10}>
+            <TouchableOpacity onPress={onClose} hitSlop={10} style={styles.cancelBtn}>
               <Text style={[styles.cancel, { color: colors.mutedForeground }]}>Cancel</Text>
             </TouchableOpacity>
             <Text style={[styles.title, { color: colors.foreground }]} numberOfLines={1}>
               {title}
             </Text>
-            <TouchableOpacity
-              onPress={submit}
-              disabled={selected.length === 0 || submitting}
-              style={[
-                styles.confirmBtn,
-                {
-                  backgroundColor:
-                    selected.length === 0 ? colors.muted : colors.primary,
-                },
-              ]}
-              activeOpacity={0.85}
-            >
-              {submitting ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <Text
-                  style={[
-                    styles.confirmText,
-                    { color: selected.length === 0 ? colors.mutedForeground : "#fff" },
-                  ]}
-                >
-                  {confirmLabel}
-                  {selected.length > 0 ? ` (${selected.length})` : ""}
-                </Text>
-              )}
-            </TouchableOpacity>
+            {/* Spacer to keep title centred */}
+            <View style={styles.cancelBtn} />
           </View>
 
           {friends.length > 0 && (
@@ -197,6 +174,30 @@ export default function FriendPickerSheet({
               })
             )}
           </ScrollView>
+
+          {/* Full-width CTA at the bottom — visible as soon as a friend is selected */}
+          <TouchableOpacity
+            onPress={submit}
+            disabled={selected.length === 0 || submitting}
+            style={[
+              styles.ctaBtn,
+              {
+                backgroundColor: selected.length === 0 ? colors.muted : colors.primary,
+                marginTop: 12,
+              },
+            ]}
+            activeOpacity={0.85}
+          >
+            {submitting ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <Text style={[styles.ctaText, { color: selected.length === 0 ? colors.mutedForeground : "#fff" }]}>
+                {selected.length === 0
+                  ? confirmLabel
+                  : `${confirmLabel} ${selected.length === 1 ? "1 person" : `${selected.length} people`}`}
+              </Text>
+            )}
+          </TouchableOpacity>
         </View>
       </View>
     </Modal>
@@ -213,11 +214,10 @@ const styles = StyleSheet.create({
     maxHeight: "80%",
   },
   handle: { width: 40, height: 4, borderRadius: 2, backgroundColor: "#888", alignSelf: "center", marginBottom: 12, opacity: 0.5 },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 14, gap: 12 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 14 },
+  cancelBtn: { width: 64 },
   cancel: { fontSize: 15, fontFamily: "Inter_500Medium" },
   title: { flex: 1, textAlign: "center", fontSize: 16, fontWeight: "700", fontFamily: "Inter_700Bold" },
-  confirmBtn: { paddingVertical: 7, paddingHorizontal: 16, borderRadius: 20, minWidth: 72, alignItems: "center" },
-  confirmText: { fontSize: 14, fontWeight: "700", fontFamily: "Inter_700Bold" },
   searchRow: { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9, marginBottom: 10 },
   searchInput: { flex: 1, fontSize: 15, fontFamily: "Inter_400Regular", padding: 0 },
   list: { flexGrow: 0 },
@@ -225,4 +225,6 @@ const styles = StyleSheet.create({
   name: { flex: 1, fontSize: 15, fontFamily: "Inter_500Medium" },
   empty: { alignItems: "center", gap: 10, paddingVertical: 36, paddingHorizontal: 24 },
   emptyText: { fontSize: 14, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 20 },
+  ctaBtn: { borderRadius: 14, height: 50, alignItems: "center", justifyContent: "center" },
+  ctaText: { fontSize: 16, fontWeight: "700", fontFamily: "Inter_700Bold" },
 });
