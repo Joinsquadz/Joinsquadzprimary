@@ -12,10 +12,19 @@ const router: IRouter = Router();
 
 // Public, no-auth: how many Founding Member spots remain. Drives the landing
 // page price + the in-app upgrade modal. Read-only — never claims a spot.
+// Cached for 30 s so rapid page loads don't hit Stripe/DB on every request.
+type FoundingStatus = Awaited<ReturnType<typeof getFoundingStatus>>;
+let _foundingCache: { value: FoundingStatus; expiresAt: number } | null = null;
+
 router.get('/subscription/founding-status', async (_req, res): Promise<void> => {
   try {
-    const status = await getFoundingStatus();
-    res.json(status);
+    const now = Date.now();
+    if (!_foundingCache || now > _foundingCache.expiresAt) {
+      const status = await getFoundingStatus();
+      _foundingCache = { value: status, expiresAt: now + 30_000 };
+    }
+    res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
+    res.json(_foundingCache.value);
   } catch (err) {
     logger.error({ err }, 'Error fetching founding status');
     res.status(500).json({ error: 'Failed to fetch founding status' });

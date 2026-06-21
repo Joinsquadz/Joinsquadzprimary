@@ -120,11 +120,19 @@ router.post("/waitlist", async (req: Request, res: Response): Promise<void> => {
 /**
  * GET /api/waitlist/count
  * Public count used for social proof on the landing page.
+ * Cached for 60 s so repeated page loads don't hammer the DB.
  */
+let _countCache: { value: number; expiresAt: number } | null = null;
+
 router.get("/waitlist/count", async (_req: Request, res: Response): Promise<void> => {
   try {
-    const count = await storage.getWaitlistCount();
-    res.status(200).json({ count });
+    const now = Date.now();
+    if (!_countCache || now > _countCache.expiresAt) {
+      const count = await storage.getWaitlistCount();
+      _countCache = { value: count, expiresAt: now + 60_000 };
+    }
+    res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=120");
+    res.status(200).json({ count: _countCache.value });
   } catch (err) {
     logger.error({ err }, "Error fetching waitlist count");
     res.status(500).json({ error: "Failed to fetch count" });
