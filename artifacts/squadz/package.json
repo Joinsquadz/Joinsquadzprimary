@@ -81,6 +81,7 @@
     "zod": "catalog:"
   },
   "dependencies": {
+    "@fontsource-variable/dm-sans": "^5.2.8",
     "react-helmet-async": "^3.0.0"
   }
 }

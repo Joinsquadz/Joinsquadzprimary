@@ -10,7 +10,7 @@ export const T = {
 export const avatarPalette = [T.accent, T.gold, T.green, T.blue, T.purple, T.pink, "#FF8C42", "#42D4FF"];
 export const getAvatarColor = (str: string) => avatarPalette[(str || "?").charCodeAt(0) % avatarPalette.length];
 
-export const font = `'DM Sans', system-ui, sans-serif`;
+export const font = `'DM Sans Variable', 'DM Sans', system-ui, sans-serif`;
 export const fontMono = `'DM Mono', monospace`;
 
 export const SQUADS = [
