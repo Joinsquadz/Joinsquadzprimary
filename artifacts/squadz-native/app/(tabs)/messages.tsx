@@ -16,6 +16,7 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AppContext";
 import { useMessages, type ConversationListItem } from "@/context/MessagesContext";
+import { UserAvatar } from "@/components/UserAvatar";
 import type { Event } from "@/types";
 
 // ── colours per type ──────────────────────────────────────────────────────────
@@ -63,11 +64,15 @@ function Avatar({
   emoji,
   color,
   initial,
+  imageUrl,
+  initials,
 }: {
   type: "direct" | "squad" | "event";
   emoji?: string | null;
   color?: string | null;
   initial: string;
+  imageUrl?: string | null;
+  initials?: string;
 }) {
   if (type === "event") {
     return (
@@ -86,9 +91,13 @@ function Avatar({
     );
   }
   return (
-    <View style={[styles.avatar, { backgroundColor: "#7C3AED" }]}>
-      <Text style={styles.avatarInitial}>{initial.toUpperCase()}</Text>
-    </View>
+    <UserAvatar
+      initials={initials ?? initial.toUpperCase()}
+      color="#7C3AED"
+      imageUrl={imageUrl ?? null}
+      size={52}
+      fontSize={18}
+    />
   );
 }
 
@@ -165,6 +174,8 @@ export default function MessagesScreen() {
               emoji={c.emoji}
               color={c.color}
               initial={(c.title || "?").charAt(0)}
+              imageUrl={type === "direct" ? (c.otherUserImageUrl ?? null) : null}
+              initials={type === "direct" ? (c.title || "?").slice(0, 2).toUpperCase() : undefined}
             />
             <View style={styles.rowBody}>
               <View style={styles.rowTop}>

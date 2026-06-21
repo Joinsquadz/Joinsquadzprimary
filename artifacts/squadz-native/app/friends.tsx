@@ -18,6 +18,7 @@ import * as Haptics from "expo-haptics";
 import QRCode from "react-native-qrcode-svg";
 import { useColors } from "@/hooks/useColors";
 import { useData, useAuth } from "@/context/AppContext";
+import { UserAvatar } from "@/components/UserAvatar";
 import { useMessages } from "@/context/MessagesContext";
 import { useUserCache } from "@/context/UserCacheContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
@@ -315,9 +316,13 @@ export default function FriendsScreen() {
               key={user.id}
               style={[styles.friendRow, { backgroundColor: colors.card, borderColor: colors.border }]}
             >
-              <View style={[styles.avatar, { backgroundColor: user.color }]}>
-                <Text style={styles.avatarText}>{user.initials}</Text>
-              </View>
+              <UserAvatar
+                initials={user.initials}
+                color={user.color}
+                imageUrl={user.profileImageUrl}
+                size={44}
+                fontSize={16}
+              />
               <View style={{ flex: 1 }}>
                 <Text style={[styles.friendName, { color: colors.foreground }]}>{user.name}</Text>
                 <Text style={[styles.friendSub, { color: colors.mutedForeground }]}>SquadZ friend</Text>
