@@ -28,6 +28,9 @@ vi.mock("@workspace/db", () => ({
     }),
     insert: () => ({
       values: () => ({
+        onConflictDoNothing: () => ({
+          returning: () => Promise.resolve(mockUpdateRows.value),
+        }),
         returning: () => Promise.resolve(mockUpdateRows.value),
       }),
     }),
@@ -43,6 +46,14 @@ vi.mock("@workspace/db", () => ({
     createdAt: "created_at",
     version: "version",
     invitedUserIds: "invited_user_ids",
+  },
+  eventInvitesTable: {
+    id: "id",
+    eventId: "event_id",
+    inviterUserId: "inviter_user_id",
+    invitedUserId: "invited_user_id",
+    status: "status",
+    createdAt: "created_at",
   },
 }));
 
@@ -369,16 +380,18 @@ describe("personal invites (events.invitedUserIds)", () => {
     expect(res.status).toBe(403);
   });
 
-  it("POST /invite adds a friend and returns the updated event", async () => {
+  it("POST /invite creates an invite row and returns ok + inviteCount", async () => {
     mockRows.value = [makeBaseEvent()];
     storageMock.getFriendIds.mockResolvedValue([INVITED_ID]);
-    mockUpdateRows.value = [makeBaseEvent({ invitedUserIds: [INVITED_ID], version: 1 })];
+    // Each inserted row returned by db.insert().values().onConflictDoNothing().returning()
+    mockUpdateRows.value = [{ id: "invite-1", invitedUserId: INVITED_ID, eventId: "evt-1" }];
     const app = await makeApp({ id: HOST_ID });
     const res = await request(app)
       .post("/api/events/evt-1/invite")
       .send({ userIds: [INVITED_ID] });
     expect(res.status).toBe(200);
-    expect(res.body.invitedUserIds).toContain(INVITED_ID);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.inviteCount).toBe(1);
   });
 
   it("POST /invite drops a non-friend / non-member target (idempotent no-op)", async () => {

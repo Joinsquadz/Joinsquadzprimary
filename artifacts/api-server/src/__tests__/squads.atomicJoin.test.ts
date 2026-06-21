@@ -5,6 +5,7 @@ import request from "supertest";
 // Each entry is one full Promise.resolve([...]) response. Shift one per call.
 const mockSelectQueue = vi.hoisted(() => ({ queue: [] as unknown[][] }));
 const mockUpdateRows = vi.hoisted(() => ({ value: [] as unknown[] }));
+const mockInsertRow = vi.hoisted(() => ({ value: { id: "invite-abc" } as Record<string, unknown> }));
 
 vi.mock("@workspace/db", () => ({
   db: {
@@ -26,13 +27,14 @@ vi.mock("@workspace/db", () => ({
     }),
     delete: () => ({ where: () => Promise.resolve() }),
     insert: () => ({
-      values: () => ({ returning: () => Promise.resolve([]) }),
+      values: () => ({ returning: () => Promise.resolve([mockInsertRow.value]) }),
     }),
   },
-  squadsTable: { id: "id", memberIds: "member_ids", isPublic: "is_public", inviteCode: "invite_code", createdAt: "created_at" },
-  usersTable: { id: "id", friendCode: "friend_code" },
+  squadsTable: { id: "id", memberIds: "member_ids", isPublic: "is_public", inviteCode: "invite_code", createdAt: "created_at", creatorId: "creator_id", membersCanInvite: "members_can_invite" },
+  usersTable: { id: "id", friendCode: "friend_code", firstName: "first_name", lastName: "last_name", profileImageUrl: "profile_image_url" },
   squadMutesTable: { userId: "user_id", squadId: "squad_id" },
   squadRemovalNoticesTable: {},
+  squadInvitesTable: { id: "id", squadId: "squad_id", invitedUserId: "invited_user_id", status: "status" },
 }));
 
 vi.mock("../storage", () => ({
@@ -75,6 +77,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockSelectQueue.queue = [];
   mockUpdateRows.value = [];
+  mockInsertRow.value = { id: "invite-abc" };
 });
 
 // ─── POST /api/squads/:id/join ────────────────────────────────────────────────
@@ -201,11 +204,10 @@ describe("POST /api/squads/:id/members — atomic membership guard", () => {
     friendCode: "TAYL01",
   };
 
-  it("returns 201 when the DB update successfully adds the target user", async () => {
-    // Two selects: squad first, then user by friend code.
-    mockSelectQueue.queue = [[PUBLIC_SQUAD], [TARGET_USER]];
-    const updatedSquad = { ...PUBLIC_SQUAD, memberIds: [EXISTING_MEMBER, TARGET_USER.id] };
-    mockUpdateRows.value = [updatedSquad];
+  it("returns 201 and invite details when the invite is created", async () => {
+    // Three selects: squad, user by friend code, then pending-invite existence check (empty).
+    mockSelectQueue.queue = [[PUBLIC_SQUAD], [TARGET_USER], []];
+    mockInsertRow.value = { id: "invite-xyz" };
 
     const app = makeApp({ id: EXISTING_MEMBER });
     const res = await request(app)
@@ -213,12 +215,14 @@ describe("POST /api/squads/:id/members — atomic membership guard", () => {
       .send({ friendCode: "TAYL01" });
 
     expect(res.status).toBe(201);
-    expect(res.body.addedUser.id).toBe(TARGET_USER.id);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.inviteId).toBe("invite-xyz");
+    expect(res.body.invitedUser.id).toBe(TARGET_USER.id);
   });
 
-  it("returns 409 when the DB update matches 0 rows (target already a member)", async () => {
-    mockSelectQueue.queue = [[PUBLIC_SQUAD], [TARGET_USER]];
-    mockUpdateRows.value = [];
+  it("returns 409 when a pending invite already exists for the target", async () => {
+    // Third select returns an existing pending invite.
+    mockSelectQueue.queue = [[PUBLIC_SQUAD], [TARGET_USER], [{ id: "existing-invite" }]];
 
     const app = makeApp({ id: EXISTING_MEMBER });
     const res = await request(app)

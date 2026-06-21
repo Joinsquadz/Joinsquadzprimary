@@ -4,6 +4,7 @@ import request from "supertest";
 const mockSquadSelectRows = vi.hoisted(() => ({ value: [] as unknown[] }));
 const mockUserSelectRows = vi.hoisted(() => ({ value: [] as unknown[] }));
 const mockUpdateRows = vi.hoisted(() => ({ value: [] as unknown[] }));
+const mockInsertRow = vi.hoisted(() => ({ value: { id: "invite-abc" } as Record<string, unknown> }));
 const selectCallCount = vi.hoisted(() => ({ n: 0 }));
 
 vi.mock("@workspace/db", () => ({
@@ -14,7 +15,11 @@ vi.mock("@workspace/db", () => ({
         from: () => ({
           where: () =>
             Promise.resolve(
-              callIndex === 0 ? mockSquadSelectRows.value : mockUserSelectRows.value,
+              callIndex === 0
+                ? mockSquadSelectRows.value
+                : callIndex === 1
+                  ? mockUserSelectRows.value
+                  : [], // 3rd+ selects: pending-invite existence check → empty = no existing invite
             ),
         }),
       };
@@ -28,7 +33,7 @@ vi.mock("@workspace/db", () => ({
     }),
     delete: () => ({ where: () => Promise.resolve() }),
     insert: () => ({
-      values: () => ({ returning: () => Promise.resolve([]) }),
+      values: () => ({ returning: () => Promise.resolve([mockInsertRow.value]) }),
     }),
   },
   squadsTable: {
@@ -36,8 +41,10 @@ vi.mock("@workspace/db", () => ({
     memberIds: "member_ids",
     createdAt: "created_at",
     creatorId: "creator_id",
+    membersCanInvite: "members_can_invite",
   },
-  usersTable: { id: "id", friendCode: "friend_code" },
+  usersTable: { id: "id", friendCode: "friend_code", firstName: "first_name", lastName: "last_name", profileImageUrl: "profile_image_url" },
+  squadInvitesTable: { id: "id", squadId: "squad_id", invitedUserId: "invited_user_id", status: "status" },
 }));
 
 const mockGetPushTokensForUsers = vi.hoisted(() => vi.fn());
@@ -104,6 +111,7 @@ beforeEach(() => {
   mockSquadSelectRows.value = [BASE_SQUAD];
   mockUserSelectRows.value = [TARGET_USER];
   mockUpdateRows.value = [UPDATED_SQUAD];
+  mockInsertRow.value = { id: "invite-abc" };
   mockGetUser.mockResolvedValue({ id: REQUESTER_ID, firstName: "Sam", lastName: "Lee" });
   mockFilterUnmutedForSquad.mockResolvedValue([TARGET_ID]);
   mockGetPushTokensForUsers.mockResolvedValue([]);
@@ -233,11 +241,10 @@ describe("POST /api/squads/:id/members — opt-out filter for invite-target noti
       string[],
       { title: string; body: string; data: Record<string, string> },
     ];
-    expect(payload.title).toBe("You were added to a squad");
+    expect(payload.title).toBe("Squad invite");
     expect(payload.body).toContain("Sam");
     expect(payload.body).toContain(BASE_SQUAD.name);
-    expect(payload.data.screen).toBe("squad");
-    expect(payload.data.squadId).toBe(BASE_SQUAD.id);
+    expect(payload.data.screen).toBe("activity");
   });
 
   it("still calls getPushTokensForUsers with requireNotifySquadJoin even when target has no token", async () => {

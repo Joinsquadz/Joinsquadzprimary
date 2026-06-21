@@ -7,6 +7,7 @@ import request from "supertest";
 const mockSelectCallIdx = vi.hoisted(() => ({ value: 0 }));
 const mockSelectResults = vi.hoisted(() => ({ value: [] as unknown[][] }));
 const mockUpdateRows = vi.hoisted(() => ({ value: [] as unknown[] }));
+const mockInsertRow = vi.hoisted(() => ({ value: { id: "invite-abc" } as Record<string, unknown> }));
 const mockSetArgs = vi.hoisted(() => ({ value: null as Record<string, unknown> | null }));
 const mockTransactionCalled = vi.hoisted(() => ({ value: false }));
 
@@ -32,7 +33,7 @@ vi.mock("@workspace/db", () => ({
     }),
     insert: () => ({
       values: () => ({
-        returning: () => Promise.resolve([]),
+        returning: () => Promise.resolve([mockInsertRow.value]),
       }),
     }),
     delete: () => ({
@@ -48,6 +49,7 @@ vi.mock("@workspace/db", () => ({
     id: "id",
     creatorId: "creator_id",
     memberIds: "member_ids",
+    membersCanInvite: "members_can_invite",
     createdAt: "created_at",
   },
   usersTable: {
@@ -59,6 +61,7 @@ vi.mock("@workspace/db", () => ({
   },
   squadRemovalNoticesTable: { id: "id", userId: "user_id", seenAt: "seen_at" },
   squadMutesTable: { id: "id", userId: "user_id", squadId: "squad_id" },
+  squadInvitesTable: { id: "id", squadId: "squad_id", invitedUserId: "invited_user_id", status: "status" },
 }));
 
 vi.mock("../storage", () => ({
@@ -119,6 +122,7 @@ beforeEach(() => {
   mockUpdateRows.value = [];
   mockSetArgs.value = null;
   mockTransactionCalled.value = false;
+  mockInsertRow.value = { id: "invite-abc" };
 });
 
 describe("POST /api/squads/:id/members", () => {
@@ -189,20 +193,18 @@ describe("POST /api/squads/:id/members", () => {
     expect(res.body.error).toMatch(/already/i);
   });
 
-  it("returns 201 when creator successfully adds a new member", async () => {
-    const updatedSquad = {
-      ...baseSquad,
-      memberIds: [...baseSquad.memberIds, TARGET_USER_ID],
-    };
-    mockSelectResults.value = [[baseSquad], [targetUser]];
-    mockUpdateRows.value = [updatedSquad];
+  it("returns 201 and invite details when creator successfully invites a new member", async () => {
+    // Three selects: squad, user by friend code, pending-invite existence check (empty = no existing invite).
+    mockSelectResults.value = [[baseSquad], [targetUser], []];
+    mockInsertRow.value = { id: "invite-xyz" };
     const app = makeApp({ id: CREATOR_ID });
     const res = await request(app)
       .post("/api/squads/squad-1/members")
       .send({ friendCode: TARGET_FRIEND_CODE });
     expect(res.status).toBe(201);
-    expect(res.body.addedUser.id).toBe(TARGET_USER_ID);
-    expect(res.body.squad.memberIds).toContain(TARGET_USER_ID);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.inviteId).toBe("invite-xyz");
+    expect(res.body.invitedUser.id).toBe(TARGET_USER_ID);
   });
 });
 
