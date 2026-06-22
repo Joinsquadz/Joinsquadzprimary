@@ -10,6 +10,7 @@ import {
   TextInput,
   Modal,
 } from "react-native";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { LinearGradient } from "expo-linear-gradient";
 import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { router, useLocalSearchParams } from "expo-router";
@@ -647,7 +648,7 @@ export default function TripDetailScreen() {
   }
 
   return (
-    <View style={[styles.screen, { backgroundColor: colors.background }]}>
+    <KeyboardAvoidingView behavior="padding" style={[styles.screen, { backgroundColor: colors.background }]}>
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: insets.bottom + 120 }}
@@ -1249,7 +1250,7 @@ export default function TripDetailScreen() {
           onChange={handleDateAndroid}
         />
       ) : null}
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 

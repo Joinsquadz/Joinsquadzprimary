@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useFocusEffect } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
@@ -773,7 +774,7 @@ export default function EventDetailScreen() {
   };
 
   return (
-    <View style={[styles.screen, { backgroundColor: colors.background }]}>
+    <KeyboardAvoidingView behavior="padding" style={[styles.screen, { backgroundColor: colors.background }]}>
       {/* Hero */}
       <View style={[styles.hero, { paddingTop: topPad + 8 }]}>
         <TouchableOpacity onPress={goBack} style={[styles.backBtn, { top: btnTop }]}>
@@ -2120,7 +2121,7 @@ export default function EventDetailScreen() {
         ctaLabel="Let's go"
         onClose={() => setFirstRsvpCelebration(false)}
       />
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
