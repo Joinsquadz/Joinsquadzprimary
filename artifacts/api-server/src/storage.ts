@@ -412,8 +412,8 @@ export class Storage {
 
   /**
    * Shared visibility rule for a vault photo: the uploader, any current member
-   * of the squad it's shared into, or the host/squad-members of its linked
-   * event may view it. Fail-closed for everyone else.
+   * of the squad it's shared into, or the host/squad-members/invited-participants
+   * of its linked event may view it. Fail-closed for everyone else.
    */
   private async canUserViewPhoto(photo: Photo, userId: string): Promise<boolean> {
     if (photo.uploaderId === userId) return true;
@@ -424,7 +424,7 @@ export class Storage {
 
     if (photo.eventId) {
       const [event] = await db
-        .select({ squadId: eventsTable.squadId, hostId: eventsTable.hostId })
+        .select({ squadId: eventsTable.squadId, hostId: eventsTable.hostId, invitedUserIds: eventsTable.invitedUserIds })
         .from(eventsTable)
         .where(eq(eventsTable.id, photo.eventId));
       if (event) {
@@ -432,6 +432,10 @@ export class Storage {
         if (event.squadId && (await this.isSquadMember(event.squadId, userId))) {
           return true;
         }
+        // Personal trips (no squad) invite friends directly via invitedUserIds —
+        // they must be able to see each other's photos in the shared trip vault.
+        const invited = (event.invitedUserIds ?? []) as string[];
+        if (invited.includes(userId)) return true;
       }
     }
 
