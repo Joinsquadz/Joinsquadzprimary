@@ -482,6 +482,11 @@ router.post("/events", requireAuth, async (req: Request, res: Response): Promise
       hostId,
       invitedUserIds,
       inviteCode: inviteCode ?? randomCode(),
+      // Trips have no RSVP UI (access is squad-membership based), so the organizer
+      // would otherwise show as "0 going". Seed the host as going at creation so
+      // the count reflects them immediately. Events deliberately leave the host
+      // unset and prompt them to RSVP, so they are not seeded here.
+      ...(rest.type === "trip" ? { rsvps: { [hostId]: "going" } } : {}),
       ...(resolvedEventAt ? { eventAt: new Date(resolvedEventAt) } : {}),
       ...(startAt ? { startAt: new Date(startAt) } : {}),
       ...(endAt ? { endAt: new Date(endAt) } : {}),
