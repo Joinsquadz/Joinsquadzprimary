@@ -6,7 +6,6 @@ import {
   ScrollView,
   TouchableOpacity,
   Platform,
-  Image,
   Animated,
   RefreshControl,
   ActivityIndicator,
@@ -19,6 +18,7 @@ import { useColors } from "@/hooks/useColors";
 import { useData } from "@/context/AppContext";
 import { useUserCache } from "@/context/UserCacheContext";
 import { useMutedSquads } from "@/context/MutedSquadsContext";
+import { UserAvatar } from "@/components/UserAvatar";
 import { API_BASE } from "@/lib/api";
 
 type RemovalNotice = {
@@ -255,14 +255,10 @@ export default function SquadsScreen() {
                           key={m.id}
                           style={[
                             styles.memberAvatar,
-                            { backgroundColor: m.color, marginLeft: i > 0 ? -7 : 0, borderColor: colors.card },
+                            { marginLeft: i > 0 ? -7 : 0, borderColor: colors.card },
                           ]}
                         >
-                          {photoUrl ? (
-                            <Image source={{ uri: photoUrl }} style={styles.memberAvatarImage} />
-                          ) : (
-                            <Text style={styles.memberInitial}>{m.initials[0]}</Text>
-                          )}
+                          <UserAvatar initials={m.initials} color={m.color} imageUrl={photoUrl} size={20} fontSize={9} />
                         </View>
                       );
                     })}
@@ -418,7 +414,6 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     overflow: "hidden",
   },
-  memberAvatarImage: { width: 24, height: 24, borderRadius: 12 },
   memberInitial: { fontSize: 9, fontWeight: "800", color: "#fff" },
   empty: { alignItems: "center", paddingTop: 60, paddingBottom: 40 },
   emptyTitle: { fontSize: 20, fontWeight: "800", marginBottom: 8 },

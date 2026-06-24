@@ -517,8 +517,8 @@ export default function HomeScreen() {
                       .map(([uid], i) => {
                         const u = resolveUser(uid);
                         return (
-                          <View key={uid} style={[styles.heroPip, { marginLeft: i > 0 ? -8 : 0, backgroundColor: u.color }]}>
-                            <Text style={styles.heroPipText}>{u.initials[0]}</Text>
+                          <View key={uid} style={[styles.heroPip, { marginLeft: i > 0 ? -8 : 0 }]}>
+                            <UserAvatar initials={u.initials} color={u.color} imageUrl={u.profileImageUrl} size={24} fontSize={11} />
                           </View>
                         );
                       })}
@@ -1314,7 +1314,6 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
     borderWidth: 2, borderColor: "#FF5C3A",
   },
-  heroPipText: { fontSize: 11, fontWeight: "800", color: "#fff" },
   heroGoingText: { marginLeft: 8, fontSize: 12, color: "rgba(255,255,255,0.8)" },
   streakCard: {
     borderRadius: 16, borderWidth: 1.5, padding: 16, gap: 4,

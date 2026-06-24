@@ -131,7 +131,7 @@ export default function TripDetailScreen() {
     addEventCoAdmin,
     removeEventCoAdmin,
   } = useData();
-  const { resolveUser } = useUserCache();
+  const { resolveUser, prefetchUsers } = useUserCache();
   const { authToken } = useAuth();
 
   // Past trips live in the Plans→Past segment but are NOT in the upcoming-only
@@ -219,6 +219,15 @@ export default function TripDetailScreen() {
     for (const uid of extraIds) result.push({ user: resolveUser(uid), isSquadMember: false });
     return result;
   }, [event, getSquad, resolveUser]);
+
+  // Warm the user cache for everyone shown on this screen (members, invitees,
+  // assignees, host) so their profile pictures resolve instead of falling back
+  // to initials — the trip screen can be opened via deep link with a cold cache.
+  useEffect(() => {
+    const ids = new Set<string>(allTripMembers.map((m) => m.user.id));
+    if (event?.hostId) ids.add(event.hostId);
+    if (ids.size > 0) prefetchUsers([...ids]);
+  }, [allTripMembers, event?.hostId, prefetchUsers]);
 
   // Everyone who can be included in a cost split: squad members + invited
   // friends (deduped), each fully resolved. Always includes the current user so

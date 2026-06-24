@@ -369,7 +369,7 @@ export default function ConversationScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} hitSlop={10}>
           <Ionicons name="chevron-back" size={26} color={colors.foreground} />
         </TouchableOpacity>
-        {listItem?.type === "squad" ? (
+        {listItem?.type === "squad" && (
           <View
             style={[
               styles.headerAvatar,
@@ -377,10 +377,6 @@ export default function ConversationScreen() {
             ]}
           >
             <Text style={{ fontSize: 18 }}>{listItem.emoji ?? "👥"}</Text>
-          </View>
-        ) : (
-          <View style={[styles.headerAvatar, { backgroundColor: colors.primary }]}>
-            <Text style={styles.headerAvatarText}>{initialFor(title)}</Text>
           </View>
         )}
         <View style={{ flex: 1 }}>
@@ -580,7 +576,6 @@ const styles = StyleSheet.create({
     width: 38, height: 38, borderRadius: 19,
     alignItems: "center", justifyContent: "center", overflow: "hidden",
   },
-  headerAvatarText: { color: "#fff", fontSize: 16, fontWeight: "800" },
   headerTitle: { fontSize: 17, fontWeight: "800" },
   headerSub: { fontSize: 12, marginTop: 1 },
   loading: { flex: 1, alignItems: "center", justifyContent: "center" },
