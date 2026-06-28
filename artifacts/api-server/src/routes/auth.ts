@@ -607,7 +607,6 @@ router.post("/auth/register", async (req: Request, res: Response) => {
     }
     const { data: signIn } = await supabaseAuth.auth.signInWithPassword({ email, password });
     const dbUser = await syncSupabaseUser(created.user, { firstName, lastName, phone });
-    void sendVerification(req, dbUser);
     identifyUser(dbUser.id, { email, firstName: dbUser.firstName ?? undefined, lastName: dbUser.lastName ?? undefined });
     trackEvent(dbUser.id, "signup", { method: "email" });
     res.json({
@@ -642,11 +641,6 @@ router.post("/auth/register", async (req: Request, res: Response) => {
       friendCode: generateFriendCode(),
     })
     .returning();
-
-  // Fire-and-forget: email confirmation is non-blocking, so registration
-  // returns immediately even if SMTP is slow or unavailable. Failures are
-  // logged inside sendVerification and the user can resend later.
-  void sendVerification(req, user);
 
   const token = await createSession({ user: toAuthUser(user) });
   res.json({

@@ -116,14 +116,6 @@ router.post('/checkout', requireAuth, async (req, res): Promise<void> => {
       customerId = customer.id;
     }
 
-    if (!user.emailVerified) {
-      res.status(403).json({
-        error: 'Please verify your email address before subscribing. Check your inbox for a verification link.',
-        requiresEmailVerification: true,
-      });
-      return;
-    }
-
     // Server decides the tier (founding while spots remain, else standard) from
     // the live count — WITHOUT consuming a spot. The spot is only redeemed when
     // Stripe confirms payment (checkout.session.completed webhook), so an

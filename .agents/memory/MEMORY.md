@@ -22,6 +22,7 @@
 - [squadz-native vitest setup](squadz-native-vitest.md) — mobile lib unit tests: vitest.config aliases "@" to package root; mock react-native + @/lib/api via vi.hoisted so no native/expo loads under node.
 - [Stripe sync backfill](stripe-sync-backfill.md) — stripe-replit-sync syncBackfill() MUST be called with {object:"all"}; no-arg call silently syncs zero rows, leaving stripe.products empty.
 - [Founding spot consumption](founding-spot-consumption.md) — founding discount spot consumed at PAYMENT (webhook), not checkout-start; read-only tier decision + idempotent per-sub ledger; redemption failure MUST rethrow so Stripe retries.
+- [Email verification removed](email-verification-removed.md) — no signup verify email, nothing gates on emailVerified (incl. checkout); plumbing dormant/reversible; don't re-add a gate without product sign-off.
 - [Squad conversation membership](squad-conversation-membership.md) — squad participant rows are append-only/never pruned; every squad-convo access/list/count must re-check CURRENT membership, not trust the row.
 - [Drizzle push TTY drift](drizzle-push-tty-drift.md) — non-TTY `drizzle-kit push` aborts on unique-constraint prompts → missing tables → list endpoints 500 → looks like "data deleted"; fix via raw SQL + convert unique INDEX to CONSTRAINT until push runs clean.
 - [Web tab bar overlay](squadz-web-tabbar-overlay.md) — squadz-native web tab bar is absolute+84px and overlays screens; fixed bottom buttons need TAB_BAR_HEIGHT padding (single-sourced in constants/layout.ts) or they're unclickable on web.

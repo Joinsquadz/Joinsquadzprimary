@@ -143,19 +143,21 @@ describe("POST /api/checkout — server-chosen tier", () => {
     expect(res.body.priceId).toBe("price_standard");
   });
 
-  it("blocks checkout for an unverified email before claiming a tier", async () => {
+  it("allows checkout for an unverified email (verification no longer gates upgrade)", async () => {
     vi.mocked(storage.getUser).mockResolvedValue({
       ...VERIFIED_CUSTOMER,
       emailVerified: false,
     } as never);
+    foundingMock.decideCheckoutTier.mockResolvedValue("standard");
 
     const res = await request(makeApp({ id: "u1", email: "u1@example.test" }))
       .post("/api/checkout")
       .send({});
 
-    expect(res.status).toBe(403);
-    expect(res.body.requiresEmailVerification).toBe(true);
-    expect(foundingMock.decideCheckoutTier).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(res.body.tier).toBe("standard");
+    expect(res.body.url).toBe("https://checkout.example/abc");
+    expect(foundingMock.decideCheckoutTier).toHaveBeenCalled();
   });
 
   it("blocks checkout when the user already has an active subscription", async () => {
