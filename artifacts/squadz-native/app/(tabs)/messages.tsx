@@ -159,8 +159,10 @@ export default function MessagesScreen() {
     if (item.kind === "conversation") {
       router.push(`/conversation/${item.data.id}` as never);
     } else {
-      const path = item.event.type === "trip" ? `/trip/${item.event.id}` : `/event/${item.event.id}`;
-      router.push(path as never);
+      // Opened from the Messages inbox → land on the chat tab, not the
+      // itinerary/overview ("the event"). Both detail screens read ?tab.
+      const base = item.event.type === "trip" ? `/trip/${item.event.id}` : `/event/${item.event.id}`;
+      router.push(`${base}?tab=chat` as never);
     }
   }, []);
 
