@@ -1535,7 +1535,7 @@ router.post("/events/:id/messages", requireAuth, async (req: Request, res: Respo
   const { version: clientVersion, text } = parsed.data;
   const messages = [
     ...(existing.messages as unknown[]),
-    { id: `m${Date.now()}`, senderId: userId, text, time: "Just now" },
+    { id: `m${Date.now()}`, senderId: userId, text, time: "Just now", createdAt: new Date().toISOString() },
   ];
   const updateWhere = clientVersion !== undefined
     ? and(eq(eventsTable.id, id), eq(eventsTable.version, clientVersion))

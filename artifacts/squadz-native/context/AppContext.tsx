@@ -1796,7 +1796,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setEvents((prev) =>
         prev.map((e) =>
           e.id === eventId
-            ? { ...e, messages: [...e.messages, { id: tempId, senderId, text, time: "Just now" }] }
+            ? { ...e, messages: [...e.messages, { id: tempId, senderId, text, time: "Just now", createdAt: new Date().toISOString() }] }
             : e,
         ),
       );

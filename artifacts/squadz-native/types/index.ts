@@ -48,7 +48,14 @@ export type Message = {
   id: string;
   senderId: string;
   text: string;
+  /** Legacy display string (e.g. "Just now"). Kept for backward compat. */
   time: string;
+  /**
+   * ISO timestamp of when the message was created. Used for sorting the
+   * Messages list and detecting unread chats. Optional because messages
+   * created before this field existed only carry `time`.
+   */
+  createdAt?: string;
 };
 
 export type StopCategory = "food" | "activity" | "lodging" | "travel" | "other";

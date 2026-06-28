@@ -28,6 +28,7 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useEventStream } from "@/hooks/useEventStream";
 import { useData, useAuth } from "@/context/AppContext";
+import { useMessages } from "@/context/MessagesContext";
 import { FindTimeChooser } from "@/components/FindTimeChooser";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -125,6 +126,11 @@ export default function EventDetailScreen() {
     : tabParam === "photos" ? "photos"
     : "overview";
   const [tab, setTab] = useState<EventTab>(initialTab);
+  const { markEventChatRead } = useMessages();
+  const lastMsgIso = event?.messages?.[event.messages.length - 1]?.createdAt;
+  useEffect(() => {
+    if (tab === "chat" && event) markEventChatRead(event.id, lastMsgIso);
+  }, [tab, event?.id, lastMsgIso, markEventChatRead]);
   const [nowTick, setNowTick] = useState(() => Date.now());
   useEffect(() => {
     const t = setInterval(() => setNowTick(Date.now()), 60000);

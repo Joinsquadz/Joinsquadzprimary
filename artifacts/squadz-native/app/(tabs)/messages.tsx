@@ -29,11 +29,16 @@ const TYPE_META = {
 // ── unified list item ─────────────────────────────────────────────────────────
 type UnifiedItem =
   | { kind: "conversation"; data: ConversationListItem }
-  | { kind: "event"; event: Event; lastAt: string; lastText: string };
+  | { kind: "event"; event: Event; lastAt: string; lastText: string; unread: boolean };
 
 function itemSortKey(item: UnifiedItem): number {
-  if (item.kind === "conversation") return new Date(item.data.lastMessageAt).getTime();
-  return new Date(item.lastAt).getTime();
+  const raw =
+    item.kind === "conversation"
+      ? new Date(item.data.lastMessageAt).getTime()
+      : new Date(item.lastAt).getTime();
+  // Event/trip messages may carry an unparseable legacy `time` ("Just now").
+  // Treat those as oldest so a bad value can't crash or reorder the list.
+  return Number.isNaN(raw) ? 0 : raw;
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -106,7 +111,7 @@ export default function MessagesScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { currentUser, events, eventsLoading } = useAuth();
-  const { conversations, conversationsLoading, refreshConversations, refreshUnread } = useMessages();
+  const { conversations, conversationsLoading, refreshConversations, refreshUnread, eventReads } = useMessages();
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 84 : 100);
@@ -126,16 +131,26 @@ export default function MessagesScreen() {
       .filter((e) => e.messages.length > 0 && !e.cancelled)
       .map((e) => {
         const last = e.messages[e.messages.length - 1];
+        const lastAt = last.createdAt ?? last.time;
+        // Unread when the latest message is newer than what we've seen AND it
+        // wasn't sent by us. Messages without a real timestamp (legacy) can't
+        // be compared, so they never count as unread (avoids false positives).
+        const readAt = eventReads[e.id];
+        const unread =
+          !!last.createdAt &&
+          last.senderId !== currentUser?.id &&
+          (!readAt || readAt < last.createdAt);
         return {
           kind: "event",
           event: e,
-          lastAt: last.time,
+          lastAt,
           lastText: last.text,
+          unread,
         };
       });
 
     return [...convItems, ...eventItems].sort((a, b) => itemSortKey(b) - itemSortKey(a));
-  }, [conversations, events]);
+  }, [conversations, events, eventReads, currentUser?.id]);
 
   const isLoading = conversationsLoading && eventsLoading && unifiedList.length === 0;
 
@@ -144,7 +159,8 @@ export default function MessagesScreen() {
     if (item.kind === "conversation") {
       router.push(`/conversation/${item.data.id}` as never);
     } else {
-      router.push(`/event/${item.event.id}` as never);
+      const path = item.event.type === "trip" ? `/trip/${item.event.id}` : `/event/${item.event.id}`;
+      router.push(path as never);
     }
   }, []);
 
@@ -209,7 +225,7 @@ export default function MessagesScreen() {
       }
 
       // ── event chat item ───────────────────────────────────────────────
-      const { event, lastAt, lastText } = item;
+      const { event, lastAt, lastText, unread } = item;
       const youSent = event.messages[event.messages.length - 1]?.senderId === currentUser?.id;
       const preview = `${youSent ? "You: " : ""}${lastText}`;
 
@@ -226,17 +242,21 @@ export default function MessagesScreen() {
               <Text style={[styles.rowName, { color: colors.foreground }]} numberOfLines={1}>
                 {event.title}
               </Text>
-              <Text style={[styles.rowTime, { color: colors.textDim }]}>
+              <Text style={[styles.rowTime, { color: unread ? colors.primary : colors.textDim }]}>
                 {timeAgo(lastAt)}
               </Text>
             </View>
             <View style={styles.rowBottom}>
               <Text
-                style={[styles.rowPreview, { color: colors.mutedForeground }]}
+                style={[
+                  styles.rowPreview,
+                  { color: unread ? colors.foreground : colors.mutedForeground, fontWeight: unread ? "700" : "400" },
+                ]}
                 numberOfLines={1}
               >
                 {preview}
               </Text>
+              {unread && <View style={[styles.dot, { backgroundColor: colors.primary }]} />}
             </View>
           </View>
         </TouchableOpacity>
@@ -331,6 +351,7 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center", flexShrink: 0,
   },
   badgeText: { color: "#fff", fontSize: 11, fontWeight: "800" },
+  dot: { width: 10, height: 10, borderRadius: 5, flexShrink: 0 },
   pill: {
     borderRadius: 5, borderWidth: 1, paddingHorizontal: 5, paddingVertical: 1, flexShrink: 0,
   },

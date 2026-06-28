@@ -19,6 +19,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useData, useAuth, dbEventToEvent } from "@/context/AppContext";
+import { useMessages } from "@/context/MessagesContext";
 import { useUserCache } from "@/context/UserCacheContext";
 import { useEventStream } from "@/hooks/useEventStream";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -170,6 +171,11 @@ export default function TripDetailScreen() {
   const [tab, setTab] = useState<TripTab>(
     TRIP_TABS.includes(tabParam as TripTab) ? (tabParam as TripTab) : "itinerary",
   );
+  const { markEventChatRead } = useMessages();
+  const lastMsgIso = event?.messages?.[event.messages.length - 1]?.createdAt;
+  useEffect(() => {
+    if (tab === "chat" && event) markEventChatRead(event.id, lastMsgIso);
+  }, [tab, event?.id, lastMsgIso, markEventChatRead]);
   const [busy, setBusy] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingStop, setEditingStop] = useState<ItineraryStop | null>(null);
