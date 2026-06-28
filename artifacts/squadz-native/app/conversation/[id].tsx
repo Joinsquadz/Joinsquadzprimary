@@ -60,6 +60,32 @@ function formatTime(iso: string): string {
   return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
+/** Local YYYY-MM-DD key, used to detect day boundaries between messages. */
+function dayKey(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+/** Human date label for a day separator: Today / Yesterday / weekday / full date. */
+function formatDateSeparator(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const now = new Date();
+  const startOf = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diffDays = Math.round((startOf(now) - startOf(d)) / 86_400_000);
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Yesterday";
+  if (diffDays > 1 && diffDays < 7) return d.toLocaleDateString([], { weekday: "long" });
+  const sameYear = d.getFullYear() === now.getFullYear();
+  return d.toLocaleDateString([], {
+    weekday: "short",
+    month: "long",
+    day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
+}
+
 export default function ConversationScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const conversationId = String(id);
@@ -455,8 +481,17 @@ export default function ConversationScreen() {
                 const senderName = participantName(sender);
                 const showName = !mine && convType === "squad";
                 const receipt = mine && idx === lastMineIndex ? readReceipt(m) : null;
+                const prev = idx > 0 ? messages[idx - 1] : null;
+                const showDate = !prev || dayKey(prev.createdAt) !== dayKey(m.createdAt);
                 return (
                   <View>
+                    {showDate && (
+                      <View style={styles.dateSeparator}>
+                        <Text style={[styles.dateSeparatorText, { color: colors.mutedForeground, backgroundColor: colors.card }]}>
+                          {formatDateSeparator(m.createdAt)}
+                        </Text>
+                      </View>
+                    )}
                     <View style={[styles.msgRow, mine && { flexDirection: "row-reverse" }]}>
                       {!mine && (
                         <ProAvatar
@@ -608,6 +643,15 @@ const styles = StyleSheet.create({
   senderName: { fontSize: 11, fontWeight: "700", marginBottom: 3 },
   bubbleText: { fontSize: 15, lineHeight: 20 },
   bubbleTime: { fontSize: 10, marginTop: 5, alignSelf: "flex-end" },
+  dateSeparator: { alignItems: "center", marginVertical: 8 },
+  dateSeparatorText: {
+    fontSize: 12,
+    fontWeight: "700",
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    overflow: "hidden",
+  },
   attachment: { width: 200, height: 200, borderRadius: 12, backgroundColor: "#000" },
   receipt: { fontSize: 11, marginTop: 3, marginRight: 4, alignSelf: "flex-end", fontWeight: "600" },
   composer: {
