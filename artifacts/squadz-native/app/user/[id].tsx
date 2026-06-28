@@ -16,6 +16,7 @@ import { useColors } from "@/hooks/useColors";
 import { useAuth, useData } from "@/context/AppContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { ProAvatar } from "@/components/ProAvatar";
+import { ImageViewerModal } from "@/components/ImageViewerModal";
 
 type SharedSquad = { id: string; name: string; emoji: string; color: string };
 
@@ -54,6 +55,7 @@ export default function UserProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [friendLoading, setFriendLoading] = useState(false);
+  const [avatarOpen, setAvatarOpen] = useState(false);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const isSelf = id === currentUser?.id;
@@ -153,6 +155,14 @@ export default function UserProfileScreen() {
               size={88}
               fontSize={30}
               isPro={profile.isPro}
+              onPress={
+                profile.profileImageUrl
+                  ? () => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      setAvatarOpen(true);
+                    }
+                  : undefined
+              }
             />
           </View>
           <Text style={[styles.name, { color: colors.foreground }]}>{profile.name}</Text>
@@ -249,6 +259,12 @@ export default function UserProfileScreen() {
           )}
         </View>
       </ScrollView>
+
+      <ImageViewerModal
+        visible={avatarOpen}
+        uri={profile.profileImageUrl}
+        onClose={() => setAvatarOpen(false)}
+      />
     </View>
   );
 }

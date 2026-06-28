@@ -20,6 +20,7 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useAuth, useData } from "@/context/AppContext";
 import { UserAvatar } from "@/components/UserAvatar";
+import { ImageViewerModal } from "@/components/ImageViewerModal";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { router, useLocalSearchParams } from "expo-router";
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -118,6 +119,7 @@ export default function ProfileScreen() {
   const [isPro, setIsPro] = useState(didCheckoutSuccess);
   const [checkingPro, setCheckingPro] = useState(false);
   const [upgradeModalVisible, setUpgradeModalVisible] = useState(false);
+  const [avatarViewerOpen, setAvatarViewerOpen] = useState(false);
   const [showSuccessBanner, setShowSuccessBanner] = useState(didCheckoutSuccess);
   const [eventCount, setEventCount] = useState<number | null>(null);
   const [eventLimit] = useState(3);
@@ -733,17 +735,34 @@ export default function ProfileScreen() {
           </Animated.View>
         )}
         <View style={[styles.profileCard, { paddingTop: showSuccessBanner ? 16 : 20, borderBottomColor: colors.border }]}>
-          <TouchableOpacity
-            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push("/settings/edit-profile" as never); }}
-            activeOpacity={0.8}
-            accessibilityLabel="Edit profile photo"
-            accessibilityRole="button"
-          >
-            <UserAvatar initials={currentUser.initials} color={currentUser.color} imageUrl={currentUser.profileImageUrl} size={80} fontSize={28} />
-            <View style={[styles.avatarEditBadge, { backgroundColor: colors.primary, borderColor: colors.background }]}>
+          <View>
+            <TouchableOpacity
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                if (currentUser.profileImageUrl) setAvatarViewerOpen(true);
+                else router.push("/settings/edit-profile" as never);
+              }}
+              activeOpacity={0.85}
+              accessibilityLabel={currentUser.profileImageUrl ? "View profile photo" : "Add profile photo"}
+              accessibilityRole="button"
+            >
+              <UserAvatar initials={currentUser.initials} color={currentUser.color} imageUrl={currentUser.profileImageUrl} size={80} fontSize={28} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push("/settings/edit-profile" as never); }}
+              style={[styles.avatarEditBadge, { backgroundColor: colors.primary, borderColor: colors.background }]}
+              hitSlop={8}
+              accessibilityLabel="Edit profile photo"
+              accessibilityRole="button"
+            >
               <Ionicons name="camera" size={13} color="#fff" />
-            </View>
-          </TouchableOpacity>
+            </TouchableOpacity>
+          </View>
+          <ImageViewerModal
+            visible={avatarViewerOpen}
+            uri={currentUser.profileImageUrl ?? null}
+            onClose={() => setAvatarViewerOpen(false)}
+          />
           <View style={styles.nameRow}>
             <Text style={[styles.name, { color: colors.foreground }]}>{currentUser.name}</Text>
             {checkingPro ? (

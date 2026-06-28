@@ -31,6 +31,7 @@ import {
 } from "@/context/MessagesContext";
 import AttachmentVideo from "@/components/AttachmentVideo";
 import { ProAvatar } from "@/components/ProAvatar";
+import { ImageViewerModal } from "@/components/ImageViewerModal";
 import { useUserCache } from "@/context/UserCacheContext";
 
 const AVATAR_PALETTE = ["#FF5C3A", "#4A9EFF", "#2ECC8A", "#A855F7", "#FFB547"];
@@ -75,6 +76,7 @@ export default function ConversationScreen() {
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [viewer, setViewer] = useState<{ uri: string; headers: Record<string, string> } | null>(null);
   const scrollRef = useRef<FlatList<ChatMessage>>(null);
 
   const listItem = conversations.find((c) => c.id === conversationId);
@@ -350,13 +352,20 @@ export default function ConversationScreen() {
       );
     }
     return (
-      <Image
+      <TouchableOpacity
         key={key}
-        source={{ uri, headers: authHeaders() }}
-        style={styles.attachment}
-        contentFit="cover"
-        transition={150}
-      />
+        activeOpacity={0.9}
+        onPress={() => setViewer({ uri, headers: authHeaders() })}
+        accessibilityRole="imagebutton"
+        accessibilityLabel="Expand image"
+      >
+        <Image
+          source={{ uri, headers: authHeaders() }}
+          style={styles.attachment}
+          contentFit="cover"
+          transition={150}
+        />
+      </TouchableOpacity>
     );
   };
 
@@ -561,6 +570,13 @@ export default function ConversationScreen() {
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
+
+      <ImageViewerModal
+        visible={!!viewer}
+        uri={viewer?.uri ?? null}
+        headers={viewer?.headers}
+        onClose={() => setViewer(null)}
+      />
     </View>
   );
 }

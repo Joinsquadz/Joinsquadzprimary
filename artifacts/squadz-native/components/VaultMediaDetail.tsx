@@ -21,6 +21,7 @@ import { useToast } from "@/context/ToastContext";
 import { API_BASE, buildAuthHeaders, resolveUploadedUrl } from "@/lib/api";
 import { UserAvatar } from "@/components/UserAvatar";
 import AttachmentVideo from "@/components/AttachmentVideo";
+import { ImageViewerOverlay } from "@/components/ImageViewerModal";
 import { Bounceable } from "@/components/Bounceable";
 import { AnimatedCount } from "@/components/AnimatedCount";
 import { useVaultPhotoStream } from "@/hooks/useVaultPhotoStream";
@@ -152,6 +153,7 @@ export default function VaultMediaDetail({
 
   const [caption, setCaption] = useState<string | null>(null);
   const [editingCaption, setEditingCaption] = useState(false);
+  const [zoomOpen, setZoomOpen] = useState(false);
   const [captionDraft, setCaptionDraft] = useState("");
   const [savingCaption, setSavingCaption] = useState(false);
 
@@ -168,6 +170,7 @@ export default function VaultMediaDetail({
     setShowHearts(false);
     setEditingCaption(false);
     setOptionsOpen(false);
+    setZoomOpen(false);
     setDraft("");
   }, [photo?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -384,13 +387,21 @@ export default function VaultMediaDetail({
                   style={styles.media}
                 />
               ) : (
-                <Image
-                  source={{ uri: mediaUri, headers: authHeaders }}
+                <TouchableOpacity
+                  activeOpacity={0.95}
+                  onPress={() => setZoomOpen(true)}
                   style={styles.media}
-                  contentFit="contain"
-                  cachePolicy="memory-disk"
-                  transition={150}
-                />
+                  accessibilityRole="imagebutton"
+                  accessibilityLabel="Expand photo"
+                >
+                  <Image
+                    source={{ uri: mediaUri, headers: authHeaders }}
+                    style={styles.media}
+                    contentFit="contain"
+                    cachePolicy="memory-disk"
+                    transition={150}
+                  />
+                </TouchableOpacity>
               )}
             </View>
 
@@ -579,6 +590,14 @@ export default function VaultMediaDetail({
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
+
+        {zoomOpen && !isVideo && (
+          <ImageViewerOverlay
+            uri={mediaUri}
+            headers={authHeaders}
+            onClose={() => setZoomOpen(false)}
+          />
+        )}
       </View>
     </Modal>
   );
