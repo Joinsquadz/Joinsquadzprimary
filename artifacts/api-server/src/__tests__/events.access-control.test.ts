@@ -6,6 +6,9 @@ const mockUpdateRows = vi.hoisted(() => ({ value: [] as unknown[] }));
 // Captures the WHERE predicate passed to db.update().set().where() so tests can
 // assert that the version clause is (or is not) included in the update predicate.
 const capturedUpdateWhere = vi.hoisted(() => ({ arg: null as unknown }));
+// Captures the onConflictDoUpdate config so tests can assert the upsert never
+// downgrades an already-accepted invite (the setWhere guard).
+const capturedUpsertConfig = vi.hoisted(() => ({ arg: null as unknown }));
 
 vi.mock("@workspace/db", () => ({
   db: {
@@ -31,6 +34,10 @@ vi.mock("@workspace/db", () => ({
         onConflictDoNothing: () => ({
           returning: () => Promise.resolve(mockUpdateRows.value),
         }),
+        onConflictDoUpdate: (cfg: unknown) => {
+          capturedUpsertConfig.arg = cfg;
+          return { returning: () => Promise.resolve(mockUpdateRows.value) };
+        },
         returning: () => Promise.resolve(mockUpdateRows.value),
       }),
     }),
@@ -392,6 +399,8 @@ describe("personal invites (events.invitedUserIds)", () => {
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
     expect(res.body.inviteCount).toBe(1);
+    // The upsert must carry a guard so a concurrent accept is never downgraded.
+    expect((capturedUpsertConfig.arg as { setWhere?: unknown }).setWhere).toBeDefined();
   });
 
   it("POST /invite drops a non-friend / non-member target (idempotent no-op)", async () => {

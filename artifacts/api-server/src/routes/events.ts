@@ -992,36 +992,85 @@ router.post("/events/:id/invite", requireAuth, async (req: Request, res: Respons
     parsed.data.userIds.filter((u) => u !== existing.hostId),
     existing.squadId,
   );
-  // Drop anyone who can already access or already has a pending invite.
+  // Candidates = chosen friends/squad-members who don't already have access.
+  // (Someone already in invitedUserIds is genuinely a member — no invite needed.)
   const alreadyInvited = new Set((existing.invitedUserIds ?? []) as string[]);
-  const newInvitees: string[] = [];
+  const candidates: string[] = [];
   for (const t of targets) {
     if (alreadyInvited.has(t)) continue;
     if (await userCanAccessEvent(existing, t)) continue;
-    newInvitees.push(t);
+    candidates.push(t);
   }
 
-  if (newInvitees.length === 0) {
+  if (candidates.length === 0) {
     res.json({ ok: true, inviteCount: 0 });
     return;
   }
 
-  // Create pending event_invite rows — invitees see these in their Activity
-  // tab and can Accept or Decline. They gain event access on acceptance.
-  const inviteRows = newInvitees.map((invitedUserId) => ({
-    eventId: id,
-    inviterUserId: userId,
-    invitedUserId,
-    eventTitle: existing.title,
-    eventEmoji: existing.emoji ?? "🗓️",
-  }));
-  const inserted = await db
-    .insert(eventInvitesTable)
-    .values(inviteRows)
-    .onConflictDoNothing()
-    .returning();
+  // Inspect any existing invite rows so a prior accept/decline can't silently
+  // block a re-invite. The unique (eventId, invitedUserId) constraint means a
+  // plain onConflictDoNothing would drop these and return a fake success.
+  const existingInvites = await db
+    .select()
+    .from(eventInvitesTable)
+    .where(and(eq(eventInvitesTable.eventId, id), inArray(eventInvitesTable.invitedUserId, candidates)));
+  const statusByUser = new Map(existingInvites.map((r) => [r.invitedUserId, r.status]));
 
-  res.json({ ok: true, inviteCount: inserted.length });
+  // "accepted" but not in invitedUserIds = drifted access; repair it directly
+  // (grant access now) instead of issuing another invite that can't be accepted.
+  const toRepair = candidates.filter((t) => statusByUser.get(t) === "accepted");
+  // Everyone else (no row, or a prior pending/declined row) gets a fresh pending
+  // invite via upsert, so a previously-declined person can be re-invited.
+  const toInvite = candidates.filter((t) => statusByUser.get(t) !== "accepted");
+
+  if (toRepair.length > 0) {
+    await db
+      .update(eventsTable)
+      .set({
+        invitedUserIds: sql`(
+          SELECT COALESCE(jsonb_agg(DISTINCT elem), '[]'::jsonb)
+          FROM jsonb_array_elements(
+            COALESCE(${eventsTable.invitedUserIds}, '[]'::jsonb) || ${JSON.stringify(toRepair)}::jsonb
+          ) AS elem
+        )`,
+        version: sql`${eventsTable.version} + 1`,
+      })
+      .where(eq(eventsTable.id, id));
+    emitEventUpdate(id);
+  }
+
+  // Create/refresh pending event_invite rows — invitees see these in their
+  // Activity tab and can Accept or Decline. They gain access on acceptance.
+  let inserted: (typeof eventInvitesTable.$inferSelect)[] = [];
+  if (toInvite.length > 0) {
+    const inviteRows = toInvite.map((invitedUserId) => ({
+      eventId: id,
+      inviterUserId: userId,
+      invitedUserId,
+      eventTitle: existing.title,
+      eventEmoji: existing.emoji ?? "🗓️",
+    }));
+    inserted = await db
+      .insert(eventInvitesTable)
+      .values(inviteRows)
+      .onConflictDoUpdate({
+        target: [eventInvitesTable.eventId, eventInvitesTable.invitedUserId],
+        set: {
+          status: "pending",
+          inviterUserId: userId,
+          eventTitle: existing.title,
+          eventEmoji: existing.emoji ?? "🗓️",
+          createdAt: sql`now()`,
+        },
+        // Never downgrade an already-accepted invite back to pending. Guards the
+        // TOCTOU window where a target accepts between the select above and this
+        // upsert — that row is left untouched (and excluded from `inserted`).
+        setWhere: sql`${eventInvitesTable.status} <> 'accepted'`,
+      })
+      .returning();
+  }
+
+  res.json({ ok: true, inviteCount: inserted.length + toRepair.length });
 
   for (const inv of inserted) {
     recordActivitySafe({
