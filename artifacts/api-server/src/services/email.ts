@@ -7,7 +7,8 @@
  *  3. Log-only  — when neither is configured (dev / CI)
  */
 import sgMail from "@sendgrid/mail";
-import nodemailer from "nodemailer";
+import { createTransport as nmCreateTransport } from "nodemailer";
+import type { Transporter } from "nodemailer";
 import { logger } from "../lib/logger";
 
 const SENDGRID_KEY = process.env.SENDGRID_API_KEY;
@@ -21,13 +22,13 @@ export interface EmailMessage {
   html: string;
 }
 
-function createSmtpTransport(): nodemailer.Transporter | null {
+function createSmtpTransport(): Transporter | null {
   const host = process.env.SMTP_HOST;
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
   if (!host || !user || !pass) return null;
   const port = parseInt(process.env.SMTP_PORT ?? "587", 10);
-  return nodemailer.createTransport({
+  return nmCreateTransport({
     host,
     port,
     secure: port === 465,

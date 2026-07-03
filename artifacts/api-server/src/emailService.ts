@@ -1,5 +1,24 @@
-import nodemailer from 'nodemailer';
+import { createTransport as nmCreateTransport } from 'nodemailer';
 import { logger } from './lib/logger';
+
+function escHtml(s: string): string {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function safeUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return '#';
+  } catch {
+    return '#';
+  }
+  return escHtml(url);
+}
 import { sendEmail } from './services/email';
 import { db } from '@workspace/db';
 import { sql } from 'drizzle-orm';
@@ -58,6 +77,8 @@ export function buildProWelcomeHtml(data: ProWelcomeEmailData): string {
 function buildHtml(data: ProWelcomeEmailData): string {
   const price = formatCurrency(data.priceAmount, data.priceCurrency);
   const renewal = formatDate(data.renewalDate);
+  const planName = escHtml(data.planName);
+  const manageUrl = safeUrl(data.manageUrl);
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -87,7 +108,7 @@ function buildHtml(data: ProWelcomeEmailData): string {
 
               <!-- Title -->
               <p style="margin:0 0 8px;font-size:24px;font-weight:700;color:#ffffff;">
-                Welcome to ${data.planName}! 🎉
+                Welcome to ${planName}! 🎉
               </p>
               <p style="margin:0 0 32px;font-size:15px;color:#9898b0;line-height:1.5;">
                 Your subscription is active. Here's a summary of what you've unlocked.
@@ -97,7 +118,7 @@ function buildHtml(data: ProWelcomeEmailData): string {
               <table width="100%" cellpadding="0" cellspacing="0" style="border-radius:10px;overflow:hidden;border:1px solid rgba(255,255,255,0.08);">
                 <tr style="border-bottom:1px solid rgba(255,255,255,0.08);">
                   <td style="padding:14px 16px;font-size:13px;color:#9898b0;font-weight:500;background:#13132a;">Plan</td>
-                  <td style="padding:14px 16px;font-size:14px;color:#ffffff;font-weight:600;background:#13132a;text-align:right;">${data.planName}</td>
+                  <td style="padding:14px 16px;font-size:14px;color:#ffffff;font-weight:600;background:#13132a;text-align:right;">${planName}</td>
                 </tr>
                 <tr style="border-bottom:1px solid rgba(255,255,255,0.08);">
                   <td style="padding:14px 16px;font-size:13px;color:#9898b0;font-weight:500;background:#13132a;">Amount</td>
@@ -113,7 +134,7 @@ function buildHtml(data: ProWelcomeEmailData): string {
               <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:32px;">
                 <tr>
                   <td align="center">
-                    <a href="${data.manageUrl}"
+                    <a href="${manageUrl}"
                        style="display:inline-block;padding:14px 32px;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#ffffff;text-decoration:none;border-radius:10px;font-size:15px;font-weight:700;letter-spacing:0.2px;">
                       Manage Subscription
                     </a>
@@ -132,7 +153,7 @@ function buildHtml(data: ProWelcomeEmailData): string {
           <tr>
             <td align="center" style="padding-top:24px;">
               <p style="margin:0;font-size:12px;color:#55556a;">
-                You're receiving this because you subscribed to ${data.planName} on Squadz.
+                You're receiving this because you subscribed to ${planName} on Squadz.
               </p>
             </td>
           </tr>
@@ -169,8 +190,11 @@ function buildRenewalReceiptHtml(data: RenewalReceiptEmailData): string {
   const paid = formatCurrency(data.amountPaid, data.currency);
   const paidOn = formatDate(data.paidDate);
   const nextRenewal = data.nextRenewalDate ? formatDate(data.nextRenewalDate) : 'N/A';
+  const planName = escHtml(data.planName);
+  const manageUrl = safeUrl(data.manageUrl);
+  const updatePaymentUrl = safeUrl(data.updatePaymentUrl);
   const invoiceLink = data.invoiceUrl
-    ? `<a href="${data.invoiceUrl}" style="color:#7c3aed;">View Invoice</a>`
+    ? `<a href="${safeUrl(data.invoiceUrl)}" style="color:#7c3aed;">View Invoice</a>`
     : '';
 
   return `<!DOCTYPE html>
@@ -201,7 +225,7 @@ function buildRenewalReceiptHtml(data: RenewalReceiptEmailData): string {
 
               <!-- Title -->
               <p style="margin:0 0 8px;font-size:24px;font-weight:700;color:#ffffff;">
-                Your ${data.planName} subscription renewed ✓
+                Your ${planName} subscription renewed ✓
               </p>
               <p style="margin:0 0 32px;font-size:15px;color:#9898b0;line-height:1.5;">
                 Thanks for staying with Squadz Pro. Here's your renewal receipt.
@@ -211,7 +235,7 @@ function buildRenewalReceiptHtml(data: RenewalReceiptEmailData): string {
               <table width="100%" cellpadding="0" cellspacing="0" style="border-radius:10px;overflow:hidden;border:1px solid rgba(255,255,255,0.08);">
                 <tr style="border-bottom:1px solid rgba(255,255,255,0.08);">
                   <td style="padding:14px 16px;font-size:13px;color:#9898b0;font-weight:500;background:#13132a;">Plan</td>
-                  <td style="padding:14px 16px;font-size:14px;color:#ffffff;font-weight:600;background:#13132a;text-align:right;">${data.planName}</td>
+                  <td style="padding:14px 16px;font-size:14px;color:#ffffff;font-weight:600;background:#13132a;text-align:right;">${planName}</td>
                 </tr>
                 <tr style="border-bottom:1px solid rgba(255,255,255,0.08);">
                   <td style="padding:14px 16px;font-size:13px;color:#9898b0;font-weight:500;background:#13132a;">Amount charged</td>
@@ -233,7 +257,7 @@ function buildRenewalReceiptHtml(data: RenewalReceiptEmailData): string {
               <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:32px;">
                 <tr>
                   <td align="center" style="padding-bottom:12px;">
-                    <a href="${data.manageUrl}"
+                    <a href="${manageUrl}"
                        style="display:inline-block;padding:14px 32px;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#ffffff;text-decoration:none;border-radius:10px;font-size:15px;font-weight:700;letter-spacing:0.2px;">
                       Manage Subscription
                     </a>
@@ -241,7 +265,7 @@ function buildRenewalReceiptHtml(data: RenewalReceiptEmailData): string {
                 </tr>
                 <tr>
                   <td align="center">
-                    <a href="${data.updatePaymentUrl}"
+                    <a href="${updatePaymentUrl}"
                        style="display:inline-block;padding:12px 28px;background:transparent;border:1px solid rgba(255,255,255,0.2);color:#9898b0;text-decoration:none;border-radius:10px;font-size:14px;font-weight:600;">
                       Update Payment Method
                     </a>
@@ -259,7 +283,7 @@ function buildRenewalReceiptHtml(data: RenewalReceiptEmailData): string {
           <tr>
             <td align="center" style="padding-top:24px;">
               <p style="margin:0;font-size:12px;color:#55556a;">
-                You're receiving this because you have an active ${data.planName} subscription on Squadz.
+                You're receiving this because you have an active ${planName} subscription on Squadz.
               </p>
             </td>
           </tr>
@@ -299,6 +323,8 @@ function buildRenewalReceiptText(data: RenewalReceiptEmailData): string {
 function buildPaymentFailedHtml(data: PaymentFailedEmailData): string {
   const due = formatCurrency(data.amountDue, data.currency);
   const failedOn = formatDate(data.failedDate);
+  const planName = escHtml(data.planName);
+  const updatePaymentUrl = safeUrl(data.updatePaymentUrl);
   const retryLine = data.nextRetryDate
     ? `Stripe will automatically retry on <strong>${formatDate(data.nextRetryDate)}</strong>.`
     : 'Please update your payment method to keep your subscription active.';
@@ -336,7 +362,7 @@ function buildPaymentFailedHtml(data: PaymentFailedEmailData): string {
 
               <!-- Title -->
               <p style="margin:0 0 8px;font-size:24px;font-weight:700;color:#ffffff;">
-                Payment failed for ${data.planName}
+                Payment failed for ${planName}
               </p>
               <p style="margin:0 0 32px;font-size:15px;color:#9898b0;line-height:1.5;">
                 We couldn't process your payment. ${retryLine}
@@ -346,7 +372,7 @@ function buildPaymentFailedHtml(data: PaymentFailedEmailData): string {
               <table width="100%" cellpadding="0" cellspacing="0" style="border-radius:10px;overflow:hidden;border:1px solid rgba(255,255,255,0.08);">
                 <tr style="border-bottom:1px solid rgba(255,255,255,0.08);">
                   <td style="padding:14px 16px;font-size:13px;color:#9898b0;font-weight:500;background:#13132a;">Plan</td>
-                  <td style="padding:14px 16px;font-size:14px;color:#ffffff;font-weight:600;background:#13132a;text-align:right;">${data.planName}</td>
+                  <td style="padding:14px 16px;font-size:14px;color:#ffffff;font-weight:600;background:#13132a;text-align:right;">${planName}</td>
                 </tr>
                 <tr style="border-bottom:1px solid rgba(255,255,255,0.08);">
                   <td style="padding:14px 16px;font-size:13px;color:#9898b0;font-weight:500;background:#13132a;">Amount due</td>
@@ -362,7 +388,7 @@ function buildPaymentFailedHtml(data: PaymentFailedEmailData): string {
               <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:32px;">
                 <tr>
                   <td align="center">
-                    <a href="${data.updatePaymentUrl}"
+                    <a href="${updatePaymentUrl}"
                        style="display:inline-block;padding:14px 32px;background:linear-gradient(135deg,#dc2626,#b91c1c);color:#ffffff;text-decoration:none;border-radius:10px;font-size:15px;font-weight:700;letter-spacing:0.2px;">
                       Update Payment Method
                     </a>
@@ -380,7 +406,7 @@ function buildPaymentFailedHtml(data: PaymentFailedEmailData): string {
           <tr>
             <td align="center" style="padding-top:24px;">
               <p style="margin:0;font-size:12px;color:#55556a;">
-                You're receiving this because you have a ${data.planName} subscription on Squadz.
+                You're receiving this because you have a ${planName} subscription on Squadz.
               </p>
             </td>
           </tr>
@@ -427,7 +453,7 @@ function createTransport() {
     return null;
   }
 
-  return nodemailer.createTransport({
+  return nmCreateTransport({
     host,
     port,
     secure: port === 465,

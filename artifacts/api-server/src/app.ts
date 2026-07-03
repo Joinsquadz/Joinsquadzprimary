@@ -128,11 +128,26 @@ const apiRateLimiter = rateLimit({
   skip: (req) => req.path === "/healthz" || req.path === "/health",
 });
 
+// Tighter limiter for authentication mutation routes (login, register, OTP,
+// password reset). GET requests like /auth/me are excluded — they're called
+// on every app launch and are not attack surfaces.
+// Individual route handlers also apply per-endpoint in-memory counters for
+// the most sensitive operations (register, login, forgot, reset).
+const authWriteLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 40,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many authentication attempts. Please try again later." },
+  skip: (req) => req.method === "GET",
+});
+
 // /.well-known is mounted at the root (not /api) so iOS/Android association
 // files are reachable at their canonical paths. The shared proxy routes
 // /.well-known to this service (see artifact.toml).
 app.use(wellKnownRouter);
 
+app.use("/api/auth", authWriteLimiter);
 app.use("/api", apiRateLimiter);
 app.use("/api", router);
 setupSentryErrorHandler(app);

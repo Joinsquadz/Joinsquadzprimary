@@ -997,7 +997,7 @@ router.get("/auth/reset-password", (req: Request, res: Response) => {
       `<h1>Choose a new password</h1>
 <p>Enter a new password for your Squadz account.</p>
 <form method="POST" action="/api/auth/reset-password">
-  <input type="hidden" name="token" value="${raw.replace(/"/g, "")}" />
+  <input type="hidden" name="token" value="${raw.replace(/[&<>"']/g, (c: string) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c] ?? c))}" />
   <input type="password" name="password" placeholder="New password (8+ characters)" minlength="8" required autofocus />
   <button type="submit">Reset Password</button>
 </form>`,

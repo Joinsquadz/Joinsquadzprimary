@@ -55,6 +55,7 @@
 - [Trip going-count seeding](trip-going-count-seeding.md) — trips have no RSVP UI but goingCount reads rsvps; seed host as "going" at create ONLY for type==="trip" (events prompt host); existing trips backfilled.
 - [Avatar storage on Supabase](avatar-storage-supabase.md) — app data is in Supabase (SUPABASE_DB_URL, db=postgres), NOT Replit's executeSql DB (heliumdb); avatars need the PUBLIC squadz-avatars bucket + the row must persist the URL.
 - [Squadz personal invites](squadz-personal-invites.md) — events.invitedUserIds grants access ADDITIVELY (immune to stale-RSVP); invite authz = friend-or-squad-member; UI invite affordance MUST mirror "has access", not host-only.
+- [nodemailer v9 types](nodemailer-v9-types.md) — v9 ships NO bundled types; keep @types/nodemailer; use named import `createTransport as nmCreateTransport`, not default import.
 - [Squadz Trips & Itineraries](squadz-trips-itineraries.md) — trips ARE events (type+itinerary/packing on the ONE events object); authz = LIVE squad membership, ignore rsvps; squad/list screens must route type==="trip" to /trip/[id].
 - [Squadz activity feed & delight](squadz-activity-feed.md) — RSVP activity is going-only (groups keep newest meta only); banners foreground-only/baseline-first/seen `_${userId}`; SSE hooks self-reconnect ~15s; run typecheck:libs after new db schema.
 - [Web clipboard in iframe](web-clipboard-iframe.md) — navigator.clipboard is BLOCKED in the preview iframe; copy on web via hidden-textarea+execCommand FIRST (sync, in-gesture), keep link selectable as fallback.
