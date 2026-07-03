@@ -581,12 +581,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     else setOwnPaymentHandles({ venmo: null, cashapp: null, zelle: null });
   }, [authToken, fetchOwnHandles]);
 
+  // Tear down the local session WITHOUT a server-side logout call. Used when a
+  // stored token is already dead (server returned 401), so there is no live
+  // session to revoke. Leaves the user at a clean logged-out state so AuthGuard
+  // routes to /login instead of a blank, signed-in-but-empty account.
+  const clearLocalSession = useCallback(() => {
+    AsyncStorage.multiRemove(ALL_APP_STORAGE_KEYS).catch(() => {});
+    clearProfileCache();
+    authTokenRef.current = null;
+    refreshTokenRef.current = null;
+    setAuthToken(null);
+    setApiUser(null);
+    setEmailVerified(false);
+    setPhone(null);
+    setEvents([]);
+    setSquads([]);
+    setIsLoggedIn(false);
+    setPendingOnboarding(false);
+    setOwnPaymentHandles({ venmo: null, cashapp: null, zelle: null });
+    currentUserIdRef.current = ME.id;
+  }, []);
+
   const fetchApiUser = useCallback(async (token: string) => {
-    try {
-      const res = await fetch(`${API_BASE}/api/auth/me`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) return;
+    const applyMe = async (res: Response) => {
       const { user, emailVerified: verified, phone: userPhone } =
         (await res.json()) as {
           user: ApiUser | null;
@@ -599,10 +616,75 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setPhone(userPhone ?? null);
         currentUserIdRef.current = user.id;
       }
+    };
+
+    try {
+      let res = await fetch(`${API_BASE}/api/auth/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (res.status === 401) {
+        // The stored access token is invalid/expired. Attempt a one-shot
+        // refresh before giving up so a warm relaunch with a live refresh
+        // token stays signed in without flashing the login screen. (On startup
+        // the refresh token may still be loading into the ref, so fall back to
+        // reading it straight from storage.)
+        const refreshToken =
+          refreshTokenRef.current ??
+          (await AsyncStorage.getItem(REFRESH_TOKEN_KEY).catch(() => null));
+        let refreshedToken: string | null = null;
+        if (refreshToken) {
+          try {
+            const refreshRes = await fetch(`${API_BASE}/api/auth/refresh`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ refreshToken }),
+            });
+            if (refreshRes.ok) {
+              const refreshData = (await refreshRes.json()) as {
+                token?: string;
+                refreshToken?: string;
+              };
+              if (refreshData.token) {
+                refreshedToken = refreshData.token;
+                authTokenRef.current = refreshData.token;
+                setAuthToken(refreshData.token);
+                AsyncStorage.setItem(AUTH_TOKEN_KEY, refreshData.token).catch(() => {});
+                if (refreshData.refreshToken) {
+                  refreshTokenRef.current = refreshData.refreshToken;
+                  AsyncStorage.setItem(REFRESH_TOKEN_KEY, refreshData.refreshToken).catch(() => {});
+                }
+              }
+            }
+          } catch {
+            // Network error during refresh — fall through to the session clear
+            // below so a dead token never leaves the user in a blank account.
+          }
+        }
+
+        if (!refreshedToken) {
+          // No refresh token, or refresh failed → the stored session is dead.
+          clearLocalSession();
+          return;
+        }
+
+        // Retry /api/auth/me once with the refreshed token.
+        res = await fetch(`${API_BASE}/api/auth/me`, {
+          headers: { Authorization: `Bearer ${refreshedToken}` },
+        });
+        if (res.status === 401) {
+          clearLocalSession();
+          return;
+        }
+      }
+
+      if (!res.ok) return;
+      await applyMe(res);
     } catch {
-      // Network unavailable — fall back to mock identity
+      // Network unavailable — keep the session so an offline relaunch isn't
+      // kicked out. A genuine 401 (handled above) is the only logout trigger.
     }
-  }, []);
+  }, [clearLocalSession]);
 
   const fetchEvents = useCallback(async () => {
     setEventsLoading(true);
