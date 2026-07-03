@@ -24,6 +24,7 @@ const TYPE_META = {
   direct: { label: "DM",    bg: "#7C3AED", fg: "#fff" },
   squad:  { label: "Squad", bg: "#059669", fg: "#fff" },
   event:  { label: "Event", bg: "#D97706", fg: "#fff" },
+  trip:   { label: "Trip",  bg: "#2563EB", fg: "#fff" },
 } as const;
 
 // ── unified list item ─────────────────────────────────────────────────────────
@@ -226,8 +227,9 @@ export default function MessagesScreen() {
         );
       }
 
-      // ── event chat item ───────────────────────────────────────────────
+      // ── event / trip chat item ────────────────────────────────────────
       const { event, lastAt, lastText, unread } = item;
+      const isTrip = event.type === "trip";
       const youSent = event.messages[event.messages.length - 1]?.senderId === currentUser?.id;
       const preview = `${youSent ? "You: " : ""}${lastText}`;
 
@@ -237,10 +239,10 @@ export default function MessagesScreen() {
           style={[styles.row, { borderBottomColor: colors.border }]}
           activeOpacity={0.7}
         >
-          <Avatar type="event" emoji={event.emoji} initial={event.title.charAt(0)} />
+          <Avatar type="event" emoji={event.emoji ?? (isTrip ? "✈️" : null)} initial={event.title.charAt(0)} />
           <View style={styles.rowBody}>
             <View style={styles.rowTop}>
-              <TypePill kind="event" />
+              <TypePill kind={isTrip ? "trip" : "event"} />
               <Text style={[styles.rowName, { color: colors.foreground }]} numberOfLines={1}>
                 {event.title}
               </Text>

@@ -23,7 +23,7 @@ import { UpgradeModal } from "@/components/UpgradeModal";
 import { EventCard } from "@/components/EventCard";
 import { TripCard } from "@/components/TripCard";
 import { SkeletonBox } from "@/components/SkeletonBox";
-import { goingCount } from "@/lib/eventUtils";
+import { goingCount, attendingIds } from "@/lib/eventUtils";
 import { useUserCache } from "@/context/UserCacheContext";
 import type { ResolvedUser } from "@/context/UserCacheContext";
 import { useActivity } from "@/context/ActivityContext";
@@ -397,12 +397,21 @@ export default function HomeScreen() {
     setPickerMode("invite");
   };
 
-  // Pre-load user profiles shown in the hero card RSVP pips
+  // Who's attending the "Up Next" card. Trips have no RSVP UI, so count the
+  // roster (squad members + invitees + host) instead of the rsvps map, which
+  // would only ever show the host.
+  const upNextGoingIds = useMemo(() => {
+    if (!upNext) return [];
+    const sq = squads.find((s) => s.id === upNext.squadId);
+    return attendingIds(upNext, sq?.memberIds ?? []);
+  }, [upNext, squads]);
+
+  // Pre-load user profiles shown in the hero card attendee pips
+  const upNextGoingKey = upNextGoingIds.join(",");
   useEffect(() => {
-    if (!upNext) return;
-    prefetchUsers(Object.keys(upNext.rsvps));
+    if (upNextGoingIds.length > 0) prefetchUsers(upNextGoingIds);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [upNext?.id]);
+  }, [upNextGoingKey]);
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -511,10 +520,9 @@ export default function HomeScreen() {
                 <Text style={styles.heroSub}>{upNext.location} · {upNext.date}</Text>
                 <View style={styles.heroFooter}>
                   <View style={styles.heroPeople}>
-                    {Object.entries(upNext.rsvps)
-                      .filter(([, s]) => s === "going")
+                    {upNextGoingIds
                       .slice(0, 5)
-                      .map(([uid], i) => {
+                      .map((uid, i) => {
                         const u = resolveUser(uid);
                         return (
                           <View key={uid} style={[styles.heroPip, { marginLeft: i > 0 ? -8 : 0 }]}>
@@ -523,7 +531,7 @@ export default function HomeScreen() {
                         );
                       })}
                   </View>
-                  <Text style={styles.heroGoingText}>{goingCount(upNext)} going</Text>
+                  <Text style={styles.heroGoingText}>{upNextGoingIds.length} going</Text>
                 </View>
               </LinearGradient>
             </TouchableOpacity>

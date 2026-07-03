@@ -16,7 +16,14 @@ toggle and intentionally start the host at `myRsvp == null` to prompt them.
 RSVP UI; safe against the trip access model because trip authz never reads rsvps,
 and `getEventParticipantIds` already includes hostId regardless.
 
-**How to apply:** any new "attending"/"going" surface for trips should rely on
-the seeded host rsvp, not invent a parallel count. Backfilling existing trips =
+**How to apply:** the seeded-host rsvp is only enough for a "≥1 going" floor. Any
+trip "attending"/"going" surface must count the ROSTER, not the rsvps map, or it
+undercounts (shows only the host). Use `attendingIds(event, squadMemberIds)` in
+`lib/eventUtils.ts`: for `type === "trip"` it returns unique(squad memberIds +
+invitedUserIds + hostId); otherwise it falls back to rsvp-based `goingIds`. The
+caller must supply the trip squad's memberIds (personal trips pass `[]`, still
+counting host + invitees). The Home "Up Next" hero uses this for BOTH the avatar
+pips and the count; TripCard shows no count; trip detail uses its own
+`allTripMembers` roster. Backfilling existing trips =
 idempotent `jsonb_set(rsvps, ARRAY[host_id], '"going"', true)` with `version+1`
 (events.* JSON writes are version-checked).
