@@ -30,6 +30,11 @@ import { ChatMessages, ChatComposer } from "@/components/EventChatPanel";
 import { EventCostsPanel } from "@/components/EventCostsPanel";
 import { EventVaultPanel } from "@/components/EventVaultPanel";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
+import { buildPlanIcs } from "@/lib/ics";
+import { shareIcsFile } from "@/lib/shareIcs";
+import { findMyConflicts, getPlanSpan } from "@/lib/conflicts";
+import ConflictBanner from "@/components/ConflictBanner";
+import { attendingIds } from "@/lib/eventUtils";
 import type { Event, ItineraryStop } from "@/types";
 import {
   coverFor,
@@ -121,6 +126,7 @@ export default function TripDetailScreen() {
   const insets = useSafeAreaInsets();
   const {
     getEvent,
+    events,
     refreshEvents,
     currentUser,
     getSquad,
@@ -177,6 +183,7 @@ export default function TripDetailScreen() {
     if (tab === "chat" && event) markEventChatRead(event.id, lastMsgIso);
   }, [tab, event?.id, lastMsgIso, markEventChatRead]);
   const [busy, setBusy] = useState(false);
+  const [calBusy, setCalBusy] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingStop, setEditingStop] = useState<ItineraryStop | null>(null);
   const [sheetDay, setSheetDay] = useState<string | null>(null);
@@ -307,6 +314,43 @@ export default function TripDetailScreen() {
     isHost ||
     (squad?.memberIds.includes(currentUser.id) ?? false) ||
     (event.invitedUserIds ?? []).includes(currentUser.id);
+
+  // Is the current user actually on this trip's roster?
+  const isAttending = attendingIds(event, squad?.memberIds ?? []).includes(currentUser.id);
+
+  // Private cross-squad conflict check — shown only to the affected user,
+  // never blocks anything.
+  const myConflicts = isAttending
+    ? findMyConflicts({
+        candidate: getPlanSpan(event),
+        plans: events,
+        userId: currentUser.id,
+        squads,
+        excludeId: event.id,
+      })
+    : [];
+
+  const handleAddToCalendar = async () => {
+    if (calBusy) return;
+    const ics = buildPlanIcs(event);
+    if (!ics) {
+      Alert.alert("Can't add to calendar", "This trip doesn't have dates yet.");
+      return;
+    }
+    setCalBusy(true);
+    try {
+      const res = await shareIcsFile(ics.filename, ics.content);
+      if (res.ok) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } else {
+        Alert.alert("Couldn't add to calendar", res.message ?? "Please try again.");
+      }
+    } catch {
+      Alert.alert("Couldn't add to calendar", "Something went wrong. Please try again.");
+    } finally {
+      setCalBusy(false);
+    }
+  };
 
   // Members who can be promoted to co-admin: squad members + invited friends,
   // minus the host and anyone already a co-admin. Resolved for display.
@@ -810,6 +854,35 @@ export default function TripDetailScreen() {
         {/* ITINERARY */}
         {tab === "itinerary" ? (
           <View style={styles.tabBody}>
+
+            {myConflicts.length > 0 && (
+              <ConflictBanner conflicts={myConflicts} style={{ marginBottom: 12 }} />
+            )}
+
+            <TouchableOpacity
+              onPress={handleAddToCalendar}
+              disabled={calBusy}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 10,
+                borderWidth: 1,
+                borderColor: colors.border,
+                backgroundColor: colors.card,
+                borderRadius: 12,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                marginBottom: 14,
+                opacity: calBusy ? 0.6 : 1,
+              }}
+            >
+              <Ionicons name="calendar-outline" size={18} color={colors.primary} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 14 }}>Add to Calendar</Text>
+                <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>Trip dates + timed stops as one calendar file</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={colors.textDim} />
+            </TouchableOpacity>
 
             {happening && grouped[today]?.length ? (
               <View style={[styles.todayCard, { borderColor: colors.primary + "55", backgroundColor: colors.primary + "10" }]}>

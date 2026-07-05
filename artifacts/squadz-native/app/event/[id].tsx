@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useFocusEffect } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -19,7 +19,11 @@ import {
 } from "react-native";
 import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { SettleUp } from "@/components/SettleUp";
-import { addEventToCalendar, parseEventStart } from "@/lib/calendar";
+import { parseEventStart } from "@/lib/calendar";
+import { buildPlanIcs } from "@/lib/ics";
+import { shareIcsFile } from "@/lib/shareIcs";
+import { findMyConflicts, getPlanSpan } from "@/lib/conflicts";
+import ConflictBanner from "@/components/ConflictBanner";
 import { scheduleRsvpReminder } from "@/lib/reminders";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -91,6 +95,8 @@ export default function EventDetailScreen() {
   const { id, tab: tabParam } = useLocalSearchParams<{ id: string; tab?: string }>();
   const {
     getEvent,
+    events,
+    squads,
     setRsvp,
     updateEvent,
     cancelEvent,
@@ -421,6 +427,22 @@ export default function EventDetailScreen() {
   const squadName = squad?.name ?? event.squadName;
   const myRsvp = event.rsvps[currentUser.id] ?? null;
 
+  // Private cross-squad conflict check: computed only from this user's own
+  // plans list, shown only to them, and never blocks the RSVP.
+  const myConflicts = useMemo(
+    () =>
+      myRsvp === "going" || myRsvp === "maybe"
+        ? findMyConflicts({
+            candidate: getPlanSpan(event),
+            plans: events,
+            userId: currentUser.id,
+            squads,
+            excludeId: event.id,
+          })
+        : [],
+    [myRsvp, event, events, currentUser.id, squads],
+  );
+
   // All RSVP'd users (includes invite-link joiners who aren't squad members)
   const costParticipants = Object.keys(event.rsvps).map((uid) => resolveUser(uid));
 
@@ -468,24 +490,16 @@ export default function EventDetailScreen() {
 
   const handleAddToCalendar = async () => {
     if (calBusy) return;
-    const start = parseEventStart(event.date);
-    if (!start) {
+    const ics = buildPlanIcs(event);
+    if (!ics) {
       Alert.alert("Can't add to calendar", "This event doesn't have a clear date yet.");
       return;
     }
     setCalBusy(true);
     try {
-      const res = await addEventToCalendar({
-        title: `${event.emoji} ${event.title}`.trim(),
-        start,
-        location: event.location || undefined,
-        notes: event.description || undefined,
-      });
+      const res = await shareIcsFile(ics.filename, ics.content);
       if (res.ok) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        if (res.method === "calendar") {
-          Alert.alert("Added to calendar", `${event.title} is on your calendar.`);
-        }
       } else {
         Alert.alert("Couldn't add to calendar", res.message ?? "Please try again.");
       }
@@ -987,7 +1001,11 @@ export default function EventDetailScreen() {
               <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
             </TouchableOpacity>
 
-            {/* Calendar sync + RSVP reminder */}
+            {myConflicts.length > 0 && (
+              <ConflictBanner conflicts={myConflicts} style={{ marginBottom: 12 }} />
+            )}
+
+            {/* Add to calendar + RSVP reminder */}
             <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border, gap: 10 }]}>
               <TouchableOpacity
                 onPress={handleAddToCalendar}
@@ -1003,7 +1021,7 @@ export default function EventDetailScreen() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.cardBody, { color: colors.foreground, fontWeight: "700" }]}>Add to Calendar</Text>
-                  <Text style={[styles.cardBody, { color: colors.mutedForeground, fontSize: 13 }]}>Save the date so you don't forget</Text>
+                  <Text style={[styles.cardBody, { color: colors.mutedForeground, fontSize: 13 }]}>Download a calendar file for this event</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
               </TouchableOpacity>

@@ -1,4 +1,4 @@
-import { createElement, useState, useEffect, useCallback } from "react";
+import { createElement, useState, useEffect, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -30,6 +30,8 @@ import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { addStop } from "@/lib/tripApi";
 import { TRIP_COVER_KEYS, TRIP_COVERS, formatTripRange, dayKey } from "@/lib/tripUtils";
 import { getTemplate } from "@/lib/tripTemplates";
+import { findMyConflicts, getPlanSpan } from "@/lib/conflicts";
+import ConflictBanner from "@/components/ConflictBanner";
 
 function formatPickedDay(d: Date): string {
   const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -101,7 +103,7 @@ function Field({
 export default function CreateEventScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { addEvent, squads } = useData();
+  const { addEvent, squads, events, currentUser } = useData();
   const { authToken } = useAuth();
   const { resolveUser } = useUserCache();
   const prefill = useLocalSearchParams<{ prefillDate?: string; prefillEventAt?: string; prefillSquad?: string; prefillTitle?: string; prefillEmoji?: string; prefillPollId?: string; prefillTripStart?: string; mode?: string; templateId?: string }>();
@@ -151,6 +153,28 @@ export default function CreateEventScreen() {
   const [showInvitePicker, setShowInvitePicker] = useState(false);
 
   const atLimit = !isPro && eventLimit !== null && myEventCount >= eventLimit;
+
+  // Live, private conflict check against the user's own plans while they pick
+  // dates. Purely informational — never blocks creation.
+  const draftConflicts = useMemo(() => {
+    const candidate =
+      kind === "trip"
+        ? tripStart
+          ? getPlanSpan({
+              type: "trip",
+              date: "",
+              startAt: dayAt(tripStart, 9),
+              endAt: dayAt(tripEnd ?? tripStart, 18),
+            })
+          : null
+        : getPlanSpan({ type: "event", date, eventAt: eventAtISO });
+    return findMyConflicts({
+      candidate,
+      plans: events,
+      userId: currentUser.id,
+      squads,
+    });
+  }, [kind, tripStart, tripEnd, date, eventAtISO, events, currentUser.id, squads]);
 
   const authHeaders = useCallback((): HeadersInit => {
     return buildAuthHeaders(authToken);
@@ -798,6 +822,9 @@ export default function CreateEventScreen() {
       />
 
       <View style={[styles.bottomBar, { borderTopColor: colors.border, paddingBottom: botPad + 8, backgroundColor: colors.background }]}>
+        {draftConflicts.length > 0 && (
+          <ConflictBanner conflicts={draftConflicts} style={{ marginBottom: 10 }} />
+        )}
         <TouchableOpacity
           onPress={handleCreate}
           disabled={!title.trim() || creating}

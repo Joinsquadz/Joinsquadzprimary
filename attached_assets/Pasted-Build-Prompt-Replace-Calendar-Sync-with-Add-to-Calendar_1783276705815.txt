@@ -1,0 +1,154 @@
+Build Prompt: Replace Calendar Sync with Add-to-Calendar Export + Conflict Detection
+
+Context
+
+The existing Calendar Sync toggle is non-functional in practice: it only
+writes events at the moment it's switched on (no real ongoing sync), it
+parses the display date string so most events are silently skipped, it never
+propagates changes or cancellations, it excludes Trips entirely, and the
+server's subscribe feed is never surfaced anywhere in the app.
+
+Remove it entirely and replace it with two focused features:
+
+
+A reliable, per-item "Add to calendar" export (.ics)
+Private, per-user cross-squad conflict detection
+
+
+
+Part 1 — Remove Calendar Sync
+
+
+Remove the Calendar Sync toggle/setting entirely from wherever it currently
+lives (settings screen, event/trip detail, etc.)
+Remove the background job / logic that wrote events on toggle-on
+Remove the server's calendar subscribe feed endpoint if it exists and isn't
+used elsewhere
+Remove any related copy, onboarding mentions, or help text referencing
+"calendar sync"
+Do not remove or touch any date/time fields on Plan or its stops — those are
+needed for Part 2 and Part 3 below
+
+
+
+Part 2 — Add to Calendar (.ics export)
+
+Where it appears: on any Event or Trip detail screen, as a simple button
+— "Add to calendar."
+
+Behavior:
+
+
+Tapping it generates a standard .ics file for that Plan
+Trips: single .ics with one VEVENT spanning the trip's start–end dates. If
+itinerary stops have specific times, include them as sub-events
+(individual VEVENTs) within the same .ics rather than a second file
+Events: single VEVENT with the event's date/time, location (freeform
+address as-is, no geocoding), and name
+Title = Plan name, Location = freeform address field (verbatim, no
+geocoding), Description = Plan notes if present
+File is handed to the OS via standard share/download — user opens it into
+whatever calendar app they use (Apple, Google, Outlook). No API keys, no
+OAuth, no provider-specific integration
+This is a one-time export, not a live sync — if the Plan changes after
+export, the user re-taps "Add to calendar" to get an updated file. Make
+this expectation clear in copy if needed (e.g. tooltip: "Re-add anytime to
+get the latest details")
+
+
+Scope guardrails:
+
+
+No maps SDK, no geocoding — addresses are plain text, unchanged from
+existing itinerary data
+No recurring events, no reminders/alarms configuration — keep the .ics
+minimal
+Free on all tiers, not gated
+
+
+
+Part 3 — Cross-Squad Conflict Detection
+
+Problem: a user can be double-booked across two different squads' Plans.
+Detect this using data already in the Plan model — no external calendar
+read, no OAuth, no new schema.
+
+Trigger points:
+
+
+Plan creation — check the creator's own other Plans
+RSVP / joining a Plan — check the joining member's own other Plans
+(Skip: checking on squad-join for pre-existing Plans — defer this edge case)
+
+
+Overlap rule:
+
+
+Trip vs Trip → date range intersects
+Trip vs Event → event's date falls inside the trip's date range
+Event vs Event, same day:
+
+Both have time ranges → time overlap → hard conflict
+Either lacks a time → same-day only → soft conflict
+
+
+
+
+
+Who's included: any Plan where the user is an active member, across all
+their squads, excluding the Plan currently being created/joined.
+
+Privacy rule (critical): conflict info is visible only to the affected
+user, about themselves. Never expose Plan names, squad names, or the fact
+that a conflict exists to anyone else. This must not leak one squad's
+activity into another.
+
+UX:
+
+
+Non-blocking banner at Plan creation (creator) and at RSVP/join (member):
+
+Single conflict: "Heads up — this overlaps with [Plan Name] in
+[Squad Name]."
+Multiple: "This overlaps with 2 other plans on your calendar."
+
+
+
+Never prevent creation or RSVP — warning only
+Optional (skip if it adds meaningful scope): small conflict indicator on
+the Plan card in Trips·Events·Past, visible only to the affected user
+
+
+Freemium: not gated, free on all tiers.
+
+Explicitly out of scope: reading external calendars (Google/Outlook/
+Apple) — real per-provider OAuth integrations. Defer indefinitely; revisit
+only if post-launch feedback specifically asks for it.
+
+
+QA — Multi-user test scenarios
+
+Simulate 3 accounts (A, B, C) across at least 2 squads, and verify:
+
+
+Removing Calendar Sync doesn't break any existing Plan/Trip data or dates
+Add-to-calendar on an Event produces a valid .ics with correct
+title/date/time/location
+Add-to-calendar on a Trip with no timed stops produces one all-span VEVENT
+Add-to-calendar on a Trip with timed stops produces multiple VEVENTs
+correctly nested in one file
+Re-tapping add-to-calendar after editing a Plan's date produces an updated
+file (not stale data)
+A creates a Trip in Squad 1 overlapping dates with an existing Event A is
+in within Squad 2 → A sees the conflict warning at creation
+B is invited to that same Squad 1 Trip and has no conflicts → B sees no
+warning
+C is invited to the Trip and has an overlapping Event in a third squad →
+C sees the warning only at their own RSVP step, and only C sees it
+Confirm B and C never see A's conflict, and A never sees B's or C's
+Same-day, no-time-set Event vs Event → soft "also on this day" conflict
+triggers correctly, not treated as a hard time conflict
+Two Events same day with non-overlapping times → no conflict triggered
+Two Events same day with overlapping times → hard conflict triggers
+Declining/ignoring a conflict warning still allows Plan creation/RSVP to
+complete normally (non-blocking confirmed)
