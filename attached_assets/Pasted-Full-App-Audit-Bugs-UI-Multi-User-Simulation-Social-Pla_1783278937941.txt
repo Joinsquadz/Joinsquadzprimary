@@ -1,0 +1,99 @@
+Full App Audit: Bugs, UI, Multi-User Simulation, Social Platform Compatibility
+
+Run a comprehensive audit of SquadZ across four areas below. Don't fix
+anything yet — produce a findings report first, organized by severity
+(Critical / High / Medium / Low), so decisions can be made on what to
+prioritize before any code changes.
+
+
+1. Bug audit (full codebase pass)
+
+
+Walk every screen and every user action; check for broken states, dead
+buttons, unhandled null/undefined data, race conditions on async actions
+(e.g. double-tap on RSVP or payment)
+Check every freemium gate: 5/year Plan cap, 2-squad limit — confirm they
+can't be bypassed (e.g. rapid creation, edge cases at exactly the limit,
+browser refresh mid-flow)
+Confirm the founding member counter only increments on a confirmed Stripe
+webhook, never on checkout session creation — test what happens if a
+webhook is delayed, fails, or arrives twice (idempotency)
+Check for orphaned data: what happens to Plans, stops, and packing items
+if a squad is deleted, a member leaves, or a Plan is deleted mid-vote
+Check every "confirmed vs proposed" stop state transition for edge cases
+(voting ties, a voter leaving the squad before voting closes, editing a
+stop while a vote is open)
+Check timezone handling on all date/time fields — Plan creation, stop
+times, and (new) .ics export and conflict detection all need to agree on
+what "same day" and "overlapping" mean across timezones if members are in
+different ones
+
+
+2. UI audit
+
+
+Verify Syne (display) / Inter (body) are applied consistently — flag any
+screen falling back to system fonts
+Verify the dark background (#0F0F14) and orange-to-gold gradient
+(#FF6B2C → #FFB23E) are used consistently, not just on primary screens
+Check every screen at common breakpoints (small phone, large phone,
+tablet if supported) for overflow, truncation, and touch-target sizing
+Check empty states (no squads, no Plans, no packing items) — confirm none
+are blank/broken
+Check loading and error states for every async action (Plan creation,
+RSVP, voting, payment, .ics export, image upload if any)
+Accessibility pass: color contrast against the dark background, tap target
+sizes, screen-reader labels on icon-only buttons
+
+
+3. Ten-simulated-user workflow test
+
+Simulate 10 distinct user accounts across at least 3 squads with overlapping
+membership, and walk each of these full workflows end to end:
+
+
+New user signup → onboarding → create first squad
+Invite flow: inviting existing users vs. new users (not yet on SquadZ)
+Create an Event; create a Trip with itinerary stops (mix of "add
+directly" and "propose for vote" stops)
+Vote on a proposed stop with a mix of votes/no-votes; confirm resolution
+logic
+RSVP to a Plan as a member, including the new conflict-detection warning
+from a Plan in a different squad
+Use the packing list (check-off, assign to a member)
+Hit the 5/year Plan cap and 2-squad cap as different users, confirm
+correct upgrade prompts appear for all affected members, not just
+organizers
+Purchase Squadz+ as a standard price and as a founding-member price;
+confirm webhook-driven upgrade and the founding counter behavior
+Export a Plan via "Add to calendar" and open the resulting file
+Leave a squad / get removed from a squad — confirm the user loses access
+to that squad's Plans, and their own Plans in other squads are
+unaffected
+
+
+Report anything that breaks, feels slow, or is confusing across these 10
+runs — note it against which of the 10 accounts hit it and at which step.
+
+4. Social platform compatibility
+
+
+Confirm the landing page and any shareable invite/Plan links produce
+correct Open Graph tags (title, description, image) so previews render
+properly when pasted into iMessage, WhatsApp, Instagram DM, and Slack —
+test each platform's actual preview, not just the raw meta tags
+If Sign in with Apple / Sign in with Google exists or is planned, confirm
+the OAuth flow completes correctly on both iOS and Android, and that
+account linking (same email, different provider) doesn't create duplicate
+accounts
+Confirm no Plan, squad, or user data is ever exposed in a public/indexable
+way through a shared link — links should only preview generic branding,
+never private squad content, consistent with the privacy-first model
+
+
+
+Output format
+
+A single findings report, grouped by the four sections above, each item
+tagged Critical/High/Medium/Low, with steps to reproduce. Do not begin fixing
+issues until the report is reviewed.
