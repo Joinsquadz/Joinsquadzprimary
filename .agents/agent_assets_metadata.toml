@@ -17,3 +17,9 @@ id = "noG0PPdu8unlty56-esxt"
 uri = "file://artifacts/squadz-native/assets/images/icon.png"
 type = "image"
 title = "App Icon (1024×1024)"
+
+[[outputs]]
+id = "fDCLMV1TPELYphaSUcMVt"
+uri = "file://docs/ux-craft-sweep-phase1.md"
+type = "text"
+title = "UX Craft Sweep — Phase 1 Flow-by-Flow Report"

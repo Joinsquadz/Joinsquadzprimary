@@ -1,0 +1,108 @@
+UX Craft Sweep: Flow-by-Flow Analysis + Enhancement
+Goal
+Raise SquadZ’s execution quality to the level of the best consumer social
+apps (Instagram, Facebook, Twitter/X, Partiful, Airbnb) — their polish,
+speed, and interaction craft, not their features. SquadZ stays private,
+squad-only, and intentional: no feeds-for-engagement, no public profiles, no
+discovery mechanics, nothing that posts without explicit user intent. The
+bar is: a user coming from Instagram should feel the same level of care in
+every tap, transition, and screen — while the product remains a coordination
+tool for friend groups.
+Process — two phases, do not skip Phase 1
+Phase 1: Flow-by-flow analysis (report first, no code changes)
+Walk every core flow end to end as a first-time user AND as a returning
+power user, and score each against best-in-class consumer apps. For each
+flow, report: what’s clunky, what’s slow, what’s confusing, what’s missing
+feedback, and what a top-tier app would do differently at that moment.
+Flows to analyze (all of them):
+	1.	First-run: install/open → signup → onboarding → landing in the app
+with zero squads. Is there a wow moment? Does the empty app sell what
+SquadZ does, or is it a dead end?
+	2.	Squad creation + invite: create → name → invite friends → waiting
+for them to join. What does the inviter see while waiting? Is inviting
+delightful or a chore?
+	3.	Invite acceptance (the other side): receiving a link → preview →
+signup → landing inside the squad. This is the #1 growth-critical flow —
+every second of friction here costs members.
+	4.	Event creation: how many taps from intent to created? What can be
+deferred/optional vs. what blocks? Compare against Partiful’s creation
+flow specifically — they set the bar for lightweight event creation.
+	5.	Trip creation + itinerary building: adding stops, proposing vs.
+direct-add, the voting experience. Is building an itinerary together
+fun, or does it feel like data entry?
+	6.	RSVP + attending experience: from notification/link → viewing →
+responding → what happens after. Including the conflict-detection
+warning moment.
+	7.	Voting on proposed stops: casting a vote, seeing others’ votes,
+resolution. Does this feel social and alive, or like a form?
+	8.	Packing list: shared check-off, assignment. Quick interaction check.
+	9.	Day-of experience: what does the app offer on the day of an event or
+during a trip? (This is likely a gap — most planning apps go silent at
+the moment of highest engagement.)
+	10.	Post-event: what happens after a plan ends? Photos, memories, the
+Past tab. Is there any reason to come back?
+	11.	Upgrade/paywall moments: hitting the 5-plan or 2-squad cap,
+Squadz+ purchase. Do these feel fair and well-timed, or punitive?
+	12.	Returning-user home: opening the app with active squads and plans.
+Is the most relevant thing (next upcoming plan, pending votes, unread
+activity) surfaced instantly, or does the user have to dig?
+For each flow, grade A–F against best-in-class and list specific,
+implementable improvements ranked by impact. Deliver this as a report before
+touching any code.
+Phase 2: Implement (after report review)
+Once the report is reviewed and priorities confirmed, implement approved
+items. Expected categories of improvement — use judgment per flow:
+Motion & feedback
+	•	Screen transitions (no hard cuts between screens)
+	•	Press states on every tappable element
+	•	Haptics on meaningful actions (RSVP confirm, vote cast, check-off,
+stop confirmed)
+	•	Optimistic UI on lightweight actions (check-off, vote) — instant visual
+response, reconcile with server after
+	•	Loading skeletons instead of spinners for content screens
+	•	Celebratory moments where earned: squad fully RSVP’d, trip confirmed,
+first squad created — subtle, not confetti-spam
+Hierarchy & scannability
+	•	Returning-user home leads with the single most relevant thing (next plan,
+pending vote), not a uniform list
+	•	Visual grouping in Trips·Events·Past as plans accumulate
+	•	Consistent card anatomy: date, squad, status readable at a glance
+	•	Typography discipline: Syne for display, Inter for body, deliberate scale
+Reducing friction
+	•	Cut taps from every creation flow; defer optional fields; smart defaults
+(next weekend, most-recent squad)
+	•	Inline editing wherever possible instead of navigate-to-edit screens
+	•	Invite acceptance flow: minimize steps between tapping a link and being
+inside the squad
+Perceived performance
+	•	Instant screen loads via cached/stale-while-revalidate data
+	•	Prefetch likely-next screens (squad → its plans)
+	•	No blank screens ever — skeleton, cached data, or empty state
+Empty states as onboarding
+	•	Every empty state teaches and prompts the next action (zero squads,
+zero plans, empty itinerary, empty packing list)
+	•	The zero-squad first-run state is the most important screen in the app
+for conversion — treat it as a landing page, not an absence of content
+Craft details
+	•	Icon consistency (single icon set, single stroke weight)
+	•	Spacing system applied uniformly
+	•	Dark-theme depth: elevation/borders so surfaces read as layered, not flat
+	•	Brand gradient used deliberately for primary actions and moments of
+delight, not scattered
+Hard constraints — do not violate
+	•	No public content, no discovery feeds, no follower mechanics, no public
+profiles, no algorithmic ranking of content
+	•	Nothing posts or shares without explicit user intent
+	•	All content and permissions continue to inherit from the squad — no new
+audience pickers
+	•	Freemium gates stay as-is (5 plans/year, 2 squads, Squadz+ gating) — this
+sweep improves how they’re presented, not what they gate
+	•	Brand system stays canonical: Syne/Inter, #0F0F14 background,
+#FF6B2C→#FFB23E gradient
+	•	No new heavyweight dependencies without flagging first (e.g. don’t pull in
+a maps SDK, video processing, or an animation library >100kb without
+asking)
+Regression guard
+After Phase 2 changes, re-run the standing 10-user simulation from the July
+5 audit and confirm all previously-passing checks still pass. Craft changes
+must not break function.
