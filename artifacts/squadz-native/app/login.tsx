@@ -18,12 +18,13 @@ import { useAuth } from "@/context/AppContext";
 import { SquadzIcon } from "@/components/SquadzIcon";
 import { GradientButton } from "@/components/GradientButton";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
+import { fonts } from "@/constants/fonts";
 
 type Screen = "splash" | "signin";
 
 const PILLS = [
-  { icon: "🗓️", label: "Events", color: "#FF5C3A" },
-  { icon: "🍔", label: "Food Plans", color: "#FFB547" },
+  { icon: "🗓️", label: "Events", color: "#FF6B2C" },
+  { icon: "🍔", label: "Food Plans", color: "#FFB23E" },
   { icon: "💸", label: "Split Costs", color: "#2ECC8A" },
   { icon: "🗳️", label: "Polls", color: "#4A9EFF" },
   { icon: "💬", label: "Group Chat", color: "#A855F7" },
@@ -253,9 +254,9 @@ export default function LoginScreen() {
     <View style={[styles.screen, bg]}>
       <StatusBar barStyle="light-content" />
 
-      <View style={[styles.blob, { top: -80, right: -50, width: 280, height: 280, backgroundColor: "#FF5C3A", opacity: 0.13 }]} />
+      <View style={[styles.blob, { top: -80, right: -50, width: 280, height: 280, backgroundColor: "#FF6B2C", opacity: 0.13 }]} />
       <View style={[styles.blob, { top: 200, left: -80, width: 220, height: 220, backgroundColor: "#A855F7", opacity: 0.09 }]} />
-      <View style={[styles.blob, { bottom: 160, right: -30, width: 180, height: 180, backgroundColor: "#FFB547", opacity: 0.08 }]} />
+      <View style={[styles.blob, { bottom: 160, right: -30, width: 180, height: 180, backgroundColor: "#FFB23E", opacity: 0.08 }]} />
 
       <KeyboardAwareScrollViewCompat
         contentContainerStyle={{ flexGrow: 1, justifyContent: "center", paddingTop: topPad + 20, paddingBottom: botPad + 20 }}
@@ -263,7 +264,7 @@ export default function LoginScreen() {
       >
         <View style={styles.logoSection}>
           <View style={styles.iconWrapper}>
-            <View style={[styles.iconGlow, { backgroundColor: "#FF5C3A" }]} />
+            <View style={[styles.iconGlow, { backgroundColor: "#FF6B2C" }]} />
             <SquadzIcon size={92} style={styles.appIcon} />
           </View>
           <Text style={styles.wordmark}>SquadZ</Text>
@@ -305,7 +306,7 @@ export default function LoginScreen() {
 function GlowBlobs() {
   return (
     <>
-      <View style={[styles.blob, { top: -80, right: -50, width: 260, height: 260, backgroundColor: "#FF5C3A", opacity: 0.1 }]} />
+      <View style={[styles.blob, { top: -80, right: -50, width: 260, height: 260, backgroundColor: "#FF6B2C", opacity: 0.1 }]} />
       <View style={[styles.blob, { bottom: 100, left: -60, width: 200, height: 200, backgroundColor: "#4A9EFF", opacity: 0.08 }]} />
     </>
   );
@@ -323,7 +324,7 @@ const styles = StyleSheet.create({
   iconGlow: { position: "absolute", width: 120, height: 120, borderRadius: 60, opacity: 0.35 },
   appIcon: { width: 92, height: 92, borderRadius: 24 },
   wordmark: {
-    fontFamily: Platform.OS === "ios" ? "Georgia" : "serif",
+    fontFamily: fonts.displayBold,
     fontSize: 48,
     fontWeight: "700",
     color: "#fff",
@@ -334,10 +335,10 @@ const styles = StyleSheet.create({
   tagline: { fontSize: 15, textAlign: "center" },
   earlyBadge: {
     borderRadius: 20, borderWidth: 1,
-    borderColor: "#FF5C3A55", backgroundColor: "#FF5C3A18",
+    borderColor: "#FF6B2C55", backgroundColor: "#FF6B2C18",
     paddingHorizontal: 12, paddingVertical: 4, marginBottom: 8,
   },
-  earlyBadgeText: { fontSize: 11, fontWeight: "700", color: "#FF5C3A", letterSpacing: 0.5 },
+  earlyBadgeText: { fontSize: 11, fontWeight: "700", color: "#FF6B2C", letterSpacing: 0.5 },
 
   // Feature pills
   pillsWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center", paddingHorizontal: 20, marginBottom: 32 },
@@ -352,7 +353,7 @@ const styles = StyleSheet.create({
 
   // Shared
   serifHeadingLg: {
-    fontFamily: Platform.OS === "ios" ? "Georgia" : "serif",
+    fontFamily: fonts.display,
     fontSize: 30,
     fontWeight: "700",
   },

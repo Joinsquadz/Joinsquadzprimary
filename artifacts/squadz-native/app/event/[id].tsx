@@ -144,6 +144,10 @@ export default function EventDetailScreen() {
   }, []);
   const [contactOpen, setContactOpen] = useState(false);
   const [contactMember, setContactMember] = useState<ResolvedUser | null>(null);
+  // Which RSVP status is currently being submitted (null = idle). Used to
+  // disable all three buttons and show a spinner on the tapped one while the
+  // optimistic mutation is in flight.
+  const [pendingRsvp, setPendingRsvp] = useState<RsvpStatus | null>(null);
   const [showInvitePicker, setShowInvitePicker] = useState(false);
   const { resolveUser, prefetchUsers } = useUserCache();
 
@@ -885,26 +889,41 @@ export default function EventDetailScreen() {
 
         {/* RSVP buttons */}
         <View style={styles.rsvpRow}>
-          {(["going", "maybe", "notgoing"] as RsvpStatus[]).map((v) => (
-            <TouchableOpacity
-              key={v}
-              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setRsvp(event.id, v); }}
-              style={[
-                styles.rsvpBtn,
-                {
-                  backgroundColor: myRsvp === v ? statusColor(v) : "rgba(255,255,255,0.15)",
-                  borderColor: myRsvp === v ? "transparent" : "rgba(255,255,255,0.3)",
-                },
-              ]}
-            >
-              <Ionicons
-                name={v === "going" ? "checkmark" : v === "maybe" ? "help" : "close"}
-                size={15}
-                color="#fff"
-              />
-              <Text style={styles.rsvpText}>{STATUS_LABEL[v]}</Text>
-            </TouchableOpacity>
-          ))}
+          {(["going", "maybe", "notgoing"] as RsvpStatus[]).map((v) => {
+            const rsvpBusy = pendingRsvp !== null;
+            return (
+              <TouchableOpacity
+                key={v}
+                disabled={rsvpBusy}
+                onPress={() => {
+                  if (pendingRsvp !== null) return;
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  setPendingRsvp(v);
+                  setRsvp(event.id, v);
+                  setTimeout(() => setPendingRsvp(null), 600);
+                }}
+                style={[
+                  styles.rsvpBtn,
+                  {
+                    backgroundColor: myRsvp === v ? statusColor(v) : "rgba(255,255,255,0.15)",
+                    borderColor: myRsvp === v ? "transparent" : "rgba(255,255,255,0.3)",
+                    opacity: rsvpBusy && pendingRsvp !== v ? 0.5 : 1,
+                  },
+                ]}
+              >
+                {pendingRsvp === v ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Ionicons
+                    name={v === "going" ? "checkmark" : v === "maybe" ? "help" : "close"}
+                    size={15}
+                    color="#fff"
+                  />
+                )}
+                <Text style={styles.rsvpText}>{STATUS_LABEL[v]}</Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
       </View>
 
@@ -2151,7 +2170,7 @@ export default function EventDetailScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  hero: { backgroundColor: "#FF5C3A", paddingHorizontal: 20, paddingBottom: 20, position: "relative" },
+  hero: { backgroundColor: "#FF6B2C", paddingHorizontal: 20, paddingBottom: 20, position: "relative" },
   backBtn: { position: "absolute", top: 0, left: 16, padding: 8, zIndex: 10 },
   shareBtn: { position: "absolute", top: 0, right: 16, padding: 8, zIndex: 10 },
   gearBtn: { position: "absolute", top: 0, right: 54, padding: 8, zIndex: 10 },

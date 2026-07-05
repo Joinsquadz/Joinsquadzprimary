@@ -26,6 +26,7 @@ import {
 import { sendVerificationEmail, sendPasswordResetEmail } from "../emailService";
 import { supabaseAdmin, supabaseAuth } from "../services/supabase";
 import { trackEvent, identifyUser } from "../services/analytics";
+import { logger } from "../lib/logger";
 
 const OIDC_COOKIE_TTL = 10 * 60 * 1000;
 
@@ -116,13 +117,37 @@ function sanitizeMobileReturnTo(value: unknown, req: Request): string {
 async function upsertUser(claims: Record<string, unknown>) {
   const profileData = {
     id: claims.sub as string,
-    email: (claims.email as string) || null,
+    email: normalizeEmail((claims.email as string) || "") || null,
     firstName: (claims.first_name as string) || null,
     lastName: (claims.last_name as string) || null,
     profileImageUrl: (claims.profile_image_url || claims.picture) as
       | string
       | null,
   };
+
+  // Account linking: if this email already belongs to a user created via a
+  // different auth provider (e.g. email/password → Supabase UUID), attach this
+  // sign-in method to that SAME account instead of erroring on the unique
+  // email constraint. Same person, same data — just a second way to sign in.
+  if (profileData.email) {
+    const [byEmail] = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.email, profileData.email));
+    if (byEmail && byEmail.id !== profileData.id) {
+      const [linked] = await db
+        .update(usersTable)
+        .set({
+          firstName: byEmail.firstName ?? profileData.firstName,
+          lastName: byEmail.lastName ?? profileData.lastName,
+          profileImageUrl: byEmail.profileImageUrl ?? profileData.profileImageUrl,
+          updatedAt: new Date(),
+        })
+        .where(eq(usersTable.id, byEmail.id))
+        .returning();
+      return linked ?? byEmail;
+    }
+  }
 
   const [user] = await db
     .insert(usersTable)
@@ -517,6 +542,38 @@ async function syncSupabaseUser(
     (supabaseUser.user_metadata?.last_name as string | undefined) ??
     null
   );
+
+  // Account linking: if this email already belongs to a row with a DIFFERENT
+  // id (e.g. the user originally signed up via Replit OAuth, whose OIDC `sub`
+  // is the row id), link the Supabase identity to that existing account
+  // instead of violating the unique email constraint with a hard 500. We
+  // record the mapping once in the Supabase user's app_metadata so the auth
+  // middleware can resolve every future JWT to the linked account without an
+  // extra DB query per request.
+  const [byEmail] = email
+    ? await db.select().from(usersTable).where(eq(usersTable.email, email))
+    : [];
+  if (byEmail && byEmail.id !== supabaseUser.id) {
+    if (supabaseAdmin) {
+      try {
+        await supabaseAdmin.auth.admin.updateUserById(supabaseUser.id, {
+          app_metadata: { linkedUserId: byEmail.id },
+        });
+      } catch (err) {
+        logger.error({ err }, "Failed to store linkedUserId in Supabase app_metadata");
+      }
+    }
+    const [linked] = await db
+      .update(usersTable)
+      .set({
+        firstName: byEmail.firstName ?? firstName ?? null,
+        lastName: byEmail.lastName ?? lastName ?? null,
+        updatedAt: new Date(),
+      })
+      .where(eq(usersTable.id, byEmail.id))
+      .returning();
+    return linked ?? byEmail;
+  }
 
   const [user] = await db
     .insert(usersTable)

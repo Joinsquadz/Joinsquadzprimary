@@ -30,6 +30,9 @@ vi.mock("@workspace/db", () => ({
     transaction: (fn: (tx: unknown) => Promise<unknown>) =>
       fn({
         delete: () => ({ where: () => Promise.resolve() }),
+        // purgeSquadData: squad-events lookup + photo unshare inside the tx.
+        select: () => ({ from: () => ({ where: () => Promise.resolve([]) }) }),
+        update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
       }),
   },
   squadsTable: {
@@ -55,6 +58,13 @@ vi.mock("@workspace/db", () => ({
     squadId: "squad_id",
     seenAt: "seen_at",
   },
+  squadInvitesTable: { id: "id", squadId: "squad_id", invitedUserId: "invited_user_id", status: "status" },
+  activityTable: { id: "id", recipientId: "recipient_id" },
+  eventsTable: { id: "id", squadId: "squad_id", version: "version", itinerary: "itinerary", polls: "polls", rsvps: "rsvps" },
+  eventInvitesTable: { eventId: "event_id" },
+  conversationsTable: { id: "id", squadId: "squad_id" },
+  photosTable: { squadId: "squad_id", sharedToSquad: "shared_to_squad" },
+  availabilityPollsTable: { squadId: "squad_id" },
 }));
 
 vi.mock("../lib/logger");

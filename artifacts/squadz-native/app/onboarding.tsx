@@ -22,7 +22,7 @@ import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollV
 import { IconPicker } from "@/components/IconPicker";
 import { EMOJI_CHOICES } from "@/constants/emojis";
 
-const SQUAD_COLORS = ["#FF5C3A", "#A855F7", "#2ECC8A", "#4A9EFF", "#FFB547", "#FF5C3A"];
+const SQUAD_COLORS = ["#FF6B2C", "#A855F7", "#2ECC8A", "#4A9EFF", "#FFB23E", "#FF6B2C"];
 const SQUAD_CHIPS = ["Friend Group", "Coworkers", "Family", "College", "Roommates", "Sports"];
 
 const GLOW_COLORS = ["#2ECC8A", "#A855F7"];
@@ -116,7 +116,7 @@ export default function OnboardingScreen() {
     setCreating(true);
     try {
       const emojiIndex = EMOJI_CHOICES.indexOf(squadEmoji);
-      const color = SQUAD_COLORS[Math.max(0, emojiIndex) % SQUAD_COLORS.length] ?? "#FF5C3A";
+      const color = SQUAD_COLORS[Math.max(0, emojiIndex) % SQUAD_COLORS.length] ?? "#FF6B2C";
       const id = await addSquad({ name: squadName.trim(), emoji: squadEmoji, color, isPublic: false });
       setCreatedSquadId(id);
       setCreating(false);
@@ -280,9 +280,9 @@ export default function OnboardingScreen() {
                   <Ionicons
                     name={copied ? "checkmark" : "copy-outline"}
                     size={16}
-                    color={copied ? "#2ECC8A" : colors.mutedForeground}
+                    color={copied ? colors.green : colors.mutedForeground}
                   />
-                  <Text style={[styles.copyBtnText, { color: copied ? "#2ECC8A" : colors.mutedForeground }]}>
+                  <Text style={[styles.copyBtnText, { color: copied ? colors.green : colors.mutedForeground }]}>
                     {copied ? "Copied!" : "Copy"}
                   </Text>
                 </TouchableOpacity>

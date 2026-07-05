@@ -12,7 +12,7 @@ export type ResolvedUser = {
 };
 
 const USER_COLORS = [
-  "#FF5C3A", "#A855F7", "#2ECC8A", "#FFB547", "#4A9EFF",
+  "#FF6B2C", "#A855F7", "#2ECC8A", "#FFB23E", "#4A9EFF",
   "#E91E8C", "#00BCD4", "#FF9800", "#8BC34A", "#9C27B0",
 ];
 

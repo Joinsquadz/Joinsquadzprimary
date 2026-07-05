@@ -2,73 +2,31 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { and, eq, sql, inArray, isNull } from "drizzle-orm";
 import { randomBytes } from "crypto";
 import { z } from "zod";
-import { db, squadsTable, usersTable, squadMutesTable, squadRemovalNoticesTable, squadInvitesTable, activityTable } from "@workspace/db";
+import {
+  db,
+  squadsTable,
+  usersTable,
+  squadMutesTable,
+  squadRemovalNoticesTable,
+  squadInvitesTable,
+  activityTable,
+  eventsTable,
+  eventInvitesTable,
+  conversationsTable,
+  photosTable,
+  availabilityPollsTable,
+} from "@workspace/db";
 import { requireAuth } from "../middleware/currentUser";
 import { storage } from "../storage";
 import { logger } from "../lib/logger";
 import { sendPushNotifications } from "../lib/pushNotifications";
 import { emitSquadUpdate, onSquadUpdate } from "../lib/squadEvents";
 import { recordActivitySafe } from "../lib/activity";
-import { resolveProStatus, resolveProStatusForIds } from "../lib/proStatus";
+import { resolveProStatusForIds } from "../lib/proStatus";
+import { FREE_SQUAD_LIMIT, withSquadLimit } from "../lib/squadLimit";
 
 function generateInviteCode(): string {
   return randomBytes(5).toString("hex").toUpperCase();
-}
-
-const FREE_SQUAD_LIMIT = 2;
-
-type SquadExecutor = Parameters<Parameters<typeof db.transaction>[0]>[0] | typeof db;
-
-/**
- * Runs a squad-membership-growing write (join or create) while atomically
- * enforcing the free-plan squad cap.
- *
- * The naive "count, then if-under-limit write" is a classic TOCTOU race: two
- * concurrent joins/creates for the same free user can each read count = limit-1
- * and both proceed, pushing the user over the cap. To close that window we run
- * the count-then-write inside a single transaction guarded by a per-user
- * advisory lock (`pg_advisory_xact_lock`, auto-released at COMMIT), so the
- * checks serialize for a given user while staying fully concurrent across users.
- *
- * `enforce` is false for already-members re-joining (their write is an
- * idempotent no-op that must never be blocked). Pro users bypass the cap.
- *
- * Under the unit-test mocks `db.transaction` is absent; we then fall back to
- * running the write directly with no cap re-check (the mocks don't model the
- * count and don't assert the cap — concurrency is verified by the isolated
- * integration test against a real Postgres instead).
- */
-async function withSquadLimit<T>(
-  userId: string,
-  enforce: boolean,
-  action: (executor: SquadExecutor) => Promise<T>,
-): Promise<{ ok: true; value: T } | { ok: false }> {
-  let isPro = false;
-  if (enforce) {
-    const user = await storage.getUser(userId);
-    isPro = user ? await resolveProStatus(user) : false;
-  }
-
-  const run = async (
-    executor: SquadExecutor,
-    inTransaction: boolean,
-  ): Promise<{ ok: true; value: T } | { ok: false }> => {
-    if (enforce && !isPro && inTransaction) {
-      await executor.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${userId}))`);
-      const [row] = await executor
-        .select({ count: sql<number>`count(*)::int` })
-        .from(squadsTable)
-        .where(sql`${squadsTable.memberIds} @> ${JSON.stringify([userId])}::jsonb`);
-      if ((row?.count ?? 0) >= FREE_SQUAD_LIMIT) return { ok: false };
-    }
-    const value = await action(executor);
-    return { ok: true, value };
-  };
-
-  if (typeof db.transaction === "function") {
-    return db.transaction(async (tx) => run(tx, true));
-  }
-  return run(db, false);
 }
 
 const router: IRouter = Router();
@@ -82,6 +40,40 @@ async function getSquadIfMember(squadId: string, userId: string) {
   if (!squad) return { squad: null, isMember: false };
   const memberIds = (squad.memberIds ?? []) as string[];
   return { squad, isMember: memberIds.includes(userId) };
+}
+
+/**
+ * Purge all data scoped to a squad when the squad itself is deleted, so no
+ * orphaned events/chats/invites/polls linger and members' own photos are
+ * returned to their personal vaults.
+ *
+ * Runs inside the same transaction as the squad deletion. Children with
+ * `onDelete: "cascade"` FKs (conversation participants/messages, availability
+ * responses/nudges, event photos) are removed automatically by their parent
+ * deletes; event invites have no FK so they are deleted explicitly.
+ */
+async function purgeSquadData(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  squadId: string,
+): Promise<void> {
+  const squadEvents = await tx
+    .select({ id: eventsTable.id })
+    .from(eventsTable)
+    .where(eq(eventsTable.squadId, squadId));
+  const eventIds = squadEvents.map((e) => e.id);
+  if (eventIds.length > 0) {
+    await tx.delete(eventInvitesTable).where(inArray(eventInvitesTable.eventId, eventIds));
+    await tx.delete(eventsTable).where(inArray(eventsTable.id, eventIds));
+  }
+  await tx.delete(conversationsTable).where(eq(conversationsTable.squadId, squadId));
+  await tx.delete(squadInvitesTable).where(eq(squadInvitesTable.squadId, squadId));
+  await tx.delete(availabilityPollsTable).where(eq(availabilityPollsTable.squadId, squadId));
+  // Vault roll-ups are members' OWN photos shared to the squad — unshare them
+  // (they remain in each owner's personal vault); never delete user photos.
+  await tx
+    .update(photosTable)
+    .set({ squadId: null, sharedToSquad: false })
+    .where(eq(photosTable.squadId, squadId));
 }
 
 // "Help manage" rights: the creator plus any co-admin may change squad settings
@@ -327,7 +319,13 @@ router.post("/squads", requireAuth, async (req: Request, res: Response): Promise
   // Free squad limit + atomic create: creating a squad counts toward the cap, so
   // re-count under a per-user advisory lock inside the tx to block concurrent
   // creates from exceeding it.
-  const memberIds = Array.from(new Set([userId, ...parsed.data.memberIds]));
+  //
+  // Consent: selected friends are NOT added as members directly. Membership
+  // requires acceptance (it consumes the invitee's free squad cap), so the
+  // creator's picks become pending squad invites the invitee can Accept or
+  // Decline from their Activity tab — mirroring POST /squads/:id/members.
+  const memberIds = [userId];
+  const invitedIds = Array.from(new Set(parsed.data.memberIds)).filter((id) => id !== userId);
   const inviteCode = generateInviteCode();
   const outcome = await withSquadLimit(userId, true, (tx) =>
     tx
@@ -344,28 +342,70 @@ router.post("/squads", requireAuth, async (req: Request, res: Response): Promise
     return;
   }
   const [squad] = outcome.value;
-  res.status(201).json(squad);
 
-  // Fire-and-forget: notify added members (not the creator) that they're in a new squad,
-  // skipping anyone who has muted notifications for this squad.
-  const addedMembers = memberIds.filter((id) => id !== userId);
-  if (addedMembers.length > 0) {
+  // Create pending invites for the picked friends (only for users that exist).
+  let invitedUserIds: string[] = [];
+  if (invitedIds.length > 0) {
+    try {
+      const targets = await db
+        .select({ id: usersTable.id })
+        .from(usersTable)
+        .where(inArray(usersTable.id, invitedIds));
+      invitedUserIds = targets.map((t) => t.id);
+      if (invitedUserIds.length > 0) {
+        const invites = await db
+          .insert(squadInvitesTable)
+          .values(
+            invitedUserIds.map((invitedUserId) => ({
+              squadId: squad.id,
+              inviterUserId: userId,
+              invitedUserId,
+              squadName: squad.name,
+              squadEmoji: squad.emoji,
+            })),
+          )
+          .returning();
+        for (const invite of invites) {
+          recordActivitySafe({
+            recipientId: invite.invitedUserId,
+            actorId: userId,
+            type: "squad_invite",
+            subjectType: "squad",
+            subjectId: invite.id,
+            meta: { subjectName: squad.name, subjectEmoji: squad.emoji, squadId: squad.id },
+          });
+        }
+      }
+    } catch (err) {
+      logger.error({ err }, "Error creating squad invites at squad creation");
+    }
+  }
+
+  res.status(201).json({ ...squad, pendingInvitedUserIds: invitedUserIds });
+
+  // Fire-and-forget: push-notify the invitees about their pending invite.
+  if (invitedUserIds.length > 0) {
     (async () => {
       try {
-        const unmuted = await storage.filterUnmutedForSquad(addedMembers, squad.id);
-        if (unmuted.length === 0) return;
-        const tokens = await storage.getPushTokensForUsers(unmuted, { requireNotifySquadJoin: true });
+        const creator = await storage.getUser(userId);
+        const creatorName = creator?.firstName
+          ? creator.lastName
+            ? `${creator.firstName} ${creator.lastName}`
+            : creator.firstName
+          : "Someone";
+        const tokens = await storage.getPushTokensForUsers(invitedUserIds, { requireNotifySquadJoin: true });
+        if (tokens.length === 0) return;
         await sendPushNotifications(
           tokens,
           {
-            title: "You've been added to a squad",
-            body: `You're now in "${squad.name}"`,
-            data: { screen: "squad", squadId: squad.id },
+            title: "Squad invite",
+            body: `${creatorName} invited you to join "${squad.name}"`,
+            data: { screen: "activity" },
           },
           { onStaleToken: (token) => storage.clearPushToken(token) },
         );
       } catch (err) {
-        logger.error({ err }, "Error sending squad-added push notifications");
+        logger.error({ err }, "Error sending squad-invite push notifications");
       }
     })();
   }
@@ -516,12 +556,26 @@ router.patch("/squads/:id", requireAuth, async (req: Request, res: Response): Pr
     return;
   }
 
-  // Detect newly added members before applying the update.
-  const addedMemberIds = parsed.data.memberIds
-    ? parsed.data.memberIds.filter((id) => !memberIds.includes(id))
+  // Consent-gated membership: PATCH may never inject users directly into
+  // memberIds. Additions become pending invites (Accept/Decline from the
+  // Activity tab — same as squad creation and POST /squads/:id/members);
+  // removals of existing members are applied as-is.
+  const requestedAdds = parsed.data.memberIds
+    ? Array.from(new Set(parsed.data.memberIds.filter((mid) => !memberIds.includes(mid) && mid !== userId)))
     : [];
+  if (requestedAdds.length > 0) {
+    const membersCanInvite = ((existing.membersCanInvite as boolean | null) ?? false) || canManageSquad(existing, userId);
+    if (!membersCanInvite) {
+      res.status(403).json({ error: "Only the squad creator can add members" });
+      return;
+    }
+  }
 
   const { version: clientVersion, ...fieldsToUpdate } = parsed.data;
+  if (fieldsToUpdate.memberIds) {
+    // Strip additions — keep only ids that are already members (allows removals/reorder).
+    fieldsToUpdate.memberIds = fieldsToUpdate.memberIds.filter((mid) => memberIds.includes(mid));
+  }
   const updateWhere = clientVersion !== undefined
     ? and(eq(squadsTable.id, id), eq(squadsTable.version, clientVersion))
     : eq(squadsTable.id, id);
@@ -534,12 +588,84 @@ router.patch("/squads/:id", requireAuth, async (req: Request, res: Response): Pr
     res.status(409).json({ error: "Someone else just updated this — refresh to see the latest", conflict: true });
     return;
   }
-  res.json(squad);
+
+  // Create pending invites for the requested additions (existing users only,
+  // skipping anyone who already has a pending invite).
+  let pendingInvitedUserIds: string[] = [];
+  if (requestedAdds.length > 0) {
+    try {
+      const targets = await db
+        .select({ id: usersTable.id })
+        .from(usersTable)
+        .where(inArray(usersTable.id, requestedAdds));
+      const existingPending = await db
+        .select({ invitedUserId: squadInvitesTable.invitedUserId })
+        .from(squadInvitesTable)
+        .where(
+          and(
+            eq(squadInvitesTable.squadId, id),
+            inArray(squadInvitesTable.invitedUserId, targets.map((t) => t.id)),
+            eq(squadInvitesTable.status, "pending"),
+          ),
+        );
+      const alreadyPending = new Set(existingPending.map((i) => i.invitedUserId));
+      const toInvite = targets.map((t) => t.id).filter((tid) => !alreadyPending.has(tid));
+      if (toInvite.length > 0) {
+        // Upsert: a prior declined (or stale accepted — the user is no longer a
+        // member, else they wouldn't be in requestedAdds) row is re-opened to
+        // pending instead of colliding with uniq_squad_invite_per_squad.
+        const invites = await db
+          .insert(squadInvitesTable)
+          .values(
+            toInvite.map((invitedUserId) => ({
+              squadId: id,
+              inviterUserId: userId,
+              invitedUserId,
+              squadName: squad.name,
+              squadEmoji: squad.emoji,
+            })),
+          )
+          .onConflictDoUpdate({
+            target: [squadInvitesTable.squadId, squadInvitesTable.invitedUserId],
+            set: {
+              status: "pending",
+              inviterUserId: userId,
+              squadName: squad.name,
+              squadEmoji: squad.emoji,
+              createdAt: sql`now()`,
+            },
+            // Don't downgrade an invite the user accepted concurrently — they
+            // just became a member, so no re-invite is needed.
+            setWhere: sql`${squadInvitesTable.status} <> 'accepted'`,
+          })
+          .returning();
+        pendingInvitedUserIds = invites.map((i) => i.invitedUserId);
+        for (const invite of invites) {
+          recordActivitySafe({
+            recipientId: invite.invitedUserId,
+            actorId: userId,
+            type: "squad_invite",
+            subjectType: "squad",
+            subjectId: invite.id,
+            meta: { subjectName: squad.name, subjectEmoji: squad.emoji, squadId: id },
+          });
+        }
+      }
+    } catch (err) {
+      logger.error({ err, squadId: id }, "Error creating squad invites from PATCH member additions");
+      // The squad field update already applied, but the requested additions were
+      // NOT converted to invites — surface the failure instead of a false success.
+      res.status(500).json({ error: "Squad updated, but the invites could not be sent — please try again" });
+      return;
+    }
+  }
+
+  res.json({ ...squad, pendingInvitedUserIds });
   emitSquadUpdate(id);
 
-  // Fire-and-forget: notify members when new members are added.
-  if (addedMemberIds.length > 0) {
-    const recipientIds = memberIds.filter((id) => id !== userId);
+  // Fire-and-forget: push-notify the invitees about their pending invite.
+  if (pendingInvitedUserIds.length > 0) {
+    const inviteeIds = pendingInvitedUserIds;
     (async () => {
       try {
         const adder = await storage.getUser(userId);
@@ -548,34 +674,19 @@ router.patch("/squads/:id", requireAuth, async (req: Request, res: Response): Pr
             ? `${adder.firstName} ${adder.lastName}`
             : adder.firstName
           : "Someone";
-
-        // Notify existing members (not the actor) that a new member was added.
-        if (recipientIds.length > 0) {
-          const existingTokens = await storage.getPushTokensForUsers(recipientIds);
-          await sendPushNotifications(
-            existingTokens,
-            {
-              title: squad.name,
-              body: `${adderName} added a new member to "${squad.name}"`,
-              data: { screen: "squad", squadId: squad.id },
-            },
-            { onStaleToken: (token) => storage.clearPushToken(token) },
-          );
-        }
-
-        // Notify each newly added member that they were added by the actor.
-        const newMemberTokens = await storage.getPushTokensForUsers(addedMemberIds, { requireNotifySquadJoin: true });
+        const tokens = await storage.getPushTokensForUsers(inviteeIds, { requireNotifySquadJoin: true });
+        if (tokens.length === 0) return;
         await sendPushNotifications(
-          newMemberTokens,
+          tokens,
           {
-            title: "You were added to a squad",
-            body: `${adderName} added you to "${squad.name}"`,
-            data: { screen: "squad", squadId: squad.id },
+            title: "Squad invite",
+            body: `${adderName} invited you to join "${squad.name}"`,
+            data: { screen: "activity" },
           },
           { onStaleToken: (token) => storage.clearPushToken(token) },
         );
       } catch (err) {
-        logger.error({ err }, "Error sending squad member-added push notifications");
+        logger.error({ err }, "Error sending squad-invite push notifications");
       }
     })();
   }
@@ -598,9 +709,10 @@ router.delete("/squads/:id", requireAuth, async (req: Request, res: Response): P
     res.status(403).json({ error: "Only the squad creator can delete the squad. Use the leave option to remove yourself." });
     return;
   }
-  // Wrap both deletions in a transaction so a mid-flight crash never leaves
-  // orphaned squad_mutes rows: either both succeed or neither does.
+  // Wrap all deletions in a transaction so a mid-flight crash never leaves
+  // orphaned rows (mutes, events, chats, invites, polls): all or nothing.
   await db.transaction(async (tx) => {
+    await purgeSquadData(tx, id);
     await tx.delete(squadsTable).where(eq(squadsTable.id, id));
     await tx.delete(squadMutesTable).where(eq(squadMutesTable.squadId, id));
   });
@@ -943,6 +1055,7 @@ router.delete("/squads/:id/members/:userId", requireAuth, async (req: Request, r
   // leaves as the final member would strand an empty, undeletable shell.
   if (updatedMemberIds.length === 0) {
     await db.transaction(async (tx) => {
+      await purgeSquadData(tx, id);
       await tx.delete(squadsTable).where(eq(squadsTable.id, id));
       await tx.delete(squadMutesTable).where(eq(squadMutesTable.squadId, id));
     });
@@ -976,6 +1089,56 @@ router.delete("/squads/:id/members/:userId", requireAuth, async (req: Request, r
 
   res.json(updatedSquad);
   emitSquadUpdate(id);
+
+  // Fire-and-forget: prune the removed member's leftovers from this squad's
+  // events — itinerary stop votes, poll votes, and their RSVP entry. Keeps
+  // vote counts honest and revokes squad-event access that would otherwise
+  // linger via the stale RSVP. Each update is version-checked (skip on
+  // conflict) so it never clobbers a concurrent event write.
+  void (async () => {
+    try {
+      const squadEvents = await db.select().from(eventsTable).where(eq(eventsTable.squadId, id));
+      for (const ev of squadEvents) {
+        let changed = false;
+        const itinerary = ((ev.itinerary ?? []) as Array<{ votes?: string[] } & Record<string, unknown>>).map((s) => {
+          if (Array.isArray(s.votes) && s.votes.includes(targetUserId)) {
+            changed = true;
+            return { ...s, votes: s.votes.filter((v) => v !== targetUserId) };
+          }
+          return s;
+        });
+        const polls = (
+          (ev.polls ?? []) as Array<{ options?: Array<{ voterIds?: string[] } & Record<string, unknown>> } & Record<string, unknown>>
+        ).map((p) => ({
+          ...p,
+          options: (p.options ?? []).map((o) => {
+            if (Array.isArray(o.voterIds) && o.voterIds.includes(targetUserId)) {
+              changed = true;
+              return { ...o, voterIds: o.voterIds.filter((v) => v !== targetUserId) };
+            }
+            return o;
+          }),
+        }));
+        const rsvps = { ...((ev.rsvps ?? {}) as Record<string, string>) };
+        if (targetUserId in rsvps) {
+          changed = true;
+          delete rsvps[targetUserId];
+        }
+        if (!changed) continue;
+        await db
+          .update(eventsTable)
+          .set({
+            itinerary: itinerary as typeof ev.itinerary,
+            polls: polls as typeof ev.polls,
+            rsvps,
+            version: sql`${eventsTable.version} + 1`,
+          })
+          .where(and(eq(eventsTable.id, ev.id), eq(eventsTable.version, ev.version)));
+      }
+    } catch (err) {
+      logger.error({ err, squadId: id, targetUserId }, "Error pruning removed member's event data");
+    }
+  })();
 
   if (isSelf) {
     // Fire-and-forget: user left — notify remaining members.
@@ -1174,76 +1337,6 @@ router.delete("/squads/:id/co-admins/:userId", requireAuth, async (req: Request,
     .returning();
   res.json(squad);
   emitSquadUpdate(id);
-});
-
-router.post("/squads/:id/join", requireAuth, async (req: Request, res: Response): Promise<void> => {
-  const id = parseId(req.params.id);
-  const userId = (req.user as { id: string }).id;
-  const [squad] = await db.select().from(squadsTable).where(eq(squadsTable.id, id));
-  if (!squad) {
-    res.status(404).json({ error: "Squad not found" });
-    return;
-  }
-  if (!squad.isPublic) {
-    res.status(403).json({ error: "This squad is not open to new members." });
-    return;
-  }
-  const memberIds = (squad.memberIds ?? []) as string[];
-  if (memberIds.includes(userId)) {
-    res.json(squad);
-    return;
-  }
-  const [updated] = await db
-    .update(squadsTable)
-    .set({ memberIds: [...memberIds, userId] })
-    .where(eq(squadsTable.id, id))
-    .returning();
-  res.json(updated);
-
-  // Fire-and-forget: welcome the joiner.
-  (async () => {
-    try {
-      const [joinerToken] = await storage.getPushTokensForUsers([userId]);
-      if (joinerToken) {
-        await sendPushNotifications(
-          [joinerToken],
-          {
-            title: `Welcome to ${squad.name}!`,
-            body: `You're now a member of ${squad.name}.`,
-            data: { screen: "squad", squadId: squad.id },
-          },
-          { onStaleToken: (token) => storage.clearPushToken(token) },
-        );
-      }
-    } catch (err) {
-      logger.error({ err }, "Error sending welcome push to squad joiner");
-    }
-  })();
-
-  // Fire-and-forget: notify existing members that someone new joined.
-  // getPushTokensForUsers with requireNotifySquadJoin handles both the opt-out
-  // preference check and returns an empty list when no one wants the notification.
-  if (memberIds.length > 0) {
-    (async () => {
-      try {
-        const joiner = await storage.getUser(userId);
-        const joinerName = joiner?.firstName ?? "Someone";
-        const tokens = await storage.getPushTokensForUsers(memberIds, { requireNotifySquadJoin: true });
-        if (tokens.length === 0) return;
-        await sendPushNotifications(
-          tokens,
-          {
-            title: squad.name,
-            body: `${joinerName} joined ${squad.name}`,
-            data: { screen: "squad", squadId: squad.id },
-          },
-          { onStaleToken: (token) => storage.clearPushToken(token) },
-        );
-      } catch (err) {
-        logger.error({ err }, "Error sending squad-join push notifications");
-      }
-    })();
-  }
 });
 
 export default router;

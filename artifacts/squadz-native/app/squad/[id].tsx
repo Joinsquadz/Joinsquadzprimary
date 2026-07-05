@@ -234,9 +234,9 @@ export default function SquadDetailScreen() {
                 : "U?";
             let hash = 0;
             for (const c of m.id) hash = (hash * 31 + c.charCodeAt(0)) & 0xffffffff;
-            const COLORS = ["#FF5C3A","#A855F7","#2ECC8A","#FFB547","#4A9EFF","#E91E8C","#00BCD4","#FF9800","#8BC34A","#9C27B0"];
+            const COLORS = ["#FF6B2C","#A855F7","#2ECC8A","#FFB23E","#4A9EFF","#E91E8C","#00BCD4","#FF9800","#8BC34A","#9C27B0"];
             const color = COLORS[Math.abs(hash) % COLORS.length];
-            seedUser({ id: m.id, name, initials, color: color ?? "#FF5C3A", profileImageUrl: m.profileImageUrl ?? null, isPro: m.isPro ?? false });
+            seedUser({ id: m.id, name, initials, color: color ?? "#FF6B2C", profileImageUrl: m.profileImageUrl ?? null, isPro: m.isPro ?? false });
           });
         });
       return () => { active = false; };

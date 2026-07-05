@@ -1240,7 +1240,7 @@ export default function AvailabilityScreen() {
           >
             <View style={styles.heroWrap}>
               <LinearGradient
-                colors={["#FF5C3A", "#FF8050"]}
+                colors={["#FF6B2C", "#FF8050"]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 style={styles.setupHeroCard}
@@ -1484,7 +1484,7 @@ export default function AvailabilityScreen() {
             {data.best && (
               <View style={styles.heroWrap}>
                 <LinearGradient
-                  colors={["#FF5C3A", "#FF8050"]}
+                  colors={["#FF6B2C", "#FF8050"]}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
                   style={styles.heroCard}
@@ -2465,7 +2465,7 @@ const styles = StyleSheet.create({
   retryText: { fontSize: 14, fontWeight: "700" },
   body: { flex: 1 },
   subtitle: { fontSize: 14, lineHeight: 21, paddingTop: 16, paddingBottom: 4 },
-  heroWrap: { marginTop: 16, borderRadius: 20, shadowColor: "#FF5C3A", shadowOpacity: 0.45, shadowRadius: 24, shadowOffset: { width: 0, height: 10 }, elevation: 10 },
+  heroWrap: { marginTop: 16, borderRadius: 20, shadowColor: "#FF6B2C", shadowOpacity: 0.45, shadowRadius: 24, shadowOffset: { width: 0, height: 10 }, elevation: 10 },
   heroCard: { flexDirection: "row", alignItems: "center", gap: 14, borderRadius: 20, paddingVertical: 18, paddingHorizontal: 18 },
   setupHeroCard: { borderRadius: 20, paddingVertical: 22, paddingHorizontal: 20, gap: 10 },
   setupHeroTitle: { fontSize: 22, fontWeight: "900", color: "#fff", letterSpacing: -0.4, lineHeight: 27 },
@@ -2506,7 +2506,7 @@ const styles = StyleSheet.create({
   memberAvatarWrap: { position: "relative", alignItems: "center" },
   memberAvatar: { width: 38, height: 38, borderRadius: 19, borderWidth: 1.5, alignItems: "center", justifyContent: "center", overflow: "hidden" },
   memberAvatarImage: { width: 38, height: 38, borderRadius: 19 },
-  respondedDot: { position: "absolute", bottom: -2, right: -2, width: 15, height: 15, borderRadius: 7.5, alignItems: "center", justifyContent: "center", borderWidth: 1.5, borderColor: "#0A0A0F" },
+  respondedDot: { position: "absolute", bottom: -2, right: -2, width: 15, height: 15, borderRadius: 7.5, alignItems: "center", justifyContent: "center", borderWidth: 1.5, borderColor: "#0F0F14" },
   memberInitial: { fontSize: 14, fontWeight: "800" },
   avatarTooltip: {
     position: "absolute",

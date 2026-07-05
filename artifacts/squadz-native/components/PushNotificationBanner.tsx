@@ -49,7 +49,7 @@ export function PushNotificationBanner({ visible, registering, onReEnable, onDis
       ]}
     >
       <View style={[styles.banner, { backgroundColor: colors.card, borderColor: colors.border }]}>
-        <Feather name="bell-off" size={18} color="#FF5C3A" style={styles.icon} />
+        <Feather name="bell-off" size={18} color="#FF6B2C" style={styles.icon} />
         <Text style={[styles.text, { color: colors.foreground }]} numberOfLines={2}>
           Notifications aren't reaching you. Tap to fix it.
         </Text>
@@ -107,7 +107,7 @@ const styles = StyleSheet.create({
   },
   actionBtn: {
     flexShrink: 0,
-    backgroundColor: "#FF5C3A",
+    backgroundColor: "#FF6B2C",
     borderRadius: 8,
     paddingVertical: 6,
     paddingHorizontal: 12,

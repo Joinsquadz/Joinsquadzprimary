@@ -6,7 +6,7 @@ description: Which Squadz app is the visual source of truth and the design compo
 # Squadz design source of truth
 
 Both apps are active:
-- **Web app** (`artifacts/squadz`) — React Vite, previewPath `/`, restored via `git archive fc93e02 artifacts/squadz | tar -x` + `verifyAndReplaceArtifactToml`. The web app is the visual reference.
+- **Web app** (`artifacts/squadz`) — React Vite, previewPath `/`, restored from an earlier commit via `git archive` + `verifyAndReplaceArtifactToml`. The web app is the visual reference.
 - **Mobile app** (`artifacts/squadz-native`) — Expo, previewPath `/mobile/`, served via `$REPLIT_EXPO_DEV_DOMAIN` (NOT the shared proxy). Canvas iframe for mobile must be set to the Expo domain URL — it does NOT auto-resolve (url="" is a known issue; must be patched via `applyCanvasActions` update).
 
 **Why:** The web app was accidentally deleted and then restored. Both are now maintained in parallel.

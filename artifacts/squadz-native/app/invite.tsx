@@ -183,7 +183,7 @@ export default function InviteScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   hero: {
-    backgroundColor: "#FF5C3A",
+    backgroundColor: "#FF6B2C",
     paddingHorizontal: 24,
     paddingBottom: 28,
     alignItems: "center",

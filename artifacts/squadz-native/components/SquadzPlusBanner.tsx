@@ -49,7 +49,7 @@ export function SquadzPlusBanner({ trigger, message, style }: Props) {
     <>
       <TouchableOpacity activeOpacity={0.85} onPress={() => setShowUpgrade(true)} style={style}>
         <LinearGradient
-          colors={["#FF5C3A", "#FF8050"]}
+          colors={["#FF6B2C", "#FF8050"]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 0 }}
           style={styles.banner}

@@ -55,7 +55,7 @@ type Suggestion = {
 
 const SUGGESTION_COLORS: Record<string, string> = {
   Plan: "#A855F7",
-  RSVP: "#FF5C3A",
+  RSVP: "#FF6B2C",
   Squad: "#22C55E",
 };
 const suggestionColor = (type: string) => SUGGESTION_COLORS[type] ?? "#A855F7";
@@ -506,7 +506,7 @@ export default function HomeScreen() {
               activeOpacity={0.92}
             >
               <LinearGradient
-                colors={["#FF5C3A", "#FF8C3A"]}
+                colors={["#FF6B2C", "#FF8C3A"]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 style={styles.heroCard}
@@ -553,7 +553,7 @@ export default function HomeScreen() {
                 activeOpacity={0.9}
                 style={{ width: "100%" }}
               >
-                <LinearGradient colors={["#FF5C3A", "#FF8C3A"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.emptyHeroBtn}>
+                <LinearGradient colors={["#FF6B2C", "#FF8C3A"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.emptyHeroBtn}>
                   <Text style={styles.emptyHeroBtnText}>{squads.length === 0 ? "Create your first squad" : "Find a time"}</Text>
                 </LinearGradient>
               </TouchableOpacity>
@@ -565,10 +565,10 @@ export default function HomeScreen() {
         {streaks !== null && (streaks.monthlyPlan > 0 || streaks.stayInTouch > 0) ? (
           <View style={[styles.section, { flexDirection: "row", gap: 12 }]}>
             {/* Monthly plan streak */}
-            <View style={[styles.streakCard, { backgroundColor: colors.card, borderColor: "#FFB54740", flex: 1 }]}>
+            <View style={[styles.streakCard, { backgroundColor: colors.card, borderColor: "#FFB23E40", flex: 1 }]}>
               <View style={styles.streakCardTop}>
                 <Text style={styles.streakEmoji}>🔥</Text>
-                <Text style={[styles.streakCount, { color: "#FFB547" }]}>
+                <Text style={[styles.streakCount, { color: "#FFB23E" }]}>
                   {streaks.monthlyPlan > 0 ? streaks.monthlyPlan : "—"}
                 </Text>
               </View>
@@ -594,7 +594,7 @@ export default function HomeScreen() {
         ) : streaks !== null ? (
           <View style={styles.section}>
             <TouchableOpacity
-              style={[styles.streakNudge, { backgroundColor: colors.card, borderColor: "#FFB54740" }]}
+              style={[styles.streakNudge, { backgroundColor: colors.card, borderColor: "#FFB23E40" }]}
               onPress={() => {
                 router.push("/create" as never);
               }}
@@ -710,7 +710,7 @@ export default function HomeScreen() {
                 const net = Math.round((b.owedToMe - b.iOwe) * 100) / 100;
                 const isPositive = net >= 0.01;
                 const isNegative = net <= -0.01;
-                const accentColor = isPositive ? "#2ECC8A" : isNegative ? "#FF5C3A" : colors.mutedForeground;
+                const accentColor = isPositive ? "#2ECC8A" : isNegative ? "#FF6B2C" : colors.mutedForeground;
                 return (
                   <TouchableOpacity
                     key={b.eventId}
@@ -728,7 +728,7 @@ export default function HomeScreen() {
                       <Text style={[styles.balanceTitle, { color: colors.foreground }]} numberOfLines={1}>{b.eventTitle}</Text>
                       <View style={{ flexDirection: "row", gap: 8, marginTop: 3, flexWrap: "wrap" }}>
                         {b.iOwe >= 0.01 && (
-                          <Text style={[styles.balanceChip, { color: "#FF5C3A" }]}>You owe ${b.iOwe.toFixed(2)}</Text>
+                          <Text style={[styles.balanceChip, { color: "#FF6B2C" }]}>You owe ${b.iOwe.toFixed(2)}</Text>
                         )}
                         {b.owedToMe >= 0.01 && (
                           <Text style={[styles.balanceChip, { color: "#2ECC8A" }]}>Owed to you ${b.owedToMe.toFixed(2)}</Text>
@@ -1320,7 +1320,7 @@ const styles = StyleSheet.create({
   heroPip: {
     width: 28, height: 28, borderRadius: 14,
     alignItems: "center", justifyContent: "center",
-    borderWidth: 2, borderColor: "#FF5C3A",
+    borderWidth: 2, borderColor: "#FF6B2C",
   },
   heroGoingText: { marginLeft: 8, fontSize: 12, color: "rgba(255,255,255,0.8)" },
   streakCard: {

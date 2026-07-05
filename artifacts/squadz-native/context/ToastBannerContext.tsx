@@ -47,7 +47,7 @@ export function useToastBanner(): ToastBannerContextType {
   return useContext(ToastBannerContext);
 }
 
-const BRAND = "#FF5C3A";
+const BRAND = "#FF6B2C";
 const GAP_MS = 500;
 
 export function ToastBannerProvider({ children }: { children: React.ReactNode }) {

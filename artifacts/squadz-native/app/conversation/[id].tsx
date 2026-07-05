@@ -34,7 +34,7 @@ import { ProAvatar } from "@/components/ProAvatar";
 import { ImageViewerModal } from "@/components/ImageViewerModal";
 import { useUserCache } from "@/context/UserCacheContext";
 
-const AVATAR_PALETTE = ["#FF5C3A", "#4A9EFF", "#2ECC8A", "#A855F7", "#FFB547"];
+const AVATAR_PALETTE = ["#FF6B2C", "#4A9EFF", "#2ECC8A", "#A855F7", "#FFB23E"];
 
 function colorForId(id: string): string {
   let h = 0;

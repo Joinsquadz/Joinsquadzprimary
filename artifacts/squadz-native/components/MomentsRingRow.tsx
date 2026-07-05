@@ -30,7 +30,7 @@ function RingHalo({
   if (unseen) {
     return (
       <LinearGradient
-        colors={["#FF5C3A", "#FF8050", "#FFB547"]}
+        colors={["#FF6B2C", "#FF8050", "#FFB23E"]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.haloUnseen}

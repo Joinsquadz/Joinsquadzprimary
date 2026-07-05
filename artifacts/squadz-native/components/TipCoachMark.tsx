@@ -17,7 +17,7 @@ import {
 import { TAB_BAR_HEIGHT } from "@/constants/layout";
 
 const CARD_W = 220;
-const ORANGE = "#FF5C3A";
+const ORANGE = "#FF6B2C";
 const SURFACE = "#1A1A1A";
 const ARROW = 8;
 

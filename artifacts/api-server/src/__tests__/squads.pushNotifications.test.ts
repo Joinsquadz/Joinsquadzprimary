@@ -4,28 +4,50 @@ import request from "supertest";
 const mockSelectRows = vi.hoisted(() => ({ value: [] as unknown[] }));
 const mockInsertRows = vi.hoisted(() => ({ value: [] as unknown[] }));
 const mockUpdateRows = vi.hoisted(() => ({ value: [] as unknown[] }));
+// When non-empty, each select consumes the next entry (FIFO); otherwise
+// mockSelectRows.value is returned. Lets tests script multi-select routes.
+const mockSelectQueue = vi.hoisted(() => ({ value: [] as unknown[][] }));
+const mockUpdateSetArgs = vi.hoisted(() => ({ value: [] as unknown[] }));
+const mockOnConflictArgs = vi.hoisted(() => ({ value: [] as unknown[] }));
+const mockInsertError = vi.hoisted(() => ({ value: null as Error | null }));
 
 vi.mock("@workspace/db", () => ({
   db: {
     select: () => ({
       from: () => ({
-        where: () => Promise.resolve(mockSelectRows.value),
-        orderBy: () => Promise.resolve(mockSelectRows.value),
+        where: () =>
+          Promise.resolve(mockSelectQueue.value.length > 0 ? mockSelectQueue.value.shift() : mockSelectRows.value),
+        orderBy: () =>
+          Promise.resolve(mockSelectQueue.value.length > 0 ? mockSelectQueue.value.shift() : mockSelectRows.value),
       }),
     }),
     update: () => ({
-      set: () => ({
-        where: () => ({
-          returning: () => Promise.resolve(mockUpdateRows.value),
-        }),
-      }),
+      set: (vals: unknown) => {
+        mockUpdateSetArgs.value.push(vals);
+        return {
+          where: () => ({
+            returning: () => Promise.resolve(mockUpdateRows.value),
+          }),
+        };
+      },
     }),
     delete: () => ({
       where: () => Promise.resolve(),
     }),
     insert: () => ({
       values: () => ({
-        returning: () => Promise.resolve(mockInsertRows.value),
+        returning: () =>
+          mockInsertError.value ? Promise.reject(mockInsertError.value) : Promise.resolve(mockInsertRows.value),
+        onConflictDoUpdate: (args: unknown) => {
+          mockOnConflictArgs.value.push(args);
+          return {
+            returning: () =>
+              mockInsertError.value ? Promise.reject(mockInsertError.value) : Promise.resolve(mockInsertRows.value),
+          };
+        },
+        onConflictDoNothing: () => ({
+          returning: () => Promise.resolve(mockInsertRows.value),
+        }),
       }),
     }),
     transaction: (fn: (tx: unknown) => Promise<unknown>) =>
@@ -69,6 +91,13 @@ vi.mock("@workspace/db", () => ({
     userId: "user_id",
     seenAt: "seen_at",
   },
+  squadInvitesTable: { id: "id", squadId: "squad_id", invitedUserId: "invited_user_id", status: "status" },
+  activityTable: { id: "id", recipientId: "recipient_id" },
+  eventsTable: { id: "id", squadId: "squad_id", version: "version", itinerary: "itinerary", polls: "polls", rsvps: "rsvps" },
+  eventInvitesTable: { eventId: "event_id" },
+  conversationsTable: { id: "id", squadId: "squad_id" },
+  photosTable: { squadId: "squad_id", sharedToSquad: "shared_to_squad" },
+  availabilityPollsTable: { squadId: "squad_id" },
 }));
 
 const mockGetPushTokensForUsers = vi.hoisted(() => vi.fn());
@@ -138,7 +167,8 @@ describe("POST /api/squads — push notifications", () => {
     expect(res.body.id).toBe("squad-new");
   });
 
-  it("fetches push tokens only for added members, not the creator", async () => {
+  it("fetches push tokens only for invited members, not the creator", async () => {
+    mockSelectRows.value = [{ id: MEMBER_A }, { id: MEMBER_B }];
     const app = makeApp({ id: CREATOR_ID });
     await request(app)
       .post("/api/squads")
@@ -151,7 +181,8 @@ describe("POST /api/squads — push notifications", () => {
     expect(mockGetPushTokensForUsers).toHaveBeenCalledWith([MEMBER_A, MEMBER_B], { requireNotifySquadJoin: true });
   });
 
-  it("sends push notifications with the squad name and id", async () => {
+  it("sends a squad-invite push (consent model: invitees are invited, not added)", async () => {
+    mockSelectRows.value = [{ id: MEMBER_A }, { id: MEMBER_B }];
     const app = makeApp({ id: CREATOR_ID });
     await request(app)
       .post("/api/squads")
@@ -164,9 +195,9 @@ describe("POST /api/squads — push notifications", () => {
     expect(mockSendPushNotifications).toHaveBeenCalledWith(
       [TOKEN_A, TOKEN_B],
       {
-        title: "You've been added to a squad",
-        body: `You're now in "${BASE_SQUAD.name}"`,
-        data: { screen: "squad", squadId: BASE_SQUAD.id },
+        title: "Squad invite",
+        body: `Someone invited you to join "${BASE_SQUAD.name}"`,
+        data: { screen: "activity" },
       },
       expect.objectContaining({ onStaleToken: expect.any(Function) }),
     );
@@ -188,6 +219,7 @@ describe("POST /api/squads — push notifications", () => {
   });
 
   it("onStaleToken calls storage.clearPushToken for the stale token", async () => {
+    mockSelectRows.value = [{ id: MEMBER_A }];
     const staleToken = "ExponentPushToken[stale-token]";
     mockGetPushTokensForUsers.mockResolvedValue([staleToken]);
     mockSendPushNotifications.mockImplementation(
@@ -222,6 +254,7 @@ describe("POST /api/squads — push notifications", () => {
   });
 
   it("does not send notifications to the creator even when they appear in memberIds", async () => {
+    mockSelectRows.value = [{ id: MEMBER_A }];
     const app = makeApp({ id: CREATOR_ID });
     await request(app)
       .post("/api/squads")
@@ -239,6 +272,7 @@ describe("POST /api/squads — push notifications", () => {
   });
 
   it("sends push only to opted-in members when some added members opted out", async () => {
+    mockSelectRows.value = [{ id: MEMBER_A }, { id: MEMBER_B }];
     // Storage layer returns only MEMBER_A's token because MEMBER_B opted out of squad-join pushes
     mockGetPushTokensForUsers.mockResolvedValue([TOKEN_A]);
 
@@ -256,8 +290,9 @@ describe("POST /api/squads — push notifications", () => {
     expect(tokens).not.toContain(TOKEN_B);
   });
 
-  it("calls sendPushNotifications with an empty token list when all added members opted out", async () => {
-    // Storage layer returns [] because all added members set notifySquadJoin=false
+  it("skips sendPushNotifications entirely when all invited members opted out", async () => {
+    mockSelectRows.value = [{ id: MEMBER_A }, { id: MEMBER_B }];
+    // Storage layer returns [] because all invited members set notifySquadJoin=false
     mockGetPushTokensForUsers.mockResolvedValue([]);
 
     const app = makeApp({ id: CREATOR_ID });
@@ -273,12 +308,9 @@ describe("POST /api/squads — push notifications", () => {
     const [, opts] = mockGetPushTokensForUsers.mock.calls[0] as [string[], Record<string, unknown>];
     expect(opts.requireNotifySquadJoin).toBe(true);
 
-    // sendPushNotifications is invoked but receives an empty token list (no delivery occurs)
-    await vi.waitFor(() => {
-      expect(mockSendPushNotifications).toHaveBeenCalledTimes(1);
-    });
-    const [tokens] = mockSendPushNotifications.mock.calls[0] as [string[], ...unknown[]];
-    expect(tokens).toHaveLength(0);
+    // With zero tokens the invite push short-circuits — no delivery attempt.
+    await new Promise((r) => setImmediate(r));
+    expect(mockSendPushNotifications).not.toHaveBeenCalled();
   });
 });
 
@@ -364,13 +396,11 @@ describe("DELETE /api/squads/:id — push notifications", () => {
   });
 });
 
-describe("PATCH /api/squads/:id — push notifications on memberIds change", () => {
+describe("PATCH /api/squads/:id — memberIds additions become pending invites", () => {
   const ACTOR_ID = "actor-user-id";
   const EXISTING_A = "existing-member-a";
   const EXISTING_B = "existing-member-b";
   const NEW_MEMBER = "new-member-id";
-  const TOKEN_EXISTING_A = "ExponentPushToken[existing-a]";
-  const TOKEN_EXISTING_B = "ExponentPushToken[existing-b]";
   const TOKEN_NEW = "ExponentPushToken[new-member]";
 
   const existingSquad = {
@@ -378,81 +408,94 @@ describe("PATCH /api/squads/:id — push notifications on memberIds change", () 
     name: "Patch Squad",
     emoji: "👥",
     color: "#FF5C3A",
+    creatorId: ACTOR_ID,
     memberIds: [ACTOR_ID, EXISTING_A, EXISTING_B],
     createdAt: new Date().toISOString(),
   };
 
-  const updatedSquad = {
-    ...existingSquad,
-    memberIds: [ACTOR_ID, EXISTING_A, EXISTING_B, NEW_MEMBER],
+  // The persisted update never contains the new member — additions are
+  // stripped and turned into pending invites instead.
+  const updatedSquad = { ...existingSquad, version: 2 };
+
+  const inviteRow = {
+    id: "invite-1",
+    squadId: existingSquad.id,
+    inviterUserId: ACTOR_ID,
+    invitedUserId: NEW_MEMBER,
+    squadName: existingSquad.name,
+    squadEmoji: existingSquad.emoji,
+    status: "pending",
   };
 
   beforeEach(() => {
     mockSelectRows.value = [existingSquad];
+    // Selects in order: squad lookup → target users lookup → existing pending invites.
+    mockSelectQueue.value = [[existingSquad], [{ id: NEW_MEMBER }], []];
     mockUpdateRows.value = [updatedSquad];
+    mockUpdateSetArgs.value = [];
+    mockOnConflictArgs.value = [];
+    mockInsertError.value = null;
+    mockInsertRows.value = [inviteRow];
     mockGetUser.mockResolvedValue({ firstName: "Alice", lastName: "Smith" });
-    mockGetPushTokensForUsers.mockImplementation(async (ids: string[], _opts?: unknown) => {
-      if (Array.isArray(ids) && ids.includes(NEW_MEMBER) && !ids.includes(EXISTING_A)) {
-        return [TOKEN_NEW];
-      }
-      return [TOKEN_EXISTING_A, TOKEN_EXISTING_B];
-    });
+    mockGetPushTokensForUsers.mockResolvedValue([TOKEN_NEW]);
   });
 
-  it("returns 200 and the updated squad", async () => {
+  it("returns 200, strips the addition from the persisted memberIds, and reports it as a pending invite", async () => {
     const app = makeApp({ id: ACTOR_ID });
     const res = await request(app)
       .patch("/api/squads/squad-patch-1")
       .send({ memberIds: [ACTOR_ID, EXISTING_A, EXISTING_B, NEW_MEMBER] });
     expect(res.status).toBe(200);
     expect(res.body.id).toBe("squad-patch-1");
+    expect(res.body.pendingInvitedUserIds).toEqual([NEW_MEMBER]);
+    // The direct memberIds write must not include the added user.
+    const setCall = mockUpdateSetArgs.value.find(
+      (v) => typeof v === "object" && v !== null && "memberIds" in (v as Record<string, unknown>),
+    ) as { memberIds: string[] } | undefined;
+    expect(setCall).toBeDefined();
+    expect(setCall!.memberIds).toEqual([ACTOR_ID, EXISTING_A, EXISTING_B]);
+    expect(setCall!.memberIds).not.toContain(NEW_MEMBER);
   });
 
-  it("notifies existing members (not the actor) when a new member is added", async () => {
+  it("sends a Squad invite push to the invitee (no direct-add notification)", async () => {
     const app = makeApp({ id: ACTOR_ID });
     await request(app)
       .patch("/api/squads/squad-patch-1")
       .send({ memberIds: [ACTOR_ID, EXISTING_A, EXISTING_B, NEW_MEMBER] });
 
     await vi.waitFor(() => {
-      expect(mockSendPushNotifications).toHaveBeenCalledTimes(2);
-    });
-
-    expect(mockGetPushTokensForUsers).toHaveBeenCalledWith([EXISTING_A, EXISTING_B]);
-    expect(mockSendPushNotifications).toHaveBeenCalledWith(
-      [TOKEN_EXISTING_A, TOKEN_EXISTING_B],
-      {
-        title: existingSquad.name,
-        body: `Alice Smith added a new member to "${existingSquad.name}"`,
-        data: { screen: "squad", squadId: existingSquad.id },
-      },
-      expect.objectContaining({ onStaleToken: expect.any(Function) }),
-    );
-  });
-
-  it("notifies the newly added member with the adder's name and squad name", async () => {
-    const app = makeApp({ id: ACTOR_ID });
-    await request(app)
-      .patch("/api/squads/squad-patch-1")
-      .send({ memberIds: [ACTOR_ID, EXISTING_A, EXISTING_B, NEW_MEMBER] });
-
-    await vi.waitFor(() => {
-      expect(mockSendPushNotifications).toHaveBeenCalledTimes(2);
+      expect(mockSendPushNotifications).toHaveBeenCalledTimes(1);
     });
 
     expect(mockGetPushTokensForUsers).toHaveBeenCalledWith([NEW_MEMBER], { requireNotifySquadJoin: true });
     expect(mockSendPushNotifications).toHaveBeenCalledWith(
       [TOKEN_NEW],
       {
-        title: "You were added to a squad",
-        body: `Alice Smith added you to "${existingSquad.name}"`,
-        data: { screen: "squad", squadId: existingSquad.id },
+        title: "Squad invite",
+        body: `Alice Smith invited you to join "${existingSquad.name}"`,
+        data: { screen: "activity" },
       },
       expect.objectContaining({ onStaleToken: expect.any(Function) }),
     );
   });
 
-  it("uses 'Someone' in both notifications when the actor has no name", async () => {
+  it("does not notify existing members about the invite", async () => {
+    const app = makeApp({ id: ACTOR_ID });
+    await request(app)
+      .patch("/api/squads/squad-patch-1")
+      .send({ memberIds: [ACTOR_ID, EXISTING_A, EXISTING_B, NEW_MEMBER] });
+
+    await vi.waitFor(() => {
+      expect(mockSendPushNotifications).toHaveBeenCalledTimes(1);
+    });
+
+    // Only the invitee's tokens are fetched — never the existing members'.
+    expect(mockGetPushTokensForUsers).toHaveBeenCalledTimes(1);
+    const calledWith = mockGetPushTokensForUsers.mock.calls[0][0] as string[];
+    expect(calledWith).toEqual([NEW_MEMBER]);
+  });
+
+  it("uses 'Someone' in the invite push when the actor has no name", async () => {
     mockGetUser.mockResolvedValue(null);
 
     const app = makeApp({ id: ACTOR_ID });
@@ -461,44 +504,75 @@ describe("PATCH /api/squads/:id — push notifications on memberIds change", () 
       .send({ memberIds: [ACTOR_ID, EXISTING_A, EXISTING_B, NEW_MEMBER] });
 
     await vi.waitFor(() => {
-      expect(mockSendPushNotifications).toHaveBeenCalledTimes(2);
+      expect(mockSendPushNotifications).toHaveBeenCalledTimes(1);
     });
 
-    for (const call of mockSendPushNotifications.mock.calls) {
-      const payload = call[1] as { body: string };
-      expect(payload.body).toContain("Someone");
-    }
+    const payload = mockSendPushNotifications.mock.calls[0][1] as { body: string };
+    expect(payload.body).toContain("Someone");
   });
 
-  it("actor does not receive a notification about their own action", async () => {
+  it("rejects member additions from a non-manager when membersCanInvite is false", async () => {
+    const lockedSquad = { ...existingSquad, creatorId: "someone-else", membersCanInvite: false };
+    mockSelectRows.value = [lockedSquad];
+    mockSelectQueue.value = [[lockedSquad]];
+
     const app = makeApp({ id: ACTOR_ID });
-    await request(app)
+    const res = await request(app)
       .patch("/api/squads/squad-patch-1")
       .send({ memberIds: [ACTOR_ID, EXISTING_A, EXISTING_B, NEW_MEMBER] });
 
-    await vi.waitFor(() => {
-      expect(mockGetPushTokensForUsers).toHaveBeenCalledTimes(2);
-    });
-
-    const existingMemberCall: string[] = mockGetPushTokensForUsers.mock.calls[0][0] as string[];
-    expect(existingMemberCall).not.toContain(ACTOR_ID);
+    expect(res.status).toBe(403);
+    expect(mockSendPushNotifications).not.toHaveBeenCalled();
   });
 
-  it("does not notify newly added members via the existing-member path", async () => {
+  it("re-invites via upsert: a prior declined invite is reopened instead of colliding", async () => {
+    // The declined row is NOT returned by the pending-only dedupe select, so the
+    // insert must go through onConflictDoUpdate to reopen it as pending.
+    mockSelectQueue.value = [[existingSquad], [{ id: NEW_MEMBER }], []];
+
     const app = makeApp({ id: ACTOR_ID });
-    await request(app)
+    const res = await request(app)
       .patch("/api/squads/squad-patch-1")
       .send({ memberIds: [ACTOR_ID, EXISTING_A, EXISTING_B, NEW_MEMBER] });
 
-    await vi.waitFor(() => {
-      expect(mockGetPushTokensForUsers).toHaveBeenCalledTimes(2);
-    });
+    expect(res.status).toBe(200);
+    expect(res.body.pendingInvitedUserIds).toEqual([NEW_MEMBER]);
+    expect(mockOnConflictArgs.value).toHaveLength(1);
+    const conflictArg = mockOnConflictArgs.value[0] as { set?: { status?: string } };
+    expect(conflictArg.set?.status).toBe("pending");
+  });
 
-    const existingMemberCall: string[] = mockGetPushTokensForUsers.mock.calls[0][0] as string[];
-    expect(existingMemberCall).not.toContain(NEW_MEMBER);
+  it("returns 500 (not a false success) when invite creation fails unexpectedly", async () => {
+    mockInsertError.value = new Error("db down");
+
+    const app = makeApp({ id: ACTOR_ID });
+    const res = await request(app)
+      .patch("/api/squads/squad-patch-1")
+      .send({ memberIds: [ACTOR_ID, EXISTING_A, EXISTING_B, NEW_MEMBER] });
+
+    expect(res.status).toBe(500);
+
+    await new Promise((r) => setImmediate(r));
+    expect(mockSendPushNotifications).not.toHaveBeenCalled();
+  });
+
+  it("skips invitees who already have a pending invite (no duplicate invite, no push)", async () => {
+    mockSelectQueue.value = [[existingSquad], [{ id: NEW_MEMBER }], [{ invitedUserId: NEW_MEMBER }]];
+
+    const app = makeApp({ id: ACTOR_ID });
+    const res = await request(app)
+      .patch("/api/squads/squad-patch-1")
+      .send({ memberIds: [ACTOR_ID, EXISTING_A, EXISTING_B, NEW_MEMBER] });
+
+    expect(res.status).toBe(200);
+    expect(res.body.pendingInvitedUserIds).toEqual([]);
+
+    await new Promise((r) => setImmediate(r));
+    expect(mockSendPushNotifications).not.toHaveBeenCalled();
   });
 
   it("does not send notifications when memberIds is not in the request body", async () => {
+    mockSelectQueue.value = [[existingSquad]];
     const app = makeApp({ id: ACTOR_ID });
     await request(app)
       .patch("/api/squads/squad-patch-1")
@@ -511,6 +585,7 @@ describe("PATCH /api/squads/:id — push notifications on memberIds change", () 
   });
 
   it("does not send notifications when memberIds contains no new members", async () => {
+    mockSelectQueue.value = [[existingSquad]];
     const app = makeApp({ id: ACTOR_ID });
     await request(app)
       .patch("/api/squads/squad-patch-1")
@@ -522,58 +597,9 @@ describe("PATCH /api/squads/:id — push notifications on memberIds change", () 
     expect(mockSendPushNotifications).not.toHaveBeenCalled();
   });
 
-  it("notifies the new member even when actor is the only pre-existing member", async () => {
-    mockSelectRows.value = [{ ...existingSquad, memberIds: [ACTOR_ID] }];
-    mockUpdateRows.value = [{ ...existingSquad, memberIds: [ACTOR_ID, NEW_MEMBER] }];
-
-    const app = makeApp({ id: ACTOR_ID });
-    await request(app)
-      .patch("/api/squads/squad-patch-1")
-      .send({ memberIds: [ACTOR_ID, NEW_MEMBER] });
-
-    await vi.waitFor(() => {
-      expect(mockSendPushNotifications).toHaveBeenCalledTimes(1);
-    });
-
-    expect(mockGetPushTokensForUsers).toHaveBeenCalledWith([NEW_MEMBER], { requireNotifySquadJoin: true });
-    expect(mockSendPushNotifications).toHaveBeenCalledWith(
-      expect.any(Array),
-      expect.objectContaining({
-        title: "You were added to a squad",
-        body: expect.stringContaining(existingSquad.name),
-      }),
-      expect.objectContaining({ onStaleToken: expect.any(Function) }),
-    );
-  });
-
-  it("cleans up stale tokens from the existing-member notification via clearPushToken", async () => {
-    const staleToken = "ExponentPushToken[stale-existing]";
+  it("cleans up stale tokens from the invite notification via clearPushToken", async () => {
+    const staleToken = "ExponentPushToken[stale-invite]";
     mockGetPushTokensForUsers.mockResolvedValue([staleToken]);
-    mockSendPushNotifications.mockImplementation(
-      async (_tokens: string[], _payload: unknown, options?: { onStaleToken?: (t: string) => Promise<void> }) => {
-        await options?.onStaleToken?.(staleToken);
-        return { staleTokens: [staleToken] };
-      },
-    );
-
-    const app = makeApp({ id: ACTOR_ID });
-    await request(app)
-      .patch("/api/squads/squad-patch-1")
-      .send({ memberIds: [ACTOR_ID, EXISTING_A, EXISTING_B, NEW_MEMBER] });
-
-    await vi.waitFor(() => {
-      expect(mockClearPushToken).toHaveBeenCalledWith(staleToken);
-    });
-  });
-
-  it("cleans up stale tokens from the new-member notification via clearPushToken", async () => {
-    const staleNewToken = "ExponentPushToken[stale-new]";
-    mockGetPushTokensForUsers.mockImplementation(async (ids: string[], _opts?: unknown) => {
-      if (Array.isArray(ids) && ids.includes(NEW_MEMBER) && !ids.includes(EXISTING_A)) {
-        return [staleNewToken];
-      }
-      return [];
-    });
     mockSendPushNotifications.mockImplementation(
       async (tokens: string[], _payload: unknown, options?: { onStaleToken?: (t: string) => Promise<void> }) => {
         for (const t of tokens) await options?.onStaleToken?.(t);
@@ -587,7 +613,7 @@ describe("PATCH /api/squads/:id — push notifications on memberIds change", () 
       .send({ memberIds: [ACTOR_ID, EXISTING_A, EXISTING_B, NEW_MEMBER] });
 
     await vi.waitFor(() => {
-      expect(mockClearPushToken).toHaveBeenCalledWith(staleNewToken);
+      expect(mockClearPushToken).toHaveBeenCalledWith(staleToken);
     });
   });
 });

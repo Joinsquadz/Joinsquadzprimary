@@ -245,14 +245,14 @@ const JoinEventBody = z.object({
   inviteCode: z.string().min(1),
 });
 
-// A trip is visible to (and editable by) every CURRENT member of its squad,
-// without requiring an RSVP — re-read live so a removed member loses access
-// immediately. Plain events keep their stricter host-or-RSVP gate.
-async function canAccessAsTripMember(
+// A squad item (trip OR plain event) is visible to every CURRENT member of its
+// squad, without requiring an RSVP — re-read live so a removed member loses
+// access immediately.
+async function canAccessAsSquadMember(
   event: typeof eventsTable.$inferSelect,
   userId: string,
 ): Promise<boolean> {
-  if (event.type !== "trip" || !event.squadId) return false;
+  if (!event.squadId) return false;
   const squad = await storage.getSquad(event.squadId);
   return !!squad && ((squad.memberIds ?? []) as string[]).includes(userId);
 }
@@ -260,7 +260,8 @@ async function canAccessAsTripMember(
 // Single source of truth for "can this user see/touch this event?".
 // Trips are CURRENT-squad-membership based and deliberately IGNORE the rsvps map
 // — a stale RSVP key (left over from before a member was removed from the squad)
-// must NOT keep granting access. Plain events keep their host-or-RSVP gate.
+// must NOT keep granting access. Plain events additionally allow access via an
+// existing RSVP key (so invited outsiders who responded keep access).
 export async function userCanAccessEvent(
   event: typeof eventsTable.$inferSelect,
   userId: string,
@@ -270,7 +271,13 @@ export async function userCanAccessEvent(
   // separate from the rsvps map (so it's not subject to the stale-RSVP trap) and
   // separate from squad membership (so a non-squad friend can be invited).
   if (((event.invitedUserIds ?? []) as string[]).includes(userId)) return true;
-  if (event.type === "trip") return canAccessAsTripMember(event, userId);
+  // CURRENT squad membership grants access to BOTH trips and plain squad
+  // events (a squad dinner must be visible to every squadmate, not just
+  // explicitly-invited people).
+  if (await canAccessAsSquadMember(event, userId)) return true;
+  // Trips deliberately stop here: a stale RSVP key (left over from before a
+  // member was removed from the squad) must NOT keep granting access.
+  if (event.type === "trip") return false;
   const rsvps = (event.rsvps ?? {}) as Record<string, string>;
   return userId in rsvps;
 }
@@ -324,6 +331,14 @@ async function allowedParticipantIds(
 // member PII). Mirrors the public-squad preview (GET /discover/squads/:id).
 router.get("/events/preview", async (req: Request, res: Response): Promise<void> => {
   try {
+    // Privacy: full event details (title, host, date, location, going-count)
+    // require a signed-in user. Unauthenticated visitors get a 401 and the
+    // client falls back to generic SquadZ branding — same policy as shared
+    // squad links (generic landing preview, never real content).
+    if (!req.isAuthenticated()) {
+      res.status(401).json({ error: "Sign in to see event details." });
+      return;
+    }
     const rawCode = req.query.code;
     const code = (Array.isArray(rawCode) ? rawCode[0] : rawCode) as string | undefined;
     if (!code || typeof code !== "string" || !code.trim()) {
@@ -400,8 +415,8 @@ router.get("/events", requireAuth, async (req: Request, res: Response): Promise<
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
 
-  // Trips are visible to every CURRENT member of their squad, with no RSVP
-  // required (events keep the host-or-RSVP gate).
+  // Squad items (trips AND plain events) are visible to every CURRENT member
+  // of their squad, with no RSVP required.
   const squadIds = await storage.getSquadIdsForUser(userId);
   const visibility = or(
     eq(eventsTable.hostId, userId),
@@ -411,9 +426,7 @@ router.get("/events", requireAuth, async (req: Request, res: Response): Promise<
     // An explicit personal invite makes the trip/event visible regardless of
     // squad membership (and is safe for trips: it's never written by an RSVP).
     sql`${eventsTable.invitedUserIds} ? ${userId}`,
-    ...(squadIds.length > 0
-      ? [and(eq(eventsTable.type, "trip"), inArray(eventsTable.squadId, squadIds))]
-      : []),
+    ...(squadIds.length > 0 ? [inArray(eventsTable.squadId, squadIds)] : []),
   );
   const notExpired = or(
     isNull(eventsTable.eventAt),
@@ -1108,7 +1121,7 @@ router.post("/events/:id/invite", requireAuth, async (req: Request, res: Respons
 router.delete("/events/:id/invite/:userId", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const id = parseId(req.params.id);
   const userId = (req.user as { id: string }).id;
-  const targetId = req.params.userId;
+  const targetId = parseId(req.params.userId);
   const existing = await getEventAsMember(id, userId, res);
   if (!existing) return;
   if (existing.hostId !== userId && targetId !== userId) {

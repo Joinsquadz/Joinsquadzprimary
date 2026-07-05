@@ -10,6 +10,7 @@ import {
   activityTable,
 } from "@workspace/db";
 import { requireAuth } from "../middleware/currentUser";
+import { FREE_SQUAD_LIMIT, withSquadLimit } from "../lib/squadLimit";
 import { logger } from "../lib/logger";
 import { recordActivitySafe } from "../lib/activity";
 import { emitSquadUpdate } from "../lib/squadEvents";
@@ -62,11 +63,26 @@ router.post("/squads/invites/:id/accept", requireAuth, async (req: Request, res:
       res.status(404).json({ error: "Squad no longer exists" });
       return;
     }
-    if (!(squad.memberIds as string[]).includes(userId)) {
-      await db
-        .update(squadsTable)
-        .set({ memberIds: sql`${squadsTable.memberIds} || ${JSON.stringify([userId])}::jsonb` })
-        .where(eq(squadsTable.id, invite.squadId));
+    const alreadyMember = (squad.memberIds as string[]).includes(userId);
+    if (!alreadyMember) {
+      // Accepting is the moment membership (and therefore the free squad cap)
+      // is consumed — a pending invite never counts. Enforce the cap atomically,
+      // same as join-via-code, and keep the invite pending so the user can
+      // upgrade and accept afterwards.
+      const outcome = await withSquadLimit(userId, true, (tx) =>
+        tx
+          .update(squadsTable)
+          .set({ memberIds: sql`${squadsTable.memberIds} || ${JSON.stringify([userId])}::jsonb` })
+          .where(eq(squadsTable.id, invite.squadId)),
+      );
+      if (!outcome.ok) {
+        res.status(403).json({
+          error: `Free plan is limited to ${FREE_SQUAD_LIMIT} squads. Upgrade to Squadz+ to join more.`,
+          code: "SQUAD_LIMIT",
+          limit: FREE_SQUAD_LIMIT,
+        });
+        return;
+      }
     }
     await db.update(squadInvitesTable).set({ status: "accepted" }).where(eq(squadInvitesTable.id, inviteId));
     await db.delete(activityTable).where(and(eq(activityTable.type, "squad_invite"), eq(activityTable.subjectId, inviteId)));

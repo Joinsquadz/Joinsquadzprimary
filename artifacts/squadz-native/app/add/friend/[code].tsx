@@ -260,7 +260,7 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   center: { alignItems: "center", justifyContent: "center", paddingHorizontal: 32 },
   hero: {
-    backgroundColor: "#FF5C3A",
+    backgroundColor: "#FF6B2C",
     alignItems: "center",
     paddingHorizontal: 24,
     gap: 6,

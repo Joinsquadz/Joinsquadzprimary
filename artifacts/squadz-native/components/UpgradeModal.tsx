@@ -38,7 +38,7 @@ interface Props {
 const STANDARD_PRICE = "$29.99";
 const FOUNDING_PRICE = "$19.99";
 // Orange gradient used by all primary upgrade CTAs.
-const CTA_GRADIENT = ["#FF5C3A", "#FF8050"] as const;
+const CTA_GRADIENT = ["#FF6B2C", "#FF8050"] as const;
 // Gold gradient for the founding badge + celebration ring.
 const GOLD_GRADIENT = ["#FFE08A", "#F5C242", "#C8941A"] as const;
 // Backoff delays (ms) for polling the subscription after returning from checkout.
@@ -309,8 +309,8 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess }: Pr
             <Ionicons name="close" size={20} color={colors.mutedForeground} />
           </TouchableOpacity>
 
-          <View style={[styles.iconCircle, { backgroundColor: "#FF5C3A20", borderColor: "#FF5C3A40" }]}>
-            <Ionicons name="star" size={30} color="#FF5C3A" />
+          <View style={[styles.iconCircle, { backgroundColor: "#FF6B2C20", borderColor: "#FF6B2C40" }]}>
+            <Ionicons name="star" size={30} color="#FF6B2C" />
           </View>
 
           <Text style={[styles.headline, { color: colors.foreground }]}>{copy.headline}</Text>
@@ -328,14 +328,14 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess }: Pr
               ))}
             </View>
             {/* Pro tier */}
-            <View style={[styles.tierSection, { borderColor: "#FF5C3A40", backgroundColor: "#FF5C3A08" }]}>
-              <Text style={[styles.tierLabel, { color: "#FF5C3A" }]}>Squadz+ unlocks</Text>
+            <View style={[styles.tierSection, { borderColor: "#FF6B2C40", backgroundColor: "#FF6B2C08" }]}>
+              <Text style={[styles.tierLabel, { color: "#FF6B2C" }]}>Squadz+ unlocks</Text>
               {PRO_BENEFITS.map((b) => (
                 <View key={b.label} style={styles.bulletRow}>
                   <Ionicons
                     name={b.icon as "star"}
                     size={16}
-                    color={b.gold ? colors.gold : "#FF5C3A"}
+                    color={b.gold ? colors.gold : "#FF6B2C"}
                   />
                   <Text style={[styles.bulletLabel, { color: colors.foreground }]}>{b.label}</Text>
                 </View>
@@ -538,7 +538,7 @@ const styles = StyleSheet.create({
     width: "100%",
     marginBottom: 10,
     borderRadius: 16,
-    shadowColor: "#FF5C3A",
+    shadowColor: "#FF6B2C",
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.4,
     shadowRadius: 16,

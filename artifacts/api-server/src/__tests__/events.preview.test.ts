@@ -51,7 +51,9 @@ import eventsRouter from "../routes/events";
 import { makeTestApp } from "./helpers/makeTestApp";
 import { makeBaseEvent } from "./helpers/fixtures";
 
-const makeApp = () => makeTestApp(eventsRouter);
+// The preview requires a signed-in user (privacy: event details must not be
+// dumpable by unauthenticated invite-code scanning).
+const makeApp = () => makeTestApp(eventsRouter, { id: "viewer-1" });
 
 beforeEach(() => {
   selectCall.count = 0;
@@ -60,7 +62,16 @@ beforeEach(() => {
 });
 
 describe("GET /api/events/preview", () => {
-  it("returns a public preview without authentication", async () => {
+  it("returns 401 without authentication", async () => {
+    mockEventRows.value = [makeBaseEvent()];
+    const app = makeTestApp(eventsRouter);
+    const res = await request(app).get("/api/events/preview?code=SQ-ABCD");
+    expect(res.status).toBe(401);
+    // Never leak event details to anonymous invite-code scans.
+    expect(res.body.title).toBeUndefined();
+  });
+
+  it("returns a preview for an authenticated user", async () => {
     mockEventRows.value = [
       makeBaseEvent({
         emoji: "🥳",

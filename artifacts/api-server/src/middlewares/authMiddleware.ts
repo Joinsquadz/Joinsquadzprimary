@@ -72,7 +72,11 @@ export async function authMiddleware(
     const { data: { user } } = await supabaseAdmin.auth.getUser(bearerToken);
     if (user) {
       req.user = {
-        id: user.id,
+        // Account linking: if this Supabase identity was linked to an existing
+        // account created via another provider (same email), app_metadata
+        // carries the canonical user id — resolve to it so both sign-in
+        // methods land on the same data.
+        id: (user.app_metadata?.linkedUserId as string | undefined) ?? user.id,
         email: user.email ?? null,
         firstName:
           (user.user_metadata?.firstName ?? user.user_metadata?.first_name ?? null) as string | null,

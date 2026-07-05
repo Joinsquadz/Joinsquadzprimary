@@ -12,7 +12,7 @@ import {
 import { useColors } from "@/hooks/useColors";
 
 const { width } = Dimensions.get("window");
-const CONFETTI_COLORS = ["#FF5C3A", "#FFB547", "#2ECC8A", "#4A9EFF", "#A855F7", "#E91E8C"];
+const CONFETTI_COLORS = ["#FF6B2C", "#FFB23E", "#2ECC8A", "#4A9EFF", "#A855F7", "#E91E8C"];
 
 type Props = {
   visible: boolean;

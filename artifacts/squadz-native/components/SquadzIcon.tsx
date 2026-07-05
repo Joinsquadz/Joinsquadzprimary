@@ -16,8 +16,8 @@ export function SquadzIcon({
     <Svg width={size} height={size} viewBox="0 0 512 512" style={style}>
       <Defs>
         <LinearGradient id={zgId} x1="0" y1="0" x2="1" y2="1">
-          <Stop offset="0%" stopColor="#FF5C3A" />
-          <Stop offset="100%" stopColor="#FFB547" />
+          <Stop offset="0%" stopColor="#FF6B2C" />
+          <Stop offset="100%" stopColor="#FFB23E" />
         </LinearGradient>
         <LinearGradient id={bgId} x1="0" y1="0" x2="1" y2="1">
           <Stop offset="0%" stopColor="#1E1E2E" />

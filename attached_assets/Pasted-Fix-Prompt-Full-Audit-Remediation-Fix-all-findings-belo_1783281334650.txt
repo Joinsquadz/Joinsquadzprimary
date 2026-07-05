@@ -1,0 +1,158 @@
+Fix Prompt: Full Audit Remediation
+
+Fix all findings below from the July 5 audit. Two items required a product
+decision — I've made the call on both so you can proceed without blocking;
+flagged clearly below.
+
+
+1. Squad-event invisibility (Critical — fix first)
+
+Squad members should be able to see and RSVP to any Event created within
+their squad, the same way Trips already work. Currently only the host,
+explicitly-invited users, and users who already RSVP'd can access an event —
+everyone else gets a 403 and it never appears in their Events list or on the
+squad screen.
+
+
+Extend event visibility to: any active member of the event's squad
+Keep the stale-RSVP protection logic intact — it's doing its job, it's the
+default-visibility gate that's wrong, not the RSVP-state handling
+Confirm this doesn't regress the version-check / stale-write behavior
+already working correctly on itinerary edits
+
+
+2. Non-consensual squad adds burning free-tier slots (Critical — fix first)
+
+A squad creator can add any user ID at creation with no accept step, and
+that membership silently counts against the added user's free 2-squad cap.
+
+
+Adding someone to a squad must require their acceptance before it counts
+against their squad cap — either an invite-pending state that doesn't
+consume the cap until accepted, or an explicit accept/decline step
+This applies to both direct-add-at-creation and invite-code joins
+On decline (or non-acceptance), no cap consumption and no residual
+membership record
+If accepting a squad would push someone over their cap, they should see the
+same upgrade prompt used elsewhere — not a silent block
+
+
+3. Account-linking collision on shared email (High)
+
+Signing up with email/password and later signing in via Replit OAuth (or
+vice versa) with the same email causes a unique-email collision and a hard
+500 instead of a graceful outcome.
+
+
+On login/signup, if the email already exists under a different auth
+provider, link the accounts rather than erroring — same user, same data,
+just a second sign-in method attached
+If linking isn't feasible short-term, at minimum replace the 500 with a
+clear message: "An account with this email already exists — sign in with
+[existing method] instead," never a raw server error
+Apply the same handling proactively for Apple/Google sign-in whenever
+those are added, so this doesn't resurface later
+
+
+4. Double-tap softness: missing loading states + missing version checks (Medium — one combined fix)
+
+
+Add disabled/spinner states while in-flight to: RSVP, squad create, trip
+save details, trip cancel — prevent double-submission at the UI layer
+Add the same stale-write version-check guard (already working correctly on
+itinerary edits, returning 409 on conflict) to: RSVP, poll voting, and task
+check-off (events.ts ~lines 1195, 1374, 1555)
+These two fixes are complementary — UI prevents the accidental double-tap,
+server guard catches the genuine race (two devices, slow network, etc.)
+
+
+5. Syne font never loading (Medium)
+
+
+Load Syne alongside Inter in the app root; confirm all headings render in
+Syne, not falling back to system font
+Fix login, signup, and the create screen's "Pro tip," which are currently
+rendering in Georgia/serif — should be Inter (body) or Syne (display) per
+context, never serif
+
+
+
+6. Color drift — decision made: spec is canonical
+
+Shipped colors (#0A0A0F background, #FF5C3A→#FFB547 gradient) drifted
+from the documented brand spec (#0F0F14 background,
+#FF6B2C→#FFB23E gradient). Since the spec is the single source of truth
+used across landing page and brand docs, treat the spec as canonical and
+update the app to match it exactly, app-wide. Flag if there's a reason the
+shipped values were intentional — otherwise just correct them.
+
+7. Public event-preview endpoint — decision made: require auth for full details
+
+Anyone with an invite code can currently fetch full event details (title,
+host, date, location, going-count) with no login. Given SquadZ's
+privacy-first positioning, lock this down:
+
+
+Unauthenticated preview (e.g. someone taps a shared link before signing
+in) should show only generic SquadZ branding — no event title, host,
+location, or attendee count
+Full event details require authentication, consistent with how shared
+squad links already behave (generic landing preview, not squad content)
+This is a narrowing of current behavior, not a new feature — confirm no
+existing legitimate flow (e.g. a logged-in user's own invite preview)
+breaks as a result
+
+
+
+8. Lower priority, include if time allows
+
+
+Prune stop votes from members who've left the squad (low — no urgency,
+cosmetic count accuracy only)
+Clean up orphaned event/trip/photo/message data on squad deletion (low —
+database bloat, not a leak; access is already correctly revoked)
+Add empty states to: trip screen's itinerary/packing/budget sections,
+photos tab's Memories/Squad Albums rows
+Trip screen touch targets: admin cog and remove-participant icons below
+44pt minimum; truncate long packing-item labels so they don't push the
+delete icon off-screen; check trip FAB doesn't collide with the 84px web
+tab bar
+Accessibility labels on vault screen and trip add/delete-stop buttons
+(currently announce only "Button" to screen readers)
+Add OG tags to the Expo web preview template (currently has none)
+
+
+
+Housekeeping
+
+
+Purge the simulation test data from the dev database:
+audit-sim-mr86dpwz-u1..10@example.com and their associated squads/events
+
+
+
+Regression test after fixes
+
+Re-run the same 10-simulated-user pass from the July 5 audit, plus:
+
+
+Confirm all squad members can now see and RSVP to a plain event with no
+explicit invite (item 1 fix)
+Confirm adding someone to a squad no longer consumes their cap until they
+accept; confirm decline leaves no residual state (item 2 fix)
+Confirm a user with the same email can sign in via both auth methods
+without a 500 (item 3 fix)
+Double-tap RSVP, poll vote, and task check-off under simulated network
+delay — confirm both the UI disables correctly and the server returns 409
+on genuine race (item 4 fix)
+Confirm all headings render in Syne, not system/serif fallback (item 5)
+Confirm app-wide colors match the spec exactly (item 6)
+Confirm an unauthenticated user tapping a shared event link sees only
+generic branding, and a logged-in squad member still sees full details
+(item 7)
+Confirm the previously-passing 25 checks from the July 5 audit still pass
+(no regressions introduced by the above)
+
+
+Produce a short pass/fail summary against this list when done — don't just
+report "fixed," confirm each item against its test.

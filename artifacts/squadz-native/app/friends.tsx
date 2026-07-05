@@ -218,7 +218,7 @@ export default function FriendsScreen() {
                 <QRCode
                   value={buildInviteUrl(friendCode)}
                   size={160}
-                  color="#0A0A0F"
+                  color="#0F0F14"
                   backgroundColor="#ffffff"
                 />
               </View>

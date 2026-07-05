@@ -203,7 +203,7 @@ router.post(
   async (req: Request, res: Response): Promise<void> => {
     try {
       const userId = (req.user as { id: string }).id;
-      const requestId = req.params.id;
+      const requestId = String(req.params.id);
 
       const [request] = await db
         .select()
@@ -292,7 +292,7 @@ router.post(
   async (req: Request, res: Response): Promise<void> => {
     try {
       const userId = (req.user as { id: string }).id;
-      const requestId = req.params.id;
+      const requestId = String(req.params.id);
 
       const [request] = await db
         .select()

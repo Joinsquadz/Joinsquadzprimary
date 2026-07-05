@@ -671,10 +671,10 @@ export default function ProfileScreen() {
 
         {streaks !== null && (streaks.monthlyPlan > 0 || streaks.stayInTouch > 0) && (
           <View style={[styles.section, { flexDirection: "row", gap: 12 }]}>
-            <View style={[styles.streakCard, { backgroundColor: colors.card, borderColor: "#FFB54740", flex: 1 }]}>
+            <View style={[styles.streakCard, { backgroundColor: colors.card, borderColor: "#FFB23E40", flex: 1 }]}>
               <View style={styles.streakCardTop}>
                 <Text style={styles.streakEmoji}>🔥</Text>
-                <Text style={[styles.streakCount, { color: "#FFB547" }]}>
+                <Text style={[styles.streakCount, { color: "#FFB23E" }]}>
                   {streaks.monthlyPlan > 0 ? streaks.monthlyPlan : "—"}
                 </Text>
               </View>
@@ -723,10 +723,10 @@ export default function ProfileScreen() {
             activeOpacity={0.85}
             accessibilityRole="button"
             accessibilityLabel="Turn on notifications in Settings"
-            style={[styles.notifNudge, { backgroundColor: colors.card, borderColor: "#FF5C3A" + "60" }]}
+            style={[styles.notifNudge, { backgroundColor: colors.card, borderColor: "#FF6B2C" + "60" }]}
           >
-            <View style={[styles.notifNudgeIcon, { backgroundColor: "#FF5C3A" + "18" }]}>
-              <Ionicons name="notifications-off-outline" size={22} color="#FF5C3A" />
+            <View style={[styles.notifNudgeIcon, { backgroundColor: "#FF6B2C" + "18" }]}>
+              <Ionicons name="notifications-off-outline" size={22} color="#FF6B2C" />
             </View>
             <View style={{ flex: 1, gap: 2 }}>
               <Text style={[styles.notifNudgeTitle, { color: colors.foreground }]}>Turn on notifications</Text>
@@ -734,7 +734,7 @@ export default function ProfileScreen() {
                 You'll miss event reminders and squad invites. Tap to enable in Settings.
               </Text>
             </View>
-            <Ionicons name="chevron-forward" size={16} color="#FF5C3A" />
+            <Ionicons name="chevron-forward" size={16} color="#FF6B2C" />
           </TouchableOpacity>
         )}
 

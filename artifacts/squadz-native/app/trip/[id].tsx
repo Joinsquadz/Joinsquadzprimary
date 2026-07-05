@@ -5,6 +5,7 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  ActivityIndicator,
   Alert,
   Platform,
   TextInput,
@@ -35,6 +36,7 @@ import { shareIcsFile } from "@/lib/shareIcs";
 import { findMyConflicts, getPlanSpan } from "@/lib/conflicts";
 import ConflictBanner from "@/components/ConflictBanner";
 import { attendingIds } from "@/lib/eventUtils";
+import { TAB_BAR_HEIGHT } from "@/constants/layout";
 import type { Event, ItineraryStop } from "@/types";
 import {
   coverFor,
@@ -611,7 +613,12 @@ export default function TripDetailScreen() {
             <TouchableOpacity onPress={() => openEditStop(stop)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
               <Ionicons name="create-outline" size={18} color={colors.mutedForeground} />
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => confirmDelete(stop)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <TouchableOpacity
+              onPress={() => confirmDelete(stop)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel={`Delete stop ${stop.title}`}
+            >
               <Ionicons name="trash-outline" size={17} color={colors.mutedForeground} />
             </TouchableOpacity>
           </View>
@@ -669,7 +676,7 @@ export default function TripDetailScreen() {
                   onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setArrivedIdx((i) => i + 1); }}
                   style={styles.liveHereBtn}
                 >
-                  <LinearGradient colors={["#FF5C3A", "#FF8050"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.liveHereInner}>
+                  <LinearGradient colors={["#FF6B2C", "#FF8050"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.liveHereInner}>
                     <Ionicons name="checkmark-done" size={18} color="#fff" />
                     <Text style={styles.liveHereText}>We're here</Text>
                   </LinearGradient>
@@ -740,7 +747,13 @@ export default function TripDetailScreen() {
                 </TouchableOpacity>
               ) : null}
               {canManage ? (
-                <TouchableOpacity onPress={openAdmin} style={styles.coverIconBtn} hitSlop={8}>
+                <TouchableOpacity
+                  onPress={openAdmin}
+                  style={styles.coverIconBtn}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Manage trip settings"
+                >
                   <Ionicons name="settings-outline" size={20} color="#fff" />
                 </TouchableOpacity>
               ) : null}
@@ -789,7 +802,9 @@ export default function TripDetailScreen() {
                     <TouchableOpacity
                       onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); confirmUninvite(u); }}
                       style={[styles.memberRemoveBtn, { backgroundColor: colors.destructive }]}
-                      hitSlop={{ top: 6, right: 6, bottom: 6, left: 6 }}
+                      hitSlop={{ top: 14, right: 14, bottom: 14, left: 14 }}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Remove ${u.name} from trip`}
                     >
                       <Ionicons name="close" size={10} color="#fff" />
                     </TouchableOpacity>
@@ -917,7 +932,13 @@ export default function TripDetailScreen() {
                         </Text>
                         <Text style={[styles.daySub, { color: colors.mutedForeground }]}>{heading.sub}</Text>
                       </View>
-                      <TouchableOpacity onPress={() => openAddStop(key)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={styles.dayAddBtn}>
+                      <TouchableOpacity
+                        onPress={() => openAddStop(key)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        style={styles.dayAddBtn}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Add stop on ${heading.label}`}
+                      >
                         <Ionicons name="add" size={18} color={colors.primary} />
                       </TouchableOpacity>
                     </View>
@@ -950,9 +971,13 @@ export default function TripDetailScreen() {
 
             <Text style={[styles.budgetBreakHead, { color: colors.mutedForeground }]}>BY STOP</Text>
             {stops.filter((s) => typeof s.cost === "number" && s.cost > 0).length === 0 ? (
-              <Text style={[styles.emptySub, { color: colors.textDim, paddingHorizontal: 4 }]}>
-                Add estimated costs to stops and they'll roll up here.
-              </Text>
+              <View style={styles.empty}>
+                <Ionicons name="cash-outline" size={40} color={colors.textDim} />
+                <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No costs yet</Text>
+                <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>
+                  Add estimated costs to stops and they'll roll up here.
+                </Text>
+              </View>
             ) : (
               stops
                 .filter((s) => typeof s.cost === "number" && s.cost > 0)
@@ -1022,7 +1047,11 @@ export default function TripDetailScreen() {
                       >
                         {item.done ? <Ionicons name="checkmark" size={14} color="#fff" /> : null}
                       </View>
-                      <Text style={[styles.packLabel, { color: item.done ? colors.mutedForeground : colors.foreground, textDecorationLine: item.done ? "line-through" : "none" }]}>
+                      <Text
+                        numberOfLines={1}
+                        ellipsizeMode="tail"
+                        style={[styles.packLabel, { color: item.done ? colors.mutedForeground : colors.foreground, textDecorationLine: item.done ? "line-through" : "none" }]}
+                      >
                         {item.label}
                       </Text>
                     </TouchableOpacity>
@@ -1054,9 +1083,9 @@ export default function TripDetailScreen() {
         <TouchableOpacity
           onPress={() => openAddStop()}
           activeOpacity={0.9}
-          style={[styles.fab, { bottom: insets.bottom + 24 }]}
+          style={[styles.fab, { bottom: insets.bottom + 24 + (Platform.OS === "web" ? TAB_BAR_HEIGHT : 0) }]}
         >
-          <LinearGradient colors={["#FF5C3A", "#FF8050"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.fabInner}>
+          <LinearGradient colors={["#FF6B2C", "#FF8050"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.fabInner}>
             <Ionicons name="add" size={26} color="#fff" />
             <Text style={styles.fabText}>Add stop</Text>
           </LinearGradient>
@@ -1199,8 +1228,12 @@ export default function TripDetailScreen() {
                 </Text>
               ) : null}
 
-              <TouchableOpacity onPress={saveDetails} activeOpacity={0.85} style={[styles.adminSaveBtn, { backgroundColor: colors.primary }]}>
-                <Text style={styles.adminSaveText}>Save changes</Text>
+              <TouchableOpacity onPress={saveDetails} disabled={busy} activeOpacity={0.85} style={[styles.adminSaveBtn, { backgroundColor: colors.primary, opacity: busy ? 0.6 : 1 }]}>
+                {busy ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.adminSaveText}>Save changes</Text>
+                )}
               </TouchableOpacity>
 
               {/* Co-admins (host only) */}
@@ -1292,9 +1325,15 @@ export default function TripDetailScreen() {
 
               {/* Cancel (host only) */}
               {isHost ? (
-                <TouchableOpacity onPress={confirmCancelTrip} activeOpacity={0.85} style={[styles.adminCancelBtn, { borderColor: colors.destructive }]}>
-                  <Ionicons name="trash-outline" size={18} color={colors.destructive} />
-                  <Text style={[styles.adminCancelText, { color: colors.destructive }]}>Cancel trip</Text>
+                <TouchableOpacity onPress={confirmCancelTrip} disabled={busy} activeOpacity={0.85} style={[styles.adminCancelBtn, { borderColor: colors.destructive, opacity: busy ? 0.6 : 1 }]}>
+                  {busy ? (
+                    <ActivityIndicator size="small" color={colors.destructive} />
+                  ) : (
+                    <>
+                      <Ionicons name="trash-outline" size={18} color={colors.destructive} />
+                      <Text style={[styles.adminCancelText, { color: colors.destructive }]}>Cancel trip</Text>
+                    </>
+                  )}
                 </TouchableOpacity>
               ) : null}
             </ScrollView>
@@ -1456,7 +1495,7 @@ const styles = StyleSheet.create({
   emptyTitle: { fontSize: 17, fontWeight: "800" },
   emptySub: { fontSize: 14, textAlign: "center", lineHeight: 20 },
 
-  fab: { position: "absolute", right: 20, borderRadius: 26, overflow: "hidden", shadowColor: "#FF5C3A", shadowOpacity: 0.4, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 6 },
+  fab: { position: "absolute", right: 20, borderRadius: 26, overflow: "hidden", shadowColor: "#FF6B2C", shadowOpacity: 0.4, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 6 },
   fabInner: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 18, paddingVertical: 14 },
   fabText: { color: "#fff", fontSize: 15, fontWeight: "800" },
 

@@ -11,7 +11,7 @@
     "splash": {
       "image": "./assets/images/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#0A0A0F"
+      "backgroundColor": "#0F0F14"
     },
     "ios": {
       "supportsTablet": false,
@@ -22,7 +22,7 @@
       "package": "com.squadz.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",
-        "backgroundColor": "#0A0A0F"
+        "backgroundColor": "#0F0F14"
       },
       "intentFilters": [
         {
@@ -73,7 +73,7 @@
         "expo-notifications",
         {
           "icon": "./assets/images/icon.png",
-          "color": "#FF5C3A",
+          "color": "#FF6B2C",
           "defaultChannel": "default",
           "sounds": []
         }

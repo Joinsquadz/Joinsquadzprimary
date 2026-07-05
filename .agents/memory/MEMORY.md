@@ -14,7 +14,7 @@
 - [RN stacked Modals freeze iOS](rn-stacked-modals-freeze.md) — a 2nd Modal opened while a sheet Modal is up freezes iOS (nothing opens, UI deadlocks); render secondary pickers as in-sheet absolute overlays, not sibling Modals.
 - [Object storage read ACL + media provenance](object-storage-acl-gap.md) — any new media feature: add canUserView<X>Media to /storage/objects/* OR-chain (else 403→black screen/video error) AND gate create route on getUploadOwner.
 - [Protected video web auth](protected-video-web-auth.md) — DOM <video> can't send auth headers; AttachmentVideo must blob-fetch protected /objects/* clips (feed+moments web path), else 401 while images render.
-- [Squad PATCH membership is intentional](squad-patch-membership.md) — any member editing memberIds via PATCH /squads/:id is tested behavior, NOT a bug; don't "fix" it. Optimistic squad mutations should reconcile via refreshSquads(), not local reinsert.
+- [Squad PATCH membership is consent-gated](squad-patch-membership.md) — PATCH /squads/:id memberIds additions become pending invites (upsert, never direct adds); optimistic squad mutations reconcile via refreshSquads(), not local reinsert.
 - [Auth provider constraints](auth-provider-constraints.md) — app uses Replit Auth; Clerk migration unsupported + Clerk has no SMS/Facebook; Google+Facebook+SMS OTP = custom build.
 - [Squadz native-module web safety](squadz-native-module-web-safety.md) — Expo-web preview crashes on top-level native imports; guard + dynamic-import native modules, web uses pure-web path.
 - [Stripe connector key names](stripe-connector-key-names.md) — Replit Stripe connector uses `settings.secret` not `settings.secret_key`; template is wrong.

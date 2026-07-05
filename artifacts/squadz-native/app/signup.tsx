@@ -17,6 +17,7 @@ import { useAuth } from "@/context/AppContext";
 import { SquadzIcon } from "@/components/SquadzIcon";
 import { GradientButton } from "@/components/GradientButton";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
+import { fonts } from "@/constants/fonts";
 
 export default function SignupScreen() {
   const colors = useColors();
@@ -288,7 +289,7 @@ export default function SignupScreen() {
 function GlowBlobs() {
   return (
     <>
-      <View style={[styles.blob, { top: -80, right: -50, width: 260, height: 260, backgroundColor: "#FF5C3A", opacity: 0.1 }]} />
+      <View style={[styles.blob, { top: -80, right: -50, width: 260, height: 260, backgroundColor: "#FF6B2C", opacity: 0.1 }]} />
       <View style={[styles.blob, { bottom: 100, left: -60, width: 200, height: 200, backgroundColor: "#A855F7", opacity: 0.08 }]} />
     </>
   );
@@ -301,7 +302,7 @@ const styles = StyleSheet.create({
   blob: { position: "absolute", borderRadius: 999 },
 
   serifHeadingLg: {
-    fontFamily: Platform.OS === "ios" ? "Georgia" : "serif",
+    fontFamily: fonts.display,
     fontSize: 30,
     fontWeight: "700",
   },

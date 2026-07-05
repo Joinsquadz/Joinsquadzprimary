@@ -9,6 +9,7 @@ import {
   Platform,
   Alert,
   Switch,
+  ActivityIndicator,
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -20,7 +21,7 @@ import { UpgradeModal } from "@/components/UpgradeModal";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { IconPicker } from "@/components/IconPicker";
 
-const COLORS = ["#FF5C3A", "#4A9EFF", "#2ECC8A", "#A855F7", "#FFB547", "#FF6B9D"];
+const COLORS = ["#FF6B2C", "#4A9EFF", "#2ECC8A", "#A855F7", "#FFB23E", "#FF6B9D"];
 const CATEGORIES = [
   { label: "Roommates", emoji: "🏠", name: "The Roommates" },
   { label: "Gaming", emoji: "🎮", name: "Game Night Crew" },
@@ -211,7 +212,11 @@ export default function CreateSquadScreen() {
           disabled={!canCreate}
           style={[styles.createBtn, { backgroundColor: canCreate ? colors.primary : colors.border }]}
         >
-          <Ionicons name="add-circle-outline" size={20} color={canCreate ? "#fff" : colors.textDim} />
+          {submitting ? (
+            <ActivityIndicator size="small" color={colors.textDim} />
+          ) : (
+            <Ionicons name="add-circle-outline" size={20} color={canCreate ? "#fff" : colors.textDim} />
+          )}
           <Text style={[styles.createBtnText, { color: canCreate ? "#fff" : colors.textDim }]}>
             {submitting ? "Creating…" : "Create Squad"}
           </Text>

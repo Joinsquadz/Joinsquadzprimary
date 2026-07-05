@@ -61,6 +61,7 @@
     "zod-validation-error": "^3.4.0"
   },
   "dependencies": {
+    "@expo-google-fonts/syne": "^0.4.2",
     "@react-native-community/datetimepicker": "~8.4.4",
     "@sentry/react-native": "^7.2.0",
     "@supabase/supabase-js": "^2.107.0",

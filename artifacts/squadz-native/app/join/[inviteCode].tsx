@@ -50,9 +50,11 @@ export default function EventJoinScreen() {
   const [preview, setPreview] = useState<EventPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(true);
 
-  // Fetch a public, read-only preview so the visitor can see what they're
-  // joining (title, host, date, location) before committing — works whether or
-  // not they're signed in.
+  // Fetch a read-only preview so a SIGNED-IN visitor can see what they're
+  // joining (title, host, date, location) before committing. Privacy: the
+  // server requires auth for event details — logged-out visitors get a 401
+  // and we show the generic SquadZ invite hero instead (they sign in first
+  // and bounce back here, at which point the preview loads).
   const fetchPreview = useCallback(async () => {
     if (!code) {
       setPreviewLoading(false);
@@ -60,7 +62,9 @@ export default function EventJoinScreen() {
     }
     setPreviewLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/events/preview?code=${encodeURIComponent(code)}`);
+      const res = await fetch(`${API_BASE}/api/events/preview?code=${encodeURIComponent(code)}`, {
+        headers: buildAuthHeaders(authToken),
+      });
       if (res.ok) {
         const data = (await res.json()) as EventPreview;
         setPreview(data);
@@ -72,7 +76,7 @@ export default function EventJoinScreen() {
     } finally {
       setPreviewLoading(false);
     }
-  }, [code]);
+  }, [code, authToken]);
 
   useEffect(() => {
     void fetchPreview();
@@ -251,7 +255,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   hero: {
-    backgroundColor: "#FF5C3A",
+    backgroundColor: "#FF6B2C",
     paddingHorizontal: 24,
     paddingBottom: 28,
     alignItems: "center",

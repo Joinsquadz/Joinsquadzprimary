@@ -2,11 +2,11 @@ import type { Event, ItineraryStop, StopCategory } from "@/types";
 
 /** Cover gradient presets for trip cards/headers, keyed by `coverStyle`. */
 export const TRIP_COVERS: Record<string, readonly [string, string]> = {
-  sunset: ["#FF5C3A", "#FF8050"],
+  sunset: ["#FF6B2C", "#FF8050"],
   ocean: ["#4A9EFF", "#2ECC8A"],
   forest: ["#2ECC8A", "#4A9EFF"],
-  berry: ["#A855F7", "#FF5C3A"],
-  gold: ["#FFB547", "#FF8050"],
+  berry: ["#A855F7", "#FF6B2C"],
+  gold: ["#FFB23E", "#FF8050"],
   night: ["#1A1A26", "#A855F7"],
 };
 
