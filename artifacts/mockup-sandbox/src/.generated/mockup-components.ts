@@ -5,5 +5,8 @@ export const modules: ModuleMap = {
   "./components/mockups/icon-picker/CuratedRow.tsx": () => import("../components/mockups/icon-picker/CuratedRow.tsx"),
   "./components/mockups/icon-picker/SearchableSheet.tsx": () => import("../components/mockups/icon-picker/SearchableSheet.tsx"),
   "./components/mockups/squad-channel/Current.tsx": () => import("../components/mockups/squad-channel/Current.tsx"),
-  "./components/mockups/squad-channel/Quieter.tsx": () => import("../components/mockups/squad-channel/Quieter.tsx")
+  "./components/mockups/squad-channel/Quieter.tsx": () => import("../components/mockups/squad-channel/Quieter.tsx"),
+  "./components/mockups/vault-redesign/InlineGallery.tsx": () => import("../components/mockups/vault-redesign/InlineGallery.tsx"),
+  "./components/mockups/vault-redesign/MemoriesFeed.tsx": () => import("../components/mockups/vault-redesign/MemoriesFeed.tsx"),
+  "./components/mockups/vault-redesign/ThumbnailStrip.tsx": () => import("../components/mockups/vault-redesign/ThumbnailStrip.tsx")
 };
