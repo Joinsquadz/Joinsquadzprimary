@@ -223,14 +223,24 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess, head
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     awaitingUpgrade.current = true;
     const result = await startProCheckout(authToken);
+    // Always clear the flag before branching so AppState can't fire a
+    // duplicate confirmLoop if it happens to race on web.
+    awaitingUpgrade.current = false;
     if (!result.ok) {
-      awaitingUpgrade.current = false;
       setError(result.error);
+      setPhase("idle");
+      return;
     }
-    // On success the browser is now open; the AppState listener confirms on
-    // return. Drop back to idle so the CTA isn't stuck spinning underneath it.
-    setPhase("idle");
-  }, [authToken, phase]);
+    if (result.confirmNow) {
+      // Native: in-app browser was dismissed — user may have just paid.
+      // Poll the subscription immediately instead of waiting for AppState.
+      void confirmLoop();
+    } else {
+      // Web: checkout tab is open in a separate window. AppState "active"
+      // fires when the user returns to this tab and triggers confirmLoop.
+      setPhase("idle");
+    }
+  }, [authToken, phase, confirmLoop]);
 
   const busy = phase === "checkout" || phase === "confirming";
   // While a checkout is starting or being confirmed, block dismissal so the

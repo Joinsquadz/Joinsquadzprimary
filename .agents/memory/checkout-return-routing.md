@@ -22,6 +22,22 @@ refetch (subscription + photos) so newly-unlocked content appears.
 and had to navigate back; the fix converts intent in place and unlocks photos
 without a manual refresh.
 
+## Native iOS/Android: use WebBrowser.openBrowserAsync, not Linking.openURL
+
+`Linking.openURL` on native opens the system Safari/browser as a SEPARATE APP.
+The user pays → Stripe redirects to `success_url` (a web page) in Safari → user
+must manually switch back to the app → AppState "active" fires → confirmLoop runs.
+This is confusing UX and relies on the user knowing to return.
+
+**Fix:** `WebBrowser.openBrowserAsync` (expo-web-browser, already installed) opens
+a SFSafariViewController / Chrome Custom Tab INSIDE the app session. The Promise
+blocks until the user taps "Done". Caller receives `{ok:true, confirmNow:true}`
+and calls `confirmLoop()` immediately — no AppState listener needed for native.
+
+**How to apply:** any native-web external URL that needs a "done" callback (OAuth,
+payment, email verification) should use `openBrowserAsync` on native and check
+`confirmNow` in the caller. Keep `AppState` listener only for web tab fallback.
+
 ## Web popup opening: never trust Linking.openURL
 
 react-native-web's `Linking.openURL` wraps `window.open(url,'_blank','noopener')`

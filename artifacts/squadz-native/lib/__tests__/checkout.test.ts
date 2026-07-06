@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockOpenURL = vi.hoisted(() => vi.fn(async () => true));
+const mockOpenBrowserAsync = vi.hoisted(() => vi.fn(async () => ({ type: "dismiss" as const })));
 const mockPlatform = vi.hoisted(() => ({ OS: "ios" as string }));
 const mockResolveApiBase = vi.hoisted(() => vi.fn(() => "https://api.example.com"));
 const mockBuildAuthHeaders = vi.hoisted(() =>
@@ -10,6 +11,10 @@ const mockBuildAuthHeaders = vi.hoisted(() =>
 vi.mock("react-native", () => ({
   Linking: { openURL: mockOpenURL },
   Platform: mockPlatform,
+}));
+
+vi.mock("expo-web-browser", () => ({
+  openBrowserAsync: mockOpenBrowserAsync,
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -38,51 +43,96 @@ describe("startProCheckout", () => {
     vi.stubGlobal("fetch", fetchMock);
   });
 
-  it("happy path: POSTs to /api/checkout with no priceId, opens the URL, returns the server tier", async () => {
-    fetchMock.mockResolvedValueOnce(
-      jsonOk({ url: "https://checkout.stripe.com/session_123", tier: "founding" }),
-    );
+  // ── Native (iOS / Android) path ──────────────────────────────────────────
 
-    const result = await startProCheckout("tok_abc");
-
-    expect(result).toEqual({ ok: true, tier: "founding" });
-
-    // Exactly one network call — the checkout POST. No product/price lookup.
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [checkoutUrl, checkoutInit] = fetchMock.mock.calls[0];
-    expect(checkoutUrl).toBe("https://api.example.com/api/checkout");
-    expect(checkoutInit).toMatchObject({
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: "Bearer tok_abc" },
+  describe("native: uses WebBrowser.openBrowserAsync (in-app browser)", () => {
+    beforeEach(() => {
+      mockPlatform.OS = "ios";
     });
-    // The client cannot self-select a price — the body carries no priceId.
-    expect(JSON.parse(checkoutInit.body)).toEqual({});
 
-    expect(mockOpenURL).toHaveBeenCalledTimes(1);
-    expect(mockOpenURL).toHaveBeenCalledWith("https://checkout.stripe.com/session_123");
+    it("happy path: opens in-app browser, returns {ok:true, confirmNow:true} with founding tier", async () => {
+      fetchMock.mockResolvedValueOnce(
+        jsonOk({ url: "https://checkout.stripe.com/session_123", tier: "founding" }),
+      );
+      mockOpenBrowserAsync.mockResolvedValueOnce({ type: "dismiss" });
+
+      const result = await startProCheckout("tok_abc");
+
+      expect(result).toEqual({ ok: true, tier: "founding", confirmNow: true });
+
+      // Exactly one network call — the checkout POST. No product/price lookup.
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [checkoutUrl, checkoutInit] = fetchMock.mock.calls[0];
+      expect(checkoutUrl).toBe("https://api.example.com/api/checkout");
+      expect(checkoutInit).toMatchObject({
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer tok_abc" },
+      });
+      // The client cannot self-select a price — the body carries no priceId.
+      expect(JSON.parse(checkoutInit.body)).toEqual({});
+
+      // Must use in-app browser, never Linking.openURL on native.
+      expect(mockOpenBrowserAsync).toHaveBeenCalledTimes(1);
+      expect(mockOpenBrowserAsync).toHaveBeenCalledWith(
+        "https://checkout.stripe.com/session_123",
+        expect.objectContaining({ dismissButtonStyle: "done" }),
+      );
+      expect(mockOpenURL).not.toHaveBeenCalled();
+    });
+
+    it("returns {confirmNow:true} for standard tier too", async () => {
+      fetchMock.mockResolvedValueOnce(
+        jsonOk({ url: "https://checkout.stripe.com/session_std", tier: "standard" }),
+      );
+      mockOpenBrowserAsync.mockResolvedValueOnce({ type: "dismiss" });
+
+      const result = await startProCheckout("tok_abc");
+
+      expect(result).toEqual({ ok: true, tier: "standard", confirmNow: true });
+    });
+
+    it("returns {confirmNow:true} even when browser is cancelled (can't tell if paid)", async () => {
+      fetchMock.mockResolvedValueOnce(
+        jsonOk({ url: "https://checkout.stripe.com/session_123", tier: "standard" }),
+      );
+      // type:"dismiss" covers both user-cancelled and completion — can't distinguish
+      mockOpenBrowserAsync.mockResolvedValueOnce({ type: "dismiss" as const });
+
+      const result = await startProCheckout("tok_abc");
+
+      // We still return ok:true — caller (confirmLoop) will find out if they paid.
+      expect(result).toEqual({ ok: true, tier: "standard", confirmNow: true });
+    });
+
+    it("omits the Authorization header when no token is provided", async () => {
+      fetchMock.mockResolvedValueOnce(
+        jsonOk({ url: "https://checkout.stripe.com/session_123", tier: "standard" }),
+      );
+      mockOpenBrowserAsync.mockResolvedValueOnce({ type: "dismiss" });
+
+      const result = await startProCheckout(null);
+
+      expect(result).toEqual({ ok: true, tier: "standard", confirmNow: true });
+      const [, checkoutInit] = fetchMock.mock.calls[0];
+      expect(checkoutInit.headers).not.toHaveProperty("Authorization");
+    });
+
+    it("also works on Android (Platform.OS==='android')", async () => {
+      mockPlatform.OS = "android";
+      fetchMock.mockResolvedValueOnce(
+        jsonOk({ url: "https://checkout.stripe.com/session_android", tier: "standard" }),
+      );
+      mockOpenBrowserAsync.mockResolvedValueOnce({ type: "dismiss" });
+
+      const result = await startProCheckout("tok_abc");
+
+      expect(result).toEqual({ ok: true, tier: "standard", confirmNow: true });
+      expect(mockOpenBrowserAsync).toHaveBeenCalledTimes(1);
+      expect(mockOpenURL).not.toHaveBeenCalled();
+    });
   });
 
-  it("returns ok with the standard tier when the server picks standard", async () => {
-    fetchMock.mockResolvedValueOnce(
-      jsonOk({ url: "https://checkout.stripe.com/session_std", tier: "standard" }),
-    );
-
-    const result = await startProCheckout("tok_abc");
-
-    expect(result).toEqual({ ok: true, tier: "standard" });
-  });
-
-  it("omits the Authorization header when no token is provided", async () => {
-    fetchMock.mockResolvedValueOnce(
-      jsonOk({ url: "https://checkout.stripe.com/session_123", tier: "standard" }),
-    );
-
-    const result = await startProCheckout(null);
-
-    expect(result).toEqual({ ok: true, tier: "standard" });
-    const [, checkoutInit] = fetchMock.mock.calls[0];
-    expect(checkoutInit.headers).not.toHaveProperty("Authorization");
-  });
+  // ── Shared error paths ───────────────────────────────────────────────────
 
   it("surfaces the API error message when checkout responds with an error", async () => {
     fetchMock.mockResolvedValueOnce(jsonOk({ error: "You are already Pro." }));
@@ -90,6 +140,7 @@ describe("startProCheckout", () => {
     const result = await startProCheckout("tok_abc");
 
     expect(result).toEqual({ ok: false, error: "You are already Pro." });
+    expect(mockOpenBrowserAsync).not.toHaveBeenCalled();
     expect(mockOpenURL).not.toHaveBeenCalled();
   });
 
@@ -102,7 +153,7 @@ describe("startProCheckout", () => {
       ok: false,
       error: "Failed to start checkout. Please try again.",
     });
-    expect(mockOpenURL).not.toHaveBeenCalled();
+    expect(mockOpenBrowserAsync).not.toHaveBeenCalled();
   });
 
   it("returns { ok: false } when fetch throws (network/exception path)", async () => {
@@ -111,8 +162,11 @@ describe("startProCheckout", () => {
     const result = await startProCheckout("tok_abc");
 
     expect(result).toEqual({ ok: false, error: "Something went wrong. Please try again." });
+    expect(mockOpenBrowserAsync).not.toHaveBeenCalled();
     expect(mockOpenURL).not.toHaveBeenCalled();
   });
+
+  // ── Web: popup handling ──────────────────────────────────────────────────
 
   describe("web: popup handling (Linking.openURL silently swallows blocked popups)", () => {
     const CHECKOUT_URL = "https://checkout.stripe.com/session_web";
@@ -135,14 +189,15 @@ describe("startProCheckout", () => {
       fetchMock.mockResolvedValueOnce(jsonOk({ url: CHECKOUT_URL, tier: "standard" }));
     });
 
-    it("opens a new tab via window.open and never uses Linking.openURL", async () => {
+    it("opens a new tab via window.open, returns {confirmNow:false} (AppState handles return)", async () => {
       const open = vi.fn(() => ({}) as Window);
       stubWindow({ open, embedded: true });
 
       const result = await startProCheckout("tok_abc");
 
-      expect(result).toEqual({ ok: true, tier: "standard" });
+      expect(result).toEqual({ ok: true, tier: "standard", confirmNow: false });
       expect(open).toHaveBeenCalledWith(CHECKOUT_URL, "_blank", "noopener");
+      expect(mockOpenBrowserAsync).not.toHaveBeenCalled();
       expect(mockOpenURL).not.toHaveBeenCalled();
     });
 
@@ -152,7 +207,7 @@ describe("startProCheckout", () => {
 
       const result = await startProCheckout("tok_abc");
 
-      expect(result).toEqual({ ok: true, tier: "standard" });
+      expect(result).toEqual({ ok: true, tier: "standard", confirmNow: false });
       expect(assign).toHaveBeenCalledWith(CHECKOUT_URL);
     });
 
@@ -167,7 +222,10 @@ describe("startProCheckout", () => {
     });
   });
 
+  // ── Dynamic API base ─────────────────────────────────────────────────────
+
   it("resolves the API base at call time (dynamic), not at import time", async () => {
+    mockOpenBrowserAsync.mockResolvedValue({ type: "dismiss" });
     fetchMock.mockResolvedValueOnce(
       jsonOk({ url: "https://checkout.stripe.com/first", tier: "standard" }),
     );

@@ -1,36 +1,65 @@
 import { Linking, Platform } from "react-native";
+import * as WebBrowser from "expo-web-browser";
 import { buildAuthHeaders, resolveApiBase } from "@/lib/api";
 
 export type CheckoutTier = "founding" | "standard";
 export type CheckoutFailure = { ok: false; error: string };
-export type CheckoutResult = { ok: true; tier?: CheckoutTier } | CheckoutFailure;
+export type CheckoutResult =
+  | {
+      ok: true;
+      tier?: CheckoutTier;
+      /**
+       * When true the in-app browser was already dismissed and the caller
+       * should poll the subscription immediately (native path).
+       * When false the checkout URL was opened in an external tab/browser
+       * and the caller should wait for an AppState "active" event (web path).
+       */
+      confirmNow: boolean;
+    }
+  | CheckoutFailure;
 
 /**
  * Opens the Stripe checkout URL in a way that actually surfaces failure.
  *
- * On native, `Linking.openURL` hands off to the system browser and works.
+ * On native (iOS / Android) we use WebBrowser.openBrowserAsync, which renders
+ * the checkout inside a SFSafariViewController / Chrome Custom Tab that stays
+ * embedded within the app session. The Promise blocks until the user taps
+ * "Done" (or the payment flow completes a redirect), so the caller knows
+ * exactly when to poll the subscription — no AppState race needed.
  *
- * On web, react-native-web's `Linking.openURL` calls
- * `window.open(url, "_blank", "noopener")` and resolves even when the popup
- * is BLOCKED (window.open returns null without throwing) — e.g. inside a
- * sandboxed preview iframe or when the browser suppresses popups after an
- * async fetch. The app then thinks checkout opened and silently waits
- * forever. So on web we call window.open ourselves and check the return:
- * - popup opened → done;
- * - popup blocked but we're a top-level tab → navigate in place (the
- *   `/home?checkout=success` return routing brings the user back);
- * - popup blocked AND we're embedded in an iframe → fail loudly. Stripe
- *   checkout refuses to render inside frames, so in-place navigation would
- *   dead-end on a blank frame.
+ * On web, react-native-web's Linking.openURL calls
+ * window.open(url,"_blank","noopener") and resolves successfully even when the
+ * popup is BLOCKED (window.open returns null without throwing). Inside a
+ * sandboxed preview iframe or with strict popup-blocker settings the checkout
+ * silently does nothing. So on web we call window.open ourselves and check the
+ * return:
+ *  - popup opened → done;
+ *  - popup blocked but we're a top-level tab → navigate in place (the
+ *    /home?checkout=success return routing brings the user back);
+ *  - popup blocked AND we're embedded in an iframe → fail loudly (Stripe
+ *    checkout refuses to render inside frames, so in-place navigation would
+ *    dead-end on a blank frame).
  */
+
+export const POPUP_BLOCKED_ERROR =
+  "Your browser blocked the checkout window. Open the app in its own browser tab and try again.";
+
 async function openCheckoutUrl(url: string): Promise<boolean> {
   if (Platform.OS !== "web") {
-    await Linking.openURL(url);
+    // In-app browser — blocks until user dismisses.
+    await WebBrowser.openBrowserAsync(url, {
+      // Dismiss button label (iOS). "Done" is the system default; keep it.
+      dismissButtonStyle: "done",
+      // Show the URL bar so users can verify they're on stripe.com.
+      showInRecents: true,
+    });
     return true;
   }
+
   if (typeof window === "undefined") return false;
   const popup = window.open(url, "_blank", "noopener");
   if (popup) return true;
+
   let embedded = true;
   try {
     embedded = window.self !== window.top;
@@ -44,20 +73,21 @@ async function openCheckoutUrl(url: string): Promise<boolean> {
   return false;
 }
 
-export const POPUP_BLOCKED_ERROR =
-  "Your browser blocked the checkout window. Open the app in its own browser tab and try again.";
-
 /**
- * Starts the Squadz+ checkout flow on mobile:
- * POST /api/checkout → open the returned Stripe URL in the system browser.
+ * Starts the Squadz+ checkout flow.
  *
- * The server now decides the price tier (founding vs standard) atomically and
+ * Posts to /api/checkout to obtain a Stripe Checkout URL, then opens it:
+ * - Native: in an in-app browser (SFSafariViewController / Chrome Custom Tab).
+ *   The call blocks until the user dismisses the browser, then resolves with
+ *   {ok: true, confirmNow: true} — the caller should immediately poll the
+ *   subscription to confirm the upgrade. No AppState listener needed.
+ * - Web: opens the URL in a new tab. Resolves with {ok: true, confirmNow: false}
+ *   as soon as the tab is opened; the caller should wait for an AppState "active"
+ *   event to confirm (the tab returns the user to the app via the success URL).
+ *
+ * The server decides the price tier (founding vs standard) atomically and
  * picks the matching Stripe price from its own env — the client no longer looks
  * up or sends a priceId, so it can't self-select the cheaper founding price.
- *
- * On success the URL is opened and the promise resolves to `{ ok: true, tier }`.
- * On failure it resolves to `{ ok: false, error }` so callers can surface the
- * message however they like (typically an Alert).
  *
  * @param token Auth token for the current user (null if unauthenticated).
  */
@@ -84,7 +114,10 @@ export async function startProCheckout(token: string | null): Promise<CheckoutRe
     if (!opened) {
       return { ok: false, error: POPUP_BLOCKED_ERROR };
     }
-    return { ok: true, tier };
+
+    // confirmNow: true  = native in-app browser was dismissed → poll now
+    // confirmNow: false = web tab opened externally → wait for AppState
+    return { ok: true, tier, confirmNow: Platform.OS !== "web" };
   } catch {
     return { ok: false, error: "Something went wrong. Please try again." };
   }
