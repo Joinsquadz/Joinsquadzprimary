@@ -1,0 +1,42 @@
+P0 Approved — Proceed with P1, then P2
+P0 is verified and approved. Implement P1 (items 7–12), then P2 (items
+13–18), exactly as written in the Phase 1 report. No pause needed between
+P1 and P2 — but stop and flag immediately if anything requires touching
+auth, caps, or payment paths.
+Standing rules (unchanged from P0)
+	•	Adjustment 3 still applies to P2 item 13 (signup collapse to a single
+Name field): before implementing, verify nothing downstream assumes a
+split first/last name — invite attribution strings (“invited by Maya”),
+avatar initial generation, Stripe receipt/customer naming, greeting
+strings. If anything requires a split name, either keep last name as an
+optional field or implement display-name derivation first — and flag
+which path you took.
+	•	Constraints remain in force: no gate-logic changes, no new dependencies,
+no public/feed/discovery mechanics, nothing posts without explicit
+intent, brand system canonical (Syne/Inter, #0F0F14 background,
+#FF6B2C→#FFB23E gradient).
+Verification after P2 completes
+	1.	Re-run the full 34-check 10-user simulation — all must pass (purge sim
+data after, as before)
+	2.	Full typecheck + both test suites (api-server and mobile) passing
+	3.	Spot-verify each P1/P2 item against its intent, not just “implemented”:
+	•	First-squad celebration fires once, on creation only
+	•	Zero-squad Home renders the richer landing state
+	•	Pending-invite rows appear after inviting, clear on join
+	•	Suggested-by attribution shows the correct member on proposed stops
+	•	Host lock-in moment animates the stop to confirmed
+	•	Post-create share beat appears after event creation
+	•	Recap strip on a past plan shows correct photo/attendance/cost values
+	•	Prefetch: tapping Up Next or a top squad shows no spinner beat
+	•	Signup collapse: new signup with a single name works end to end,
+including invite attribution and avatar initials (per Adjustment 3)
+	•	Post-RSVP micro-moment shows correct attendee count
+	•	Packing progress line and sink-to-bottom animation behave with 0, 1,
+and all items checked
+	•	Photo thumbnails render on past cards only when vault photos exist
+	•	Allowance captions show correct remaining counts (e.g. “4/5 plans
+this year”) and update after creation
+	•	Skeletons appear on Upcoming, For You, vault, and availability instead
+of spinners
+	4.	Produce the same item-by-item pass/fail summary — confirm each item
+against its check, not just “done”

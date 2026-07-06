@@ -1,10 +1,10 @@
 ---
-name: Squad plain-event visibility gap
-description: Plain events created "in" a squad are NOT visible to squad members; only trips are squad-visible. Client squad screen expects otherwise.
+name: Squad event visibility contract
+description: Plain squad events ARE visible to all current squad members (deliberate audit fix); trips' stale-RSVP protections must stay intact.
 ---
 
-Server access model (events routes, `userCanAccessEvent` + GET /events visibility OR-chain): a plain **event** is visible only to host, RSVP'd users, or `invitedUserIds`. Only **trips** are visible to all current squad members. Verified live (July 2026 audit): a squad member gets 403 on GET/RSVP for a squad event and it never appears in their /events list until they join via the invite code or are explicitly invited.
+Server access model (events routes, `userCanAccessEvent` + GET /events visibility OR-chain): **both trips and plain squad events are visible to every CURRENT member of their squad**, re-checked live so a removed member loses access immediately. Plain events additionally keep the rsvps-map path so invited outsiders who responded retain access; trips deliberately IGNORE the rsvps map (stale-RSVP trap).
 
-**Why it matters:** the mobile squad screen renders squad events via `events.filter(e => e.squadId === squad.id)` over the client's fetched list — so squadmates see NOTHING for a squad dinner unless the host used the invite-friends picker at creation. `goingCount` stays 0 and the event is undiscoverable in-app. The host-or-RSVP gate is deliberate (stale-RSVP trap protection), but the discoverability gap is a known audit finding (High), deliberately NOT fixed during the audit-only task.
+**Why:** the July 2026 audit found (via live simulation) that a squad dinner was invisible to squadmates — 403 on GET/RSVP, absent from their /events list, `goingCount` stuck at 0 — because the old gate was host/RSVP/invite only while the mobile squad screen renders squad events from the member's fetched list. The widening to squad-membership visibility for plain events was a deliberate remediation fix, sim-verified — NOT an accidental authz regression. A later code review mistakenly flagged it as one; do not "fix" it back.
 
-**How to apply:** if asked to "fix squad events not showing", the fix is a visibility decision (e.g. squad-membership visibility for events with a separate RSVP gate), not a client filter bug. Don't "fix" by widening `userCanAccessEvent` blindly — trips' stale-RSVP protections and removed-member revocation must stay intact.
+**How to apply:** the contract is locked in by `events.plainEventVisibility.test.ts` (squad member allowed without RSVP; stranger denied; removed member denied; trip stale-RSVP still denied). Any change to `userCanAccessEvent` or the /events list OR-chain must keep those tests green.
