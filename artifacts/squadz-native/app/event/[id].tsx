@@ -148,6 +148,11 @@ export default function EventDetailScreen() {
   // disable all three buttons and show a spinner on the tapped one while the
   // optimistic mutation is in flight.
   const [pendingRsvp, setPendingRsvp] = useState<RsvpStatus | null>(null);
+  // T208: inline micro-moment after tapping "Going" — shows attendee avatars +
+  // count so committing feels social. Session-only, dismissed by other RSVPs.
+  const [showRsvpMoment, setShowRsvpMoment] = useState(false);
+  // T205: vault photo count for the past-plan recap strip (null = not loaded).
+  const [recapPhotoCount, setRecapPhotoCount] = useState<number | null>(null);
   const [showInvitePicker, setShowInvitePicker] = useState(false);
   const { resolveUser, prefetchUsers } = useUserCache();
 
@@ -230,6 +235,20 @@ export default function EventDetailScreen() {
     return buildAuthHeaders(authToken);
   }, [authToken]);
 
+  // T205: past plans get a recap strip (photos · attendance · costs). Photo
+  // count comes from the vault; attendance/costs are already on the event.
+  useEffect(() => {
+    if (!event || !id) return;
+    const start = parseEventStart(event.date);
+    if (!start || start >= new Date()) return;
+    fetch(`${API_BASE}/api/vault/photos?eventId=${id}`, { headers: authHeaders() })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { photos?: unknown[] } | null) => {
+        if (data && Array.isArray(data.photos)) setRecapPhotoCount(data.photos.length);
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [event?.date, id, authToken]);
 
   useFocusEffect(
     useCallback(() => {
@@ -900,6 +919,12 @@ export default function EventDetailScreen() {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                   setPendingRsvp(v);
                   setRsvp(event.id, v);
+                  if (v === "going") {
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                    setShowRsvpMoment(true);
+                  } else {
+                    setShowRsvpMoment(false);
+                  }
                   setTimeout(() => setPendingRsvp(null), 600);
                 }}
                 style={[
@@ -925,6 +950,27 @@ export default function EventDetailScreen() {
             );
           })}
         </View>
+
+        {showRsvpMoment && myRsvp === "going" && (() => {
+          const going = Object.entries(event.rsvps)
+            .filter(([, s]) => s === "going")
+            .map(([uid]) => resolveUser(uid));
+          const count = going.length;
+          return (
+            <View style={styles.rsvpMoment}>
+              <View style={styles.rsvpMomentAvatars}>
+                {going.slice(0, 5).map((u, i) => (
+                  <View key={u.id} style={{ marginLeft: i === 0 ? 0 : -8 }}>
+                    <UserAvatar initials={u.initials} color={u.color} imageUrl={u.profileImageUrl} size={24} fontSize={9} />
+                  </View>
+                ))}
+              </View>
+              <Text style={styles.rsvpMomentText}>
+                You're in — {count} going 🎉
+              </Text>
+            </View>
+          );
+        })()}
       </View>
 
       {/* Tab bar */}
@@ -982,6 +1028,31 @@ export default function EventDetailScreen() {
       >
         {tab === "overview" && (
           <View style={{ gap: 16 }}>
+            {(() => {
+              const start = parseEventStart(event.date);
+              if (!start || start >= new Date()) return null;
+              const went = goingCount(event);
+              const total = event.costs.reduce((s, c) => s + c.amount, 0);
+              const parts: { icon: string; label: string }[] = [];
+              if (recapPhotoCount !== null && recapPhotoCount > 0) {
+                parts.push({ icon: "images-outline", label: `${recapPhotoCount} photo${recapPhotoCount === 1 ? "" : "s"}` });
+              }
+              parts.push({ icon: "people-outline", label: `${went} went` });
+              if (total > 0) parts.push({ icon: "card-outline", label: `$${total.toFixed(2)} split` });
+              return (
+                <View style={[styles.recapStrip, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                  <Text style={[styles.recapTitle, { color: colors.mutedForeground }]}>How it went</Text>
+                  <View style={styles.recapRow}>
+                    {parts.map((p) => (
+                      <View key={p.label} style={styles.recapItem}>
+                        <Ionicons name={p.icon as never} size={14} color={colors.primary} />
+                        <Text style={[styles.recapItemText, { color: colors.foreground }]}>{p.label}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              );
+            })()}
             <Animated.View
               style={[
                 styles.card,
@@ -2205,6 +2276,18 @@ const styles = StyleSheet.create({
   rsvpRow: { flexDirection: "row", gap: 8, justifyContent: "center" },
   rsvpBtn: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 20, borderWidth: 1.5, paddingHorizontal: 14, paddingVertical: 8 },
   rsvpText: { fontSize: 13, fontWeight: "700", color: "#fff" },
+  rsvpMoment: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    marginTop: 12, paddingVertical: 8, paddingHorizontal: 14,
+    borderRadius: 12, backgroundColor: "rgba(255,255,255,0.14)", alignSelf: "center",
+  },
+  rsvpMomentAvatars: { flexDirection: "row", alignItems: "center" },
+  rsvpMomentText: { fontSize: 13, fontWeight: "700", color: "#fff" },
+  recapStrip: { borderRadius: 16, borderWidth: 1, padding: 14, gap: 8 },
+  recapTitle: { fontSize: 11, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.6 },
+  recapRow: { flexDirection: "row", flexWrap: "wrap", gap: 14 },
+  recapItem: { flexDirection: "row", alignItems: "center", gap: 5 },
+  recapItemText: { fontSize: 13, fontWeight: "700" },
   tabBar: { maxHeight: 52, borderBottomWidth: 1 },
   tabChip: { borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, marginVertical: 8 },
   tabChipText: { fontSize: 13, fontWeight: "700" },

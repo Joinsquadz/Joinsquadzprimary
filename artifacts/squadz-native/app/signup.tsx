@@ -36,16 +36,15 @@ export default function SignupScreen() {
     squadEmoji?: string;
   }>();
 
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
+  // T207: single name field — split into first/last only at the API boundary
+  // so the account model (firstName/lastName) is untouched. Phone is deferred
+  // entirely (it was already optional; users can add it later in settings).
+  const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const lastNameRef = useRef<TextInput>(null);
   const emailRef = useRef<TextInput>(null);
-  const phoneRef = useRef<TextInput>(null);
   const passwordRef = useRef<TextInput>(null);
 
   const hasInvite = !!params.inviteCode;
@@ -57,9 +56,11 @@ export default function SignupScreen() {
   const handleCreateAccount = async () => {
     setErrorMsg(null);
     const trimmedEmail = email.trim();
-    const trimmedFirst = firstName.trim();
+    const nameParts = fullName.trim().split(/\s+/).filter(Boolean);
+    const trimmedFirst = nameParts[0] ?? "";
+    const restName = nameParts.slice(1).join(" ");
     if (!trimmedFirst) {
-      const msg = "Enter your first name to continue.";
+      const msg = "Enter your name to continue.";
       Alert.alert("What's your name?", msg);
       setErrorMsg(msg);
       return;
@@ -82,8 +83,7 @@ export default function SignupScreen() {
       email: trimmedEmail,
       password,
       firstName: trimmedFirst,
-      lastName: lastName.trim() || undefined,
-      phone: phone.trim() || undefined,
+      lastName: restName || undefined,
     });
     setLoading(false);
     if (!result.ok) {
@@ -198,31 +198,18 @@ export default function SignupScreen() {
         </View>
 
         <View style={{ paddingHorizontal: 24 }}>
-          <View style={{ flexDirection: "row", gap: 10 }}>
-            <View style={[styles.inputRow, cardBg, { flex: 1 }]}>
-              <Text style={styles.inputIcon}>🙂</Text>
-              <TextInput
-                placeholder="First name"
-                placeholderTextColor={colors.textDim}
-                returnKeyType="next"
-                onSubmitEditing={() => lastNameRef.current?.focus()}
-                value={firstName}
-                onChangeText={setFirstName}
-                style={[styles.input, { color: colors.foreground }]}
-              />
-            </View>
-            <View style={[styles.inputRow, cardBg, { flex: 1 }]}>
-              <TextInput
-                ref={lastNameRef}
-                placeholder="Last name"
-                placeholderTextColor={colors.textDim}
-                returnKeyType="next"
-                onSubmitEditing={() => emailRef.current?.focus()}
-                value={lastName}
-                onChangeText={setLastName}
-                style={[styles.input, { color: colors.foreground }]}
-              />
-            </View>
+          <View style={[styles.inputRow, cardBg]}>
+            <Text style={styles.inputIcon}>🙂</Text>
+            <TextInput
+              placeholder="Your name"
+              placeholderTextColor={colors.textDim}
+              autoComplete="name"
+              returnKeyType="next"
+              onSubmitEditing={() => emailRef.current?.focus()}
+              value={fullName}
+              onChangeText={setFullName}
+              style={[styles.input, { color: colors.foreground }]}
+            />
           </View>
 
           <View style={[styles.inputRow, cardBg]}>
@@ -235,24 +222,9 @@ export default function SignupScreen() {
               autoCapitalize="none"
               autoComplete="email"
               returnKeyType="next"
-              onSubmitEditing={() => phoneRef.current?.focus()}
+              onSubmitEditing={() => passwordRef.current?.focus()}
               value={email}
               onChangeText={setEmail}
-              style={[styles.input, { color: colors.foreground }]}
-            />
-          </View>
-
-          <View style={[styles.inputRow, cardBg]}>
-            <Text style={styles.inputIcon}>📱</Text>
-            <TextInput
-              ref={phoneRef}
-              placeholder="Phone number (optional)"
-              placeholderTextColor={colors.textDim}
-              keyboardType="phone-pad"
-              returnKeyType="next"
-              onSubmitEditing={() => passwordRef.current?.focus()}
-              value={phone}
-              onChangeText={setPhone}
               style={[styles.input, { color: colors.foreground }]}
             />
           </View>

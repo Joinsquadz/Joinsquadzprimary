@@ -34,6 +34,7 @@ import AttachmentVideo from "@/components/AttachmentVideo";
 import VaultMediaDetail, { type VaultDetailPhoto } from "@/components/VaultMediaDetail";
 import VaultShareComposer, { type VaultShareTarget } from "@/components/VaultShareComposer";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
+import { SkeletonBox } from "@/components/SkeletonBox";
 
 const VAULT_SELECTED_KEY = "vault:selectedPhoto";
 const VAULT_SCROLL_KEY = "vault:scrollY";
@@ -968,8 +969,18 @@ export default function VaultScreen() {
         </View>
       ) : (
         (personalTab === "favorites" ? favoritesLoading : photosLoading) ? (
-          <View style={styles.center}>
-            <ActivityIndicator color={colors.primary} size="large" />
+          // T212: skeleton photo grid instead of a spinner — mirrors the
+          // 3-column layout the real grid renders into.
+          <View style={[styles.scroll, { paddingTop: 4 }]}>
+            {[0, 1, 2].map((row) => (
+              <View key={row} style={{ flexDirection: "row", gap: 4, marginBottom: 4 }}>
+                {[0, 1, 2].map((col) => (
+                  <View key={col} style={{ flex: 1, aspectRatio: 1 }}>
+                    <SkeletonBox height={0} borderRadius={6} style={{ height: "100%" }} />
+                  </View>
+                ))}
+              </View>
+            ))}
           </View>
         ) : (
           <FlatList

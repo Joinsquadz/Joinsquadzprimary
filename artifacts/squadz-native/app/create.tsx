@@ -10,6 +10,7 @@ import {
   Alert,
   Modal,
   Switch,
+  Share,
 } from "react-native";
 import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { LinearGradient } from "expo-linear-gradient";
@@ -178,6 +179,9 @@ export default function CreateEventScreen() {
   // Progressive disclosure: location/description/visibility/invites live
   // behind a "More options" expander so the fast path is title → date → squad.
   const [showMoreOptions, setShowMoreOptions] = useState(false);
+  // Post-create beat (T204): brief created-state with a "Share with the squad"
+  // affordance before landing on the plan. Sharing only happens on explicit tap.
+  const [createdBeat, setCreatedBeat] = useState<{ id: string; kind: "event" | "trip"; title: string; emoji: string } | null>(null);
 
   // Smart default: preselect the most-recently-planned squad (the squad of the
   // user's latest plan), falling back to the only/first squad. Never overrides
@@ -364,8 +368,9 @@ export default function CreateEventScreen() {
           body: JSON.stringify({ eventId: id }),
         }).catch(() => {});
       }
+      const beat = { id, kind: kind === "trip" ? ("trip" as const) : ("event" as const), title: title.trim(), emoji: selectedEmoji };
       resetForm();
-      router.replace((kind === "trip" ? `/trip/${id}` : `/event/${id}`) as never);
+      setCreatedBeat(beat);
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : "Failed to create. Please try again.");
     } finally {
@@ -912,9 +917,72 @@ export default function CreateEventScreen() {
         onClose={() => setShowInvitePicker(false)}
       />
 
+      {createdBeat !== null && (
+        <Modal visible transparent animationType="fade" onRequestClose={() => {
+          const beat = createdBeat;
+          setCreatedBeat(null);
+          if (beat) router.replace((beat.kind === "trip" ? `/trip/${beat.id}` : `/event/${beat.id}`) as never);
+        }}>
+          <View style={styles.beatOverlay}>
+            <View style={[styles.beatCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Text style={styles.beatEmoji}>{createdBeat.emoji}</Text>
+              <Text style={[styles.beatTitle, { color: colors.foreground }]}>
+                {createdBeat.kind === "trip" ? "Trip created!" : "It's on!"}
+              </Text>
+              <Text style={[styles.beatSub, { color: colors.mutedForeground }]} numberOfLines={2}>
+                {createdBeat.title} is live. Rally the crew.
+              </Text>
+              <TouchableOpacity
+                activeOpacity={0.9}
+                style={{ width: "100%" }}
+                onPress={() => {
+                  const beat = createdBeat;
+                  const code = events.find((e) => e.id === beat.id)?.inviteCode;
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  Share.share({
+                    message: code
+                      ? `${beat.emoji} ${beat.title} — you in? Join on SquadZ: https://joinsquadz.com/join/${code}`
+                      : `${beat.emoji} ${beat.title} — you in? Join me on SquadZ!`,
+                  }).finally(() => {
+                    setCreatedBeat(null);
+                    router.replace((beat.kind === "trip" ? `/trip/${beat.id}` : `/event/${beat.id}`) as never);
+                  });
+                }}
+              >
+                <LinearGradient
+                  colors={["#FF6B2C", "#FFB23E"]}
+                  start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                  style={styles.beatShareBtn}
+                >
+                  <Ionicons name="share-outline" size={18} color="#fff" />
+                  <Text style={styles.beatShareText}>Share with the squad</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.beatViewBtn}
+                onPress={() => {
+                  const beat = createdBeat;
+                  setCreatedBeat(null);
+                  router.replace((beat.kind === "trip" ? `/trip/${beat.id}` : `/event/${beat.id}`) as never);
+                }}
+              >
+                <Text style={[styles.beatViewText, { color: colors.mutedForeground }]}>
+                  {createdBeat.kind === "trip" ? "View trip" : "View plan"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
+
       <View style={[styles.bottomBar, { borderTopColor: colors.border, paddingBottom: botPad + 8, backgroundColor: colors.background }]}>
         {draftConflicts.length > 0 && (
           <ConflictBanner conflicts={draftConflicts} style={{ marginBottom: 10 }} />
+        )}
+        {!isPro && eventLimit !== null && !atLimit && (
+          <Text style={[styles.allowanceCaption, { color: colors.textDim }]}>
+            {myEventCount}/{eventLimit} free plans used
+          </Text>
         )}
         <TouchableOpacity
           onPress={handleCreate}
@@ -1161,6 +1229,16 @@ const styles = StyleSheet.create({
   squadOptionName: { fontSize: 14, fontWeight: "700" },
   squadOptionCount: { fontSize: 12 },
   bottomBar: { paddingHorizontal: 20, paddingTop: 12, borderTopWidth: 1 },
+  allowanceCaption: { fontSize: 11, fontWeight: "600", textAlign: "center", marginBottom: 8 },
+  beatOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", alignItems: "center", padding: 28 },
+  beatCard: { width: "100%", maxWidth: 340, borderRadius: 24, borderWidth: 1, padding: 24, alignItems: "center", gap: 6 },
+  beatEmoji: { fontSize: 44, marginBottom: 2 },
+  beatTitle: { fontSize: 22, fontWeight: "800", textAlign: "center" },
+  beatSub: { fontSize: 13, textAlign: "center", lineHeight: 18, marginBottom: 14 },
+  beatShareBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 14, paddingVertical: 14 },
+  beatShareText: { color: "#fff", fontSize: 15, fontWeight: "800" },
+  beatViewBtn: { paddingVertical: 12, paddingHorizontal: 16 },
+  beatViewText: { fontSize: 13, fontWeight: "600" },
   createBtnWrap: { borderRadius: 15, overflow: "hidden" },
   createBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 15, paddingVertical: 15 },
   createBtnText: { fontSize: 16, fontWeight: "800" },

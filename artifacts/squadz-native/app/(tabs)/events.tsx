@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo, useCallback } from "react";
+import { useState, useRef, useMemo, useCallback, useEffect } from "react";
 import { router, useFocusEffect } from "expo-router";
 import {
   View,
@@ -24,6 +24,51 @@ import type { Event } from "@/types";
 import { goingCount, parseEventDate } from "@/lib/eventUtils";
 import { isTripPast, isHappeningNow } from "@/lib/tripUtils";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
+import { Image } from "expo-image";
+
+// T210: session-level cache of past-plan photo thumbnails so scrolling the Past
+// list doesn't refetch the vault for every card remount.
+const pastPhotoCache = new Map<string, string[]>();
+
+function PastPhotoStrip({ eventId }: { eventId: string }) {
+  const { authToken } = useAuth();
+  const [urls, setUrls] = useState<string[] | null>(pastPhotoCache.get(eventId) ?? null);
+
+  useEffect(() => {
+    if (pastPhotoCache.has(eventId) || !authToken) return;
+    let active = true;
+    fetch(`${API_BASE}/api/vault/photos?eventId=${eventId}`, { headers: buildAuthHeaders(authToken) })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { photos?: { url: string; mediaType?: string }[] } | null) => {
+        const imgs = (data?.photos ?? [])
+          .filter((p) => p.mediaType !== "video")
+          .slice(0, 4)
+          .map((p) => `${API_BASE}/api/storage${p.url}`);
+        pastPhotoCache.set(eventId, imgs);
+        if (active) setUrls(imgs);
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [eventId, authToken]);
+
+  if (!urls || urls.length === 0) return null;
+  const headers = buildAuthHeaders(authToken) as Record<string, string>;
+  return (
+    <View style={styles.pastStrip}>
+      {urls.map((uri) => (
+        <Image
+          key={uri}
+          source={{ uri, headers }}
+          style={styles.pastStripThumb}
+          contentFit="cover"
+          cachePolicy="memory-disk"
+          recyclingKey={uri}
+          transition={150}
+        />
+      ))}
+    </View>
+  );
+}
 
 type Segment = "trips" | "events" | "past";
 const SEGMENTS: { key: Segment; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
@@ -259,8 +304,9 @@ export default function PlansScreen() {
   }, [segment]);
 
   const renderItem = useCallback(({ item }: { item: Event }) => {
-    if (item.type === "trip") return <TripCard trip={item} />;
-    return (
+    const card = item.type === "trip" ? (
+      <TripCard trip={item} />
+    ) : (
       <EventCard
         id={item.id}
         emoji={item.emoji}
@@ -271,7 +317,17 @@ export default function PlansScreen() {
         attendeeCount={goingCount(item)}
       />
     );
-  }, []);
+    // T210: past cards get a thumbnail strip when vault photos exist.
+    if (isPastPlan(item)) {
+      return (
+        <View>
+          {card}
+          <PastPhotoStrip eventId={item.id} />
+        </View>
+      );
+    }
+    return card;
+  }, [isPastPlan]);
 
   const emptyCopy: Record<Segment, { icon: keyof typeof Ionicons.glyphMap; title: string; sub: string; cta?: string }> = {
     trips: { icon: "airplane-outline", title: "No trips yet", sub: "Plan a multi-day getaway with your squad — build an itinerary together.", cta: "Start a Trip" },
@@ -397,6 +453,8 @@ export default function PlansScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
+  pastStrip: { flexDirection: "row", gap: 6, marginTop: 8 },
+  pastStripThumb: { flex: 1, height: 64, borderRadius: 10 },
   header: { paddingHorizontal: 20, paddingBottom: 8 },
   titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
   title: { fontSize: 28, fontWeight: "900" },

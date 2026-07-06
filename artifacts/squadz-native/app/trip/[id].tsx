@@ -11,6 +11,8 @@ import {
   TextInput,
   Modal,
   Animated,
+  LayoutAnimation,
+  UIManager,
 } from "react-native";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { LinearGradient } from "expo-linear-gradient";
@@ -50,6 +52,7 @@ import {
   groupStopsByDay,
   sumStopCosts,
   isHappeningNow,
+  isTripPast,
   STOP_CATEGORY_META,
   TRIP_COVER_KEYS,
   TRIP_COVERS,
@@ -66,6 +69,11 @@ import {
   type NewStopInput,
   type StopPatch,
 } from "@/lib/tripApi";
+
+// LayoutAnimation needs an explicit opt-in on old-architecture Android.
+if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 /** Short calendar-day label, e.g. "Mon, Jun 3". */
 function formatPickedDay(d: Date): string {
@@ -226,6 +234,20 @@ export default function TripDetailScreen() {
   const [tab, setTab] = useState<TripTab>(
     TRIP_TABS.includes(tabParam as TripTab) ? (tabParam as TripTab) : "itinerary",
   );
+
+  // T205: vault photo count for the past-trip recap strip (null = not loaded).
+  const [recapPhotoCount, setRecapPhotoCount] = useState<number | null>(null);
+  useEffect(() => {
+    if (!event || !id || !authToken) return;
+    if (!isTripPast(event)) return;
+    fetch(`${API_BASE}/api/vault/photos?eventId=${id}`, { headers: buildAuthHeaders(authToken) })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { photos?: unknown[] } | null) => {
+        if (data && Array.isArray(data.photos)) setRecapPhotoCount(data.photos.length);
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [event?.endAt, id, authToken]);
   const { markEventChatRead } = useMessages();
   const lastMsgIso = event?.messages?.[event.messages.length - 1]?.createdAt;
   useEffect(() => {
@@ -521,6 +543,34 @@ export default function TripDetailScreen() {
   };
   const stops = event.itinerary ?? [];
   const packing = event.packing ?? [];
+
+  // ── Lock-in moment (T203): flash a stop green when it flips proposed →
+  // confirmed. Detected by diffing statuses across refreshes, so viewers who
+  // see the change arrive via SSE get the same beat as the host who tapped it.
+  const prevStopStatusRef = useRef<Record<string, string>>({});
+  const [confirmedFlashId, setConfirmedFlashId] = useState<string | null>(null);
+  const confirmFlash = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const prev = prevStopStatusRef.current;
+    const next: Record<string, string> = {};
+    let flipped: string | null = null;
+    for (const s of stops) {
+      next[s.id] = s.status;
+      if (prev[s.id] === "proposed" && s.status === "confirmed") flipped = s.id;
+    }
+    prevStopStatusRef.current = next;
+    if (flipped) {
+      setConfirmedFlashId(flipped);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      confirmFlash.setValue(0);
+      Animated.sequence([
+        Animated.timing(confirmFlash, { toValue: 1, duration: 250, useNativeDriver: false }),
+        Animated.delay(900),
+        Animated.timing(confirmFlash, { toValue: 0, duration: 450, useNativeDriver: false }),
+      ]).start(() => setConfirmedFlashId(null));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stops.map((s) => `${s.id}:${s.status}`).join(",")]);
   const cover = coverFor(event.coverStyle);
   const nights = tripNights(event);
   const happening = isHappeningNow(event);
@@ -625,6 +675,8 @@ export default function TripDetailScreen() {
   const handleTogglePacking = (item: { id: string; done: boolean }) => {
     const done = packOverrides[item.id] ?? item.done;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    // Animate the row "sinking" to the checked group at the bottom.
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setPackOverrides((o) => ({ ...o, [item.id]: !done }));
     void (async () => {
       const res = await patchPacking(event.id, item.id, authToken, { done: !done }, event.version);
@@ -655,8 +707,25 @@ export default function TripDetailScreen() {
           ? [...new Set([...stop.votes, currentUser.id])]
           : stop.votes.filter((v) => v !== currentUser.id);
     const mine = stop.createdBy === currentUser.id;
+    const isFlashing = confirmedFlashId === stop.id;
+    const Wrapper = isFlashing ? Animated.View : View;
     return (
-      <View key={stop.id} style={[styles.stopRow, { borderColor: colors.border, backgroundColor: colors.card }]}>
+      <Wrapper
+        key={stop.id}
+        style={[
+          styles.stopRow,
+          { borderColor: colors.border, backgroundColor: colors.card },
+          isFlashing
+            ? {
+                borderColor: colors.green,
+                backgroundColor: confirmFlash.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [colors.card, colors.green + "26"],
+                }) as unknown as string,
+              }
+            : null,
+        ]}
+      >
         <View style={styles.stopRail}>
           <View style={[styles.stopDot, { backgroundColor: tint }]}>
             <Ionicons name={meta.icon as keyof typeof Ionicons.glyphMap} size={13} color="#fff" />
@@ -676,6 +745,11 @@ export default function TripDetailScreen() {
             ) : null}
           </View>
           <Text style={[styles.stopTitle, { color: colors.foreground }]}>{stop.title}</Text>
+          {proposed && stop.createdBy ? (
+            <Text style={[styles.stopSuggestedBy, { color: colors.textDim }]}>
+              Suggested by {mine ? "you" : resolveUser(stop.createdBy).name.split(" ")[0]}
+            </Text>
+          ) : null}
           {stop.placeName ? <Text style={[styles.stopPlace, { color: colors.mutedForeground }]}>{stop.placeName}</Text> : null}
           {stop.address ? <Text style={[styles.stopAddress, { color: colors.textDim }]}>{stop.address}</Text> : null}
           {stop.note ? <Text style={[styles.stopNote, { color: colors.mutedForeground }]}>{stop.note}</Text> : null}
@@ -743,7 +817,7 @@ export default function TripDetailScreen() {
             </TouchableOpacity>
           </View>
         ) : null}
-      </View>
+      </Wrapper>
     );
   };
 
@@ -893,6 +967,28 @@ export default function TripDetailScreen() {
             </View>
           ) : null}
         </LinearGradient>
+
+        {isTripPast(event) && (() => {
+          const parts: { icon: string; label: string }[] = [];
+          if (recapPhotoCount !== null && recapPhotoCount > 0) {
+            parts.push({ icon: "images-outline", label: `${recapPhotoCount} photo${recapPhotoCount === 1 ? "" : "s"}` });
+          }
+          parts.push({ icon: "people-outline", label: `${allTripMembers.length} went` });
+          if (costs.confirmed > 0) parts.push({ icon: "card-outline", label: `$${costs.confirmed.toFixed(0)} spent` });
+          return (
+            <View style={[styles.recapStrip, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Text style={[styles.recapTitle, { color: colors.mutedForeground }]}>How it went</Text>
+              <View style={styles.recapRow}>
+                {parts.map((p) => (
+                  <View key={p.label} style={styles.recapItem}>
+                    <Ionicons name={p.icon as never} size={14} color={colors.primary} />
+                    <Text style={[styles.recapItemText, { color: colors.foreground }]}>{p.label}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          );
+        })()}
 
         {/* Who's coming */}
         <View style={styles.invitePanel}>
@@ -1152,10 +1248,33 @@ export default function TripDetailScreen() {
               </View>
             ) : (
               <>
-                <Text style={[styles.packCount, { color: colors.mutedForeground }]}>
-                  {packing.filter((p) => p.done).length} of {packing.length} packed
-                </Text>
-                {packing.map((item) => {
+                {(() => {
+                  const packedCount = packing.filter((p) => packOverrides[p.id] ?? p.done).length;
+                  const allPacked = packedCount === packing.length;
+                  return (
+                    <>
+                      <Text style={[styles.packCount, { color: allPacked ? colors.green : colors.mutedForeground }]}>
+                        {allPacked ? "All packed 🎒" : `${packedCount} of ${packing.length} packed`}
+                      </Text>
+                      <View style={[styles.packBarTrack, { backgroundColor: colors.border }]}>
+                        <View
+                          style={[
+                            styles.packBarFill,
+                            { backgroundColor: colors.green, width: `${Math.round((packedCount / packing.length) * 100)}%` },
+                          ]}
+                        />
+                      </View>
+                    </>
+                  );
+                })()}
+                {[...packing]
+                  .sort((a, b) => {
+                    const aDone = packOverrides[a.id] ?? a.done;
+                    const bDone = packOverrides[b.id] ?? b.done;
+                    // Unchecked first; stable within each group.
+                    return Number(aDone) - Number(bDone);
+                  })
+                  .map((item) => {
                   const done = packOverrides[item.id] ?? item.done;
                   return (
                   <View key={item.id} style={[styles.packRow, { borderBottomColor: colors.border }]}>
@@ -1512,6 +1631,11 @@ const styles = StyleSheet.create({
   missingBtn: { borderRadius: 12, borderWidth: 1, paddingHorizontal: 18, paddingVertical: 10 },
 
   invitePanel: { paddingHorizontal: 20, paddingTop: 14, paddingBottom: 8, gap: 10 },
+  recapStrip: { marginHorizontal: 20, marginTop: 14, borderRadius: 16, borderWidth: 1, padding: 14, gap: 8 },
+  recapTitle: { fontSize: 11, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.6 },
+  recapRow: { flexDirection: "row", flexWrap: "wrap", gap: 14 },
+  recapItem: { flexDirection: "row", alignItems: "center", gap: 5 },
+  recapItemText: { fontSize: 13, fontWeight: "700" },
   inviteHeading: { fontSize: 15, fontWeight: "700" },
   memberGrid: { flexDirection: "row", flexWrap: "wrap", gap: 4 },
   memberCell: { alignItems: "center", paddingVertical: 4, paddingHorizontal: 6, position: "relative" },
@@ -1562,6 +1686,9 @@ const styles = StyleSheet.create({
   stopTime: { fontSize: 12, fontWeight: "800" },
   proposedPill: { borderRadius: 8, paddingHorizontal: 7, paddingVertical: 2 },
   proposedPillText: { fontSize: 10, fontWeight: "800" },
+  stopSuggestedBy: { fontSize: 11, fontWeight: "600", marginTop: 1 },
+  packBarTrack: { height: 4, borderRadius: 2, overflow: "hidden", marginBottom: 10 },
+  packBarFill: { height: 4, borderRadius: 2 },
   stopTitle: { fontSize: 16, fontWeight: "800" },
   stopPlace: { fontSize: 13, fontWeight: "600", marginTop: 2 },
   stopAddress: { fontSize: 12, marginTop: 1 },

@@ -522,7 +522,27 @@ router.get("/squads/:id", requireAuth, async (req: Request, res: Response): Prom
       : [];
   const proMap = await resolveProStatusForIds(memberIds);
   const membersWithPro = members.map((m) => ({ ...m, isPro: proMap[m.id] ?? false }));
-  res.json({ ...squad, members: membersWithPro });
+  // Pending direct invites so the member list can show "Invited · waiting"
+  // rows instead of looking like a party of one after you've invited people.
+  // Only names/avatars of invitees — never emails or the invite code.
+  const pendingRows = await db
+    .select({ invitedUserId: squadInvitesTable.invitedUserId })
+    .from(squadInvitesTable)
+    .where(and(eq(squadInvitesTable.squadId, id), eq(squadInvitesTable.status, "pending")));
+  const pendingIds = pendingRows.map((r) => r.invitedUserId).filter((uid) => !memberIds.includes(uid));
+  const pendingInvitees =
+    pendingIds.length > 0
+      ? await db
+          .select({
+            id: usersTable.id,
+            firstName: usersTable.firstName,
+            lastName: usersTable.lastName,
+            profileImageUrl: usersTable.profileImageUrl,
+          })
+          .from(usersTable)
+          .where(inArray(usersTable.id, pendingIds))
+      : [];
+  res.json({ ...squad, members: membersWithPro, pendingInvitees });
 });
 
 // GET /api/squads/:id/stream — SSE endpoint for real-time squad updates.

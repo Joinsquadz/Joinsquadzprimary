@@ -31,6 +31,7 @@ import { useToastBanner } from "@/context/ToastBannerContext";
 import { claimOnce } from "@/lib/seenFlags";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { GradientButton } from "@/components/GradientButton";
+import { SkeletonBox } from "@/components/SkeletonBox";
 
 const DAY_COUNT_OPTIONS = [3, 5, 7, 14, 21, 30];
 // How many day-columns are shown in the grid at once. Larger ranges page
@@ -1220,8 +1221,19 @@ export default function AvailabilityScreen() {
       </View>
 
       {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={colors.primary} />
+        // T212: skeleton mirroring the poll layout (title block + day-grid
+        // columns) instead of a bare spinner.
+        <View style={{ paddingHorizontal: 20, paddingTop: 16, gap: 14 }}>
+          <SkeletonBox height={22} width="60%" borderRadius={8} />
+          <SkeletonBox height={14} width="40%" borderRadius={7} />
+          <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
+            {[0, 1, 2, 3].map((i) => (
+              <View key={i} style={{ flex: 1, gap: 6 }}>
+                <SkeletonBox height={12} borderRadius={6} />
+                <SkeletonBox height={220} borderRadius={10} />
+              </View>
+            ))}
+          </View>
         </View>
       ) : error ? (
         <View style={styles.center}>

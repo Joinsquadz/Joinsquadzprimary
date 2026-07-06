@@ -507,6 +507,24 @@ export default function HomeScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [upNextGoingKey]);
 
+  // T206: while Home is idle, warm the user cache for the details the user is
+  // most likely to tap next — Up Next attendees are handled above; this covers
+  // the member rosters of the top squads so squad/event screens open with
+  // avatars/names already resolved (no spinner beat).
+  const topSquadMembersKey = useMemo(
+    () => squads.slice(0, 3).flatMap((s) => s.memberIds).join(","),
+    [squads],
+  );
+  useEffect(() => {
+    if (!topSquadMembersKey) return;
+    const t = setTimeout(() => {
+      const ids = [...new Set(topSquadMembersKey.split(","))].filter(Boolean);
+      if (ids.length > 0) prefetchUsers(ids);
+    }, 400);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [topSquadMembersKey]);
+
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       {/* Header */}
@@ -683,6 +701,34 @@ export default function HomeScreen() {
                   ? "Create a squad and invite your friends to find the time everyone's free."
                   : "Pick a time everyone's free, then turn it into a plan."}
               </Text>
+              {squads.length === 0 && (
+                // Non-interactive product preview: a miniature plan card with an
+                // availability heat strip so the empty state shows what SquadZ does.
+                <View pointerEvents="none" style={[styles.previewCard, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                  <View style={styles.previewCardTop}>
+                    <Text style={styles.previewCardEmoji}>🍕</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.previewCardTitle, { color: colors.foreground }]}>Pizza night</Text>
+                      <Text style={[styles.previewCardMeta, { color: colors.mutedForeground }]}>Fri 7:00 PM · 4 going</Text>
+                    </View>
+                    <View style={[styles.previewCardBadge, { backgroundColor: "#2ECC8A22" }]}>
+                      <Text style={[styles.previewCardBadgeText, { color: "#2ECC8A" }]}>Best time</Text>
+                    </View>
+                  </View>
+                  <View style={styles.previewHeatRow}>
+                    {[0.2, 0.4, 0.5, 0.8, 1, 0.9, 0.5].map((v, i) => (
+                      <View
+                        key={i}
+                        style={[
+                          styles.previewHeatCell,
+                          { backgroundColor: v >= 0.8 ? "#FF6B2C" : `rgba(255,107,44,${0.12 + v * 0.35})` },
+                        ]}
+                      />
+                    ))}
+                  </View>
+                  <Text style={[styles.previewHeatLabel, { color: colors.textDim }]}>Everyone's free Friday evening</Text>
+                </View>
+              )}
               <TouchableOpacity
                 onPress={squads.length === 0 ? () => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push("/squad/create" as never); } : handleFindTime}
                 activeOpacity={0.9}
@@ -834,6 +880,13 @@ export default function HomeScreen() {
               <Text style={[styles.seeAll, { color: colors.primary }]}>See all →</Text>
             </TouchableOpacity>
           </View>
+          {eventsLoading ? (
+            <View style={{ flexDirection: "row", gap: 12 }}>
+              {[0, 1].map((i) => (
+                <SkeletonBox key={i} width={260} height={140} borderRadius={16} />
+              ))}
+            </View>
+          ) : (
           <FlatList
             data={events.slice(0, 3)}
             horizontal
@@ -859,6 +912,7 @@ export default function HomeScreen() {
               )
             )}
           />
+          )}
         </View>
 
         {/* Balances */}
@@ -911,7 +965,16 @@ export default function HomeScreen() {
         )}
 
         {/* For You — live, data-driven suggestions */}
-        {suggestions.length > 0 && (
+        {eventsLoading && (
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: colors.foreground, marginBottom: 12 }]}>✦ For You</Text>
+            <View style={{ gap: 10 }}>
+              <SkeletonBox height={64} borderRadius={14} />
+              <SkeletonBox height={64} borderRadius={14} />
+            </View>
+          </View>
+        )}
+        {!eventsLoading && suggestions.length > 0 && (
           <View style={styles.section}>
             <Text style={[styles.sectionTitle, { color: colors.foreground, marginBottom: 12 }]}>✦ For You</Text>
             <View style={{ gap: 10 }}>
@@ -1461,6 +1524,16 @@ const styles = StyleSheet.create({
   emptyHeroEmoji: { fontSize: 36 },
   emptyHeroTitle: { fontSize: 18, fontWeight: "800", textAlign: "center" },
   emptyHeroSub: { fontSize: 13, textAlign: "center", lineHeight: 18, marginBottom: 8 },
+  previewCard: { width: "100%", borderRadius: 16, borderWidth: 1, padding: 12, marginBottom: 14, gap: 8 },
+  previewCardTop: { flexDirection: "row", alignItems: "center", gap: 10 },
+  previewCardEmoji: { fontSize: 24 },
+  previewCardTitle: { fontSize: 14, fontWeight: "800" },
+  previewCardMeta: { fontSize: 11, fontWeight: "600", marginTop: 1 },
+  previewCardBadge: { borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 },
+  previewCardBadgeText: { fontSize: 10, fontWeight: "800" },
+  previewHeatRow: { flexDirection: "row", gap: 4 },
+  previewHeatCell: { flex: 1, height: 18, borderRadius: 4 },
+  previewHeatLabel: { fontSize: 10, fontWeight: "600" },
   emptyHeroBtn: { borderRadius: 14, paddingVertical: 14, alignItems: "center" },
   emptyHeroBtnText: { color: "#fff", fontSize: 15, fontWeight: "800" },
   heroCard: {

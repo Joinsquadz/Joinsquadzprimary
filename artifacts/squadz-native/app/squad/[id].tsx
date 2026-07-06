@@ -221,6 +221,13 @@ export default function SquadDetailScreen() {
     ...buildAuthHeaders(authToken),
   }), [authToken]);
 
+  // People with a pending direct invite to this squad (not yet joined) —
+  // rendered as dimmed "Invited" rows in the member list.
+  const [pendingInvitees, setPendingInvitees] = useState<
+    { id: string; name: string; initials: string; profileImageUrl: string | null }[]
+  >([]);
+  const liveMemberCount = getSquad(id ?? "")?.memberIds.length ?? 0;
+
   // Fetch enriched member list on focus and seed the user cache so names/avatars
   // appear immediately without waiting for the separate batch-fetch.
   useFocusEffect(
@@ -229,10 +236,29 @@ export default function SquadDetailScreen() {
       let active = true;
       type EnrichedMember = { id: string; firstName: string | null; lastName: string | null; profileImageUrl: string | null; isPro?: boolean };
       fetch(`${API_BASE}/api/squads/${id}`, { headers: authHeaders() })
-        .then((r) => (r.ok ? (r.json() as Promise<{ members?: EnrichedMember[] }>) : null))
+        .then((r) => (r.ok ? (r.json() as Promise<{ members?: EnrichedMember[]; pendingInvitees?: EnrichedMember[] }>) : null))
         .catch(() => null)
         .then((data) => {
           if (!active || !data?.members) return;
+          // "Invited · waiting" rows: people with a pending direct invite who
+          // haven't joined yet, so the squad never looks like a party of one.
+          setPendingInvitees(
+            (data.pendingInvitees ?? []).map((p) => {
+              const firstName = p.firstName ?? "";
+              const lastName = p.lastName ?? "";
+              return {
+                id: p.id,
+                name: [firstName, lastName].filter(Boolean).join(" ") || "Invited",
+                initials:
+                  firstName && lastName
+                    ? `${firstName[0]}${lastName[0]}`.toUpperCase()
+                    : firstName
+                    ? firstName.slice(0, 2).toUpperCase()
+                    : "?",
+                profileImageUrl: p.profileImageUrl ?? null,
+              };
+            }),
+          );
           data.members.forEach((m) => {
             const firstName = m.firstName ?? "";
             const lastName = m.lastName ?? "";
@@ -251,7 +277,10 @@ export default function SquadDetailScreen() {
           });
         });
       return () => { active = false; };
-    }, [id, authHeaders, seedUser])
+      // Re-run when the member count changes so a pending row clears the
+      // moment its invitee joins (SSE membership refresh bumps the count).
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [id, authHeaders, seedUser, liveMemberCount])
   );
 
   useFocusEffect(
@@ -844,6 +873,27 @@ export default function SquadDetailScreen() {
               </View>
             );
           })}
+          {pendingInvitees
+            .filter((p) => !squad.memberIds.includes(p.id))
+            .map((p) => (
+              <View key={`pending-${p.id}`} style={{ alignItems: "center", opacity: 0.5 }}>
+                <View style={styles.memberAvatar}>
+                  <ProAvatar
+                    initials={p.initials}
+                    color={colors.mutedForeground}
+                    imageUrl={p.profileImageUrl}
+                    size={44}
+                    fontSize={15}
+                  />
+                </View>
+                <Text style={[styles.memberAvatarName, { color: colors.mutedForeground }]} numberOfLines={1}>
+                  {p.name.split(" ")[0]}
+                </Text>
+                <Text style={[styles.memberAvatarName, { color: colors.mutedForeground, fontSize: 9 }]}>
+                  Invited · waiting
+                </Text>
+              </View>
+            ))}
           {(isCreator || (squad.membersCanInvite ?? false)) && (
             <TouchableOpacity
               onPress={() => {

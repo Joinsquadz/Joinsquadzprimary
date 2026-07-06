@@ -20,6 +20,8 @@ import { GradientButton } from "@/components/GradientButton";
 import { useTips } from "@/context/TipsContext";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { IconPicker } from "@/components/IconPicker";
+import { CelebrationOverlay } from "@/components/CelebrationOverlay";
+import { claimOnce } from "@/lib/seenFlags";
 import { EMOJI_CHOICES } from "@/constants/emojis";
 
 const SQUAD_COLORS = ["#FF6B2C", "#A855F7", "#2ECC8A", "#4A9EFF", "#FFB23E", "#FF6B2C"];
@@ -56,6 +58,8 @@ export default function OnboardingScreen() {
   const [copied, setCopied] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createdSquadId, setCreatedSquadId] = useState<string | null>(null);
+  // First-squad milestone beat between "create" and the invite step.
+  const [showFirstSquadCelebration, setShowFirstSquadCelebration] = useState(false);
 
   // Resume an abandoned onboarding: if a squad already exists (created in a
   // previous session before the app was closed), skip the create step and drop
@@ -118,10 +122,16 @@ export default function OnboardingScreen() {
     try {
       const emojiIndex = EMOJI_CHOICES.indexOf(squadEmoji);
       const color = SQUAD_COLORS[Math.max(0, emojiIndex) % SQUAD_COLORS.length] ?? "#FF6B2C";
+      const wasFirstSquad = squads.length === 0;
       const id = await addSquad({ name: squadName.trim(), emoji: squadEmoji, color, isPublic: false });
       setCreatedSquadId(id);
       setCreating(false);
-      setStep(1);
+      if (wasFirstSquad && (await claimOnce("firstsquad", currentUser.id))) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        setShowFirstSquadCelebration(true);
+      } else {
+        setStep(1);
+      }
     } catch (err) {
       setCreating(false);
       if (err instanceof SquadLimitError) {
@@ -341,6 +351,18 @@ export default function OnboardingScreen() {
           />
         )}
       </View>
+
+      <CelebrationOverlay
+        visible={showFirstSquadCelebration}
+        emoji={squadEmoji}
+        title="Your first squad!"
+        subtitle="Now invite your crew — SquadZ finds the time everyone's free."
+        ctaLabel="Invite your crew"
+        onClose={() => {
+          setShowFirstSquadCelebration(false);
+          setStep(1);
+        }}
+      />
     </View>
   );
 }

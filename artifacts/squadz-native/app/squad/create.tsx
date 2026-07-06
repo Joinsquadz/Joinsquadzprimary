@@ -18,6 +18,8 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useData, SquadLimitError } from "@/context/AppContext";
 import { UpgradeModal } from "@/components/UpgradeModal";
+import { CelebrationOverlay } from "@/components/CelebrationOverlay";
+import { claimOnce } from "@/lib/seenFlags";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { IconPicker } from "@/components/IconPicker";
 
@@ -34,7 +36,7 @@ const CATEGORIES = [
 export default function CreateSquadScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { addSquad } = useData();
+  const { addSquad, squads, currentUser } = useData();
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
 
@@ -45,6 +47,8 @@ export default function CreateSquadScreen() {
   const [isPublic, setIsPublic] = useState(false);
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // First-squad milestone: hold navigation and celebrate once per user.
+  const [celebrateSquadId, setCelebrateSquadId] = useState<string | null>(null);
   const inFlightRef = useRef(false);
 
   const pickCategory = (cat: (typeof CATEGORIES)[number]) => {
@@ -64,9 +68,14 @@ export default function CreateSquadScreen() {
     setSubmitting(true);
     const desc = description.trim();
     try {
+      const wasFirstSquad = squads.length === 0;
       const id = await addSquad({ name: name.trim(), description: desc || undefined, emoji, color, isPublic });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.replace(`/squad/${id}` as never);
+      if (wasFirstSquad && (await claimOnce("firstsquad", currentUser.id))) {
+        setCelebrateSquadId(id);
+      } else {
+        router.replace(`/squad/${id}` as never);
+      }
     } catch (err) {
       inFlightRef.current = false;
       setSubmitting(false);
@@ -227,6 +236,19 @@ export default function CreateSquadScreen() {
         visible={showUpgrade}
         trigger="squad_limit"
         onClose={() => setShowUpgrade(false)}
+      />
+
+      <CelebrationOverlay
+        visible={celebrateSquadId !== null}
+        emoji={emoji}
+        title="Your first squad!"
+        subtitle="Now invite your crew — SquadZ finds the time everyone's free."
+        ctaLabel="Invite your crew"
+        onClose={() => {
+          const id = celebrateSquadId;
+          setCelebrateSquadId(null);
+          if (id) router.replace(`/squad/${id}` as never);
+        }}
       />
     </View>
   );
