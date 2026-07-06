@@ -21,3 +21,17 @@ refetch (subscription + photos) so newly-unlocked content appears.
 **Why:** users intending to upgrade from the vault were dumped on the profile tab
 and had to navigate back; the fix converts intent in place and unlocks photos
 without a manual refresh.
+
+## Web popup opening: never trust Linking.openURL
+
+react-native-web's `Linking.openURL` wraps `window.open(url,'_blank','noopener')`
+and **resolves successfully even when the popup is blocked** (window.open returns
+null without throwing). Inside the sandboxed canvas preview iframe popups are
+always blocked, so checkout silently did nothing.
+
+**How to apply:** any web flow that opens an external URL (Stripe checkout,
+portal, OAuth) must call `window.open` itself and check the return value:
+opened → done; blocked + top-level tab → `window.location.assign(url)`;
+blocked + embedded iframe → fail loudly with user-facing error (Stripe/IdPs
+refuse to render inside frames, so navigating the iframe dead-ends). See
+`lib/checkout.ts` `openCheckoutUrl`.

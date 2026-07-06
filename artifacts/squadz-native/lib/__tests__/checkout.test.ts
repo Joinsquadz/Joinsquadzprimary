@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockOpenURL = vi.hoisted(() => vi.fn(async () => true));
+const mockPlatform = vi.hoisted(() => ({ OS: "ios" as string }));
 const mockResolveApiBase = vi.hoisted(() => vi.fn(() => "https://api.example.com"));
 const mockBuildAuthHeaders = vi.hoisted(() =>
   vi.fn((token: string | null) => (token ? { Authorization: `Bearer ${token}` } : {})),
@@ -8,6 +9,7 @@ const mockBuildAuthHeaders = vi.hoisted(() =>
 
 vi.mock("react-native", () => ({
   Linking: { openURL: mockOpenURL },
+  Platform: mockPlatform,
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -15,7 +17,7 @@ vi.mock("@/lib/api", () => ({
   buildAuthHeaders: mockBuildAuthHeaders,
 }));
 
-import { startProCheckout } from "../checkout";
+import { startProCheckout, POPUP_BLOCKED_ERROR } from "../checkout";
 
 type JsonResponse = { json: () => Promise<unknown> };
 
@@ -30,6 +32,7 @@ describe("startProCheckout", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockPlatform.OS = "ios";
     mockResolveApiBase.mockReturnValue("https://api.example.com");
     fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
@@ -109,6 +112,59 @@ describe("startProCheckout", () => {
 
     expect(result).toEqual({ ok: false, error: "Something went wrong. Please try again." });
     expect(mockOpenURL).not.toHaveBeenCalled();
+  });
+
+  describe("web: popup handling (Linking.openURL silently swallows blocked popups)", () => {
+    const CHECKOUT_URL = "https://checkout.stripe.com/session_web";
+
+    function stubWindow(overrides: { open: ReturnType<typeof vi.fn>; embedded: boolean }) {
+      const assign = vi.fn();
+      const win: Record<string, unknown> = {
+        open: overrides.open,
+        location: { assign },
+      };
+      // window.self !== window.top ⇔ embedded in an iframe
+      win.self = win;
+      win.top = overrides.embedded ? {} : win;
+      vi.stubGlobal("window", win);
+      return { assign };
+    }
+
+    beforeEach(() => {
+      mockPlatform.OS = "web";
+      fetchMock.mockResolvedValueOnce(jsonOk({ url: CHECKOUT_URL, tier: "standard" }));
+    });
+
+    it("opens a new tab via window.open and never uses Linking.openURL", async () => {
+      const open = vi.fn(() => ({}) as Window);
+      stubWindow({ open, embedded: true });
+
+      const result = await startProCheckout("tok_abc");
+
+      expect(result).toEqual({ ok: true, tier: "standard" });
+      expect(open).toHaveBeenCalledWith(CHECKOUT_URL, "_blank", "noopener");
+      expect(mockOpenURL).not.toHaveBeenCalled();
+    });
+
+    it("falls back to same-tab navigation when the popup is blocked in a top-level tab", async () => {
+      const open = vi.fn(() => null);
+      const { assign } = stubWindow({ open, embedded: false });
+
+      const result = await startProCheckout("tok_abc");
+
+      expect(result).toEqual({ ok: true, tier: "standard" });
+      expect(assign).toHaveBeenCalledWith(CHECKOUT_URL);
+    });
+
+    it("fails loudly when the popup is blocked inside an embedded iframe", async () => {
+      const open = vi.fn(() => null);
+      const { assign } = stubWindow({ open, embedded: true });
+
+      const result = await startProCheckout("tok_abc");
+
+      expect(result).toEqual({ ok: false, error: POPUP_BLOCKED_ERROR });
+      expect(assign).not.toHaveBeenCalled();
+    });
   });
 
   it("resolves the API base at call time (dynamic), not at import time", async () => {
