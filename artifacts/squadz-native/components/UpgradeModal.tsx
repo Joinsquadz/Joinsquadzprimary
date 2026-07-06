@@ -31,6 +31,8 @@ interface Props {
   trigger: UpgradeTrigger;
   onClose: () => void;
   onUpgradeSuccess?: () => void;
+  /** Optional context-specific headline (e.g. "Upgrade to join 🎿 Ski Crew"). */
+  headline?: string;
 }
 
 // Display-only price labels. The real charge is enforced server-side from the
@@ -84,7 +86,7 @@ type Phase = "idle" | "checkout" | "confirming" | "failed" | "celebrate";
 
 const welcomeSeenKey = (subId: string) => `hasSeenUpgradeWelcome_${subId}`;
 
-export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess }: Props) {
+export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess, headline }: Props) {
   const colors = useColors();
   const { authToken, currentUser } = useAuth();
   const { refreshUsers } = useUserCache();
@@ -313,7 +315,7 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess }: Pr
             <Ionicons name="star" size={30} color="#FF6B2C" />
           </View>
 
-          <Text style={[styles.headline, { color: colors.foreground }]}>{copy.headline}</Text>
+          <Text style={[styles.headline, { color: colors.foreground }]}>{headline ?? copy.headline}</Text>
           <Text style={[styles.sub, { color: colors.mutedForeground }]}>{copy.sub}</Text>
 
           <View style={styles.tierWrap}>

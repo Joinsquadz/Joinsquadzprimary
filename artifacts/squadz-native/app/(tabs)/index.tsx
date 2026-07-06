@@ -11,6 +11,7 @@ import {
   Modal,
   Alert,
   RefreshControl,
+  Linking,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
@@ -35,6 +36,19 @@ import { CelebrationOverlay } from "@/components/CelebrationOverlay";
 import { claimOnce } from "@/lib/seenFlags";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { useToast } from "@/context/ToastContext";
+import { todayKey } from "@/lib/tripUtils";
+
+/** Open the platform maps app pointed at a freeform location string. */
+function openMaps(location: string) {
+  const q = encodeURIComponent(location);
+  const url =
+    Platform.OS === "ios"
+      ? `http://maps.apple.com/?q=${q}`
+      : Platform.OS === "android"
+        ? `geo:0,0?q=${q}`
+        : `https://www.google.com/maps/search/?api=1&query=${q}`;
+  Linking.openURL(url).catch(() => {});
+}
 
 type DiscoverEvent = { id: string; emoji: string; title: string; date: string; inviteCode: string };
 type DiscoverSquad = { id: string; emoji: string; name: string; color: string; memberIds: string[] };
@@ -205,6 +219,50 @@ export default function HomeScreen() {
       return endOfDay >= now;
     }) ?? null;
   }, [events]);
+
+  // Minute ticker so the day-of countdown stays fresh while the screen is open.
+  const [nowMinute, setNowMinute] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNowMinute(Date.now()), 60_000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Day-of takeover: when the Up Next plan is today (or in progress right now),
+  // the hero switches to a live variant — countdown/"Happening now", one-tap
+  // maps, today's itinerary stops for trips, and a shortcut to the plan's chat.
+  const dayOf = useMemo(() => {
+    if (!upNext) return null;
+    const startIso = upNext.eventAt ?? upNext.startAt ?? null;
+    if (!startIso) return null;
+    const start = new Date(startIso);
+    if (isNaN(start.getTime())) return null;
+    const now = new Date(nowMinute);
+    // Trips span multiple days; plain events get a generous 4h window.
+    const endIso = upNext.endAt ?? null;
+    const end = endIso ? new Date(new Date(endIso).setHours(23, 59, 59, 999)) : new Date(start.getTime() + 4 * 3600_000);
+    const sameDay =
+      start.getFullYear() === now.getFullYear() &&
+      start.getMonth() === now.getMonth() &&
+      start.getDate() === now.getDate();
+    const inProgress = now >= start && now <= end;
+    // Revert once the plan is over — even if it's still the same calendar day.
+    if (now > end) return null;
+    if (!sameDay && !inProgress) return null;
+    let statusLabel: string;
+    if (inProgress) {
+      statusLabel = "Happening now";
+    } else {
+      const mins = Math.max(1, Math.round((start.getTime() - now.getTime()) / 60_000));
+      const h = Math.floor(mins / 60);
+      const m = mins % 60;
+      statusLabel = h > 0 ? `Today · starts in ${h}h${m > 0 ? ` ${m}m` : ""}` : `Today · starts in ${m}m`;
+    }
+    const todayStops =
+      upNext.type === "trip"
+        ? upNext.itinerary.filter((s) => s.day === todayKey() && s.status === "confirmed").slice(0, 3)
+        : [];
+    return { inProgress, statusLabel, todayStops };
+  }, [upNext, nowMinute]);
 
   // Count events/trips that actually fall within the current week (today
   // through the upcoming Sunday). Used for an accurate header subgreeting —
@@ -406,6 +464,42 @@ export default function HomeScreen() {
     return attendingIds(upNext, sq?.memberIds ?? []);
   }, [upNext, squads]);
 
+  // "Needs you" — pending actions across the user's plans, each a one-tap deep
+  // link: unanswered RSVPs, open votes on proposed trip stops, polls not voted.
+  const needsYou = useMemo(() => {
+    const me = currentUser.id;
+    const items: { key: string; icon: keyof typeof Ionicons.glyphMap; tint: string; title: string; sub: string; route: string }[] = [];
+    for (const e of events) {
+      if (e.cancelled) continue;
+      if (e.type === "event" && e.hostId !== me && e.rsvps[me] === undefined) {
+        items.push({
+          key: `rsvp-${e.id}`, icon: "help-circle", tint: "#FF6B2C",
+          title: `RSVP to ${e.title}`, sub: e.date || "Date TBD",
+          route: `/event/${e.id}`,
+        });
+      }
+      if (e.type === "trip") {
+        const openVotes = e.itinerary.filter((s) => s.status === "proposed" && s.createdBy !== me && !s.votes.includes(me));
+        if (openVotes.length > 0) {
+          items.push({
+            key: `votes-${e.id}`, icon: "heart", tint: "#A855F7",
+            title: `${openVotes.length} stop${openVotes.length !== 1 ? "s" : ""} to vote on`, sub: e.title,
+            route: `/trip/${e.id}`,
+          });
+        }
+      }
+      const openPolls = e.polls.filter((p) => !p.options.some((o) => o.voterIds.includes(me)));
+      if (openPolls.length > 0) {
+        items.push({
+          key: `polls-${e.id}`, icon: "stats-chart", tint: "#4A9EFF",
+          title: openPolls.length === 1 ? openPolls[0].question : `${openPolls.length} polls need your vote`, sub: e.title,
+          route: e.type === "trip" ? `/trip/${e.id}` : `/event/${e.id}`,
+        });
+      }
+    }
+    return items.slice(0, 4);
+  }, [events, currentUser.id]);
+
   // Pre-load user profiles shown in the hero card attendee pips
   const upNextGoingKey = upNextGoingIds.join(",");
   useEffect(() => {
@@ -513,11 +607,37 @@ export default function HomeScreen() {
               >
                 {/* Decorative circle */}
                 <View style={styles.heroCircle} />
-                <View style={[styles.heroTag, { backgroundColor: "rgba(255,255,255,0.25)" }]}>
-                  <Text style={styles.heroTagText}>⚡ Up Next</Text>
+                <View style={[styles.heroTag, { backgroundColor: dayOf ? "rgba(255,255,255,0.32)" : "rgba(255,255,255,0.25)" }]}>
+                  <Text style={styles.heroTagText}>
+                    {dayOf ? (dayOf.inProgress ? "🔴 " : "⏰ ") + dayOf.statusLabel : "⚡ Up Next"}
+                  </Text>
                 </View>
                 <Text style={styles.heroTitle}>{upNext.emoji} {upNext.title}</Text>
-                <Text style={styles.heroSub}>{upNext.location} · {upNext.date}</Text>
+                {dayOf && upNext.location && upNext.location !== "TBD" ? (
+                  <TouchableOpacity
+                    onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); openMaps(upNext.location); }}
+                    style={styles.heroLocBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open ${upNext.location} in maps`}
+                  >
+                    <Ionicons name="navigate" size={13} color="#fff" />
+                    <Text style={styles.heroLocText} numberOfLines={1}>{upNext.location}</Text>
+                    <Ionicons name="chevron-forward" size={12} color="rgba(255,255,255,0.8)" />
+                  </TouchableOpacity>
+                ) : (
+                  <Text style={styles.heroSub}>{upNext.location} · {upNext.date}</Text>
+                )}
+                {dayOf && dayOf.todayStops.length > 0 ? (
+                  <View style={styles.heroStops}>
+                    {dayOf.todayStops.map((s) => (
+                      <View key={s.id} style={styles.heroStopRow}>
+                        <View style={styles.heroStopDot} />
+                        {s.time ? <Text style={styles.heroStopTime}>{s.time}</Text> : null}
+                        <Text style={styles.heroStopTitle} numberOfLines={1}>{s.title}</Text>
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
                 <View style={styles.heroFooter}>
                   <View style={styles.heroPeople}>
                     {upNextGoingIds
@@ -531,7 +651,22 @@ export default function HomeScreen() {
                         );
                       })}
                   </View>
-                  <Text style={styles.heroGoingText}>{upNextGoingIds.length} going</Text>
+                  {dayOf ? (
+                    <TouchableOpacity
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        router.push((upNext.type === "trip" ? `/trip/${upNext.id}?tab=chat` : `/event/${upNext.id}?tab=chat`) as never);
+                      }}
+                      style={styles.heroChatBtn}
+                      accessibilityRole="button"
+                      accessibilityLabel="Open plan chat"
+                    >
+                      <Ionicons name="chatbubble" size={13} color="#FF6B2C" />
+                      <Text style={styles.heroChatText}>Chat</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <Text style={styles.heroGoingText}>{upNextGoingIds.length} going</Text>
+                  )}
                 </View>
               </LinearGradient>
             </TouchableOpacity>
@@ -557,6 +692,34 @@ export default function HomeScreen() {
                   <Text style={styles.emptyHeroBtnText}>{squads.length === 0 ? "Create your first squad" : "Find a time"}</Text>
                 </LinearGradient>
               </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {/* Needs you — pending RSVPs, votes, polls */}
+        {needsYou.length > 0 && (
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: colors.foreground, marginBottom: 10 }]}>Needs you</Text>
+            <View style={{ gap: 8 }}>
+              {needsYou.map((item) => (
+                <TouchableOpacity
+                  key={item.key}
+                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push(item.route as never); }}
+                  activeOpacity={0.85}
+                  style={[styles.needsRow, { backgroundColor: colors.card, borderColor: colors.border }]}
+                  accessibilityRole="button"
+                  accessibilityLabel={item.title}
+                >
+                  <View style={[styles.needsIcon, { backgroundColor: item.tint + "18" }]}>
+                    <Ionicons name={item.icon} size={16} color={item.tint} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.needsTitle, { color: colors.foreground }]} numberOfLines={1}>{item.title}</Text>
+                    <Text style={[styles.needsSub, { color: colors.mutedForeground }]} numberOfLines={1}>{item.sub}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color={colors.textDim} />
+                </TouchableOpacity>
+              ))}
             </View>
           </View>
         )}
@@ -1315,6 +1478,19 @@ const styles = StyleSheet.create({
   heroTagText: { fontSize: 12, fontWeight: "700", color: "#fff" },
   heroTitle: { fontSize: 22, fontWeight: "800", color: "#fff", marginBottom: 4 },
   heroSub: { fontSize: 13, color: "rgba(255,255,255,0.8)", marginBottom: 14 },
+  heroLocBtn: { flexDirection: "row", alignItems: "center", gap: 5, alignSelf: "flex-start", backgroundColor: "rgba(255,255,255,0.2)", borderRadius: 14, paddingHorizontal: 10, paddingVertical: 5, marginBottom: 12 },
+  heroLocText: { fontSize: 13, fontWeight: "700", color: "#fff", maxWidth: 220 },
+  heroStops: { marginBottom: 12, gap: 5 },
+  heroStopRow: { flexDirection: "row", alignItems: "center", gap: 7 },
+  heroStopDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: "rgba(255,255,255,0.75)" },
+  heroStopTime: { fontSize: 12, fontWeight: "800", color: "rgba(255,255,255,0.85)" },
+  heroStopTitle: { fontSize: 12, fontWeight: "600", color: "#fff", flexShrink: 1 },
+  heroChatBtn: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "#fff", borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6 },
+  heroChatText: { fontSize: 12, fontWeight: "800", color: "#FF6B2C" },
+  needsRow: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 14, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10 },
+  needsIcon: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  needsTitle: { fontSize: 14, fontWeight: "700" },
+  needsSub: { fontSize: 12, marginTop: 1 },
   heroFooter: { flexDirection: "row", alignItems: "center" },
   heroPeople: { flexDirection: "row" },
   heroPip: {

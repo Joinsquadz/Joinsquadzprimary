@@ -40,7 +40,7 @@ export default function OnboardingScreen() {
   const { login } = useAuth();
   const { friendCode, currentUser, addSquad, squads } = useData();
   const { armTour } = useTips();
-  const params = useLocalSearchParams<{ inviteEventId?: string; inviteTitle?: string; publicSquadId?: string; joinEventCode?: string; squadCode?: string; inviteCode?: string }>();
+  const params = useLocalSearchParams<{ inviteEventId?: string; inviteTitle?: string; publicSquadId?: string; joinEventCode?: string; squadCode?: string; squadName?: string; squadEmoji?: string; inviteCode?: string }>();
 
   // Users arriving from a shared invite link should NOT be asked to build their
   // own squad — fast-track them straight into the squad/event they were invited
@@ -98,7 +98,8 @@ export default function OnboardingScreen() {
       router.replace({ pathname: "/join/[inviteCode]", params: { inviteCode: params.joinEventCode } } as never);
     } else if (params.squadCode) {
       armTour();
-      router.replace({ pathname: "/squad/join", params: { code: params.squadCode } } as never);
+      // auto=1: the invite-link tap was the intent — accept without another tap.
+      router.replace({ pathname: "/squad/join", params: { code: params.squadCode, auto: "1" } } as never);
     } else if (params.publicSquadId) {
       armTour();
       router.replace({ pathname: "/squad/join-public", params: { id: params.publicSquadId } } as never);
@@ -170,7 +171,9 @@ export default function OnboardingScreen() {
           <Text style={[styles.desc, { color: colors.mutedForeground, textAlign: "center", fontSize: 15, marginBottom: 28 }]}>
             {params.inviteTitle
               ? `Let's get you into ${params.inviteTitle} and find a time that works for everyone.`
-              : "Let's get you into your squad and find a time that works for everyone."}
+              : params.squadName
+                ? `Let's get you into ${params.squadEmoji ? `${params.squadEmoji} ` : ""}${params.squadName} and find a time that works for everyone.`
+                : "Let's get you into your squad and find a time that works for everyone."}
           </Text>
         </View>
         <View style={[styles.footer, { paddingBottom: botPad + 16, borderTopColor: colors.border + "80" }]}>

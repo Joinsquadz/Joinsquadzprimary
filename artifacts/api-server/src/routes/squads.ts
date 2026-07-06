@@ -294,6 +294,46 @@ router.post("/squads/join-via-code", requireAuth, async (req: Request, res: Resp
   }
 });
 
+// Read-only preview for a private invite link. Intentionally unauthenticated:
+// possessing the invite code IS the capability (same trust model as the join
+// itself), and the preview must render BEFORE signup so invitees see what
+// they're joining. Exposes only coarse, non-sensitive fields — never the
+// member list or member identities beyond the squad creator's first name.
+router.get("/squads/preview", async (req: Request, res: Response): Promise<void> => {
+  const raw = req.query.code;
+  const code = typeof raw === "string" ? raw.trim().toUpperCase() : "";
+  if (!code) {
+    res.status(400).json({ error: "Invite code is required." });
+    return;
+  }
+  try {
+    const [squad] = await db
+      .select({
+        id: squadsTable.id,
+        name: squadsTable.name,
+        emoji: squadsTable.emoji,
+        memberIds: squadsTable.memberIds,
+        creatorId: squadsTable.creatorId,
+      })
+      .from(squadsTable)
+      .where(eq(squadsTable.inviteCode, code));
+    if (!squad) {
+      res.status(404).json({ error: "Invite link is invalid or has expired." });
+      return;
+    }
+    const creator = squad.creatorId ? await storage.getUser(squad.creatorId) : undefined;
+    res.json({
+      name: squad.name,
+      emoji: squad.emoji,
+      memberCount: ((squad.memberIds ?? []) as string[]).length,
+      creatorFirstName: creator?.firstName ?? null,
+    });
+  } catch (err) {
+    logger.error({ err }, "Error fetching squad invite preview");
+    res.status(500).json({ error: "Failed to load preview" });
+  }
+});
+
 router.get("/squads", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const userId = (req.user as { id: string }).id;
   const [squads, mutedIds] = await Promise.all([

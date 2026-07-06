@@ -43,10 +43,13 @@ export default function LoginScreen() {
     publicSquadId?: string;
     joinEventCode?: string;
     squadCode?: string;
+    squadName?: string;
+    squadEmoji?: string;
   }>();
 
   const hasInvite = !!params.inviteCode;
-  const [screen, setScreen] = useState<Screen>(hasInvite ? "signin" : "splash");
+  const hasSquadInvite = !!params.squadCode && !!params.squadName;
+  const [screen, setScreen] = useState<Screen>(hasInvite || !!params.squadCode ? "signin" : "splash");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -86,7 +89,8 @@ export default function LoginScreen() {
     } else if (params.joinEventCode) {
       router.replace({ pathname: "/join/[inviteCode]", params: { inviteCode: params.joinEventCode } } as never);
     } else if (params.squadCode) {
-      router.replace({ pathname: "/squad/join", params: { code: params.squadCode } } as never);
+      // auto=1: the invite-link tap was the intent — accept without another tap.
+      router.replace({ pathname: "/squad/join", params: { code: params.squadCode, auto: "1" } } as never);
     } else if (params.publicSquadId) {
       router.replace({ pathname: "/squad/join-public", params: { id: params.publicSquadId } } as never);
     } else {
@@ -156,13 +160,39 @@ export default function LoginScreen() {
             </View>
           )}
 
+          {hasSquadInvite && (
+            <View
+              style={[
+                styles.inviteBanner,
+                {
+                  backgroundColor: colors.primary + "18",
+                  borderColor: colors.primary + "35",
+                  marginHorizontal: 24,
+                  marginBottom: 20,
+                },
+              ]}
+            >
+              <Text style={styles.inviteEmoji}>{params.squadEmoji ?? "👥"}</Text>
+              <View style={styles.inviteText}>
+                <Text style={[styles.inviteLabel, { color: colors.primary }]}>You've been invited to join</Text>
+                <Text style={[styles.inviteTitle, { color: colors.foreground }]}>{params.squadName}</Text>
+                <Text style={{ fontSize: 12, color: colors.mutedForeground }}>You'll join right after you sign in</Text>
+              </View>
+              <Text style={{ fontSize: 18 }}>🎉</Text>
+            </View>
+          )}
+
           <View style={{ alignItems: "center", marginBottom: 28, paddingHorizontal: 24 }}>
             <SquadzIcon size={56} style={{ borderRadius: 16, marginBottom: 16 }} />
             <Text style={[styles.serifHeadingLg, { color: colors.foreground, textAlign: "center", marginBottom: 6 }]}>
-              {hasInvite ? "Sign in to join →" : "Welcome back 👋"}
+              {hasInvite || hasSquadInvite ? "Sign in to join →" : "Welcome back 👋"}
             </Text>
             <Text style={[styles.sub, { color: colors.mutedForeground, textAlign: "center" }]}>
-              {hasInvite ? `Sign in to accept your invite to ${params.inviteTitle}` : "Sign in to your squad"}
+              {hasInvite
+                ? `Sign in to accept your invite to ${params.inviteTitle}`
+                : hasSquadInvite
+                  ? `Sign in to join ${params.squadEmoji ? `${params.squadEmoji} ` : ""}${params.squadName}`
+                  : "Sign in to your squad"}
             </Text>
           </View>
 

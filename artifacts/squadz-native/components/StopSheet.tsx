@@ -64,8 +64,8 @@ export type StopDraft = {
   assigneeId: string | null;
 };
 
-function emptyDraft(day: string): StopDraft {
-  return { day, time: "", endTime: "", title: "", placeName: "", address: "", note: "", category: "activity", status: "confirmed", cost: "", assigneeId: null };
+function emptyDraft(day: string, status: "confirmed" | "proposed" = "confirmed"): StopDraft {
+  return { day, time: "", endTime: "", title: "", placeName: "", address: "", note: "", category: "activity", status, cost: "", assigneeId: null };
 }
 
 export function StopSheet({
@@ -74,6 +74,7 @@ export function StopSheet({
   defaultDay,
   editing,
   saving,
+  canConfirm = true,
   members = [],
   onClose,
   onSubmit,
@@ -83,6 +84,8 @@ export function StopSheet({
   defaultDay: string;
   editing: ItineraryStop | null;
   saving: boolean;
+  /** Host/co-admin: defaults new stops to "confirmed" ("Add to plan"). Others default to "proposed" ("Suggest"). */
+  canConfirm?: boolean;
   members?: { id: string; name: string }[];
   onClose: () => void;
   onSubmit: (data: NewStopInput | StopPatch, isEdit: boolean) => void;
@@ -90,6 +93,9 @@ export function StopSheet({
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const [draft, setDraft] = useState<StopDraft>(emptyDraft(defaultDay));
+  // Quick-add: title + day + category above the fold; everything else behind
+  // "More details". Editing always shows the full form.
+  const [showMore, setShowMore] = useState(false);
   // Wheel time picker (native): which field is open + its working value.
   const [timeStep, setTimeStep] = useState<"start" | "end" | null>(null);
   const [timeTmp, setTimeTmp] = useState<Date>(new Date());
@@ -120,6 +126,7 @@ export function StopSheet({
       setTimeStep(null);
       return;
     }
+    setShowMore(!!editing);
     if (editing) {
       setDraft({
         day: editing.day,
@@ -135,9 +142,9 @@ export function StopSheet({
         assigneeId: editing.assigneeId ?? null,
       });
     } else {
-      setDraft(emptyDraft(defaultDay));
+      setDraft(emptyDraft(defaultDay, canConfirm ? "confirmed" : "proposed"));
     }
-  }, [visible, editing, defaultDay]);
+  }, [visible, editing, defaultDay, canConfirm]);
 
   const submit = () => {
     if (!draft.title.trim()) return;
@@ -205,6 +212,40 @@ export function StopSheet({
               })}
             </ScrollView>
 
+            <Text style={[styles.label, { color: colors.mutedForeground }]}>Category</Text>
+            <View style={styles.catRow}>
+              {STOP_CATEGORIES.map((cat) => {
+                const meta = STOP_CATEGORY_META[cat];
+                const active = draft.category === cat;
+                const tint = colors[meta.colorKey];
+                return (
+                  <TouchableOpacity
+                    key={cat}
+                    onPress={() => setDraft((d) => ({ ...d, category: cat }))}
+                    style={[styles.catChip, { borderColor: active ? tint : colors.border, backgroundColor: active ? tint + "1F" : colors.background }]}
+                  >
+                    <Ionicons name={meta.icon as keyof typeof Ionicons.glyphMap} size={15} color={active ? tint : colors.mutedForeground} />
+                    <Text style={[styles.catChipText, { color: active ? tint : colors.mutedForeground }]}>{meta.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {!showMore ? (
+              <TouchableOpacity
+                onPress={() => setShowMore(true)}
+                style={[styles.moreBtn, { borderColor: colors.border }]}
+                accessibilityRole="button"
+                accessibilityLabel="More details"
+              >
+                <Ionicons name="options-outline" size={16} color={colors.mutedForeground} />
+                <Text style={[styles.moreBtnText, { color: colors.mutedForeground }]}>More details — time, place, cost…</Text>
+                <Ionicons name="chevron-down" size={16} color={colors.mutedForeground} />
+              </TouchableOpacity>
+            ) : null}
+
+            {showMore ? (
+            <>
             <View style={styles.timeRow}>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.label, { color: colors.mutedForeground }]}>Start time (optional)</Text>
@@ -260,25 +301,6 @@ export function StopSheet({
                   </TouchableOpacity>
                 )}
               </View>
-            </View>
-
-            <Text style={[styles.label, { color: colors.mutedForeground }]}>Category</Text>
-            <View style={styles.catRow}>
-              {STOP_CATEGORIES.map((cat) => {
-                const meta = STOP_CATEGORY_META[cat];
-                const active = draft.category === cat;
-                const tint = colors[meta.colorKey];
-                return (
-                  <TouchableOpacity
-                    key={cat}
-                    onPress={() => setDraft((d) => ({ ...d, category: cat }))}
-                    style={[styles.catChip, { borderColor: active ? tint : colors.border, backgroundColor: active ? tint + "1F" : colors.background }]}
-                  >
-                    <Ionicons name={meta.icon as keyof typeof Ionicons.glyphMap} size={15} color={active ? tint : colors.mutedForeground} />
-                    <Text style={[styles.catChipText, { color: active ? tint : colors.mutedForeground }]}>{meta.label}</Text>
-                  </TouchableOpacity>
-                );
-              })}
             </View>
 
             <Text style={[styles.label, { color: colors.mutedForeground }]}>Place (optional)</Text>
@@ -365,6 +387,8 @@ export function StopSheet({
                 );
               })}
             </View>
+            </>
+            ) : null}
           </ScrollView>
 
           <View style={[styles.footer, { borderTopColor: colors.border, paddingBottom: insets.bottom + 10, backgroundColor: colors.card }]}>
@@ -373,7 +397,9 @@ export function StopSheet({
               disabled={!draft.title.trim() || saving}
               style={[styles.saveBtn, { backgroundColor: colors.primary, opacity: !draft.title.trim() || saving ? 0.5 : 1 }]}
             >
-              <Text style={styles.saveBtnText}>{saving ? "Saving…" : editing ? "Save changes" : "Add to itinerary"}</Text>
+              <Text style={styles.saveBtnText}>
+                {saving ? "Saving…" : editing ? "Save changes" : draft.status === "proposed" ? "Suggest to the squad" : "Add to plan"}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -450,6 +476,8 @@ const styles = StyleSheet.create({
   catRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   catChip: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 20, borderWidth: 1.5, paddingHorizontal: 12, paddingVertical: 8 },
   catChipText: { fontSize: 13, fontWeight: "700" },
+  moreBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderWidth: 1.5, borderRadius: 12, borderStyle: "dashed", paddingVertical: 12, marginTop: 18 },
+  moreBtnText: { fontSize: 13, fontWeight: "700" },
   statusRow: { gap: 8 },
   statusChip: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 12, borderWidth: 1.5, paddingHorizontal: 14, paddingVertical: 12 },
   statusText: { fontSize: 13, fontWeight: "700", flex: 1 },

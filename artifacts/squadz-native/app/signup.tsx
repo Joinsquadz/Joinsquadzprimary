@@ -32,6 +32,8 @@ export default function SignupScreen() {
     publicSquadId?: string;
     joinEventCode?: string;
     squadCode?: string;
+    squadName?: string;
+    squadEmoji?: string;
   }>();
 
   const [firstName, setFirstName] = useState("");
@@ -112,7 +114,11 @@ export default function SignupScreen() {
     } else if (params.squadCode) {
       router.replace({
         pathname: "/onboarding",
-        params: { squadCode: params.squadCode },
+        params: {
+          squadCode: params.squadCode,
+          ...(params.squadName ? { squadName: params.squadName } : {}),
+          ...(params.squadEmoji ? { squadEmoji: params.squadEmoji } : {}),
+        },
       } as never);
     } else if (params.publicSquadId) {
       router.replace({
@@ -152,6 +158,28 @@ export default function SignupScreen() {
               <Text style={[styles.inviteLabel, { color: colors.primary }]}>You've been invited to join</Text>
               <Text style={[styles.inviteTitle, { color: colors.foreground }]}>{params.inviteTitle}</Text>
               <Text style={{ fontSize: 12, color: colors.mutedForeground }}>Hosted by {params.inviteHost}</Text>
+            </View>
+            <Text style={{ fontSize: 18 }}>🎉</Text>
+          </View>
+        )}
+
+        {!hasInvite && !!params.squadCode && !!params.squadName && (
+          <View
+            style={[
+              styles.inviteBanner,
+              {
+                backgroundColor: colors.primary + "18",
+                borderColor: colors.primary + "35",
+                marginHorizontal: 24,
+                marginBottom: 20,
+              },
+            ]}
+          >
+            <Text style={styles.inviteEmoji}>{params.squadEmoji ?? "👥"}</Text>
+            <View style={styles.inviteText}>
+              <Text style={[styles.inviteLabel, { color: colors.primary }]}>You've been invited to join</Text>
+              <Text style={[styles.inviteTitle, { color: colors.foreground }]}>{params.squadName}</Text>
+              <Text style={{ fontSize: 12, color: colors.mutedForeground }}>You'll join right after you sign up</Text>
             </View>
             <Text style={{ fontSize: 18 }}>🎉</Text>
           </View>

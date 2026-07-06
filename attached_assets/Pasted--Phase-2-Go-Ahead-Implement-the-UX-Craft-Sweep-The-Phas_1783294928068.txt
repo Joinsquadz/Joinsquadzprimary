@@ -1,0 +1,89 @@
+# Phase 2 Go-Ahead: Implement the UX Craft Sweep
+
+The Phase 1 report is approved. Implement the full ranked plan (P0 → P1 →
+P2) with three adjustments below.
+
+---
+
+## Adjustment 1 — Reorder P0: invite acceptance first
+
+Implement in this order:
+
+1. **Invite acceptance** (flow 3): rich squad preview on private links
+   ("🎿 Ski Crew · 4 members · invited by Maya" before signup, compact
+   banner persisting through login/signup) + auto-accept after auth
+2. **Trip interaction overhaul** (flows 5, 7, 8): replace the `runMut`
+   whole-screen busy pattern with optimistic updates — votes (haptic +
+   spring animation + voter avatar stack), packing check-off (instant
+   strikethrough + haptic, revert on error with toast), StopSheet quick-add
+   with "Suggest" / "Add to plan" action buttons
+3. **Day-of Home takeover** (flow 9): live hero variant when a plan is
+   today/in-progress — countdown, one-tap location to maps, today's
+   itinerary stops for trips
+4. **Event creation** (flow 4): progressive disclosure (title + date +
+   squad above the fold, rest behind "Add details") + smart defaults
+   (next Saturday 7pm, most-recent squad preselected)
+5. **"Needs you" row on Home** (flow 12): pending RSVPs, open stop votes,
+   unanswered availability polls as one-tap deep links
+6. **First-member-joined celebration** (flow 2)
+
+Rationale for the reorder: invite acceptance determines whether new users
+get into the app at all — for soft launch, that outranks polish for
+existing users.
+
+## Adjustment 2 — Auto-accept must route through the consent/cap logic
+
+The auto-accept-after-auth change (item 1 above) must integrate with the
+squad-consent fix from the July 5 remediation:
+
+- Tapping an invite link IS explicit intent, so auto-accept is fine — but
+  it must still consume the user's squad-cap slot through the same
+  accept-consumes-cap path as a manual accept, not bypass it
+- If the user is already at their 2-squad cap, do NOT silently fail or
+  silently join: show the standard upgrade prompt with the squad preview
+  context ("Upgrade to join 🎿 Ski Crew")
+- Verify a declined/abandoned signup from an invite link leaves no residual
+  membership or pending-invite state
+
+## Adjustment 3 — Verify name-field assumptions before the signup collapse
+
+Before implementing P2 item 13 (single Name field, defer phone), check
+nothing downstream assumes split first/last name:
+
+- Invite attribution strings ("invited by Maya")
+- Avatar initial generation
+- Stripe receipt/customer naming
+- Any greeting strings ("Hi, Maya")
+
+If anything requires a split name, either keep last name as an optional
+field or derive display-name logic first — flag which path you took.
+
+---
+
+## Everything else: implement as proposed
+
+All other P0/P1/P2 items proceed exactly as written in the Phase 1 report.
+Constraints from the original sweep prompt remain in force: no public
+content, no feeds/discovery, no gate-logic changes, brand system canonical
+(Syne/Inter, #0F0F14, #FF6B2C→#FFB23E), no new dependencies.
+
+## Regression + verification
+
+After implementation:
+
+1. Re-run the standing 10-user simulation — all 34 checks must pass
+2. Additionally verify:
+   - Invite link → signup → auto-accept lands the user inside the squad
+     with cap correctly decremented (and upgrade prompt at cap, per
+     Adjustment 2)
+   - Optimistic vote/check-off reconcile correctly on a forced 409
+     (revert + toast, no stuck state)
+   - Day-of hero appears for a plan starting today and reverts after it
+     ends
+   - Event creation with all defaults untouched produces a valid plan
+     (next Saturday 7pm, correct squad)
+3. Produce a pass/fail summary against this list — confirm each item, not
+   just "done"
+
+Work through P0 completely before starting P1; pause and report after P0 so
+progress can be reviewed before continuing.

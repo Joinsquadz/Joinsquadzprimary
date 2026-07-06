@@ -62,6 +62,30 @@ function dayAt(d: Date, hour: number): string {
   return out.toISOString();
 }
 
+/**
+ * Smart-default start suggestions for a plain event: tonight at 7 PM (when
+ * it's still early enough) and the upcoming Saturday at 7 PM. One tap fills
+ * the date — the user can always Edit afterwards.
+ */
+function quickStartSuggestions(): { label: string; date: Date }[] {
+  const now = new Date();
+  const out: { label: string; date: Date }[] = [];
+  if (now.getHours() < 17) {
+    out.push({ label: "Tonight · 7 PM", date: new Date(now.getFullYear(), now.getMonth(), now.getDate(), 19, 0, 0, 0) });
+  }
+  // Next Saturday (skip today-if-Saturday only when 7 PM already passed).
+  let diff = (6 - now.getDay() + 7) % 7;
+  if (diff === 0 && now.getHours() >= 17) diff = 7;
+  if (diff > 0 || now.getHours() < 17) {
+    const sat = new Date(now.getFullYear(), now.getMonth(), now.getDate() + diff, 19, 0, 0, 0);
+    // Avoid duplicating the "Tonight" chip when today IS Saturday.
+    if (!(diff === 0 && out.length > 0)) {
+      out.push({ label: `Sat · 7 PM`, date: sat });
+    }
+  }
+  return out;
+}
+
 function formatPickedDate(d: Date): string {
   const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -151,6 +175,36 @@ export default function CreateEventScreen() {
   const [createError, setCreateError] = useState<string | null>(null);
   const [invitedUserIds, setInvitedUserIds] = useState<string[]>([]);
   const [showInvitePicker, setShowInvitePicker] = useState(false);
+  // Progressive disclosure: location/description/visibility/invites live
+  // behind a "More options" expander so the fast path is title → date → squad.
+  const [showMoreOptions, setShowMoreOptions] = useState(false);
+
+  // Smart default: preselect the most-recently-planned squad (the squad of the
+  // user's latest plan), falling back to the only/first squad. Never overrides
+  // an explicit prefill or a user choice.
+  useEffect(() => {
+    if (prefill.prefillSquad || squads.length === 0) return;
+    const latest = [...events]
+      .filter((e) => e.squadId && squads.some((s) => s.id === e.squadId))
+      .sort((a, b) => (b.eventAt ?? b.startAt ?? "").localeCompare(a.eventAt ?? a.startAt ?? ""))[0];
+    const target = latest?.squadId ?? squads[0].id;
+    setSelectedSquad((cur) => cur ?? target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [squads.length, events.length, prefill.prefillSquad]);
+
+  // Smart default: a plain event left untouched still yields a valid plan —
+  // start defaults to the upcoming Saturday at 7 PM (editable/clearable).
+  useEffect(() => {
+    if (prefill.prefillDate || prefill.prefillEventAt || prefill.templateId) return;
+    if (kind !== "event") return;
+    if (eventAtISO !== undefined || date) return;
+    const sat = quickStartSuggestions().find((s) => s.label.startsWith("Sat"))?.date;
+    if (!sat) return;
+    setEventAtISO(sat.toISOString());
+    setDate(formatPickedDate(sat));
+    setPickerDate(sat);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const atLimit = !isPro && eventLimit !== null && myEventCount >= eventLimit;
 
@@ -637,6 +691,25 @@ export default function CreateEventScreen() {
               <Ionicons name="chevron-forward" size={16} color={colors.textDim} />
             </TouchableOpacity>
           )}
+          {!date && (
+            <View style={styles.quickChipRow}>
+              {quickStartSuggestions().map((sug) => (
+                <TouchableOpacity
+                  key={sug.label}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    setDate(formatPickedDate(sug.date));
+                    setEventAtISO(sug.date.toISOString());
+                    setPickerDate(sug.date);
+                  }}
+                  style={[styles.quickChip, { backgroundColor: colors.primary + "12", borderColor: colors.primary + "40" }]}
+                >
+                  <Ionicons name="flash-outline" size={13} color={colors.primary} />
+                  <Text style={[styles.quickChipText, { color: colors.primary }]}>{sug.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
           <TouchableOpacity
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -692,6 +765,52 @@ export default function CreateEventScreen() {
         )}
 
         <View style={styles.section}>
+          <Text style={[styles.label, { color: colors.mutedForeground }]}>Squad</Text>
+          <View style={styles.squadList}>
+            <TouchableOpacity
+              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push("/squad/create"); }}
+              style={[styles.newSquadRow, { borderColor: colors.primary + "50" }]}
+            >
+              <Ionicons name="add-circle-outline" size={20} color={colors.primary} />
+              <Text style={[styles.newSquadText, { color: colors.primary }]}>New squad</Text>
+            </TouchableOpacity>
+            {squads.map((s) => (
+              <TouchableOpacity
+                key={s.id}
+                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSelectedSquad(s.id === selectedSquad ? null : s.id); }}
+                style={[
+                  styles.squadOption,
+                  { backgroundColor: selectedSquad === s.id ? colors.primary + "15" : colors.card, borderColor: selectedSquad === s.id ? colors.primary : colors.border },
+                ]}
+              >
+                <Text style={styles.squadOptionEmoji}>{s.emoji}</Text>
+                <View style={styles.squadOptionBody}>
+                  <Text style={[styles.squadOptionName, { color: colors.foreground }]}>{s.name}</Text>
+                  <Text style={[styles.squadOptionCount, { color: colors.mutedForeground }]}>{s.memberIds.length} members</Text>
+                </View>
+                {selectedSquad === s.id && <Ionicons name="checkmark-circle" size={20} color={colors.primary} />}
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        {/* Progressive disclosure: everything optional lives behind one expander. */}
+        {!showMoreOptions ? (
+          <TouchableOpacity
+            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setShowMoreOptions(true); }}
+            style={[styles.moreOptionsBtn, { borderColor: colors.border }]}
+            accessibilityRole="button"
+            accessibilityLabel="Show more options"
+          >
+            <Ionicons name="options-outline" size={16} color={colors.mutedForeground} />
+            <Text style={[styles.moreOptionsText, { color: colors.mutedForeground }]}>
+              More options — location, description, visibility, invites…
+            </Text>
+            <Ionicons name="chevron-down" size={14} color={colors.textDim} />
+          </TouchableOpacity>
+        ) : (
+        <>
+        <View style={styles.section}>
           <Text style={[styles.label, { color: colors.mutedForeground }]}>Location</Text>
           <Field icon="location-outline" placeholder="Where is it happening?" value={location} onChangeText={setLocation} colors={colors} />
         </View>
@@ -735,36 +854,6 @@ export default function CreateEventScreen() {
         </View>
 
         <View style={styles.section}>
-          <Text style={[styles.label, { color: colors.mutedForeground }]}>Squad</Text>
-          <View style={styles.squadList}>
-            <TouchableOpacity
-              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push("/squad/create"); }}
-              style={[styles.newSquadRow, { borderColor: colors.primary + "50" }]}
-            >
-              <Ionicons name="add-circle-outline" size={20} color={colors.primary} />
-              <Text style={[styles.newSquadText, { color: colors.primary }]}>New squad</Text>
-            </TouchableOpacity>
-            {squads.map((s) => (
-              <TouchableOpacity
-                key={s.id}
-                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSelectedSquad(s.id === selectedSquad ? null : s.id); }}
-                style={[
-                  styles.squadOption,
-                  { backgroundColor: selectedSquad === s.id ? colors.primary + "15" : colors.card, borderColor: selectedSquad === s.id ? colors.primary : colors.border },
-                ]}
-              >
-                <Text style={styles.squadOptionEmoji}>{s.emoji}</Text>
-                <View style={styles.squadOptionBody}>
-                  <Text style={[styles.squadOptionName, { color: colors.foreground }]}>{s.name}</Text>
-                  <Text style={[styles.squadOptionCount, { color: colors.mutedForeground }]}>{s.memberIds.length} members</Text>
-                </View>
-                {selectedSquad === s.id && <Ionicons name="checkmark-circle" size={20} color={colors.primary} />}
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        <View style={styles.section}>
           <Text style={[styles.label, { color: colors.mutedForeground }]}>Invite friends</Text>
           <Text style={[styles.inviteHint, { color: colors.mutedForeground }]}>
             Add specific friends to this {kind === "trip" ? "trip" : "event"}, even if they&apos;re not in the squad.
@@ -798,6 +887,8 @@ export default function CreateEventScreen() {
             </Text>
           </TouchableOpacity>
         </View>
+        </>
+        )}
       </KeyboardAwareScrollViewCompat>
 
       <FindTimeChooser
@@ -1042,6 +1133,11 @@ const styles = StyleSheet.create({
   editDateBtn: { borderRadius: 8, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 4 },
   editDateText: { fontSize: 12 },
   bestTimeBtn: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 12, borderWidth: 1.5, paddingHorizontal: 14, paddingVertical: 11, marginTop: 10 },
+  quickChipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 },
+  quickChip: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 16, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 7 },
+  quickChipText: { fontSize: 13, fontWeight: "700" },
+  moreOptionsBtn: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 12, borderWidth: 1.5, borderStyle: "dashed", paddingHorizontal: 14, paddingVertical: 12, marginBottom: 24 },
+  moreOptionsText: { flex: 1, fontSize: 13, fontWeight: "600" },
   bestTimeText: { flex: 1, fontSize: 14, fontWeight: "700" },
   toggleRow: {
     flexDirection: "row", alignItems: "center", gap: 12,

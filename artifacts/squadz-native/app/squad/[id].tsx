@@ -37,6 +37,8 @@ import { ProAvatar } from "@/components/ProAvatar";
 import { ContactSheet } from "@/components/ContactSheet";
 import { EventCard } from "@/components/EventCard";
 import { TripCard } from "@/components/TripCard";
+import { CelebrationOverlay } from "@/components/CelebrationOverlay";
+import { claimOnce } from "@/lib/seenFlags";
 import { SquadzPlusBanner } from "@/components/SquadzPlusBanner";
 import { goingCount } from "@/lib/eventUtils";
 import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
@@ -62,8 +64,17 @@ export default function SquadDetailScreen() {
   const { resolveUser, prefetchUsers, seedUser } = useUserCache();
   const { getSquadConversation } = useMessages();
   const { authToken } = useAuth();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, welcome } = useLocalSearchParams<{ id: string; welcome?: string }>();
   const [findTimeOpen, setFindTimeOpen] = useState(false);
+
+  // Transient welcome moment after joining via invite link — the celebration
+  // lives here in the squad, not on an interstitial screen. Auto-dismisses.
+  const [showWelcome, setShowWelcome] = useState(welcome === "1");
+  useEffect(() => {
+    if (!showWelcome) return;
+    const t = setTimeout(() => setShowWelcome(false), 5000);
+    return () => clearTimeout(t);
+  }, [showWelcome]);
 
   // Per-screen SSE for live status feedback (reconnecting indicator).
   // The global AppContext stream already handles data refreshes; this connection
@@ -401,6 +412,30 @@ export default function SquadDetailScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [squad?.id]);
 
+  // First-member-joined celebration for the squad creator: fires when the
+  // member count transitions live from "just me" to 2+ while this screen is
+  // open (SSE-driven refresh), at most once per squad per user.
+  const [showFirstJoin, setShowFirstJoin] = useState(false);
+  const prevMemberCountRef = useRef<{ squadId: string; count: number } | null>(null);
+  const squadMemberCount = squad?.memberIds.length ?? null;
+  useEffect(() => {
+    const prev = prevMemberCountRef.current;
+    prevMemberCountRef.current =
+      squad && squadMemberCount !== null ? { squadId: squad.id, count: squadMemberCount } : null;
+    if (!squad || squadMemberCount === null) return;
+    // Only a transition observed within the SAME squad counts — a stale count
+    // carried over from a different squad screen must never fire this.
+    if (!prev || prev.squadId !== squad.id) return;
+    const amCreator = currentUser.id === (squad.creatorId ?? squad.memberIds[0]);
+    if (!amCreator || prev.count !== 1 || squadMemberCount < 2) return;
+    void claimOnce(`first_member_joined_${squad.id}`, currentUser.id).then((first) => {
+      if (!first) return;
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setShowFirstJoin(true);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [squadMemberCount, squad?.id]);
+
   const { mutedSquadIds, setSquadMuted } = useMutedSquads();
 
   // First-run welcome tips tour (anchored coach marks).
@@ -655,6 +690,19 @@ export default function SquadDetailScreen() {
         <Text style={styles.heroName}>{squad.name}</Text>
         <Text style={styles.heroMeta}>{members.length} members</Text>
       </View>
+
+      {/* Welcome moment after joining via invite link */}
+      {showWelcome && (
+        <View style={styles.welcomeBanner}>
+          <Text style={{ fontSize: 16 }}>🎉</Text>
+          <Text style={styles.welcomeBannerText}>
+            You're in! Welcome to {squad.name}
+          </Text>
+          <TouchableOpacity onPress={() => setShowWelcome(false)} hitSlop={8}>
+            <Ionicons name="close" size={16} color="#2ECC8A" />
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Stream reconnecting indicator */}
       {showReconnecting && (
@@ -961,6 +1009,16 @@ export default function SquadDetailScreen() {
         onStartNew={() =>
           router.push({ pathname: "/availability", params: { squadId: squad.id, from: "create" } } as never)
         }
+      />
+
+      {/* First member joined — creator-only, once per squad */}
+      <CelebrationOverlay
+        visible={showFirstJoin}
+        emoji="🎉"
+        title="Your first squadmate is in!"
+        subtitle={`${squad.name} is officially a crew. Time to plan something.`}
+        ctaLabel="Let's go"
+        onClose={() => setShowFirstJoin(false)}
       />
 
       {/* ---- Member Profile Sheet ---- */}
@@ -1450,5 +1508,15 @@ const styles = StyleSheet.create({
   reconnectBanner: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 6, backgroundColor: "#6B728012" },
   reconnectBannerText: { fontSize: 12, fontWeight: "600", color: "#6B7280", letterSpacing: 0.2 },
   conflictBanner: { overflow: "hidden", alignItems: "center", justifyContent: "center", backgroundColor: "#F59E0B18" },
+  welcomeBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    backgroundColor: "#2ECC8A18",
+  },
+  welcomeBannerText: { fontSize: 13, fontWeight: "700", color: "#2ECC8A" },
   conflictBannerText: { fontSize: 12, fontWeight: "700", color: "#B45309", letterSpacing: 0.2 },
 });

@@ -1,11 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   Platform,
-  Alert,
   ActivityIndicator,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
@@ -15,14 +14,33 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useData, useAuth } from "@/context/AppContext";
 import { UpgradeModal } from "@/components/UpgradeModal";
+import { API_BASE } from "@/lib/api";
 import type { Squad } from "@/types";
 
+type SquadPreview = {
+  name: string;
+  emoji: string;
+  memberCount: number;
+  creatorFirstName: string | null;
+};
+
+/**
+ * Private squad invite deep-link target (`/squad/join?code=XXX`).
+ *
+ * Growth-critical flow: the rich preview (squad name, emoji, member count,
+ * who started it) loads WITHOUT auth so invitees see what they're joining
+ * before being asked to sign up. After auth they bounce back here with
+ * `auto=1` and the accept happens automatically — tapping the invite link is
+ * the explicit intent. The join always goes through the server's
+ * cap-consuming join-via-code path; at the free squad cap the upgrade prompt
+ * shows with the squad context instead of silently failing.
+ */
 export default function SquadJoinScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { joinSquadByCode, isLoggedIn } = useData();
   const { isLoggedIn: authIsLoggedIn } = useAuth();
-  const params = useLocalSearchParams<{ code?: string }>();
+  const params = useLocalSearchParams<{ code?: string; auto?: string }>();
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
@@ -33,19 +51,38 @@ export default function SquadJoinScreen() {
   const [joinedSquad, setJoinedSquad] = useState<Squad | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showUpgrade, setShowUpgrade] = useState(false);
+  const [preview, setPreview] = useState<SquadPreview | null>(null);
 
   const code = params.code?.trim().toUpperCase() ?? null;
-
   const loggedIn = isLoggedIn || authIsLoggedIn;
 
+  // Unauthenticated read-only preview so the invitee sees the squad before
+  // signing up. Non-fatal on failure — we fall back to the generic hero.
   useEffect(() => {
-    if (!loggedIn && code) {
-      router.replace({ pathname: "/login", params: { squadCode: code } } as never);
-    }
-  }, [loggedIn, code]);
-
-  const handleJoin = async () => {
     if (!code) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `${API_BASE}/api/squads/preview?code=${encodeURIComponent(code)}`,
+        );
+        if (res.ok) {
+          const data = (await res.json()) as SquadPreview;
+          if (!cancelled) setPreview(data);
+        } else if (res.status === 404 && !cancelled) {
+          setRevoked(true);
+        }
+      } catch {
+        // Fall back to the generic invite hero.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [code]);
+
+  const handleJoin = useCallback(async () => {
+    if (!code || joining) return;
     setJoining(true);
     setError(null);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -58,15 +95,35 @@ export default function SquadJoinScreen() {
         setShowUpgrade(true);
       } else if (result.error) {
         setError(result.error);
+      } else if (result.squad) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        // Land directly inside the squad — the welcome moment lives there,
+        // not on an interstitial screen. Already-members skip the welcome.
+        router.replace({
+          pathname: "/squad/[id]",
+          params: result.alreadyMember
+            ? { id: result.squad.id }
+            : { id: result.squad.id, welcome: "1" },
+        } as never);
       } else {
         setJoined(true);
-        setJoinedSquad(result.squad ?? null);
+        setJoinedSquad(null);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
     } finally {
       setJoining(false);
     }
-  };
+  }, [code, joining, joinSquadByCode]);
+
+  // Auto-accept when returning from login/signup: the invite-link tap was the
+  // explicit intent, so don't make the user tap "Accept" again. Runs once.
+  const autoTried = useRef(false);
+  useEffect(() => {
+    if (params.auto === "1" && loggedIn && code && !autoTried.current) {
+      autoTried.current = true;
+      void handleJoin();
+    }
+  }, [params.auto, loggedIn, code, handleJoin]);
 
   const goHome = () => {
     if (router.canGoBack()) {
@@ -82,6 +139,11 @@ export default function SquadJoinScreen() {
     } else {
       router.replace("/(tabs)" as never);
     }
+  };
+
+  const authParams = {
+    squadCode: code ?? "",
+    ...(preview ? { squadName: preview.name, squadEmoji: preview.emoji } : {}),
   };
 
   if (!code) {
@@ -134,7 +196,7 @@ export default function SquadJoinScreen() {
             <Ionicons name="checkmark-circle" size={56} color={colors.green} />
           </View>
           <Text style={[styles.successTitle, { color: colors.foreground }]}>
-            {joinedSquad ? `You're in ${joinedSquad.emoji} ${joinedSquad.name}!` : "You joined the squad!"}
+            You joined the squad!
           </Text>
           <Text style={[styles.errorSub, { color: colors.mutedForeground, marginTop: 8 }]}>
             You're now a member. Check the squad for events, chats, and more.
@@ -143,35 +205,43 @@ export default function SquadJoinScreen() {
             onPress={goToSquad}
             style={[styles.btn, { backgroundColor: colors.primary, marginTop: 24 }]}
           >
-            <Text style={[styles.btnText, { color: "#fff" }]}>
-              {joinedSquad ? "View Squad →" : "Go to Squads →"}
-            </Text>
+            <Text style={[styles.btnText, { color: "#fff" }]}>Go to Squads →</Text>
           </TouchableOpacity>
         </View>
       </View>
     );
   }
 
+  const memberLine = preview
+    ? `${preview.memberCount} ${preview.memberCount === 1 ? "member" : "members"}${
+        preview.creatorFirstName ? ` · started by ${preview.creatorFirstName}` : ""
+      }`
+    : null;
+
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <TouchableOpacity onPress={goHome} style={[styles.backBtn, { top: topPad + 8 }]}>
-        <Ionicons name="chevron-back" size={24} color={colors.foreground} />
+        <Ionicons name="chevron-back" size={24} color="#fff" />
       </TouchableOpacity>
 
       <View style={[styles.hero, { paddingTop: topPad + 20 }]}>
         <Text style={[styles.heroLabel, { color: "rgba(255,255,255,0.7)" }]}>YOU'RE INVITED</Text>
-        <Text style={styles.heroEmoji}>👥</Text>
-        <Text style={[styles.heroTitle, { color: "#fff" }]}>Join a Squad</Text>
-        <Text style={[styles.heroCopy, { color: "rgba(255,255,255,0.8)" }]}>
-          Tap below to join using your invite link
+        <Text style={styles.heroEmoji}>{preview?.emoji ?? "👥"}</Text>
+        <Text style={[styles.heroTitle, { color: "#fff" }]}>
+          {preview ? preview.name : "Join a Squad"}
+        </Text>
+        <Text style={[styles.heroCopy, { color: "rgba(255,255,255,0.85)" }]}>
+          {memberLine ?? "Tap below to join using your invite link"}
         </Text>
       </View>
 
       <View style={[styles.body, { paddingBottom: botPad + 24 }]}>
-        <View style={[styles.codeCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.codeLabel, { color: colors.mutedForeground }]}>Invite code</Text>
-          <Text style={[styles.code, { color: colors.primary }]}>{code}</Text>
-        </View>
+        {!preview && (
+          <View style={[styles.codeCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Text style={[styles.codeLabel, { color: colors.mutedForeground }]}>Invite code</Text>
+            <Text style={[styles.code, { color: colors.primary }]}>{code}</Text>
+          </View>
+        )}
 
         {error && (
           <View style={[styles.errorBanner, { backgroundColor: colors.destructive + "15", borderColor: colors.destructive + "40" }]}>
@@ -180,39 +250,44 @@ export default function SquadJoinScreen() {
           </View>
         )}
 
-        <TouchableOpacity
-          onPress={handleJoin}
-          disabled={joining}
-          style={[styles.btn, { backgroundColor: joining ? colors.mutedForeground : colors.primary, opacity: joining ? 0.7 : 1 }]}
-        >
-          {joining ? (
-            <ActivityIndicator color="#fff" size="small" />
-          ) : (
-            <Text style={[styles.btnText, { color: "#fff" }]}>Accept Invite →</Text>
-          )}
-        </TouchableOpacity>
-
-        {!loggedIn && (
-          <View style={styles.authRow}>
+        {loggedIn ? (
+          <TouchableOpacity
+            onPress={handleJoin}
+            disabled={joining}
+            style={[styles.btn, { backgroundColor: joining ? colors.mutedForeground : colors.primary, opacity: joining ? 0.7 : 1 }]}
+          >
+            {joining ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <Text style={[styles.btnText, { color: "#fff" }]}>
+                {preview ? `Join ${preview.emoji} ${preview.name} →` : "Accept Invite →"}
+              </Text>
+            )}
+          </TouchableOpacity>
+        ) : (
+          <>
             <TouchableOpacity
-              onPress={() => router.push({ pathname: "/signup", params: { squadCode: code } } as never)}
-              style={[styles.authBtn, { borderColor: colors.border, flex: 1 }]}
+              onPress={() => router.push({ pathname: "/signup", params: authParams } as never)}
+              style={[styles.btn, { backgroundColor: colors.primary }]}
             >
-              <Text style={[styles.authBtnText, { color: colors.mutedForeground }]}>Create Account</Text>
+              <Text style={[styles.btnText, { color: "#fff" }]}>Create Account to Join →</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              onPress={() => router.push({ pathname: "/login", params: { squadCode: code } } as never)}
-              style={[styles.authBtn, { borderColor: colors.primary, flex: 1 }]}
+              onPress={() => router.push({ pathname: "/login", params: authParams } as never)}
+              style={[styles.authBtn, { borderColor: colors.primary }]}
             >
-              <Text style={[styles.authBtnText, { color: colors.primary }]}>Sign In</Text>
+              <Text style={[styles.authBtnText, { color: colors.primary }]}>
+                I already have an account
+              </Text>
             </TouchableOpacity>
-          </View>
+          </>
         )}
       </View>
 
       <UpgradeModal
         visible={showUpgrade}
         trigger="squad_limit"
+        headline={preview ? `Upgrade to join ${preview.emoji} ${preview.name}` : undefined}
         onClose={() => setShowUpgrade(false)}
       />
     </View>
@@ -272,9 +347,8 @@ const styles = StyleSheet.create({
   errorText: { fontSize: 13, fontWeight: "500", flex: 1 },
   btn: { borderRadius: 14, padding: 15, alignItems: "center", marginBottom: 12 },
   btnText: { fontSize: 16, fontWeight: "800" },
-  authRow: { flexDirection: "row", gap: 10, marginBottom: 16 },
-  authBtn: { borderRadius: 12, borderWidth: 1.5, padding: 12, alignItems: "center" },
-  authBtnText: { fontSize: 13, fontWeight: "700" },
+  authBtn: { borderRadius: 12, borderWidth: 1.5, padding: 13, alignItems: "center", marginBottom: 16 },
+  authBtnText: { fontSize: 14, fontWeight: "700" },
   centerWrap: {
     flex: 1,
     alignItems: "center",

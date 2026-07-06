@@ -10,6 +10,7 @@ import {
   Platform,
   TextInput,
   Modal,
+  Animated,
 } from "react-native";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { LinearGradient } from "expo-linear-gradient";
@@ -110,6 +111,52 @@ const webDateInputStyle = {
   cursor: "pointer",
 } as const;
 
+/**
+ * Animated vote heart: springs on tap for tactile feedback. The optimistic
+ * voted/count values come from the parent; this only owns the animation.
+ */
+function VoteHeart({
+  voted,
+  count,
+  tint,
+  muted,
+  border,
+  onPress,
+}: {
+  voted: boolean;
+  count: number;
+  tint: string;
+  muted: string;
+  border: string;
+  onPress: () => void;
+}) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const press = () => {
+    Animated.sequence([
+      Animated.spring(scale, { toValue: 1.35, useNativeDriver: true, speed: 60, bounciness: 0 }),
+      Animated.spring(scale, { toValue: 1, useNativeDriver: true, friction: 4, tension: 120 }),
+    ]).start();
+    onPress();
+  };
+  return (
+    <TouchableOpacity
+      onPress={press}
+      activeOpacity={0.8}
+      style={[voteHeartStyles.btn, { borderColor: voted ? tint : border, backgroundColor: voted ? tint + "18" : "transparent" }]}
+    >
+      <Animated.View style={{ transform: [{ scale }] }}>
+        <Ionicons name={voted ? "heart" : "heart-outline"} size={14} color={voted ? tint : muted} />
+      </Animated.View>
+      <Text style={[voteHeartStyles.text, { color: voted ? tint : muted }]}>{count > 0 ? count : "Vote"}</Text>
+    </TouchableOpacity>
+  );
+}
+
+const voteHeartStyles = StyleSheet.create({
+  btn: { flexDirection: "row", alignItems: "center", gap: 5, borderWidth: 1.5, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6 },
+  text: { fontSize: 12, fontWeight: "800" },
+});
+
 type TripTab = "itinerary" | "chat" | "costs" | "vault" | "budget" | "packing";
 
 const TRIP_TABS: TripTab[] = ["itinerary", "chat", "costs", "vault", "budget", "packing"];
@@ -190,6 +237,15 @@ export default function TripDetailScreen() {
   const [editingStop, setEditingStop] = useState<ItineraryStop | null>(null);
   const [sheetDay, setSheetDay] = useState<string | null>(null);
   const [packingDraft, setPackingDraft] = useState("");
+  // Optimistic UI overrides: applied instantly on tap, cleared when the server
+  // truth arrives (event.version changes via refresh/SSE) or reverted on error.
+  const [voteOverrides, setVoteOverrides] = useState<Record<string, boolean>>({});
+  const [packOverrides, setPackOverrides] = useState<Record<string, boolean>>({});
+  const eventVersion = ctxEvent?.version ?? fallbackEvent?.version;
+  useEffect(() => {
+    setVoteOverrides({});
+    setPackOverrides({});
+  }, [eventVersion]);
   const [liveView, setLiveView] = useState(false);
   const [arrivedIdx, setArrivedIdx] = useState(0);
   const [showInvitePicker, setShowInvitePicker] = useState(false);
@@ -543,11 +599,61 @@ export default function TripDetailScreen() {
     void runMut(() => addPacking(event.id, authToken, label, event.version));
   };
 
+  // Optimistic vote toggle: flip locally + haptic, fire the request, reconcile
+  // via refresh (version bump clears the override). Revert silently on conflict.
+  const handleVote = (stop: ItineraryStop) => {
+    const currentlyVoted = voteOverrides[stop.id] ?? stop.votes.includes(currentUser.id);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setVoteOverrides((o) => ({ ...o, [stop.id]: !currentlyVoted }));
+    void (async () => {
+      const res = await voteStop(event.id, stop.id, authToken, event.version);
+      if (res.conflict || res.error) {
+        setVoteOverrides((o) => {
+          const { [stop.id]: _omit, ...rest } = o;
+          return rest;
+        });
+        await refresh();
+        if (res.error && !res.conflict) Alert.alert("Something went wrong", res.error);
+      } else {
+        await refresh();
+      }
+    })();
+  };
+
+  // Optimistic packing check-off: instant strikethrough + light haptic;
+  // revert with a heads-up if the server rejects it.
+  const handleTogglePacking = (item: { id: string; done: boolean }) => {
+    const done = packOverrides[item.id] ?? item.done;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setPackOverrides((o) => ({ ...o, [item.id]: !done }));
+    void (async () => {
+      const res = await patchPacking(event.id, item.id, authToken, { done: !done }, event.version);
+      if (res.conflict || res.error) {
+        setPackOverrides((o) => {
+          const { [item.id]: _omit, ...rest } = o;
+          return rest;
+        });
+        await refresh();
+        Alert.alert("Couldn't update", res.conflict ? "Someone else updated this trip — we refreshed it for you." : (res.error ?? "Please try again."));
+      } else {
+        await refresh();
+      }
+    })();
+  };
+
   const renderStop = (stop: ItineraryStop) => {
     const meta = STOP_CATEGORY_META[stop.category];
     const tint = colors[meta.colorKey];
     const proposed = stop.status === "proposed";
-    const voted = stop.votes.includes(currentUser.id);
+    // Apply optimistic override on top of the server truth.
+    const override = voteOverrides[stop.id];
+    const voted = override ?? stop.votes.includes(currentUser.id);
+    const displayVotes =
+      override === undefined
+        ? stop.votes
+        : override
+          ? [...new Set([...stop.votes, currentUser.id])]
+          : stop.votes.filter((v) => v !== currentUser.id);
     const mine = stop.createdBy === currentUser.id;
     return (
       <View key={stop.id} style={[styles.stopRow, { borderColor: colors.border, backgroundColor: colors.card }]}>
@@ -587,15 +693,29 @@ export default function TripDetailScreen() {
               <Text style={[styles.stopCost, { color: colors.green }]}>${stop.cost.toFixed(0)}/person</Text>
             ) : null}
             {proposed ? (
-              <TouchableOpacity
-                onPress={() => void runMut(() => voteStop(event.id, stop.id, authToken, event.version))}
-                style={[styles.voteBtn, { borderColor: voted ? colors.primary : colors.border, backgroundColor: voted ? colors.primary + "18" : "transparent" }]}
-              >
-                <Ionicons name={voted ? "heart" : "heart-outline"} size={14} color={voted ? colors.primary : colors.mutedForeground} />
-                <Text style={[styles.voteText, { color: voted ? colors.primary : colors.mutedForeground }]}>
-                  {stop.votes.length > 0 ? stop.votes.length : "Vote"}
-                </Text>
-              </TouchableOpacity>
+              <VoteHeart
+                voted={voted}
+                count={displayVotes.length}
+                tint={colors.primary}
+                muted={colors.mutedForeground}
+                border={colors.border}
+                onPress={() => handleVote(stop)}
+              />
+            ) : null}
+            {proposed && displayVotes.length > 0 ? (
+              <View style={styles.voterStack}>
+                {displayVotes.slice(0, 3).map((uid, i) => {
+                  const u = resolveUser(uid);
+                  return (
+                    <View key={uid} style={[styles.voterAvatar, { marginLeft: i === 0 ? 0 : -8, borderColor: colors.card }]}>
+                      <UserAvatar initials={u.initials} color={u.color} imageUrl={u.profileImageUrl} size={20} fontSize={8} />
+                    </View>
+                  );
+                })}
+                {displayVotes.length > 3 ? (
+                  <Text style={[styles.voterOverflow, { color: colors.mutedForeground }]}>+{displayVotes.length - 3}</Text>
+                ) : null}
+              </View>
             ) : null}
             {proposed ? (
               <TouchableOpacity
@@ -1035,22 +1155,24 @@ export default function TripDetailScreen() {
                 <Text style={[styles.packCount, { color: colors.mutedForeground }]}>
                   {packing.filter((p) => p.done).length} of {packing.length} packed
                 </Text>
-                {packing.map((item) => (
+                {packing.map((item) => {
+                  const done = packOverrides[item.id] ?? item.done;
+                  return (
                   <View key={item.id} style={[styles.packRow, { borderBottomColor: colors.border }]}>
                     <TouchableOpacity
-                      onPress={() => void runMut(() => patchPacking(event.id, item.id, authToken, { done: !item.done }, event.version))}
+                      onPress={() => handleTogglePacking(item)}
                       hitSlop={{ top: 10, bottom: 10, left: 4, right: 4 }}
                       style={styles.packToggle}
                     >
                       <View
-                        style={[styles.packCheck, { borderColor: item.done ? colors.green : colors.border, backgroundColor: item.done ? colors.green : "transparent" }]}
+                        style={[styles.packCheck, { borderColor: done ? colors.green : colors.border, backgroundColor: done ? colors.green : "transparent" }]}
                       >
-                        {item.done ? <Ionicons name="checkmark" size={14} color="#fff" /> : null}
+                        {done ? <Ionicons name="checkmark" size={14} color="#fff" /> : null}
                       </View>
                       <Text
                         numberOfLines={1}
                         ellipsizeMode="tail"
-                        style={[styles.packLabel, { color: item.done ? colors.mutedForeground : colors.foreground, textDecorationLine: item.done ? "line-through" : "none" }]}
+                        style={[styles.packLabel, { color: done ? colors.mutedForeground : colors.foreground, textDecorationLine: done ? "line-through" : "none" }]}
                       >
                         {item.label}
                       </Text>
@@ -1068,7 +1190,8 @@ export default function TripDetailScreen() {
                       </TouchableOpacity>
                     ) : null}
                   </View>
-                ))}
+                  );
+                })}
               </>
             )}
           </View>
@@ -1099,6 +1222,7 @@ export default function TripDetailScreen() {
         defaultDay={sheetDay ?? dayKeys[0] ?? today}
         editing={editingStop}
         saving={busy}
+        canConfirm={canManage}
         members={memberOptions}
         onClose={() => setSheetOpen(false)}
         onSubmit={submitStop}
@@ -1463,8 +1587,9 @@ const styles = StyleSheet.create({
   liveRestTitle: { fontSize: 15, fontWeight: "700", flex: 1 },
   liveRestCost: { fontSize: 13, fontWeight: "800" },
   stopCost: { fontSize: 13, fontWeight: "800" },
-  voteBtn: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 20, borderWidth: 1.5, paddingHorizontal: 11, paddingVertical: 5 },
-  voteText: { fontSize: 12, fontWeight: "800" },
+  voterStack: { flexDirection: "row", alignItems: "center" },
+  voterAvatar: { borderWidth: 2, borderRadius: 12 },
+  voterOverflow: { fontSize: 11, fontWeight: "800", marginLeft: 4 },
   confirmBtn: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 20, paddingHorizontal: 11, paddingVertical: 5 },
   confirmText: { fontSize: 12, fontWeight: "800" },
   stopActions: { gap: 14, paddingLeft: 2, alignItems: "center" },
