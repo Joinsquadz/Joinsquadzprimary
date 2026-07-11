@@ -45,6 +45,12 @@ const VAULT_SCROLL_KEY = "vault:scrollY";
 // limit; the server enforces the same ceiling on the request-url route.
 const MAX_UPLOAD_BYTES = 150 * 1024 * 1024;
 
+// Auth-race retry policy: when a vault fetch 401s because the token hasn't
+// finished restoring, retry on this cadence up to this many times before
+// surfacing a retryable error (instead of a false "empty vault").
+const AUTH_RETRY_DELAY_MS = 600;
+const MAX_AUTH_RETRIES = 8;
+
 type MediaType = "image" | "video";
 type MediaFilter = "all" | MediaType;
 
@@ -183,6 +189,20 @@ export default function VaultScreen() {
   // Squad vault state (only used when squadId is present)
   const [squadPhotos, setSquadPhotos] = useState<SquadVaultPhoto[]>([]);
   const [squadLoading, setSquadLoading] = useState(false);
+  // Auth-race guards: a fetch that 401s before the token has finished restoring
+  // must NOT collapse to the empty state ("No photos rolled up yet"). Instead we
+  // keep the screen in a loading state and retry until an authenticated fetch
+  // succeeds (or we exhaust retries and surface a retryable error).
+  const [squadAuthPending, setSquadAuthPending] = useState(false);
+  const [squadAuthError, setSquadAuthError] = useState(false);
+  const [squadAuthTick, setSquadAuthTick] = useState(0);
+  const [photosAuthPending, setPhotosAuthPending] = useState(false);
+  const [photosAuthError, setPhotosAuthError] = useState(false);
+  const [photosAuthTick, setPhotosAuthTick] = useState(0);
+  // Ref mirrors so the fetch callbacks can tell "this is a retry of an in-flight
+  // auth race" from "first attempt" without re-creating on every state change.
+  const squadAuthPendingRef = useRef(false);
+  const photosAuthPendingRef = useRef(false);
   const [squadViewMode, setSquadViewMode] = useState<"grid" | "events">("grid");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerPhotos, setPickerPhotos] = useState<VaultPhoto[]>([]);
@@ -391,17 +411,45 @@ export default function VaultScreen() {
       const res = await fetch(`${API_BASE}/api/vault/photos?${params.toString()}`, {
         headers: authHeaders(),
       });
-      if (!res.ok) return;
+      // A 401 here almost always means the auth token hasn't finished restoring
+      // yet (cold start / deep-link entry / token-refresh race). Treat it as
+      // "still loading" and schedule a retry instead of falling through to the
+      // empty state, which would falsely claim the vault has no photos.
+      if (res.status === 401) {
+        setPhotosAuthPending(true);
+        setPhotosAuthTick(c => c + 1);
+        return;
+      }
+      if (!res.ok) {
+        // Non-401 failure. If we're mid auth-race retry, keep the bounded loop
+        // going (advance the tick) so a transient blip doesn't strand us on a
+        // permanent spinner; it will surface the retry error once capped.
+        if (photosAuthPendingRef.current) setPhotosAuthTick(c => c + 1);
+        return;
+      }
       const data = await res.json() as { photos: VaultPhoto[]; isPro?: boolean };
       setPhotos(data.photos ?? []);
       syncFavorites(data.photos ?? []);
       if (data.isPro !== undefined) setIsPro(data.isPro);
+      setPhotosAuthPending(false);
+      setPhotosAuthError(false);
+      setPhotosAuthTick(0);
     } catch {
-      // silently fail
+      // Network error. Same as above: don't strand an in-flight auth retry.
+      if (photosAuthPendingRef.current) setPhotosAuthTick(c => c + 1);
     } finally {
       setPhotosLoading(false);
     }
   }, [authToken, squadId, eventId, authHeaders, syncFavorites]);
+
+  // Manual retry after the auth-race retries were exhausted. Clears the error,
+  // resets the attempt counter, and kicks off a fresh fetch (which re-arms the
+  // retry loop if it 401s again).
+  const retryPhotos = useCallback(() => {
+    setPhotosAuthError(false);
+    setPhotosAuthTick(0);
+    void fetchPhotos();
+  }, [fetchPhotos]);
 
   // Personal Favorites sub-section — everything the user bookmarked across all
   // squads. Favorites are a Squadz+ feature; free users hit the entrance gate
@@ -459,6 +507,27 @@ export default function VaultScreen() {
   useEffect(() => {
     if (isPro !== null) fetchPhotos();
   }, [isPro, fetchPhotos]);
+
+  // Retry driver for the personal vault: while a fetch is auth-pending (401 seen
+  // before the token restored) re-run it on a short delay. Re-runs whenever the
+  // token changes (immediate retry once it lands) or the tick advances (a fresh
+  // 401 came back). After a bounded number of attempts we give up and surface a
+  // retryable error rather than an infinite spinner.
+  useEffect(() => { photosAuthPendingRef.current = photosAuthPending; }, [photosAuthPending]);
+  useEffect(() => { squadAuthPendingRef.current = squadAuthPending; }, [squadAuthPending]);
+
+  useEffect(() => {
+    // The personal grid also renders the event-contextual view, so only skip
+    // here in squad mode (that view is driven by fetchSquadVault's own retry).
+    if (!photosAuthPending || isSquadVault) return;
+    if (photosAuthTick >= MAX_AUTH_RETRIES) {
+      setPhotosAuthPending(false);
+      setPhotosAuthError(true);
+      return;
+    }
+    const t = setTimeout(() => { void fetchPhotos(); }, AUTH_RETRY_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [photosAuthPending, photosAuthTick, authToken, isSquadVault, fetchPhotos]);
 
   // Load the Favorites collection the first time (and whenever) the user opens
   // that sub-section in the personal vault.
@@ -585,16 +654,40 @@ export default function VaultScreen() {
     setSquadLoading(true);
     try {
       const res = await fetch(`${API_BASE}/api/squads/${squadId}/vault`, { headers: authHeaders() });
-      if (!res.ok) return;
+      // A 401 here almost always means the auth token hasn't finished restoring
+      // yet (cold start / deep-link entry / token-refresh race). Treat it as
+      // "still loading" and schedule a retry instead of falling through to the
+      // empty state, which would falsely claim the vault has no photos.
+      if (res.status === 401) {
+        setSquadAuthPending(true);
+        setSquadAuthTick(c => c + 1);
+        return;
+      }
+      if (!res.ok) {
+        // Non-401 failure — keep a bounded auth-race retry going (see fetchPhotos).
+        if (squadAuthPendingRef.current) setSquadAuthTick(c => c + 1);
+        return;
+      }
       const data = await res.json() as { photos: SquadVaultPhoto[] };
       setSquadPhotos(data.photos ?? []);
       syncFavorites(data.photos ?? []);
+      setSquadAuthPending(false);
+      setSquadAuthError(false);
+      setSquadAuthTick(0);
     } catch {
-      // silently fail
+      // Network error — keep the in-flight auth retry alive (see fetchPhotos).
+      if (squadAuthPendingRef.current) setSquadAuthTick(c => c + 1);
     } finally {
       setSquadLoading(false);
     }
   }, [squadId, authHeaders, syncFavorites]);
+
+  // Manual retry after the auth-race retries were exhausted (see fetchPhotos).
+  const retrySquadVault = useCallback(() => {
+    setSquadAuthError(false);
+    setSquadAuthTick(0);
+    void fetchSquadVault();
+  }, [fetchSquadVault]);
 
   // T11 — Upload photos/videos straight into the current squad's vault (no event
   // roll-up needed). The server authorizes by squad membership and marks each
@@ -630,6 +723,21 @@ export default function VaultScreen() {
   useEffect(() => {
     if (squadId) fetchSquadVault();
   }, [squadId, fetchSquadVault]);
+
+  // Retry driver for the squad vault — same auth-race handling as the personal
+  // vault above: keep the loading state and retry the 401'd fetch until the
+  // token restores, then fall back to a retryable error rather than the
+  // misleading "No photos rolled up yet" empty state.
+  useEffect(() => {
+    if (!squadAuthPending || !squadId) return;
+    if (squadAuthTick >= MAX_AUTH_RETRIES) {
+      setSquadAuthPending(false);
+      setSquadAuthError(true);
+      return;
+    }
+    const t = setTimeout(() => { void fetchSquadVault(); }, AUTH_RETRY_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [squadAuthPending, squadAuthTick, authToken, squadId, fetchSquadVault]);
 
   // Live updates: when any member shares or removes a vault photo, the server
   // broadcasts a squad update over SSE so the gallery reflects it immediately
@@ -911,6 +1019,24 @@ export default function VaultScreen() {
     </View>
   );
 
+  // Shown when the auth-race retries are exhausted: a genuine failure to load,
+  // distinct from an empty vault. Offers an explicit retry rather than silently
+  // claiming there are no photos.
+  const renderRetryState = (onRetry: () => void) => (
+    <View style={[styles.emptyState, { borderColor: colors.border }]}>
+      <Text style={styles.emptyIcon}>⚠️</Text>
+      <Text style={[styles.emptyTitle, { color: colors.mutedForeground }]}>Couldn&apos;t load your vault</Text>
+      <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>Check your connection and try again.</Text>
+      <TouchableOpacity
+        onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onRetry(); }}
+        style={[styles.retryBtn, { borderColor: colors.primary }]}
+        activeOpacity={0.85}
+      >
+        <Text style={[styles.retryBtnText, { color: colors.primary }]}>Retry</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
   // T13a — All / Photos / Videos filter tabs, shared by the personal and squad grids.
   const mediaFilterTabs = (
     <View style={styles.mediaFilterRow}>
@@ -960,7 +1086,7 @@ export default function VaultScreen() {
       {isSquadVault ? (
         squadViewMode === "events" ? (
           <SectionList
-            sections={squadLoading && squadPhotos.length === 0 ? [] : squadSections}
+            sections={(squadLoading || squadAuthPending) && squadPhotos.length === 0 ? [] : squadSections}
             keyExtractor={(group, index) => (group[0] ? `grp-${group[0].id}` : `grp-empty-${index}`)}
             extraData={listExtra}
             contentContainerStyle={[styles.scroll, { paddingBottom: botPad + 24 }]}
@@ -992,10 +1118,12 @@ export default function VaultScreen() {
               </View>
             )}
             ListEmptyComponent={
-              squadLoading ? (
+              (squadLoading || squadAuthPending) ? (
                 <View style={styles.center}>
                   <ActivityIndicator color={colors.primary} size="large" />
                 </View>
+              ) : squadAuthError ? (
+                renderRetryState(retrySquadVault)
               ) : (
                 <View style={[styles.emptyState, { borderColor: colors.border }]}>
                   <Text style={styles.emptyIcon}>📸</Text>
@@ -1008,7 +1136,7 @@ export default function VaultScreen() {
           />
         ) : (
         <FlatList
-          data={squadLoading && squadPhotos.length === 0 ? [] : filteredSquadPhotos}
+          data={(squadLoading || squadAuthPending) && squadPhotos.length === 0 ? [] : filteredSquadPhotos}
           keyExtractor={(p) => String(p.id)}
           numColumns={3}
           columnWrapperStyle={{ gap: 4 }}
@@ -1030,10 +1158,12 @@ export default function VaultScreen() {
             </>
           }
           ListEmptyComponent={
-            squadLoading ? (
+            (squadLoading || squadAuthPending) ? (
               <View style={styles.center}>
                 <ActivityIndicator color={colors.primary} size="large" />
               </View>
+            ) : squadAuthError ? (
+              renderRetryState(retrySquadVault)
             ) : (
               <View style={[styles.emptyState, { borderColor: colors.border }]}>
                 <Text style={styles.emptyIcon}>📸</Text>
@@ -1066,9 +1196,11 @@ export default function VaultScreen() {
           </TouchableOpacity>
         </View>
       ) : (
-        (personalTab === "favorites" ? favoritesLoading : photosLoading) ? (
+        (personalTab === "favorites" ? favoritesLoading : (photosLoading || photosAuthPending)) ? (
           // T212: skeleton photo grid instead of a spinner — mirrors the
-          // 3-column layout the real grid renders into.
+          // 3-column layout the real grid renders into. Also shown while the
+          // uploads fetch is auth-pending (retrying after a token-restore 401)
+          // so we never flash a false "No photos yet" during the auth race.
           <View style={[styles.scroll, { paddingTop: 4 }]}>
             {[0, 1, 2].map((row) => (
               <View key={row} style={{ flexDirection: "row", gap: 4, marginBottom: 4 }}>
@@ -1080,6 +1212,8 @@ export default function VaultScreen() {
               </View>
             ))}
           </View>
+        ) : (personalTab !== "favorites" && photosAuthError) ? (
+          renderRetryState(retryPhotos)
         ) : (
           <FlatList
             ref={scrollRef}
@@ -1666,6 +1800,14 @@ const styles = StyleSheet.create({
   emptyText: { fontSize: 15, fontWeight: "700", fontFamily: "Inter_700Bold", marginBottom: 4, textAlign: "center" },
   emptyTitle: { fontSize: 16, fontWeight: "700", fontFamily: "Inter_700Bold", marginBottom: 4 },
   emptySub: { fontSize: 13, fontFamily: "Inter_400Regular", textAlign: "center" },
+  retryBtn: {
+    marginTop: 16,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingVertical: 8,
+    paddingHorizontal: 22,
+  },
+  retryBtnText: { fontSize: 14, fontWeight: "700", fontFamily: "Inter_700Bold" },
   uploadBtn: {
     flexDirection: "row",
     alignItems: "center",
