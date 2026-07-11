@@ -22,3 +22,8 @@ description: Access model + interaction rules for the photo vault (captions/hear
 
 # SSE
 - Native vault stream hook uses `import { fetch } from "expo/fetch"` (RN built-in fetch has null response.body) and reconnects on AppState "active", with a 20s poll fallback.
+
+# Shared personal-vault fetch hook (useVaultPhotos)
+- `hooks/useVaultPhotos.ts` is the shared `/api/vault/photos` fetcher (auth headers + isPro/requiresPro/loading). Used by `(tabs)/photos.tsx` and `components/EventVaultPanel.tsx`.
+- **`app/vault.tsx` is intentionally NOT migrated to it.** Its personal path adds `syncFavorites`, a separate `/api/subscription` check (`checkSubscription`), scoped query params, and its own `photosLoading`. Forcing it through the generic hook breaks the intricate favorites/isPro sequencing.
+- **Squad vault "By Events" view**: SectionList grouped by `p.eventId` via `eventsById` lookup (title/emoji, fallback 🎉/"Event"); null eventId → "All other photos" (📷); each section carries one data row = the photo array, rendered as a flex-wrap grid reusing `renderSquadCell`. Section keyExtractor must key off `group[0].id`, not the row index (all rows are index 0).

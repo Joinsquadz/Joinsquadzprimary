@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -20,6 +20,7 @@ import { UpgradeModal } from "@/components/UpgradeModal";
 import { useToast } from "@/context/ToastContext";
 import { downloadPhoto } from "@/lib/downloadPhoto";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
+import { useVaultPhotos } from "@/hooks/useVaultPhotos";
 
 type LivePhoto = {
   id: number;
@@ -48,9 +49,13 @@ export default function PhotosTab() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { authToken } = useAuth();
-  const [isPro, setIsPro] = useState<boolean | null>(null);
+  const {
+    photos,
+    isPro,
+    loading: photosLoading,
+    refetch: loadPhotos,
+  } = useVaultPhotos<LivePhoto>({ authToken });
   const [upgradeVisible, setUpgradeVisible] = useState(false);
-  const [photos, setPhotos] = useState<LivePhoto[] | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [activeFilter, setActiveFilter] = useState("All");
   const [downloadingId, setDownloadingId] = useState<number | "all" | null>(null);
@@ -66,31 +71,8 @@ export default function PhotosTab() {
 
   const imageUrl = useCallback((objectPath: string) => `${API_BASE}/api/storage${objectPath}`, []);
 
-  const loadPhotos = useCallback(async () => {
-    try {
-      const r = await fetch(`${API_BASE}/api/vault/photos`, { headers: authHeaders() });
-      const data = (r.ok ? await r.json() : null) as
-        | { photos?: LivePhoto[]; isPro?: boolean }
-        | null;
-      if (!data) {
-        setIsPro(false);
-        setPhotos([]);
-        return;
-      }
-      setIsPro(!!data.isPro);
-      setPhotos(data.photos ?? []);
-    } catch {
-      setIsPro(false);
-      setPhotos([]);
-    }
-  }, [authHeaders]);
-
-  useEffect(() => {
-    void loadPhotos();
-  }, [loadPhotos]);
-
   // Only photos that have an accessible image (unlocked + url present) can be shown/downloaded.
-  const viewablePhotos = (photos ?? []).filter((p) => !p.locked && !!p.url);
+  const viewablePhotos = photos.filter((p) => !p.locked && !!p.url);
 
   const squadNames = Array.from(
     new Set(viewablePhotos.map((p) => p.squadName).filter((s): s is string => !!s)),
@@ -164,7 +146,7 @@ export default function PhotosTab() {
         )}
       </View>
 
-      {isPro === null || photos === null ? (
+      {isPro === null || photosLoading ? (
         <View style={styles.center}>
           <ActivityIndicator color={colors.primary} size="large" />
         </View>
@@ -223,7 +205,7 @@ export default function PhotosTab() {
             visible={upgradeVisible}
             trigger="photos"
             onClose={() => setUpgradeVisible(false)}
-            onUpgradeSuccess={() => { setIsPro(true); void loadPhotos(); }}
+            onUpgradeSuccess={() => { void loadPhotos(); }}
           />
         </ScrollView>
       ) : viewablePhotos.length === 0 ? (

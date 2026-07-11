@@ -46,6 +46,7 @@ import type { RsvpStatus } from "@/types";
 import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
 import { useTips } from "@/context/TipsContext";
 import { IconPicker } from "@/components/IconPicker";
+import { EventVaultPanel } from "@/components/EventVaultPanel";
 
 type EventTab = "overview" | "guests" | "tasks" | "food" | "costs" | "chat" | "photos" | "admin";
 
@@ -1584,55 +1585,7 @@ export default function EventDetailScreen() {
         )}
 
         {tab === "photos" && (
-          <View style={{ gap: 16 }}>
-            <TouchableOpacity
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                router.push(`/vault?eventId=${event.id}&eventName=${encodeURIComponent(event.title)}` as never);
-              }}
-              style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}
-            >
-              <View style={styles.cardHeaderRow}>
-                <View style={{ flex: 1, gap: 4 }}>
-                  <Text style={[styles.cardTitle, { color: colors.mutedForeground }]}>📷 Event Vault</Text>
-                  <Text style={[styles.cardBody, { color: colors.foreground }]}>View all photos from {event.title}</Text>
-                  <Text style={[styles.cardTitle, { color: colors.mutedForeground, marginTop: 4 }]}>Stored in Photo Vault · private to squad members</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={20} color={colors.textDim} />
-              </View>
-            </TouchableOpacity>
-            <View style={styles.vaultPhotoGrid}>
-              {[
-                { color: "#FF6B3A", emoji: "🔥" },
-                { color: "#7B6EF6", emoji: "🎳" },
-                { color: "#F5A623", emoji: "🍕" },
-              ].map((p, i) => (
-                <TouchableOpacity
-                  key={i}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    router.push(`/vault?eventId=${event.id}&eventName=${encodeURIComponent(event.title)}` as never);
-                  }}
-                  style={[styles.vaultGridCell, { backgroundColor: p.color + "30" }]}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.vaultGridEmoji}>{p.emoji}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            <TouchableOpacity
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                router.push(`/vault?eventId=${event.id}&eventName=${encodeURIComponent(event.title)}` as never);
-              }}
-              style={[styles.vaultCta, { backgroundColor: colors.primary + "18", borderColor: colors.primary + "40" }]}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="images-outline" size={18} color={colors.primary} />
-              <Text style={[styles.vaultCtaText, { color: colors.primary }]}>Open Photo Vault for this event</Text>
-              <Ionicons name="chevron-forward" size={16} color={colors.primary} />
-            </TouchableOpacity>
-          </View>
+          <EventVaultPanel event={event} authToken={authToken} />
         )}
 
         {tab === "chat" && (

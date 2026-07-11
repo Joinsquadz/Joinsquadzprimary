@@ -78,6 +78,9 @@ type Props = {
   onHeartChanged?: (id: number, hearted: boolean, heartCount: number) => void;
   onDelete?: (id: number) => void;
   deleteLabel?: string;
+  /** When false the photo belongs to a squad/event vault (not the viewer's own
+   *  uploads), so the bookmark action is surfaced as "Save to my vault". */
+  isPersonalContext?: boolean;
 };
 
 const displayName = (first?: string | null, last?: string | null): string => {
@@ -130,6 +133,7 @@ export default function VaultMediaDetail({
   onHeartChanged,
   onDelete,
   deleteLabel = "Delete",
+  isPersonalContext = true,
 }: Props) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -415,15 +419,25 @@ export default function VaultMediaDetail({
                 />
               </Bounceable>
               <TouchableOpacity
-                style={styles.action}
+                style={isPersonalContext ? styles.action : styles.saveAction}
                 onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onToggleFavorite(photo.id); }}
                 activeOpacity={0.7}
+                accessibilityLabel={
+                  isPersonalContext
+                    ? (favorited ? "Remove from favorites" : "Add to favorites")
+                    : (favorited ? "Saved to your vault" : "Save to my vault")
+                }
               >
                 <Ionicons
                   name={favorited ? "bookmark" : "bookmark-outline"}
-                  size={24}
+                  size={isPersonalContext ? 24 : 20}
                   color={favorited ? colors.gold : colors.foreground}
                 />
+                {!isPersonalContext && (
+                  <Text style={[styles.saveActionText, { color: favorited ? colors.gold : colors.foreground }]}>
+                    {favorited ? "Saved to your vault" : "Save to my vault"}
+                  </Text>
+                )}
               </TouchableOpacity>
             </View>
 
@@ -638,6 +652,8 @@ const styles = StyleSheet.create({
   media: { width: "100%", height: "100%" },
   actionBar: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingTop: 12, gap: 6 },
   action: { padding: 6 },
+  saveAction: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 6, paddingHorizontal: 8 },
+  saveActionText: { fontSize: 13, fontWeight: "700", fontFamily: "Inter_600SemiBold" },
   heartCountRow: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 16, paddingTop: 8 },
   heartCountText: { fontSize: 14, fontWeight: "700", fontFamily: "Inter_700Bold" },
   heartList: { paddingHorizontal: 16, paddingTop: 8, gap: 10 },

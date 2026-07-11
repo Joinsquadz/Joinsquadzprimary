@@ -1078,7 +1078,7 @@ export default function TripDetailScreen() {
         {/* VAULT */}
         {tab === "vault" ? (
           <View style={styles.tabBody}>
-            <EventVaultPanel event={event} />
+            <EventVaultPanel event={event} authToken={authToken} />
           </View>
         ) : null}
 

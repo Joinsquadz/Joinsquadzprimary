@@ -5,6 +5,7 @@ import {
   StyleSheet,
   ScrollView,
   FlatList,
+  SectionList,
   TouchableOpacity,
   Platform,
   ActivityIndicator,
@@ -181,6 +182,7 @@ export default function VaultScreen() {
   // Squad vault state (only used when squadId is present)
   const [squadPhotos, setSquadPhotos] = useState<SquadVaultPhoto[]>([]);
   const [squadLoading, setSquadLoading] = useState(false);
+  const [squadViewMode, setSquadViewMode] = useState<"grid" | "events">("grid");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerPhotos, setPickerPhotos] = useState<VaultPhoto[]>([]);
   const [pickerSelected, setPickerSelected] = useState<Set<number>>(new Set());
@@ -274,6 +276,51 @@ export default function VaultScreen() {
     if (mediaFilter === "all") return squadPhotos;
     return squadPhotos.filter(p => (p.mediaType ?? "image") === mediaFilter);
   }, [squadPhotos, mediaFilter]);
+
+  // "By Events" grouping for the squad vault: one section per event (newest
+  // first, keyed on the most recent photo in the group) plus an "All other
+  // photos" catch-all for items shared straight to the squad with no event.
+  // Each section carries a single data row (the photo array) so the section body
+  // renders as a flex-wrap grid rather than one row per photo.
+  const squadSections = useMemo(() => {
+    const groups = new Map<string, SquadVaultPhoto[]>();
+    const noEvent: SquadVaultPhoto[] = [];
+    for (const p of filteredSquadPhotos) {
+      if (p.eventId) {
+        const arr = groups.get(p.eventId) ?? [];
+        arr.push(p);
+        groups.set(p.eventId, arr);
+      } else {
+        noEvent.push(p);
+      }
+    }
+    const latest = (items: SquadVaultPhoto[]) =>
+      items.reduce((max, p) => Math.max(max, new Date(p.uploadedAt).getTime() || 0), 0);
+    const sections = Array.from(groups.entries())
+      .map(([evId, items]) => {
+        const ev = eventsById.get(evId);
+        return {
+          key: evId,
+          title: ev?.title ?? "Event",
+          emoji: ev?.emoji ?? "🎉",
+          count: items.length,
+          latest: latest(items),
+          data: [items],
+        };
+      })
+      .sort((a, b) => b.latest - a.latest);
+    if (noEvent.length > 0) {
+      sections.push({
+        key: "__none__",
+        title: "All other photos",
+        emoji: "📷",
+        count: noEvent.length,
+        latest: -1,
+        data: [noEvent],
+      });
+    }
+    return sections;
+  }, [filteredSquadPhotos, eventsById]);
 
   const filterLabel = eventName
     ? decodeURIComponent(eventName)
@@ -811,6 +858,93 @@ export default function VaultScreen() {
       <VaultImage uri={imageUrl(url)} style={styles.gridImage} headers={authHeaders() as Record<string, string>} />
     );
 
+  // A single squad-vault grid cell. Shared by the flat Grid FlatList and the
+  // "By Events" SectionList so both view modes look and behave identically.
+  const renderSquadCell = (p: SquadVaultPhoto) => (
+    <TouchableOpacity
+      key={p.id}
+      onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSelected(selected === p.id ? null : p.id); }}
+      style={[styles.gridCell, { borderWidth: 2, borderColor: selected === p.id ? colors.primary : "transparent" }]}
+      activeOpacity={0.8}
+    >
+      {renderCellMedia(p.url, p.mediaType === "video")}
+      {renderFavButton(p.id)}
+      {renderHeartBadge(p)}
+      <View style={styles.attrOverlay}>
+        <View style={[styles.attrAvatar, { backgroundColor: colors.primary }]}>
+          <Text style={styles.attrAvatarText}>{uploaderInitial(p)}</Text>
+        </View>
+        <Text style={styles.attrText} numberOfLines={1}>
+          {(p.uploaderFirstName || uploaderName(p)).split(" ")[0]} · {shortDate(p.uploadedAt)}
+        </Text>
+      </View>
+      {selected === p.id && (
+        <View style={[styles.checkBadge, { backgroundColor: colors.primary }]}>
+          <Ionicons name="checkmark" size={10} color="#fff" />
+        </View>
+      )}
+    </TouchableOpacity>
+  );
+
+  // Grid | By Events toggle for the squad vault header.
+  const squadViewToggle = (
+    <View style={[styles.viewToggleRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
+      {(["grid", "events"] as const).map(mode => {
+        const active = squadViewMode === mode;
+        return (
+          <TouchableOpacity
+            key={mode}
+            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSquadViewMode(mode); setSelected(null); }}
+            style={[styles.viewToggleBtn, active && { backgroundColor: colors.primary }]}
+            activeOpacity={0.8}
+          >
+            <Ionicons
+              name={mode === "grid" ? "grid-outline" : "calendar-outline"}
+              size={15}
+              color={active ? "#fff" : colors.mutedForeground}
+            />
+            <Text style={[styles.viewToggleText, { color: active ? "#fff" : colors.mutedForeground }]}>
+              {mode === "grid" ? "Grid" : "By Events"}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+
+  // Upload / roll-up actions shown below both squad view modes.
+  const squadFooter = (
+    <View style={{ marginTop: 16 }}>
+      <TouchableOpacity
+        style={[styles.uploadBtn, { borderColor: colors.border, marginBottom: 12 }]}
+        activeOpacity={0.7}
+        onPress={handleUploadToSquad}
+        disabled={isUploadingSquad}
+      >
+        {isUploadingSquad ? (
+          <ActivityIndicator color={colors.mutedForeground} />
+        ) : (
+          <Ionicons name="cloud-upload-outline" size={26} color={colors.mutedForeground} />
+        )}
+        <Text style={[styles.uploadLabel, { color: colors.mutedForeground }]}>
+          {isUploadingSquad ? "Uploading…" : "Upload to this vault"}
+        </Text>
+        <Text style={[styles.uploadSub, { color: colors.mutedForeground }]}>
+          Add photos or videos straight to the squad vault
+        </Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[styles.rollUpBtn, { backgroundColor: colors.primary }]}
+        activeOpacity={0.85}
+        onPress={openPicker}
+      >
+        <Ionicons name="sparkles" size={18} color="#fff" />
+        <Text style={styles.rollUpBtnText}>Roll up your best photos</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
   // T13a — All / Photos / Videos filter tabs, shared by the personal and squad grids.
   const mediaFilterTabs = (
     <View style={styles.mediaFilterRow}>
@@ -858,6 +992,55 @@ export default function VaultScreen() {
       </View>
 
       {isSquadVault ? (
+        squadViewMode === "events" ? (
+          <SectionList
+            sections={squadLoading && squadPhotos.length === 0 ? [] : squadSections}
+            keyExtractor={(group, index) => (group[0] ? `grp-${group[0].id}` : `grp-empty-${index}`)}
+            extraData={listExtra}
+            contentContainerStyle={[styles.scroll, { paddingBottom: botPad + 24 }]}
+            showsVerticalScrollIndicator={false}
+            stickySectionHeadersEnabled={false}
+            ListHeaderComponent={
+              <>
+                {mediaFilterTabs}
+                {squadViewToggle}
+                <Text style={[styles.countLabel, { color: colors.mutedForeground }]}>
+                  {filteredSquadPhotos.length} {filteredSquadPhotos.length === 1 ? "item" : "items"} · curated by your squad
+                </Text>
+              </>
+            }
+            renderSectionHeader={({ section }) => (
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionEmoji}>{section.emoji}</Text>
+                <Text style={[styles.sectionTitle, { color: colors.foreground }]} numberOfLines={1}>
+                  {section.title}
+                </Text>
+                <Text style={[styles.sectionCount, { color: colors.mutedForeground }]}>
+                  {section.count}
+                </Text>
+              </View>
+            )}
+            renderItem={({ item: group }) => (
+              <View style={styles.sectionGrid}>
+                {group.map(renderSquadCell)}
+              </View>
+            )}
+            ListEmptyComponent={
+              squadLoading ? (
+                <View style={styles.center}>
+                  <ActivityIndicator color={colors.primary} size="large" />
+                </View>
+              ) : (
+                <View style={[styles.emptyState, { borderColor: colors.border }]}>
+                  <Text style={styles.emptyIcon}>📸</Text>
+                  <Text style={[styles.emptyTitle, { color: colors.mutedForeground }]}>No photos rolled up yet</Text>
+                  <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>Roll up your best photos to start the squad vault</Text>
+                </View>
+              )
+            }
+            ListFooterComponent={squadFooter}
+          />
+        ) : (
         <FlatList
           data={squadLoading && squadPhotos.length === 0 ? [] : filteredSquadPhotos}
           keyExtractor={(p) => String(p.id)}
@@ -874,6 +1057,7 @@ export default function VaultScreen() {
           ListHeaderComponent={
             <>
               {mediaFilterTabs}
+              {squadViewToggle}
               <Text style={[styles.countLabel, { color: colors.mutedForeground }]}>
                 {filteredSquadPhotos.length} {filteredSquadPhotos.length === 1 ? "item" : "items"} · curated by your squad
               </Text>
@@ -892,62 +1076,10 @@ export default function VaultScreen() {
               </View>
             )
           }
-          renderItem={({ item: p }) => (
-            <TouchableOpacity
-              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSelected(selected === p.id ? null : p.id); }}
-              style={[styles.gridCell, { borderWidth: 2, borderColor: selected === p.id ? colors.primary : "transparent" }]}
-              activeOpacity={0.8}
-            >
-              {renderCellMedia(p.url, p.mediaType === "video")}
-              {renderFavButton(p.id)}
-              {renderHeartBadge(p)}
-              <View style={styles.attrOverlay}>
-                <View style={[styles.attrAvatar, { backgroundColor: colors.primary }]}>
-                  <Text style={styles.attrAvatarText}>{uploaderInitial(p)}</Text>
-                </View>
-                <Text style={styles.attrText} numberOfLines={1}>
-                  {(p.uploaderFirstName || uploaderName(p)).split(" ")[0]} · {shortDate(p.uploadedAt)}
-                </Text>
-              </View>
-              {selected === p.id && (
-                <View style={[styles.checkBadge, { backgroundColor: colors.primary }]}>
-                  <Ionicons name="checkmark" size={10} color="#fff" />
-                </View>
-              )}
-            </TouchableOpacity>
-          )}
-          ListFooterComponent={
-            <View style={{ marginTop: 16 }}>
-              <TouchableOpacity
-                style={[styles.uploadBtn, { borderColor: colors.border, marginBottom: 12 }]}
-                activeOpacity={0.7}
-                onPress={handleUploadToSquad}
-                disabled={isUploadingSquad}
-              >
-                {isUploadingSquad ? (
-                  <ActivityIndicator color={colors.mutedForeground} />
-                ) : (
-                  <Ionicons name="cloud-upload-outline" size={26} color={colors.mutedForeground} />
-                )}
-                <Text style={[styles.uploadLabel, { color: colors.mutedForeground }]}>
-                  {isUploadingSquad ? "Uploading…" : "Upload to this vault"}
-                </Text>
-                <Text style={[styles.uploadSub, { color: colors.mutedForeground }]}>
-                  Add photos or videos straight to the squad vault
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.rollUpBtn, { backgroundColor: colors.primary }]}
-                activeOpacity={0.85}
-                onPress={openPicker}
-              >
-                <Ionicons name="sparkles" size={18} color="#fff" />
-                <Text style={styles.rollUpBtnText}>Roll up your best photos</Text>
-              </TouchableOpacity>
-            </View>
-          }
+          renderItem={({ item: p }) => renderSquadCell(p)}
+          ListFooterComponent={squadFooter}
         />
+        )
       ) : isPro === null ? (
         <View style={styles.center}>
           <ActivityIndicator color={colors.primary} size="large" />
@@ -1275,6 +1407,7 @@ export default function VaultScreen() {
           ? (id) => handleRemoveShared(id)
           : undefined}
         deleteLabel="Remove from squad vault"
+        isPersonalContext={!isSquadVault && !isContextual}
       />
 
       <VaultShareComposer
@@ -1462,6 +1595,14 @@ const styles = StyleSheet.create({
   mediaFilterRow: { flexDirection: "row", gap: 8, marginBottom: 12 },
   mediaFilterTab: { flex: 1, borderRadius: 10, borderWidth: 1, paddingVertical: 8, alignItems: "center" },
   mediaFilterText: { fontSize: 13, fontWeight: "700", fontFamily: "Inter_600SemiBold" },
+  viewToggleRow: { flexDirection: "row", borderRadius: 10, borderWidth: 1, padding: 4, gap: 4, marginBottom: 12 },
+  viewToggleBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 7, paddingVertical: 7 },
+  viewToggleText: { fontSize: 13, fontWeight: "700", fontFamily: "Inter_600SemiBold" },
+  sectionHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 12, marginBottom: 8 },
+  sectionEmoji: { fontSize: 18 },
+  sectionTitle: { flex: 1, fontSize: 15, fontWeight: "700", fontFamily: "Inter_600SemiBold" },
+  sectionCount: { fontSize: 13, fontFamily: "Inter_400Regular" },
+  sectionGrid: { flexDirection: "row", flexWrap: "wrap", gap: 4 },
   segmented: { flexDirection: "row", borderRadius: 12, borderWidth: 1, padding: 4, gap: 4, marginBottom: 12 },
   segmentedBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 8, borderRadius: 9 },
   segmentedText: { fontSize: 13, fontWeight: "700", fontFamily: "Inter_600SemiBold" },
