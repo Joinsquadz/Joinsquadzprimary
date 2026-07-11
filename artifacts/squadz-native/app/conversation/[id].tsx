@@ -33,6 +33,18 @@ import AttachmentVideo from "@/components/AttachmentVideo";
 import { ProAvatar } from "@/components/ProAvatar";
 import { ImageViewerModal } from "@/components/ImageViewerModal";
 import { useUserCache } from "@/context/UserCacheContext";
+// Shared auth-race guard (see lib/vaultAuthRace.ts). Opening a conversation
+// directly on a cold start (deep link / push tap) can 401 before the token
+// restores; keep the thread loading + retry instead of flashing "No messages
+// yet" or an error.
+import {
+  INITIAL_AUTH_RACE_STATE,
+  type AuthRaceState,
+  applyVaultFetchOutcome,
+  nextRetryDecision,
+  resetAuthRaceState,
+  vaultRenderMode,
+} from "@/lib/vaultAuthRace";
 
 const AVATAR_PALETTE = ["#FF6B2C", "#4A9EFF", "#2ECC8A", "#A855F7", "#FFB23E"];
 
@@ -100,6 +112,7 @@ export default function ConversationScreen() {
   const [participants, setParticipants] = useState<ChatParticipant[]>([]);
   const [convType, setConvType] = useState<"direct" | "squad">("direct");
   const [loading, setLoading] = useState(true);
+  const [authRace, setAuthRace] = useState<AuthRaceState>(INITIAL_AUTH_RACE_STATE);
   const [text, setText] = useState("");
   const [uploading, setUploading] = useState(false);
   const [viewer, setViewer] = useState<{ uri: string; headers: Record<string, string> } | null>(null);
@@ -136,10 +149,15 @@ export default function ConversationScreen() {
   }, [listItem, convType, participants, currentUser.id]);
 
   const loadThread = useCallback(
-    async (showSpinner: boolean) => {
+    // `track` = feed the auth-race guard. The cold-start load + its retries pass
+    // true (a pre-token-restore 401 keeps the screen loading instead of flashing
+    // the empty state); silent SSE/poll refreshes pass false (a transient 401
+    // there must not yank an already-populated thread back to a spinner).
+    async (showSpinner: boolean, track = false) => {
       if (showSpinner) setLoading(true);
-      const data = await fetchThread(conversationId);
-      if (data) {
+      const result = await fetchThread(conversationId);
+      if (result.kind === "ok") {
+        const data = result.data;
         setMessages((prev) => {
           const pending = prev.filter((m) => m.pending || m.failed);
           const serverIds = new Set(data.messages.map((m) => m.id));
@@ -149,15 +167,48 @@ export default function ConversationScreen() {
         setParticipants(data.participants);
         setConvType(data.conversation.type === "squad" ? "squad" : "direct");
       }
+      if (track) {
+        setAuthRace((prev) => applyVaultFetchOutcome(prev, { kind: result.kind }));
+      }
       if (showSpinner) setLoading(false);
     },
     [conversationId, fetchThread],
   );
 
   useEffect(() => {
-    void loadThread(true);
+    void loadThread(true, true);
     void markRead(conversationId);
   }, [loadThread, markRead, conversationId]);
+
+  // Retry driver: while the initial load is auth-pending (401 before the token
+  // restored), re-run it on a short cadence until an authenticated fetch lands,
+  // then give up into a retryable error rather than an infinite spinner.
+  useEffect(() => {
+    const decision = nextRetryDecision(authRace);
+    if (decision.action === "give-up") {
+      setAuthRace(decision.next);
+      return;
+    }
+    if (decision.action === "retry") {
+      const t = setTimeout(() => { void loadThread(false, true); }, decision.delayMs);
+      return () => clearTimeout(t);
+    }
+  }, [authRace, loadThread]);
+
+  const retryThread = useCallback(() => {
+    setAuthRace(resetAuthRaceState());
+    void loadThread(true, true);
+  }, [loadThread]);
+
+  // Single source of truth for the thread body. `authPending` keeps us on the
+  // spinner (never the empty state) during a slow-login auth race; "No messages
+  // yet" is only reached for a genuine authenticated zero-message thread.
+  const renderMode = vaultRenderMode({
+    loading,
+    authPending: authRace.authPending,
+    authError: authRace.authError,
+    photoCount: messages.length,
+  });
 
   // SSE stream: instantly delivers new messages from other participants.
   // When a teammate sends a message, we re-fetch and mark the thread read.
@@ -448,9 +499,26 @@ export default function ConversationScreen() {
         style={{ flex: 1 }}
         behavior="padding"
       >
-        {loading ? (
+        {renderMode === "loading" ? (
           <View style={styles.loading}>
             <ActivityIndicator color={colors.primary} />
+          </View>
+        ) : renderMode === "error" ? (
+          <View style={styles.empty}>
+            <Ionicons name="cloud-offline-outline" size={40} color={colors.textDim} />
+            <Text style={[styles.emptyTitle, { color: colors.foreground }]}>
+              Couldn't load messages
+            </Text>
+            <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>
+              Check your connection and try again.
+            </Text>
+            <TouchableOpacity
+              onPress={retryThread}
+              style={[styles.retryBtn, { backgroundColor: colors.primary }]}
+            >
+              <Ionicons name="refresh-outline" size={18} color="#fff" />
+              <Text style={styles.retryBtnText}>Try again</Text>
+            </TouchableOpacity>
           </View>
         ) : (
           <FlatList
@@ -633,6 +701,11 @@ const styles = StyleSheet.create({
   empty: { alignItems: "center", paddingTop: 80, gap: 8 },
   emptyTitle: { fontSize: 18, fontWeight: "800" },
   emptySub: { fontSize: 14, textAlign: "center" },
+  retryBtn: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    borderRadius: 22, paddingHorizontal: 18, paddingVertical: 10, marginTop: 8,
+  },
+  retryBtnText: { color: "#fff", fontSize: 14, fontWeight: "700" },
   msgRow: { flexDirection: "row", alignItems: "flex-end", gap: 8 },
   avatar: {
     width: 30, height: 30, borderRadius: 15,

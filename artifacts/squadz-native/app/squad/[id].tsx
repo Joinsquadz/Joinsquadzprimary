@@ -44,6 +44,11 @@ import { goingCount } from "@/lib/eventUtils";
 import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
 
 import { IconPicker } from "@/components/IconPicker";
+// Shared auth-race guard (see lib/vaultAuthRace.ts). Opening a squad directly on
+// a cold start (deep link / push tap) can 401 before the token restores and
+// AppContext hasn't loaded the squad yet; keep it loading + retry instead of
+// flashing "Squad not found".
+import { vaultRenderMode } from "@/lib/vaultAuthRace";
 
 function getFriendCodeDisplayName(u: FoundUser): string {
   if (u.firstName && u.lastName) return `${u.firstName} ${u.lastName}`;
@@ -60,7 +65,7 @@ function getFriendCodeInitials(u: FoundUser): string {
 export default function SquadDetailScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { events, squads, getSquad, updateSquad, regenerateInviteCode, leaveSquad, currentUser, addMemberByFriendCode, removeMember, conflictSquadId, clearConflictSquad, refreshSquads, addSquadCoAdmin, removeSquadCoAdmin } = useData();
+  const { events, squads, getSquad, updateSquad, regenerateInviteCode, leaveSquad, currentUser, addMemberByFriendCode, removeMember, conflictSquadId, clearConflictSquad, refreshSquads, addSquadCoAdmin, removeSquadCoAdmin, squadsLoading, squadsAuthPending, squadsAuthError, retrySquads } = useData();
   const { resolveUser, prefetchUsers, seedUser } = useUserCache();
   const { getSquadConversation } = useMessages();
   const { authToken } = useAuth();
@@ -526,12 +531,42 @@ export default function SquadDetailScreen() {
   const goBack = () => (router.canGoBack() ? router.back() : router.replace("/(tabs)" as never));
 
   if (!squad) {
+    // AppContext owns the squads fetch + auth-race retry loop. While a cold-start
+    // 401 is still racing the token restore, stay on a spinner; only show the
+    // genuine "Squad not found" once an authenticated fetch resolved without it.
+    const notFoundMode = vaultRenderMode({
+      loading: squadsLoading,
+      authPending: squadsAuthPending,
+      authError: squadsAuthError,
+      photoCount: 0,
+    });
     return (
       <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: topPad }]}>
         <TouchableOpacity onPress={goBack} style={[styles.backBtn, { top: btnTop }]}>
           <Ionicons name="chevron-back" size={24} color={colors.foreground} />
         </TouchableOpacity>
-        <Text style={{ color: colors.foreground, textAlign: "center", marginTop: 80 }}>Squad not found</Text>
+        {notFoundMode === "loading" ? (
+          <View style={{ marginTop: 80, alignItems: "center" }}>
+            <ActivityIndicator color={colors.primary} />
+          </View>
+        ) : notFoundMode === "error" ? (
+          <View style={{ marginTop: 80, alignItems: "center", gap: 10, paddingHorizontal: 32 }}>
+            <Ionicons name="cloud-offline-outline" size={44} color={colors.textDim} />
+            <Text style={{ color: colors.foreground, fontSize: 18, fontWeight: "800" }}>Couldn't load this squad</Text>
+            <Text style={{ color: colors.mutedForeground, fontSize: 14, textAlign: "center" }}>
+              Check your connection and try again.
+            </Text>
+            <TouchableOpacity
+              onPress={retrySquads}
+              style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: colors.primary, borderRadius: 22, paddingHorizontal: 18, paddingVertical: 10, marginTop: 4 }}
+            >
+              <Ionicons name="refresh-outline" size={18} color="#fff" />
+              <Text style={{ color: "#fff", fontSize: 14, fontWeight: "700" }}>Try again</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <Text style={{ color: colors.foreground, textAlign: "center", marginTop: 80 }}>Squad not found</Text>
+        )}
       </View>
     );
   }

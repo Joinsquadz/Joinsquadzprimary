@@ -70,6 +70,16 @@ export type ThreadData = {
   participants: ChatParticipant[];
 };
 
+// Result of a thread fetch, tagged with the HTTP outcome so the conversation
+// screen can drive the shared auth-race guard (lib/vaultAuthRace.ts): a
+// pre-token-restore 401 on a cold start / deep-link open must keep the screen
+// loading instead of flashing the "No messages yet" empty state. `kind` mirrors
+// VaultFetchOutcome so it can be passed straight to applyVaultFetchOutcome.
+export type ThreadFetchResult =
+  | { kind: "unauthorized" }
+  | { kind: "failure" }
+  | { kind: "ok"; data: ThreadData };
+
 type MessagesContextType = {
   conversations: ConversationListItem[];
   conversationsLoading: boolean;
@@ -82,7 +92,7 @@ type MessagesContextType = {
   unreadCount: number;
   refreshConversations: () => Promise<void>;
   refreshUnread: () => Promise<void>;
-  fetchThread: (conversationId: string) => Promise<ThreadData | null>;
+  fetchThread: (conversationId: string) => Promise<ThreadFetchResult>;
   sendMessage: (
     conversationId: string,
     text: string,
@@ -188,13 +198,17 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
   }, [apiFetch]);
 
   const fetchThread = useCallback(
-    async (conversationId: string): Promise<ThreadData | null> => {
+    async (conversationId: string): Promise<ThreadFetchResult> => {
       try {
         const res = await apiFetch(`/api/conversations/${conversationId}/messages`);
-        if (!res.ok) return null;
-        return (await res.json()) as ThreadData;
+        // A 401 almost always means the auth token hasn't finished restoring yet
+        // (cold start / deep-link open / token-refresh race). Surface it so the
+        // screen can stay loading and retry instead of flashing a false empty.
+        if (res.status === 401) return { kind: "unauthorized" };
+        if (!res.ok) return { kind: "failure" };
+        return { kind: "ok", data: (await res.json()) as ThreadData };
       } catch {
-        return null;
+        return { kind: "failure" };
       }
     },
     [apiFetch],

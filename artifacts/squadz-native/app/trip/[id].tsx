@@ -41,6 +41,18 @@ import { findMyConflicts, getPlanSpan } from "@/lib/conflicts";
 import ConflictBanner from "@/components/ConflictBanner";
 import { attendingIds } from "@/lib/eventUtils";
 import { TAB_BAR_HEIGHT } from "@/constants/layout";
+// Shared auth-race guard (see lib/vaultAuthRace.ts). Opening a trip directly on a
+// cold start (deep link / push tap / past trip from the Past hub) fetches the
+// single event; a pre-token-restore 401 must keep it loading + retry instead of
+// flashing "This trip isn't available."
+import {
+  INITIAL_AUTH_RACE_STATE,
+  type AuthRaceState,
+  applyVaultFetchOutcome,
+  nextRetryDecision,
+  resetAuthRaceState,
+  vaultRenderMode,
+} from "@/lib/vaultAuthRace";
 import type { Event, ItineraryStop } from "@/types";
 import {
   coverFor,
@@ -206,18 +218,31 @@ export default function TripDetailScreen() {
   const ctxEvent = getEvent(id ?? "");
   const [fallbackEvent, setFallbackEvent] = useState<Event | null>(null);
   const event = ctxEvent ?? fallbackEvent;
+  const [authRace, setAuthRace] = useState<AuthRaceState>(INITIAL_AUTH_RACE_STATE);
 
-  const fetchDetail = useCallback(async () => {
+  // `track` = feed the auth-race guard. The cold-start hydrate + its retries pass
+  // true (a pre-token-restore 401 keeps the screen loading instead of flashing
+  // "This trip isn't available"); the pull-to-refresh path passes false.
+  const fetchDetail = useCallback(async (track = false) => {
     if (!id) return;
     try {
       const res = await fetch(`${API_BASE}/api/events/${id}`, {
         headers: buildAuthHeaders(authToken),
       });
-      if (!res.ok) return;
-      const data = (await res.json()) as Record<string, unknown>;
-      setFallbackEvent(dbEventToEvent(data));
+      if (res.ok) {
+        const data = (await res.json()) as Record<string, unknown>;
+        setFallbackEvent(dbEventToEvent(data));
+        if (track) setAuthRace((prev) => applyVaultFetchOutcome(prev, { kind: "ok" }));
+        return;
+      }
+      if (track) {
+        setAuthRace((prev) =>
+          applyVaultFetchOutcome(prev, { kind: res.status === 401 ? "unauthorized" : "failure" }),
+        );
+      }
     } catch {
       // Network unavailable — keep whatever we have.
+      if (track) setAuthRace((prev) => applyVaultFetchOutcome(prev, { kind: "failure" }));
     }
   }, [id, authToken]);
 
@@ -229,8 +254,29 @@ export default function TripDetailScreen() {
 
   // On mount / when the context misses (e.g. a past trip), hydrate the fallback.
   useEffect(() => {
-    if (!ctxEvent && id && authToken) void fetchDetail();
+    if (!ctxEvent && id && authToken) void fetchDetail(true);
   }, [ctxEvent, id, authToken, fetchDetail]);
+
+  // Retry driver: while the fallback hydrate is auth-pending (401 before the
+  // token restored), re-run it on a short cadence until an authenticated fetch
+  // lands, then give up into a retryable error rather than an infinite spinner.
+  useEffect(() => {
+    if (ctxEvent) return; // context already has it — no fallback race to run.
+    const decision = nextRetryDecision(authRace);
+    if (decision.action === "give-up") {
+      setAuthRace(decision.next);
+      return;
+    }
+    if (decision.action === "retry") {
+      const t = setTimeout(() => { void fetchDetail(true); }, decision.delayMs);
+      return () => clearTimeout(t);
+    }
+  }, [authRace, ctxEvent, fetchDetail]);
+
+  const retryTrip = useCallback(() => {
+    setAuthRace(resetAuthRaceState());
+    void fetchDetail(true);
+  }, [fetchDetail]);
 
   const [tab, setTab] = useState<TripTab>(
     TRIP_TABS.includes(tabParam as TripTab) ? (tabParam as TripTab) : "itinerary",
@@ -373,13 +419,38 @@ export default function TripDetailScreen() {
   );
 
   if (!event || event.type !== "trip") {
+    // Only the missing-event case (no ctx + fallback not hydrated) is subject to
+    // the cold-start auth race. A resolved-but-wrong-type event is a genuine
+    // "not a trip" and falls straight through to the not-available state.
+    const notFoundMode = event
+      ? "empty"
+      : vaultRenderMode({
+          loading: !ctxEvent && !!id && !!authToken && !authRace.authError,
+          authPending: authRace.authPending,
+          authError: authRace.authError,
+          photoCount: 0,
+        });
     return (
       <View style={[styles.screen, styles.center, { backgroundColor: colors.background }]}>
-        <Ionicons name="airplane-outline" size={44} color={colors.textDim} />
-        <Text style={[styles.missingText, { color: colors.mutedForeground }]}>This trip isn't available.</Text>
-        <TouchableOpacity onPress={() => router.replace("/(tabs)/events" as never)} style={[styles.missingBtn, { borderColor: colors.border }]}>
-          <Text style={{ color: colors.foreground, fontWeight: "700" }}>Back to Plans</Text>
-        </TouchableOpacity>
+        {notFoundMode === "loading" ? (
+          <ActivityIndicator color={colors.primary} />
+        ) : notFoundMode === "error" ? (
+          <>
+            <Ionicons name="cloud-offline-outline" size={44} color={colors.textDim} />
+            <Text style={[styles.missingText, { color: colors.mutedForeground }]}>Couldn't load this trip.</Text>
+            <TouchableOpacity onPress={retryTrip} style={[styles.missingBtn, { borderColor: colors.border }]}>
+              <Text style={{ color: colors.foreground, fontWeight: "700" }}>Try again</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <Ionicons name="airplane-outline" size={44} color={colors.textDim} />
+            <Text style={[styles.missingText, { color: colors.mutedForeground }]}>This trip isn't available.</Text>
+            <TouchableOpacity onPress={() => router.replace("/(tabs)/events" as never)} style={[styles.missingBtn, { borderColor: colors.border }]}>
+              <Text style={{ color: colors.foreground, fontWeight: "700" }}>Back to Plans</Text>
+            </TouchableOpacity>
+          </>
+        )}
       </View>
     );
   }

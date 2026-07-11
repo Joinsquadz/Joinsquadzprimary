@@ -48,6 +48,11 @@ import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
 import { useTips } from "@/context/TipsContext";
 import { IconPicker } from "@/components/IconPicker";
 import { EventVaultPanel } from "@/components/EventVaultPanel";
+// Shared auth-race guard (see lib/vaultAuthRace.ts). Opening an event directly on
+// a cold start (deep link / push tap) can 401 before the token restores and
+// AppContext hasn't loaded the event yet; keep it loading + retry instead of
+// flashing "Event not found".
+import { vaultRenderMode } from "@/lib/vaultAuthRace";
 
 type EventTab = "overview" | "guests" | "tasks" | "food" | "costs" | "chat" | "photos" | "admin";
 
@@ -123,6 +128,10 @@ export default function EventDetailScreen() {
     clearConflictEvent,
     addEventCoAdmin,
     removeEventCoAdmin,
+    eventsLoading,
+    eventsAuthPending,
+    eventsAuthError,
+    retryEvents,
   } = useData();
 
   const event = getEvent(id ?? "");
@@ -420,12 +429,42 @@ export default function EventDetailScreen() {
   const goBack = () => (router.canGoBack() ? router.back() : router.replace("/(tabs)" as never));
 
   if (!event) {
+    // AppContext owns the events fetch + auth-race retry loop. While a cold-start
+    // 401 is still racing the token restore, stay on a spinner; only show the
+    // genuine "Event not found" once an authenticated fetch resolved without it.
+    const notFoundMode = vaultRenderMode({
+      loading: eventsLoading,
+      authPending: eventsAuthPending,
+      authError: eventsAuthError,
+      photoCount: 0,
+    });
     return (
       <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: topPad }]}>
         <TouchableOpacity onPress={goBack} style={styles.backBtn}>
           <Ionicons name="chevron-back" size={24} color={colors.foreground} />
         </TouchableOpacity>
-        <Text style={[styles.errorText, { color: colors.mutedForeground }]}>Event not found</Text>
+        {notFoundMode === "loading" ? (
+          <View style={{ marginTop: 80, alignItems: "center" }}>
+            <ActivityIndicator color={colors.primary} />
+          </View>
+        ) : notFoundMode === "error" ? (
+          <View style={{ marginTop: 80, alignItems: "center", gap: 10, paddingHorizontal: 32 }}>
+            <Ionicons name="cloud-offline-outline" size={44} color={colors.textDim} />
+            <Text style={{ color: colors.foreground, fontSize: 18, fontWeight: "800" }}>Couldn't load this event</Text>
+            <Text style={{ color: colors.mutedForeground, fontSize: 14, textAlign: "center" }}>
+              Check your connection and try again.
+            </Text>
+            <TouchableOpacity
+              onPress={retryEvents}
+              style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: colors.primary, borderRadius: 22, paddingHorizontal: 18, paddingVertical: 10, marginTop: 4 }}
+            >
+              <Ionicons name="refresh-outline" size={18} color="#fff" />
+              <Text style={{ color: "#fff", fontSize: 14, fontWeight: "700" }}>Try again</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <Text style={[styles.errorText, { color: colors.mutedForeground }]}>Event not found</Text>
+        )}
       </View>
     );
   }
