@@ -185,6 +185,13 @@ export default function VaultScreen() {
   const [favoriteIds, setFavoriteIds] = useState<Set<number>>(new Set());
   const [favoritePhotos, setFavoritePhotos] = useState<VaultPhoto[]>([]);
   const [favoritesLoading, setFavoritesLoading] = useState(false);
+  // Auth-race guards for the Favorites sub-section — same class of bug as the
+  // uploads/squad fetches: a 401 before the token restores must NOT collapse to
+  // "No favorites yet". Keep loading + retry until an authenticated fetch lands.
+  const [favoritesAuthPending, setFavoritesAuthPending] = useState(false);
+  const [favoritesAuthError, setFavoritesAuthError] = useState(false);
+  const [favoritesAuthTick, setFavoritesAuthTick] = useState(0);
+  const favoritesAuthPendingRef = useRef(false);
 
   // Squad vault state (only used when squadId is present)
   const [squadPhotos, setSquadPhotos] = useState<SquadVaultPhoto[]>([]);
@@ -458,17 +465,43 @@ export default function VaultScreen() {
     setFavoritesLoading(true);
     try {
       const res = await fetch(`${API_BASE}/api/vault/favorites`, { headers: authHeaders() });
-      if (!res.ok) return;
+      // A 401 here almost always means the auth token hasn't finished restoring
+      // yet (cold start / slow login / token-refresh race). Treat it as "still
+      // loading" and schedule a retry instead of falling through to the empty
+      // state, which would falsely claim there are no favorites.
+      if (res.status === 401) {
+        setFavoritesAuthPending(true);
+        setFavoritesAuthTick(c => c + 1);
+        return;
+      }
+      if (!res.ok) {
+        // Non-401 failure. If we're mid auth-race retry, keep the bounded loop
+        // going (advance the tick) so a transient blip doesn't strand us on a
+        // permanent spinner; it will surface the retry error once capped.
+        if (favoritesAuthPendingRef.current) setFavoritesAuthTick(c => c + 1);
+        return;
+      }
       const data = await res.json() as { photos: VaultPhoto[]; isPro?: boolean };
       setFavoritePhotos(data.photos ?? []);
       syncFavorites(data.photos ?? []);
       if (data.isPro !== undefined) setIsPro(data.isPro);
+      setFavoritesAuthPending(false);
+      setFavoritesAuthError(false);
+      setFavoritesAuthTick(0);
     } catch {
-      // silently fail
+      // Network error. Same as above: don't strand an in-flight auth retry.
+      if (favoritesAuthPendingRef.current) setFavoritesAuthTick(c => c + 1);
     } finally {
       setFavoritesLoading(false);
     }
   }, [authHeaders, syncFavorites]);
+
+  // Manual retry after the favorites auth-race retries were exhausted.
+  const retryFavorites = useCallback(() => {
+    setFavoritesAuthError(false);
+    setFavoritesAuthTick(0);
+    void fetchFavorites();
+  }, [fetchFavorites]);
 
   // Optimistically bookmark / un-bookmark a photo or video. Favorites are
   // private and never notify; the toggle reverts on any server error.
@@ -515,6 +548,7 @@ export default function VaultScreen() {
   // retryable error rather than an infinite spinner.
   useEffect(() => { photosAuthPendingRef.current = photosAuthPending; }, [photosAuthPending]);
   useEffect(() => { squadAuthPendingRef.current = squadAuthPending; }, [squadAuthPending]);
+  useEffect(() => { favoritesAuthPendingRef.current = favoritesAuthPending; }, [favoritesAuthPending]);
 
   useEffect(() => {
     // The personal grid also renders the event-contextual view, so only skip
@@ -534,6 +568,21 @@ export default function VaultScreen() {
   useEffect(() => {
     if (!isSquadVault && personalTab === "favorites") void fetchFavorites();
   }, [isSquadVault, personalTab, fetchFavorites]);
+
+  // Retry driver for the Favorites sub-section — same auth-race handling as the
+  // uploads/squad fetches: keep the loading state and retry the 401'd fetch
+  // until the token restores, then fall back to a retryable error rather than
+  // the misleading "No favorites yet" empty state.
+  useEffect(() => {
+    if (!favoritesAuthPending || isSquadVault || personalTab !== "favorites") return;
+    if (favoritesAuthTick >= MAX_AUTH_RETRIES) {
+      setFavoritesAuthPending(false);
+      setFavoritesAuthError(true);
+      return;
+    }
+    const t = setTimeout(() => { void fetchFavorites(); }, AUTH_RETRY_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [favoritesAuthPending, favoritesAuthTick, authToken, isSquadVault, personalTab, fetchFavorites]);
 
   // Keep Pro status and photos fresh whenever the app returns to the foreground
   // (e.g. after completing the Stripe checkout the shared UpgradeModal launches).
@@ -1196,7 +1245,7 @@ export default function VaultScreen() {
           </TouchableOpacity>
         </View>
       ) : (
-        (personalTab === "favorites" ? favoritesLoading : (photosLoading || photosAuthPending)) ? (
+        (personalTab === "favorites" ? (favoritesLoading || favoritesAuthPending) : (photosLoading || photosAuthPending)) ? (
           // T212: skeleton photo grid instead of a spinner — mirrors the
           // 3-column layout the real grid renders into. Also shown while the
           // uploads fetch is auth-pending (retrying after a token-restore 401)
@@ -1212,8 +1261,8 @@ export default function VaultScreen() {
               </View>
             ))}
           </View>
-        ) : (personalTab !== "favorites" && photosAuthError) ? (
-          renderRetryState(retryPhotos)
+        ) : (personalTab === "favorites" ? favoritesAuthError : photosAuthError) ? (
+          renderRetryState(personalTab === "favorites" ? retryFavorites : retryPhotos)
         ) : (
           <FlatList
             ref={scrollRef}
