@@ -70,7 +70,10 @@ async function resolveProStatus(user: NonNullable<Awaited<ReturnType<typeof stor
  * squad or a single event.
  *
  * Query params:
- *   squadId  — filter to photos from events belonging to this squad (user must be a member)
+ *   squadId  — ALL photos belonging to this squad (user must be a member): both
+ *              event roll-ups AND event-less photos shared straight to the squad
+ *              vault. Kept lossless (see storage.getPhotosBySquadId) so it agrees
+ *              with GET /api/squads/:id/vault and never silently drops a photo.
  *   eventId  — filter to photos from a single event (squad members for squad events; host for personal events)
  *
  * When neither param is provided, returns all photos uploaded by the user.

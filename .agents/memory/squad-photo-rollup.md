@@ -18,5 +18,12 @@ Members hand-pick their OWN uploaded photos to share into a per-squad vault (cur
 - Unshare requires `photoId + uploaderId + squadId` to all match — you can't remove someone else's share.
 - Squad vault VIEW is intentionally NOT Pro-gated (members see shared memories); the roll-up picker pulls from `GET /vault/photos`, which IS Pro-gated, so only Pro users have a personal vault to roll up from.
 
+## Two squad-photo surfaces must stay reconciled
+There are TWO reads of "photos belonging to a squad" and they must agree:
+- `getSquadVaultPhotos` (→ `GET /squads/:id/vault`, the curated roll-up the vault SCREEN renders): filters `squadId = X AND sharedToSquad = true` — includes event-less shared photos.
+- `getPhotosBySquadId` (→ `GET /vault/photos?squadId=`): now a lossless SUPERSET = event roll-ups (`eventId IN squadEvents`) OR the sharedToSquad set. It historically returned ONLY event roll-ups, silently dropping event-less "shared straight to squad" photos.
+
+**Why:** any screen that switches to / falls back on `/vault/photos?squadId=` would make event-less squad photos vanish. Keep `getPhotosBySquadId` ⊇ `getSquadVaultPhotos`. Regression guarded by the real-DB test `__tests__/concurrency/vault.squadPhotos.realDb.test.ts` (runs via `test:concurrency`, NOT the default unit suite — so the default validation run won't catch a re-narrowing).
+
 ## Caveat
 These photo endpoints bypass the OpenAPI/codegen contract — they're plain Express routes validated with inline zod, and clients call them with raw `fetch`. Match that pattern for related photo endpoints rather than adding them to the OpenAPI spec.

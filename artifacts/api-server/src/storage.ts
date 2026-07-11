@@ -29,7 +29,7 @@ import {
   type DbEvent,
   type MessageAttachment,
 } from '@workspace/db/schema';
-import { eq, sql, count, and, gte, lt, desc, asc, inArray, ne, isNull } from 'drizzle-orm';
+import { eq, sql, count, and, or, gte, lt, desc, asc, inArray, ne, isNull } from 'drizzle-orm';
 import { db } from '@workspace/db';
 
 /**
@@ -313,6 +313,13 @@ export class Storage {
     return photo;
   }
 
+  /**
+   * The curated squad vault roll-up the vault SCREEN reads
+   * (GET /api/squads/:id/vault): every photo shared into this squad's vault
+   * (`squadId = X AND sharedToSquad = true`), including event-less photos added
+   * straight to the squad. `getPhotosBySquadId` is kept a lossless superset of
+   * this set so the two squad-photo surfaces never disagree.
+   */
   async getSquadVaultPhotos(squadId: string) {
     return db
       .select({
@@ -357,8 +364,21 @@ export class Storage {
   }
 
   /**
-   * Return photos for all events belonging to a squad, scoped to the requesting user.
-   * The user must be listed in the squad's memberIds.
+   * Return EVERY photo belonging to a squad, scoped to the requesting user
+   * (who must be listed in the squad's memberIds).
+   *
+   * "Belonging to a squad" is the union of two provenances, so this stays in
+   * lockstep with `getSquadVaultPhotos` (the curated roll-up the vault screen
+   * uses) — neither surface may silently drop a squad photo:
+   *   1. Photos linked to an event that belongs to the squad (event roll-ups).
+   *   2. Photos shared straight to the squad's vault with no event
+   *      (`squadId = X AND sharedToSquad = true`).
+   *
+   * Historically this method only returned (1), so event-less "shared straight
+   * to squad" photos vanished from any surface that read from here — a latent
+   * trap if a screen ever falls back onto this endpoint. Both provenances are
+   * now included so `GET /api/vault/photos?squadId=` and
+   * `GET /api/squads/:id/vault` agree on the full squad photo set.
    */
   async getPhotosBySquadId(
     squadId: string,
@@ -378,15 +398,24 @@ export class Storage {
       .select({ id: eventsTable.id })
       .from(eventsTable)
       .where(eq(eventsTable.squadId, squadId));
-
-    if (events.length === 0) return { photos: [], authorized: true };
-
     const eventIds = events.map(e => e.id);
+
+    // Event-less photos shared straight to the squad vault are ALWAYS included,
+    // even when the squad has no events at all.
+    const sharedToSquad = and(
+      eq(photosTable.squadId, squadId),
+      eq(photosTable.sharedToSquad, true),
+    );
+    const provenance =
+      eventIds.length > 0
+        ? or(inArray(photosTable.eventId, eventIds), sharedToSquad)
+        : sharedToSquad;
+
     const photos = await db
       .select(enrichedPhotoColumns)
       .from(photosTable)
       .leftJoin(eventsTable, eq(photosTable.eventId, eventsTable.id))
-      .where(inArray(photosTable.eventId, eventIds));
+      .where(provenance);
 
     return { photos, authorized: true };
   }
