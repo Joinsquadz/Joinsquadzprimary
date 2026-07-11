@@ -580,10 +580,11 @@ export default function VaultScreen() {
       void (async () => {
         await checkSubscription();
         await fetchPhotos();
+        if (!isSquadVault && personalTab === "favorites") await fetchFavorites();
       })();
     });
     return () => sub.remove();
-  }, [checkSubscription, fetchPhotos]);
+  }, [checkSubscription, fetchPhotos, fetchFavorites, isSquadVault, personalTab]);
 
   const imageUrl = (objectPath: string) => `${API_BASE}/api/storage${objectPath}`;
 
