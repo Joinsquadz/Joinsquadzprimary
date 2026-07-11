@@ -12,6 +12,17 @@ import { clearProfileCache } from "@/hooks/useUserProfiles";
 import { ME } from "@/data/mock";
 import type { Event, Squad, RsvpStatus, Cost, CostShare, ItineraryStop } from "@/types";
 import { track, identify, reset as analyticsReset } from "@/lib/analytics";
+// Shared auth-race guard (see lib/vaultAuthRace.ts). A cold-start / slow-login
+// 401 on the events or squads fetch must NOT collapse the list screens to a
+// false "nothing here" empty state — keep them loading and retry until an
+// authenticated fetch lands, then surface a retryable error rather than a lie.
+import {
+  INITIAL_AUTH_RACE_STATE,
+  applyVaultFetchOutcome,
+  nextRetryDecision,
+  resetAuthRaceState,
+  type AuthRaceState,
+} from "@/lib/vaultAuthRace";
 
 const AUTH_TOKEN_KEY = "@squadz/authToken";
 const REFRESH_TOKEN_KEY = "@squadz/refreshToken";
@@ -170,6 +181,15 @@ type AppContextType = {
 
   eventsLoading: boolean;
   squadsLoading: boolean;
+  // Auth-race state for the events / squads fetches. `authPending` means a
+  // pre-token-restore 401 is being retried (screens should show a spinner, not
+  // an empty state); `authError` means retries were exhausted (show retry UI).
+  eventsAuthPending: boolean;
+  eventsAuthError: boolean;
+  squadsAuthPending: boolean;
+  squadsAuthError: boolean;
+  retryEvents: () => void;
+  retrySquads: () => void;
 
   events: Event[];
   getEvent: (id: string) => Event | undefined;
@@ -257,6 +277,12 @@ const AppContext = createContext<AppContextType>({
   setInviteCtx: noop,
   eventsLoading: true,
   squadsLoading: true,
+  eventsAuthPending: false,
+  eventsAuthError: false,
+  squadsAuthPending: false,
+  squadsAuthError: false,
+  retryEvents: noop,
+  retrySquads: noop,
   events: [],
   getEvent: () => undefined,
   setRsvp: noop,
@@ -379,6 +405,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [squads, setSquads] = useState<Squad[]>([]);
   const [eventsLoading, setEventsLoading] = useState(true);
   const [squadsLoading, setSquadsLoading] = useState(true);
+  // Auth-race bookkeeping for the events / squads fetches (see lib/vaultAuthRace.ts).
+  // A pre-token-restore 401 keeps the list screens loading + retrying instead of
+  // flashing a false empty state, then surfaces a retryable error if exhausted.
+  const [eventsAuth, setEventsAuth] = useState<AuthRaceState>(INITIAL_AUTH_RACE_STATE);
+  const [squadsAuth, setSquadsAuth] = useState<AuthRaceState>(INITIAL_AUTH_RACE_STATE);
   const [friends, setFriends] = useState<string[]>(INITIAL_FRIENDS);
   const [sentRequests, setSentRequests] = useState<string[]>([]);
   const [ownPaymentHandles, setOwnPaymentHandles] = useState<PaymentHandles>({ venmo: null, cashapp: null, zelle: null });
@@ -690,11 +721,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setEventsLoading(true);
     try {
       const res = await apiFetch(`/api/events`);
-      if (!res.ok) return;
+      // A 401 here almost always means the auth token hasn't finished restoring
+      // yet (cold start / slow login / token-refresh race). Treat it as "still
+      // loading" and schedule a retry instead of falling through to the empty
+      // state, which would falsely claim there are no events.
+      if (res.status === 401) {
+        setEventsAuth(prev => applyVaultFetchOutcome(prev, { kind: "unauthorized" }));
+        return;
+      }
+      if (!res.ok) {
+        setEventsAuth(prev => applyVaultFetchOutcome(prev, { kind: "failure" }));
+        return;
+      }
       const data = await res.json() as Record<string, unknown>[];
       setEvents(data.map(dbEventToEvent));
+      setEventsAuth(prev => applyVaultFetchOutcome(prev, { kind: "ok" }));
     } catch {
-      // Network unavailable — keep mock data
+      // Network unavailable — keep existing data; don't strand an auth retry.
+      setEventsAuth(prev => applyVaultFetchOutcome(prev, { kind: "failure" }));
     } finally {
       setEventsLoading(false);
     }
@@ -716,11 +760,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setSquadsLoading(true);
     try {
       const res = await apiFetch("/api/squads");
-      if (!res.ok) return;
+      // Same auth-race guard as fetchEvents: a pre-token-restore 401 must not
+      // collapse the SquadZ list to "No squads yet" — stay loading and retry.
+      if (res.status === 401) {
+        setSquadsAuth(prev => applyVaultFetchOutcome(prev, { kind: "unauthorized" }));
+        return;
+      }
+      if (!res.ok) {
+        setSquadsAuth(prev => applyVaultFetchOutcome(prev, { kind: "failure" }));
+        return;
+      }
       const data = await res.json() as Record<string, unknown>[];
       setSquads(data.map(dbSquadToSquad));
+      setSquadsAuth(prev => applyVaultFetchOutcome(prev, { kind: "ok" }));
     } catch {
-      // Network unavailable — keep mock data
+      // Network unavailable — keep existing data; don't strand an auth retry.
+      setSquadsAuth(prev => applyVaultFetchOutcome(prev, { kind: "failure" }));
     } finally {
       setSquadsLoading(false);
     }
@@ -740,6 +795,52 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       void fetchSquads();
     }
   }, [authToken, fetchEvents, fetchSquads]);
+
+  // While a fetch is auth-pending (401 before the token restored), keep the list
+  // screens loading and re-run it on a short cadence until an authenticated
+  // fetch lands. Re-runs when the token changes (immediate retry once it lands)
+  // or the tick advances (a fresh 401 came back); gives up into a retryable
+  // error after MAX_AUTH_RETRIES rather than spinning forever. The loop only
+  // runs while we're restoring auth or logged in, so a genuinely logged-out
+  // session (on onboarding) never fires a retry storm against /api/*.
+  const authRaceActive = isLoggedIn || isAuthRestoring;
+  useEffect(() => {
+    if (!authRaceActive) return;
+    const decision = nextRetryDecision(eventsAuth);
+    if (decision.action === "give-up") {
+      setEventsAuth(decision.next);
+      return;
+    }
+    if (decision.action === "retry") {
+      const t = setTimeout(() => { void fetchEvents(); }, decision.delayMs);
+      return () => clearTimeout(t);
+    }
+  }, [eventsAuth, authToken, authRaceActive, fetchEvents]);
+
+  useEffect(() => {
+    if (!authRaceActive) return;
+    const decision = nextRetryDecision(squadsAuth);
+    if (decision.action === "give-up") {
+      setSquadsAuth(decision.next);
+      return;
+    }
+    if (decision.action === "retry") {
+      const t = setTimeout(() => { void fetchSquads(); }, decision.delayMs);
+      return () => clearTimeout(t);
+    }
+  }, [squadsAuth, authToken, authRaceActive, fetchSquads]);
+
+  // Manual retry after the auth-race retries were exhausted (backs the "Try
+  // again" button the list screens show in their error state). Clears the error
+  // + counter and kicks off a fresh fetch, re-arming the loop if it 401s again.
+  const retryEvents = useCallback(() => {
+    setEventsAuth(resetAuthRaceState());
+    void fetchEvents();
+  }, [fetchEvents]);
+  const retrySquads = useCallback(() => {
+    setSquadsAuth(resetAuthRaceState());
+    void fetchSquads();
+  }, [fetchSquads]);
 
   // Silent squad refresh (no loading spinner) used for foreground polling.
   const refreshSquads = useCallback(async () => {
@@ -2188,6 +2289,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setInviteCtx,
       eventsLoading,
       squadsLoading,
+      eventsAuthPending: eventsAuth.authPending,
+      eventsAuthError: eventsAuth.authError,
+      squadsAuthPending: squadsAuth.authPending,
+      squadsAuthError: squadsAuth.authError,
+      retryEvents,
+      retrySquads,
       events,
       getEvent,
       setRsvp,
@@ -2260,6 +2367,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setInviteCtx,
       eventsLoading,
       squadsLoading,
+      eventsAuth,
+      squadsAuth,
+      retryEvents,
+      retrySquads,
       events,
       getEvent,
       setRsvp,

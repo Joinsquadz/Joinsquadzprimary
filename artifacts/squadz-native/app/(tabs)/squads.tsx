@@ -16,6 +16,11 @@ import { router, useFocusEffect } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useData } from "@/context/AppContext";
+// Shared auth-race guard (see lib/vaultAuthRace.ts). A cold-start / slow-login
+// 401 on the squads fetch must keep this screen loading instead of flashing the
+// "No squads yet" empty state. AppContext owns the fetch + retry loop; this
+// screen just consumes the derived render mode.
+import { vaultRenderMode } from "@/lib/vaultAuthRace";
 import { useUserCache } from "@/context/UserCacheContext";
 import { useMutedSquads } from "@/context/MutedSquadsContext";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -41,7 +46,17 @@ type PendingSquadInvite = {
 export default function SquadsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { squads, events, currentUser, authToken, refreshSquads } = useData();
+  const {
+    squads,
+    events,
+    currentUser,
+    authToken,
+    refreshSquads,
+    squadsLoading,
+    squadsAuthPending,
+    squadsAuthError,
+    retrySquads,
+  } = useData();
   const { resolveUser, prefetchUsers } = useUserCache();
   const { mutedSquadIds, refreshMutedSquads } = useMutedSquads();
   const [notices, setNotices] = useState<RemovalNotice[]>([]);
@@ -165,6 +180,16 @@ export default function SquadsScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [squads]);
 
+  // Single source of truth for the list body. `authPending` keeps us on the
+  // spinner (never the empty state) during the auth race; the "No squads yet"
+  // empty is only reached for a genuine authenticated zero-squad response.
+  const renderMode = vaultRenderMode({
+    loading: squadsLoading,
+    authPending: squadsAuthPending,
+    authError: squadsAuthError,
+    photoCount: squads.length,
+  });
+
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: topPad + 8, borderBottomColor: colors.border }]}>
@@ -202,27 +227,48 @@ export default function SquadsScreen() {
           />
         ))}
 
-        <Text style={[styles.countLabel, { color: colors.mutedForeground }]}>
-          {squads.length} squad{squads.length !== 1 ? "s" : ""}
-        </Text>
-
-        {squads.length === 0 ? (
+        {renderMode === "loading" ? (
           <View style={styles.empty}>
-            <Text style={{ fontSize: 52, marginBottom: 14 }}>👥</Text>
-            <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No squads yet</Text>
+            <ActivityIndicator size="large" color={colors.primary} />
+          </View>
+        ) : renderMode === "error" ? (
+          <View style={styles.empty}>
+            <Ionicons name="cloud-offline-outline" size={48} color={colors.textDim} />
+            <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Couldn't load your squads</Text>
             <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>
-              Create a squad and invite your people — then find the time everyone's free.
+              Check your connection and try again.
             </Text>
             <TouchableOpacity
-              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push("/squad/create"); }}
+              onPress={retrySquads}
               style={[styles.emptyBtn, { backgroundColor: colors.primary }]}
             >
-              <Ionicons name="add-circle-outline" size={18} color="#fff" />
-              <Text style={styles.emptyBtnText}>Create a Squad</Text>
+              <Ionicons name="refresh-outline" size={18} color="#fff" />
+              <Text style={styles.emptyBtnText}>Try again</Text>
             </TouchableOpacity>
           </View>
         ) : (
-          squads.map((squad) => {
+          <>
+            <Text style={[styles.countLabel, { color: colors.mutedForeground }]}>
+              {squads.length} squad{squads.length !== 1 ? "s" : ""}
+            </Text>
+
+            {squads.length === 0 ? (
+              <View style={styles.empty}>
+                <Text style={{ fontSize: 52, marginBottom: 14 }}>👥</Text>
+                <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No squads yet</Text>
+                <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>
+                  Create a squad and invite your people — then find the time everyone's free.
+                </Text>
+                <TouchableOpacity
+                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push("/squad/create"); }}
+                  style={[styles.emptyBtn, { backgroundColor: colors.primary }]}
+                >
+                  <Ionicons name="add-circle-outline" size={18} color="#fff" />
+                  <Text style={styles.emptyBtnText}>Create a Squad</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              squads.map((squad) => {
             const squadEvents = events.filter((e) => e.squadId === squad.id);
             const members = squad.memberIds.slice(0, 5).map((mid) => resolveUser(mid));
             return (
@@ -330,6 +376,8 @@ export default function SquadsScreen() {
               );
             })}
           </View>
+            )}
+          </>
         )}
       </ScrollView>
     </View>

@@ -25,6 +25,17 @@ import { goingCount, parseEventDate } from "@/lib/eventUtils";
 import { isTripPast, isHappeningNow } from "@/lib/tripUtils";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { Image } from "expo-image";
+// Shared auth-race guard (see lib/vaultAuthRace.ts). This screen has its own
+// events fetch (includePast), so a cold-start / slow-login 401 here must keep it
+// loading + retrying instead of flashing the "No trips/events yet" empty state.
+import {
+  INITIAL_AUTH_RACE_STATE,
+  applyVaultFetchOutcome,
+  nextRetryDecision,
+  resetAuthRaceState,
+  vaultRenderMode,
+  type AuthRaceState,
+} from "@/lib/vaultAuthRace";
 
 // T210: session-level cache of past-plan photo thumbnails so scrolling the Past
 // list doesn't refetch the vault for every card remount.
@@ -229,7 +240,7 @@ export default function PlansScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { joinEvent } = useData();
-  const { authToken } = useAuth();
+  const { authToken, isAuthRestoring } = useAuth();
   const [segment, setSegment] = useState<Segment>("trips");
   const [search, setSearch] = useState("");
   const [showJoinModal, setShowJoinModal] = useState(false);
@@ -239,22 +250,74 @@ export default function PlansScreen() {
   // its own list (AppContext.events stays upcoming-only for Home etc.).
   const [allPlans, setAllPlans] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
+  // Auth-race guard for the cold-start fetch (see lib/vaultAuthRace.ts).
+  const [authRace, setAuthRace] = useState<AuthRaceState>(INITIAL_AUTH_RACE_STATE);
 
   const load = useCallback(async () => {
-    if (!authToken) { setLoading(false); return; }
+    if (!authToken) {
+      // No token yet. If auth is still restoring, this is the slow-login race —
+      // stay pending (loading) and let the retry driver re-run once it lands,
+      // rather than dropping to a false empty state. If we're genuinely logged
+      // out, just stop loading.
+      if (isAuthRestoring) {
+        setAuthRace(prev => applyVaultFetchOutcome(prev, { kind: "unauthorized" }));
+      } else {
+        setLoading(false);
+      }
+      return;
+    }
     try {
       const res = await fetch(`${API_BASE}/api/events?includePast=1`, { headers: buildAuthHeaders(authToken) });
-      if (!res.ok) return;
+      if (res.status === 401) {
+        setAuthRace(prev => applyVaultFetchOutcome(prev, { kind: "unauthorized" }));
+        return;
+      }
+      if (!res.ok) {
+        setAuthRace(prev => applyVaultFetchOutcome(prev, { kind: "failure" }));
+        return;
+      }
       const data = (await res.json()) as Record<string, unknown>[];
       setAllPlans(data.map(dbEventToEvent));
+      setAuthRace(prev => applyVaultFetchOutcome(prev, { kind: "ok" }));
     } catch {
       // Keep whatever is already shown; pull-to-refresh can retry.
+      setAuthRace(prev => applyVaultFetchOutcome(prev, { kind: "failure" }));
     } finally {
       setLoading(false);
     }
-  }, [authToken]);
+  }, [authToken, isAuthRestoring]);
 
   useFocusEffect(useCallback(() => { void load(); }, [load]));
+
+  // Retry driver: while the fetch is auth-pending, re-run on a short cadence
+  // until an authenticated fetch lands, then give up into a retryable error.
+  useEffect(() => {
+    const decision = nextRetryDecision(authRace);
+    if (decision.action === "give-up") {
+      setAuthRace(decision.next);
+      return;
+    }
+    if (decision.action === "retry") {
+      const t = setTimeout(() => { void load(); }, decision.delayMs);
+      return () => clearTimeout(t);
+    }
+  }, [authRace, load]);
+
+  const retry = useCallback(() => {
+    setAuthRace(resetAuthRaceState());
+    setLoading(true);
+    void load();
+  }, [load]);
+
+  // Single source of truth for what the list body renders. `authPending` keeps
+  // us on the spinner (never the empty state) during the auth race; a genuine
+  // authenticated zero-plan response is the only path to "empty".
+  const renderMode = vaultRenderMode({
+    loading,
+    authPending: authRace.authPending,
+    authError: authRace.authError,
+    photoCount: allPlans.length,
+  });
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -406,9 +469,24 @@ export default function PlansScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
         }
         ListEmptyComponent={
-          loading ? (
+          renderMode === "loading" ? (
             <View style={styles.empty}>
               <ActivityIndicator size="large" color={colors.primary} />
+            </View>
+          ) : renderMode === "error" ? (
+            <View style={styles.empty}>
+              <Ionicons name="cloud-offline-outline" size={48} color={colors.textDim} />
+              <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Couldn't load your plans</Text>
+              <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>
+                Check your connection and try again.
+              </Text>
+              <TouchableOpacity
+                onPress={retry}
+                style={[styles.emptyBtn, { backgroundColor: colors.primary }]}
+              >
+                <Ionicons name="refresh-outline" size={18} color="#fff" />
+                <Text style={styles.emptyBtnText}>Try again</Text>
+              </TouchableOpacity>
             </View>
           ) : (
             <View style={styles.empty}>

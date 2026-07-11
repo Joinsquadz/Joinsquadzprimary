@@ -11,6 +11,16 @@ import { AppState } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { API_BASE } from "@/lib/api";
 import { useAuth } from "@/context/AppContext";
+// Shared auth-race guard (see lib/vaultAuthRace.ts). A pre-token-restore 401 on
+// the initial conversations load must keep the Messages screen loading instead
+// of flashing an empty "No conversations" state during a slow login.
+import {
+  INITIAL_AUTH_RACE_STATE,
+  applyVaultFetchOutcome,
+  nextRetryDecision,
+  resetAuthRaceState,
+  type AuthRaceState,
+} from "@/lib/vaultAuthRace";
 
 export type ChatAttachment = {
   kind: "image" | "video";
@@ -63,6 +73,12 @@ export type ThreadData = {
 type MessagesContextType = {
   conversations: ConversationListItem[];
   conversationsLoading: boolean;
+  // Auth-race state for the initial conversations load. `authPending` = a
+  // pre-token-restore 401 is being retried (show a spinner, not an empty state);
+  // `authError` = retries exhausted (show the retry UI).
+  conversationsAuthPending: boolean;
+  conversationsAuthError: boolean;
+  retryConversations: () => void;
   unreadCount: number;
   refreshConversations: () => Promise<void>;
   refreshUnread: () => Promise<void>;
@@ -93,6 +109,10 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
   const { authToken, currentUser } = useAuth();
   const [conversations, setConversations] = useState<ConversationListItem[]>([]);
   const [conversationsLoading, setConversationsLoading] = useState(false);
+  // Auth-race state for the initial conversations load (see lib/vaultAuthRace.ts).
+  // Only the cold-start load path feeds this — silent polling never touches it,
+  // so a transient poll 401 can't flash an already-populated list to a spinner.
+  const [conversationsAuth, setConversationsAuth] = useState<AuthRaceState>(INITIAL_AUTH_RACE_STATE);
   const [unreadCount, setUnreadCount] = useState(0);
   const [eventReads, setEventReads] = useState<Record<string, string>>({});
   const tokenRef = useRef<string | null>(authToken);
@@ -113,21 +133,44 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  // Core conversations fetch. `track` controls whether this attempt feeds the
+  // auth-race guard: the cold-start load + its retries pass true (so a
+  // pre-token-restore 401 keeps the screen loading instead of flashing empty),
+  // while silent polling / post-send refreshes pass false (a transient 401
+  // there must not yank an already-populated list back to a spinner).
+  const loadConversations = useCallback(
+    async (track: boolean) => {
+      if (!tokenRef.current) {
+        // Genuinely logged out — clear, and don't arm an auth-race retry loop.
+        setConversations([]);
+        return;
+      }
+      try {
+        const res = await apiFetch("/api/conversations");
+        if (res.status === 401) {
+          if (track) setConversationsAuth(prev => applyVaultFetchOutcome(prev, { kind: "unauthorized" }));
+          return;
+        }
+        if (!res.ok) {
+          if (track) setConversationsAuth(prev => applyVaultFetchOutcome(prev, { kind: "failure" }));
+          return;
+        }
+        const data = (await res.json()) as ConversationListItem[];
+        setConversations(data);
+        setUnreadCount(data.reduce((sum, c) => sum + (c.unreadCount ?? 0), 0));
+        if (track) setConversationsAuth(prev => applyVaultFetchOutcome(prev, { kind: "ok" }));
+      } catch {
+        // Network unavailable — keep current data.
+        if (track) setConversationsAuth(prev => applyVaultFetchOutcome(prev, { kind: "failure" }));
+      }
+    },
+    [apiFetch],
+  );
+
+  // Silent refresh used by polling / post-send — never engages the auth-race.
   const refreshConversations = useCallback(async () => {
-    if (!tokenRef.current) {
-      setConversations([]);
-      return;
-    }
-    try {
-      const res = await apiFetch("/api/conversations");
-      if (!res.ok) return;
-      const data = (await res.json()) as ConversationListItem[];
-      setConversations(data);
-      setUnreadCount(data.reduce((sum, c) => sum + (c.unreadCount ?? 0), 0));
-    } catch {
-      // Network unavailable — keep current data.
-    }
-  }, [apiFetch]);
+    await loadConversations(false);
+  }, [loadConversations]);
 
   const refreshUnread = useCallback(async () => {
     if (!tokenRef.current) {
@@ -266,7 +309,8 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
     [eventReadsKey],
   );
 
-  // Initial + token-change load.
+  // Initial + token-change load. Uses the tracked load path so a pre-restore
+  // 401 keeps the screen loading + retrying instead of flashing empty.
   useEffect(() => {
     if (!authToken) {
       setConversations([]);
@@ -274,8 +318,33 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     setConversationsLoading(true);
-    void refreshConversations().finally(() => setConversationsLoading(false));
-  }, [authToken, refreshConversations]);
+    void loadConversations(true).finally(() => setConversationsLoading(false));
+  }, [authToken, loadConversations]);
+
+  // Auth-race retry driver: while the cold-start load is auth-pending, re-run it
+  // on a short cadence until an authenticated fetch lands, then give up into a
+  // retryable error. Only runs while a token is present (a logged-out session
+  // clears the list above and never arms this loop).
+  useEffect(() => {
+    if (!authToken) return;
+    const decision = nextRetryDecision(conversationsAuth);
+    if (decision.action === "give-up") {
+      setConversationsAuth(decision.next);
+      return;
+    }
+    if (decision.action === "retry") {
+      const t = setTimeout(() => { void loadConversations(true); }, decision.delayMs);
+      return () => clearTimeout(t);
+    }
+  }, [conversationsAuth, authToken, loadConversations]);
+
+  // Manual retry after the auth-race retries were exhausted (backs the Messages
+  // screen's "Try again" button). Clears the error + counter and reloads.
+  const retryConversations = useCallback(() => {
+    setConversationsAuth(resetAuthRaceState());
+    setConversationsLoading(true);
+    void loadConversations(true).finally(() => setConversationsLoading(false));
+  }, [loadConversations]);
 
   // Background polling for the badge + list freshness while logged in and active.
   useEffect(() => {
@@ -296,6 +365,9 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
     () => ({
       conversations,
       conversationsLoading,
+      conversationsAuthPending: conversationsAuth.authPending,
+      conversationsAuthError: conversationsAuth.authError,
+      retryConversations,
       unreadCount,
       refreshConversations,
       refreshUnread,
@@ -310,6 +382,9 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
     [
       conversations,
       conversationsLoading,
+      conversationsAuth.authPending,
+      conversationsAuth.authError,
+      retryConversations,
       unreadCount,
       refreshConversations,
       refreshUnread,

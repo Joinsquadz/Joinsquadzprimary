@@ -18,6 +18,11 @@ import { useAuth } from "@/context/AppContext";
 import { useMessages, type ConversationListItem } from "@/context/MessagesContext";
 import { UserAvatar } from "@/components/UserAvatar";
 import type { Event } from "@/types";
+// Shared auth-race guard (see lib/vaultAuthRace.ts). The inbox unions two
+// sources (conversations + event/trip chats). A cold-start / slow-login 401 on
+// either — while the list is still empty — must keep this screen loading rather
+// than flashing the "No messages yet" empty state.
+import { vaultRenderMode } from "@/lib/vaultAuthRace";
 
 // ── colours per type ──────────────────────────────────────────────────────────
 const TYPE_META = {
@@ -111,8 +116,24 @@ function Avatar({
 export default function MessagesScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { currentUser, events, eventsLoading } = useAuth();
-  const { conversations, conversationsLoading, refreshConversations, refreshUnread, eventReads } = useMessages();
+  const {
+    currentUser,
+    events,
+    eventsLoading,
+    eventsAuthPending,
+    eventsAuthError,
+    retryEvents,
+  } = useAuth();
+  const {
+    conversations,
+    conversationsLoading,
+    refreshConversations,
+    refreshUnread,
+    eventReads,
+    conversationsAuthPending,
+    conversationsAuthError,
+    retryConversations,
+  } = useMessages();
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 84 : 100);
@@ -154,6 +175,22 @@ export default function MessagesScreen() {
   }, [conversations, events, eventReads, currentUser?.id]);
 
   const isLoading = conversationsLoading && eventsLoading && unifiedList.length === 0;
+
+  // Combined auth-race guard across the two inbox sources. Only treat the screen
+  // as pending/errored while it has NOTHING to show — if either source already
+  // returned rows, render them. `authPending` overriding the empty state is what
+  // stops the false "No messages yet" flash during a slow login.
+  const renderMode = vaultRenderMode({
+    loading: isLoading,
+    authPending: (eventsAuthPending || conversationsAuthPending) && unifiedList.length === 0,
+    authError: (eventsAuthError || conversationsAuthError) && unifiedList.length === 0,
+    photoCount: unifiedList.length,
+  });
+
+  const retry = useCallback(() => {
+    retryEvents();
+    retryConversations();
+  }, [retryEvents, retryConversations]);
 
   const openItem = useCallback((item: UnifiedItem) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -285,7 +322,7 @@ export default function MessagesScreen() {
       </View>
 
       <FlatList
-        data={isLoading ? [] : unifiedList}
+        data={renderMode === "content" ? unifiedList : []}
         keyExtractor={(item) =>
           item.kind === "conversation" ? `conv-${item.data.id}` : `event-${item.event.id}`
         }
@@ -300,9 +337,24 @@ export default function MessagesScreen() {
           <RefreshControl refreshing={false} onRefresh={handleRefresh} tintColor={colors.primary} />
         }
         ListEmptyComponent={
-          isLoading ? (
+          renderMode === "loading" ? (
             <View style={styles.loading}>
               <ActivityIndicator color={colors.primary} />
+            </View>
+          ) : renderMode === "error" ? (
+            <View style={styles.empty}>
+              <Ionicons name="cloud-offline-outline" size={48} color={colors.textDim} />
+              <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Couldn't load messages</Text>
+              <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>
+                Check your connection and try again.
+              </Text>
+              <TouchableOpacity
+                onPress={retry}
+                style={[styles.emptyBtn, { borderColor: colors.primary + "40" }]}
+              >
+                <Ionicons name="refresh-outline" size={18} color={colors.primary} />
+                <Text style={[styles.emptyBtnText, { color: colors.primary }]}>Try again</Text>
+              </TouchableOpacity>
             </View>
           ) : (
             <View style={styles.empty}>
