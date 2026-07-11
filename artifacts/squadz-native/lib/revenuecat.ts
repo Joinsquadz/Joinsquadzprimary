@@ -9,6 +9,28 @@ export const RC_STANDARD_PRODUCT_ID = "squadz_plus_standard_yearly";
 type PurchasesModule = typeof import("react-native-purchases");
 type PurchasesDefault = PurchasesModule["default"];
 
+/**
+ * Whether a RevenueCat StoreProduct identifier corresponds to one of our
+ * product ids.
+ *
+ * The store identifier format differs by platform:
+ * - iOS (App Store): the identifier IS the product id, e.g.
+ *   `"squadz_plus_founding_yearly"`.
+ * - Android (Google Play): a subscription's identifier is
+ *   `"{subscriptionId}:{basePlanId}"`, e.g.
+ *   `"squadz_plus_founding_yearly:founding-yearly"`.
+ *
+ * A naive `identifier === targetId` check therefore matches on iOS but NEVER
+ * matches the founding (or standard) package on Android, silently dropping the
+ * user to the fallback package. Comparing the base subscription id — the part
+ * before the first `":"` — matches correctly on both platforms (iOS has no
+ * colon, so the whole string is used).
+ */
+export function productMatches(identifier: string | null | undefined, targetId: string): boolean {
+  if (!identifier) return false;
+  return identifier.split(":")[0] === targetId;
+}
+
 let _purchases: PurchasesDefault | null = null;
 let _configured = false;
 // Tracks the in-flight configure/logIn kicked off by the RevenueCat connector on
@@ -106,8 +128,8 @@ export async function getSquadzPlusPrices(): Promise<RcPrices> {
   try {
     const offerings = await Purchases.getOfferings();
     const pkgs = offerings.current?.availablePackages ?? [];
-    const f = pkgs.find((p) => p.product.identifier === RC_FOUNDING_PRODUCT_ID);
-    const s = pkgs.find((p) => p.product.identifier === RC_STANDARD_PRODUCT_ID);
+    const f = pkgs.find((p) => productMatches(p.product.identifier, RC_FOUNDING_PRODUCT_ID));
+    const s = pkgs.find((p) => productMatches(p.product.identifier, RC_STANDARD_PRODUCT_ID));
     return {
       founding: f ? { priceString: f.product.priceString } : null,
       standard: s ? { priceString: s.product.priceString } : null,
@@ -145,8 +167,8 @@ export async function purchaseSquadzPlus(preferFounding: boolean): Promise<Purch
     }
     const wanted = preferFounding ? RC_FOUNDING_PRODUCT_ID : RC_STANDARD_PRODUCT_ID;
     const pkg =
-      pkgs.find((p) => p.product.identifier === wanted) ??
-      pkgs.find((p) => p.product.identifier === RC_STANDARD_PRODUCT_ID) ??
+      pkgs.find((p) => productMatches(p.product.identifier, wanted)) ??
+      pkgs.find((p) => productMatches(p.product.identifier, RC_STANDARD_PRODUCT_ID)) ??
       pkgs[0];
     const { customerInfo } = await Purchases.purchasePackage(pkg);
     return { ok: true, isPro: !!customerInfo.entitlements.active[RC_ENTITLEMENT_ID] };

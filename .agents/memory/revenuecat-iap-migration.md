@@ -58,13 +58,14 @@ must match the RC webhook's `authorization_header` exactly (raw compare, no Bear
 sandbox testing — swap `url` to the production domain (`.../api/revenuecat/webhook`)
 at deploy time (single field via API/dashboard); the auth header already matches.
 
-**Android identifier-match caveat (latent):** the client finds the founding package
-via `p.product.identifier === "squadz_plus_founding_yearly"` (exact). On Google Play
-`StoreProduct.identifier` is usually `subscriptionId:basePlanId`
-(`squadz_plus_founding_yearly:founding-yearly`), so the exact match can miss the
-founding package on Android once real Play products exist. Verify against real Play
-products before Android launch (a tolerant `.split(":")[0]` / `startsWith` match
-fixes it) — left as-is for now since no real store products exist yet.
+**Android identifier match (FIXED):** Google Play `StoreProduct.identifier` is
+`subscriptionId:basePlanId` (`squadz_plus_founding_yearly:founding-yearly`), while
+iOS is the bare product id. Match packages by the base id BEFORE the first `":"`
+(`productMatches()` in `lib/revenuecat.ts`), never `identifier === productId` — the
+exact compare silently misses founding on Android and drops the user to the standard
+fallback. Matching is intentionally subscription-id-level (ignores basePlanId); if a
+future offering has multiple base plans under one subscription id, package selection
+becomes order-dependent and needs a tiebreak.
 
 **Still gated on user (external, can't automate):** create the real in-app-purchase
 products in App Store Connect + Google Play Console (paid dev accounts) so live
