@@ -31,6 +31,17 @@ import { MomentsRingRow } from "@/components/MomentsRingRow";
 import { LiveStatusBanner } from "@/components/LiveStatusBanner";
 import { ImageViewerModal } from "@/components/ImageViewerModal";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
+// Shared auth-race guard (see lib/vaultAuthRace.ts). A cold-start / slow-login
+// 401 on the feed fetch must keep this screen loading instead of flashing the
+// "No vibes yet" empty state before the auth token finishes restoring.
+import {
+  INITIAL_AUTH_RACE_STATE,
+  applyVaultFetchOutcome,
+  nextRetryDecision,
+  resetAuthRaceState,
+  vaultRenderMode,
+  type AuthRaceState,
+} from "@/lib/vaultAuthRace";
 
 // ── types ─────────────────────────────────────────────────────────────────────
 type FeedPost = {
@@ -96,6 +107,7 @@ export default function FeedScreen() {
 
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [loading, setLoading] = useState(true);
+  const [feedAuth, setFeedAuth] = useState<AuthRaceState>(INITIAL_AUTH_RACE_STATE);
   const [refreshing, setRefreshing] = useState(false);
   const [momentsReload, setMomentsReload] = useState(0);
 
@@ -131,15 +143,38 @@ export default function FeedScreen() {
     if (!authToken) return;
     try {
       const res = await fetch(`${API_BASE}/api/feed`, { headers: buildAuthHeaders(authToken) });
-      if (!res.ok) return;
+      // A 401 here almost always means the auth token hasn't finished restoring
+      // yet (cold start / slow login / token-refresh race). Treat it as "still
+      // loading" and schedule a retry instead of falling through to the "No
+      // vibes yet" empty state, which would falsely claim the feed is empty.
+      if (res.status === 401) {
+        setFeedAuth((prev) => applyVaultFetchOutcome(prev, { kind: "unauthorized" }));
+        return;
+      }
+      if (!res.ok) {
+        // Non-401 failure. If we're mid auth-race retry, keep the bounded loop
+        // going so a transient blip doesn't strand us on a permanent spinner.
+        setFeedAuth((prev) => applyVaultFetchOutcome(prev, { kind: "failure" }));
+        return;
+      }
       const data = (await res.json()) as { posts: FeedPost[] };
       setPosts(data.posts ?? []);
+      setFeedAuth((prev) => applyVaultFetchOutcome(prev, { kind: "ok" }));
     } catch {
-      // Network unavailable — keep current posts
+      // Network unavailable — keep current posts; don't strand an auth retry.
+      setFeedAuth((prev) => applyVaultFetchOutcome(prev, { kind: "failure" }));
     } finally {
       setLoading(false);
     }
   }, [authToken]);
+
+  // Manual retry after the auth-race retries were exhausted. Clears the error,
+  // resets the attempt counter, and kicks off a fresh fetch (which re-arms the
+  // retry loop if it 401s again).
+  const retryFeed = useCallback(() => {
+    setFeedAuth(resetAuthRaceState());
+    void fetchFeed();
+  }, [fetchFeed]);
 
   const fetchComments = useCallback(
     async (postId: string) => {
@@ -171,6 +206,33 @@ export default function FeedScreen() {
     Object.values(commentsByPost).forEach((list) => list.forEach((c) => ids.add(c.authorId)));
     if (ids.size > 0) prefetchUsers(Array.from(ids));
   }, [posts, commentsByPost, prefetchUsers]);
+
+  // Retry driver for the feed: while a fetch is auth-pending (401 seen before
+  // the token restored) re-run it on a short delay. Re-runs whenever the token
+  // changes (immediate retry once it lands) or the tick advances (a fresh 401
+  // came back). After a bounded number of attempts we give up and surface a
+  // retryable error rather than an infinite spinner.
+  useEffect(() => {
+    const decision = nextRetryDecision(feedAuth);
+    if (decision.action === "give-up") {
+      setFeedAuth(decision.next);
+      return;
+    }
+    if (decision.action === "retry") {
+      const t = setTimeout(() => { void fetchFeed(); }, decision.delayMs);
+      return () => clearTimeout(t);
+    }
+  }, [feedAuth, authToken, fetchFeed]);
+
+  // Single source of truth for the feed body. `authPending` keeps us on the
+  // spinner (never the empty state) during a slow-login auth race; the "No vibes
+  // yet" empty is only reached for a genuine authenticated zero result.
+  const renderMode = vaultRenderMode({
+    loading,
+    authPending: feedAuth.authPending,
+    authError: feedAuth.authError,
+    photoCount: posts.length,
+  });
 
   // ── live SSE stream ───────────────────────────────────────────────────────
   const abortRef = useRef<AbortController | null>(null);
@@ -646,7 +708,7 @@ export default function FeedScreen() {
 
       <FlatList
         ref={listRef}
-        data={loading ? [] : posts}
+        data={renderMode === "content" ? posts : []}
         keyExtractor={(post) => post.id}
         contentContainerStyle={{ paddingBottom: botPad }}
         showsVerticalScrollIndicator={false}
@@ -745,9 +807,27 @@ export default function FeedScreen() {
           </>
         }
         ListEmptyComponent={
-          loading ? (
+          renderMode === "loading" ? (
             <View style={styles.loading}>
               <ActivityIndicator color={colors.primary} />
+            </View>
+          ) : renderMode === "error" ? (
+            <View style={styles.empty}>
+              <Ionicons name="cloud-offline-outline" size={48} color={colors.textDim} />
+              <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Couldn't load your feed</Text>
+              <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>
+                Check your connection and try again.
+              </Text>
+              <TouchableOpacity
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  retryFeed();
+                }}
+                style={[styles.emptyBtn, { backgroundColor: colors.primary }]}
+              >
+                <Ionicons name="refresh-outline" size={18} color="#fff" />
+                <Text style={styles.emptyBtnText}>Try again</Text>
+              </TouchableOpacity>
             </View>
           ) : (
             <View style={styles.empty}>
