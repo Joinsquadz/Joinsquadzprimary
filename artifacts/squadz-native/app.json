@@ -16,7 +16,11 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.squadz.app",
-      "associatedDomains": ["applinks:joinsquadz.com"]
+      "associatedDomains": ["applinks:joinsquadz.com"],
+      "infoPlist": {
+        "NSCameraUsageDescription": "Squadz uses your camera so you can take photos and videos to share with your squad.",
+        "NSMicrophoneUsageDescription": "Squadz uses your microphone so you can record videos to share with your squad."
+      }
     },
     "android": {
       "package": "com.squadz.app",
