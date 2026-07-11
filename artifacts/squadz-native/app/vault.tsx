@@ -36,6 +36,16 @@ import VaultMediaDetail, { type VaultDetailPhoto } from "@/components/VaultMedia
 import VaultShareComposer, { type VaultShareTarget } from "@/components/VaultShareComposer";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { buildSquadVaultSections, type VaultSectionPhoto } from "@/lib/vaultSections";
+import {
+  AUTH_RETRY_DELAY_MS,
+  MAX_AUTH_RETRIES,
+  INITIAL_AUTH_RACE_STATE,
+  applyVaultFetchOutcome,
+  nextRetryDecision,
+  resetAuthRaceState,
+  vaultRenderMode,
+  type AuthRaceState,
+} from "@/lib/vaultAuthRace";
 import { SkeletonBox } from "@/components/SkeletonBox";
 
 const VAULT_SELECTED_KEY = "vault:selectedPhoto";
@@ -44,12 +54,6 @@ const VAULT_SCROLL_KEY = "vault:scrollY";
 // Hard cap on a single uploaded file: 150 MB. Photos and videos share this
 // limit; the server enforces the same ceiling on the request-url route.
 const MAX_UPLOAD_BYTES = 150 * 1024 * 1024;
-
-// Auth-race retry policy: when a vault fetch 401s because the token hasn't
-// finished restoring, retry on this cadence up to this many times before
-// surfacing a retryable error (instead of a false "empty vault").
-const AUTH_RETRY_DELAY_MS = 600;
-const MAX_AUTH_RETRIES = 8;
 
 type MediaType = "image" | "video";
 type MediaFilter = "all" | MediaType;
@@ -188,10 +192,8 @@ export default function VaultScreen() {
   // Auth-race guards for the Favorites sub-section — same class of bug as the
   // uploads/squad fetches: a 401 before the token restores must NOT collapse to
   // "No favorites yet". Keep loading + retry until an authenticated fetch lands.
-  const [favoritesAuthPending, setFavoritesAuthPending] = useState(false);
-  const [favoritesAuthError, setFavoritesAuthError] = useState(false);
-  const [favoritesAuthTick, setFavoritesAuthTick] = useState(0);
-  const favoritesAuthPendingRef = useRef(false);
+  // Uses the same shared state machine (lib/vaultAuthRace.ts) as the other grids.
+  const [favoritesAuth, setFavoritesAuth] = useState<AuthRaceState>(INITIAL_AUTH_RACE_STATE);
 
   // Squad vault state (only used when squadId is present)
   const [squadPhotos, setSquadPhotos] = useState<SquadVaultPhoto[]>([]);
@@ -199,17 +201,11 @@ export default function VaultScreen() {
   // Auth-race guards: a fetch that 401s before the token has finished restoring
   // must NOT collapse to the empty state ("No photos rolled up yet"). Instead we
   // keep the screen in a loading state and retry until an authenticated fetch
-  // succeeds (or we exhaust retries and surface a retryable error).
-  const [squadAuthPending, setSquadAuthPending] = useState(false);
-  const [squadAuthError, setSquadAuthError] = useState(false);
-  const [squadAuthTick, setSquadAuthTick] = useState(0);
-  const [photosAuthPending, setPhotosAuthPending] = useState(false);
-  const [photosAuthError, setPhotosAuthError] = useState(false);
-  const [photosAuthTick, setPhotosAuthTick] = useState(0);
-  // Ref mirrors so the fetch callbacks can tell "this is a retry of an in-flight
-  // auth race" from "first attempt" without re-creating on every state change.
-  const squadAuthPendingRef = useRef(false);
-  const photosAuthPendingRef = useRef(false);
+  // succeeds (or we exhaust retries and surface a retryable error). The state
+  // machine lives in lib/vaultAuthRace.ts; here we just hold its state per
+  // dataset and feed fetch outcomes / retry decisions through it.
+  const [squadAuth, setSquadAuth] = useState<AuthRaceState>(INITIAL_AUTH_RACE_STATE);
+  const [photosAuth, setPhotosAuth] = useState<AuthRaceState>(INITIAL_AUTH_RACE_STATE);
   const [squadViewMode, setSquadViewMode] = useState<"grid" | "events">("grid");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerPhotos, setPickerPhotos] = useState<VaultPhoto[]>([]);
@@ -423,27 +419,24 @@ export default function VaultScreen() {
       // "still loading" and schedule a retry instead of falling through to the
       // empty state, which would falsely claim the vault has no photos.
       if (res.status === 401) {
-        setPhotosAuthPending(true);
-        setPhotosAuthTick(c => c + 1);
+        setPhotosAuth(prev => applyVaultFetchOutcome(prev, { kind: "unauthorized" }));
         return;
       }
       if (!res.ok) {
         // Non-401 failure. If we're mid auth-race retry, keep the bounded loop
         // going (advance the tick) so a transient blip doesn't strand us on a
         // permanent spinner; it will surface the retry error once capped.
-        if (photosAuthPendingRef.current) setPhotosAuthTick(c => c + 1);
+        setPhotosAuth(prev => applyVaultFetchOutcome(prev, { kind: "failure" }));
         return;
       }
       const data = await res.json() as { photos: VaultPhoto[]; isPro?: boolean };
       setPhotos(data.photos ?? []);
       syncFavorites(data.photos ?? []);
       if (data.isPro !== undefined) setIsPro(data.isPro);
-      setPhotosAuthPending(false);
-      setPhotosAuthError(false);
-      setPhotosAuthTick(0);
+      setPhotosAuth(prev => applyVaultFetchOutcome(prev, { kind: "ok" }));
     } catch {
       // Network error. Same as above: don't strand an in-flight auth retry.
-      if (photosAuthPendingRef.current) setPhotosAuthTick(c => c + 1);
+      setPhotosAuth(prev => applyVaultFetchOutcome(prev, { kind: "failure" }));
     } finally {
       setPhotosLoading(false);
     }
@@ -453,8 +446,7 @@ export default function VaultScreen() {
   // resets the attempt counter, and kicks off a fresh fetch (which re-arms the
   // retry loop if it 401s again).
   const retryPhotos = useCallback(() => {
-    setPhotosAuthError(false);
-    setPhotosAuthTick(0);
+    setPhotosAuth(resetAuthRaceState());
     void fetchPhotos();
   }, [fetchPhotos]);
 
@@ -468,29 +460,25 @@ export default function VaultScreen() {
       // A 401 here almost always means the auth token hasn't finished restoring
       // yet (cold start / slow login / token-refresh race). Treat it as "still
       // loading" and schedule a retry instead of falling through to the empty
-      // state, which would falsely claim there are no favorites.
+      // state, which would falsely claim there are no favorites. The shared
+      // state machine keeps the loading/retry semantics identical to the other
+      // grids: 401 → pending, non-401 failure → advance only while pending.
       if (res.status === 401) {
-        setFavoritesAuthPending(true);
-        setFavoritesAuthTick(c => c + 1);
+        setFavoritesAuth(prev => applyVaultFetchOutcome(prev, { kind: "unauthorized" }));
         return;
       }
       if (!res.ok) {
-        // Non-401 failure. If we're mid auth-race retry, keep the bounded loop
-        // going (advance the tick) so a transient blip doesn't strand us on a
-        // permanent spinner; it will surface the retry error once capped.
-        if (favoritesAuthPendingRef.current) setFavoritesAuthTick(c => c + 1);
+        setFavoritesAuth(prev => applyVaultFetchOutcome(prev, { kind: "failure" }));
         return;
       }
       const data = await res.json() as { photos: VaultPhoto[]; isPro?: boolean };
       setFavoritePhotos(data.photos ?? []);
       syncFavorites(data.photos ?? []);
       if (data.isPro !== undefined) setIsPro(data.isPro);
-      setFavoritesAuthPending(false);
-      setFavoritesAuthError(false);
-      setFavoritesAuthTick(0);
+      setFavoritesAuth(prev => applyVaultFetchOutcome(prev, { kind: "ok" }));
     } catch {
       // Network error. Same as above: don't strand an in-flight auth retry.
-      if (favoritesAuthPendingRef.current) setFavoritesAuthTick(c => c + 1);
+      setFavoritesAuth(prev => applyVaultFetchOutcome(prev, { kind: "failure" }));
     } finally {
       setFavoritesLoading(false);
     }
@@ -498,8 +486,7 @@ export default function VaultScreen() {
 
   // Manual retry after the favorites auth-race retries were exhausted.
   const retryFavorites = useCallback(() => {
-    setFavoritesAuthError(false);
-    setFavoritesAuthTick(0);
+    setFavoritesAuth(resetAuthRaceState());
     void fetchFavorites();
   }, [fetchFavorites]);
 
@@ -546,22 +533,20 @@ export default function VaultScreen() {
   // token changes (immediate retry once it lands) or the tick advances (a fresh
   // 401 came back). After a bounded number of attempts we give up and surface a
   // retryable error rather than an infinite spinner.
-  useEffect(() => { photosAuthPendingRef.current = photosAuthPending; }, [photosAuthPending]);
-  useEffect(() => { squadAuthPendingRef.current = squadAuthPending; }, [squadAuthPending]);
-  useEffect(() => { favoritesAuthPendingRef.current = favoritesAuthPending; }, [favoritesAuthPending]);
-
   useEffect(() => {
     // The personal grid also renders the event-contextual view, so only skip
     // here in squad mode (that view is driven by fetchSquadVault's own retry).
-    if (!photosAuthPending || isSquadVault) return;
-    if (photosAuthTick >= MAX_AUTH_RETRIES) {
-      setPhotosAuthPending(false);
-      setPhotosAuthError(true);
+    if (isSquadVault) return;
+    const decision = nextRetryDecision(photosAuth);
+    if (decision.action === "give-up") {
+      setPhotosAuth(decision.next);
       return;
     }
-    const t = setTimeout(() => { void fetchPhotos(); }, AUTH_RETRY_DELAY_MS);
-    return () => clearTimeout(t);
-  }, [photosAuthPending, photosAuthTick, authToken, isSquadVault, fetchPhotos]);
+    if (decision.action === "retry") {
+      const t = setTimeout(() => { void fetchPhotos(); }, decision.delayMs);
+      return () => clearTimeout(t);
+    }
+  }, [photosAuth, authToken, isSquadVault, fetchPhotos]);
 
   // Load the Favorites collection the first time (and whenever) the user opens
   // that sub-section in the personal vault.
@@ -574,15 +559,17 @@ export default function VaultScreen() {
   // until the token restores, then fall back to a retryable error rather than
   // the misleading "No favorites yet" empty state.
   useEffect(() => {
-    if (!favoritesAuthPending || isSquadVault || personalTab !== "favorites") return;
-    if (favoritesAuthTick >= MAX_AUTH_RETRIES) {
-      setFavoritesAuthPending(false);
-      setFavoritesAuthError(true);
+    if (isSquadVault || personalTab !== "favorites") return;
+    const decision = nextRetryDecision(favoritesAuth);
+    if (decision.action === "give-up") {
+      setFavoritesAuth(decision.next);
       return;
     }
-    const t = setTimeout(() => { void fetchFavorites(); }, AUTH_RETRY_DELAY_MS);
-    return () => clearTimeout(t);
-  }, [favoritesAuthPending, favoritesAuthTick, authToken, isSquadVault, personalTab, fetchFavorites]);
+    if (decision.action === "retry") {
+      const t = setTimeout(() => { void fetchFavorites(); }, decision.delayMs);
+      return () => clearTimeout(t);
+    }
+  }, [favoritesAuth, authToken, isSquadVault, personalTab, fetchFavorites]);
 
   // Keep Pro status and photos fresh whenever the app returns to the foreground
   // (e.g. after completing the Stripe checkout the shared UpgradeModal launches).
@@ -708,24 +695,21 @@ export default function VaultScreen() {
       // "still loading" and schedule a retry instead of falling through to the
       // empty state, which would falsely claim the vault has no photos.
       if (res.status === 401) {
-        setSquadAuthPending(true);
-        setSquadAuthTick(c => c + 1);
+        setSquadAuth(prev => applyVaultFetchOutcome(prev, { kind: "unauthorized" }));
         return;
       }
       if (!res.ok) {
         // Non-401 failure — keep a bounded auth-race retry going (see fetchPhotos).
-        if (squadAuthPendingRef.current) setSquadAuthTick(c => c + 1);
+        setSquadAuth(prev => applyVaultFetchOutcome(prev, { kind: "failure" }));
         return;
       }
       const data = await res.json() as { photos: SquadVaultPhoto[] };
       setSquadPhotos(data.photos ?? []);
       syncFavorites(data.photos ?? []);
-      setSquadAuthPending(false);
-      setSquadAuthError(false);
-      setSquadAuthTick(0);
+      setSquadAuth(prev => applyVaultFetchOutcome(prev, { kind: "ok" }));
     } catch {
       // Network error — keep the in-flight auth retry alive (see fetchPhotos).
-      if (squadAuthPendingRef.current) setSquadAuthTick(c => c + 1);
+      setSquadAuth(prev => applyVaultFetchOutcome(prev, { kind: "failure" }));
     } finally {
       setSquadLoading(false);
     }
@@ -733,8 +717,7 @@ export default function VaultScreen() {
 
   // Manual retry after the auth-race retries were exhausted (see fetchPhotos).
   const retrySquadVault = useCallback(() => {
-    setSquadAuthError(false);
-    setSquadAuthTick(0);
+    setSquadAuth(resetAuthRaceState());
     void fetchSquadVault();
   }, [fetchSquadVault]);
 
@@ -778,15 +761,17 @@ export default function VaultScreen() {
   // token restores, then fall back to a retryable error rather than the
   // misleading "No photos rolled up yet" empty state.
   useEffect(() => {
-    if (!squadAuthPending || !squadId) return;
-    if (squadAuthTick >= MAX_AUTH_RETRIES) {
-      setSquadAuthPending(false);
-      setSquadAuthError(true);
+    if (!squadId) return;
+    const decision = nextRetryDecision(squadAuth);
+    if (decision.action === "give-up") {
+      setSquadAuth(decision.next);
       return;
     }
-    const t = setTimeout(() => { void fetchSquadVault(); }, AUTH_RETRY_DELAY_MS);
-    return () => clearTimeout(t);
-  }, [squadAuthPending, squadAuthTick, authToken, squadId, fetchSquadVault]);
+    if (decision.action === "retry") {
+      const t = setTimeout(() => { void fetchSquadVault(); }, decision.delayMs);
+      return () => clearTimeout(t);
+    }
+  }, [squadAuth, authToken, squadId, fetchSquadVault]);
 
   // Live updates: when any member shares or removes a vault photo, the server
   // broadcasts a squad update over SSE so the gallery reflects it immediately
@@ -926,6 +911,29 @@ export default function VaultScreen() {
   // FlatLists re-render their cells when this reference changes — favoriteIds is
   // a fresh Set on every toggle, so the bookmark icons stay in sync.
   const listExtra = useMemo(() => ({ selected, favoriteIds }), [selected, favoriteIds]);
+
+  // Single source of truth for which state each grid renders. During a slow
+  // login (401 before the token restores) both stay "loading", never "empty",
+  // so the vault can't flash a false "No photos" screen.
+  const squadRenderMode = vaultRenderMode({
+    loading: squadLoading,
+    authPending: squadAuth.authPending,
+    authError: squadAuth.authError,
+    photoCount: squadPhotos.length,
+  });
+  const personalRenderMode = vaultRenderMode({
+    loading: photosLoading,
+    authPending: photosAuth.authPending,
+    authError: photosAuth.authError,
+    photoCount: visiblePhotos.length,
+  });
+  const favoritesRenderMode = vaultRenderMode({
+    loading: favoritesLoading,
+    authPending: favoritesAuth.authPending,
+    authError: favoritesAuth.authError,
+    photoCount: favoritePhotos.length,
+  });
+  const squadBusy = squadRenderMode === "loading";
 
   const uploaderName = (p: SquadVaultPhoto): string => {
     const name = [p.uploaderFirstName, p.uploaderLastName].filter(Boolean).join(" ").trim();
@@ -1135,7 +1143,7 @@ export default function VaultScreen() {
       {isSquadVault ? (
         squadViewMode === "events" ? (
           <SectionList
-            sections={(squadLoading || squadAuthPending) && squadPhotos.length === 0 ? [] : squadSections}
+            sections={squadBusy && squadPhotos.length === 0 ? [] : squadSections}
             keyExtractor={(group, index) => (group[0] ? `grp-${group[0].id}` : `grp-empty-${index}`)}
             extraData={listExtra}
             contentContainerStyle={[styles.scroll, { paddingBottom: botPad + 24 }]}
@@ -1167,11 +1175,11 @@ export default function VaultScreen() {
               </View>
             )}
             ListEmptyComponent={
-              (squadLoading || squadAuthPending) ? (
+              squadRenderMode === "loading" ? (
                 <View style={styles.center}>
                   <ActivityIndicator color={colors.primary} size="large" />
                 </View>
-              ) : squadAuthError ? (
+              ) : squadRenderMode === "error" ? (
                 renderRetryState(retrySquadVault)
               ) : (
                 <View style={[styles.emptyState, { borderColor: colors.border }]}>
@@ -1185,7 +1193,7 @@ export default function VaultScreen() {
           />
         ) : (
         <FlatList
-          data={(squadLoading || squadAuthPending) && squadPhotos.length === 0 ? [] : filteredSquadPhotos}
+          data={squadBusy && squadPhotos.length === 0 ? [] : filteredSquadPhotos}
           keyExtractor={(p) => String(p.id)}
           numColumns={3}
           columnWrapperStyle={{ gap: 4 }}
@@ -1207,11 +1215,11 @@ export default function VaultScreen() {
             </>
           }
           ListEmptyComponent={
-            (squadLoading || squadAuthPending) ? (
+            squadRenderMode === "loading" ? (
               <View style={styles.center}>
                 <ActivityIndicator color={colors.primary} size="large" />
               </View>
-            ) : squadAuthError ? (
+            ) : squadRenderMode === "error" ? (
               renderRetryState(retrySquadVault)
             ) : (
               <View style={[styles.emptyState, { borderColor: colors.border }]}>
@@ -1245,7 +1253,7 @@ export default function VaultScreen() {
           </TouchableOpacity>
         </View>
       ) : (
-        (personalTab === "favorites" ? (favoritesLoading || favoritesAuthPending) : (photosLoading || photosAuthPending)) ? (
+        (personalTab === "favorites" ? favoritesRenderMode === "loading" : personalRenderMode === "loading") ? (
           // T212: skeleton photo grid instead of a spinner — mirrors the
           // 3-column layout the real grid renders into. Also shown while the
           // uploads fetch is auth-pending (retrying after a token-restore 401)
@@ -1261,7 +1269,7 @@ export default function VaultScreen() {
               </View>
             ))}
           </View>
-        ) : (personalTab === "favorites" ? favoritesAuthError : photosAuthError) ? (
+        ) : (personalTab === "favorites" ? favoritesRenderMode === "error" : personalRenderMode === "error") ? (
           renderRetryState(personalTab === "favorites" ? retryFavorites : retryPhotos)
         ) : (
           <FlatList
