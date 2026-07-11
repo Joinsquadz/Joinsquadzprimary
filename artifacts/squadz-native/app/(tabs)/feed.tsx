@@ -29,6 +29,7 @@ import { AnimatedCount } from "@/components/AnimatedCount";
 import { SnapConfirm, type SnapConfirmHandle } from "@/components/SnapConfirm";
 import { MomentsRingRow } from "@/components/MomentsRingRow";
 import { LiveStatusBanner } from "@/components/LiveStatusBanner";
+import { ImageViewerModal } from "@/components/ImageViewerModal";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
 // ── types ─────────────────────────────────────────────────────────────────────
@@ -114,6 +115,7 @@ export default function FeedScreen() {
   const mediaSrc = useCallback((path: string) => `${API_BASE}/api/storage${path}`, []);
 
   // comments
+  const [expandedImage, setExpandedImage] = useState<string | null>(null);
   const [openComments, setOpenComments] = useState<string | null>(null);
   const [commentsByPost, setCommentsByPost] = useState<Record<string, FeedComment[]>>({});
   const [commentDraft, setCommentDraft] = useState("");
@@ -870,14 +872,22 @@ export default function FeedScreen() {
                         style={StyleSheet.absoluteFillObject}
                       />
                     ) : (
-                      <Image
-                        source={{
-                          uri: mediaSrc(post.mediaUrl),
-                          headers: buildAuthHeaders(authToken) as Record<string, string>,
-                        }}
+                      <TouchableOpacity
+                        activeOpacity={0.9}
+                        onPress={() => setExpandedImage(mediaSrc(post.mediaUrl!))}
                         style={StyleSheet.absoluteFill}
-                        contentFit="cover"
-                      />
+                        accessibilityRole="imagebutton"
+                        accessibilityLabel="Expand photo"
+                      >
+                        <Image
+                          source={{
+                            uri: mediaSrc(post.mediaUrl),
+                            headers: buildAuthHeaders(authToken) as Record<string, string>,
+                          }}
+                          style={StyleSheet.absoluteFill}
+                          contentFit="cover"
+                        />
+                      </TouchableOpacity>
                     )}
                   </View>
                 )}
@@ -997,6 +1007,12 @@ export default function FeedScreen() {
             );
           }}
         />
+      <ImageViewerModal
+        visible={!!expandedImage}
+        uri={expandedImage}
+        headers={buildAuthHeaders(authToken) as Record<string, string>}
+        onClose={() => setExpandedImage(null)}
+      />
     </View>
   );
 }
