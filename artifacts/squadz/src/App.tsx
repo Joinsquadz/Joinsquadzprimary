@@ -5,6 +5,7 @@ import Landing from "@/pages/Landing";
 
 const Privacy = lazy(() => import("@/pages/Privacy"));
 const Terms = lazy(() => import("@/pages/Terms"));
+const Support = lazy(() => import("@/pages/Support"));
 const NotFound = lazy(() => import("@/pages/NotFound"));
 
 function Router() {
@@ -14,6 +15,7 @@ function Router() {
         <Route path="/" component={Landing} />
         <Route path="/privacy" component={Privacy} />
         <Route path="/terms" component={Terms} />
+        <Route path="/support" component={Support} />
         <Route component={NotFound} />
       </Switch>
     </Suspense>

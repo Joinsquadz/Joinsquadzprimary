@@ -481,6 +481,7 @@ export default function Landing() {
             <span style={{ fontFamily: "'Georgia', serif", fontSize: 21, fontWeight: 700, letterSpacing: "-0.04em" }}>squadz</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 22, flexWrap: "wrap" }}>
+            <a href="/support" style={{ fontSize: 13.5, color: T.textDim, textDecoration: "none" }}>Support</a>
             <a href="/terms" style={{ fontSize: 13.5, color: T.textDim, textDecoration: "none" }}>Terms of Service</a>
             <a href="/privacy" style={{ fontSize: 13.5, color: T.textDim, textDecoration: "none" }}>Privacy Policy</a>
             <div style={{ fontSize: 13.5, color: T.textDim }}>© {new Date().getFullYear()} Squadz · Stop texting. Start actually hanging.</div>
