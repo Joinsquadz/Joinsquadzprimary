@@ -54,6 +54,18 @@ All services degrade gracefully when their env vars are absent (Supabase Auth fa
 
 When the app isn't installed, the same URL falls back to the marketing landing page (every web route renders `Landing`).
 
+## Automated UI tests (authenticated mobile-app screens)
+
+The Playwright UI tester (`runTest`) CAN now exercise signed-in `artifacts/squadz-native` web flows. On web, `resolveApiBase()` (`artifacts/squadz-native/lib/api.ts`) returns `""` (same-origin) instead of the absolute dev domain, and `artifacts/squadz-native/metro.config.js` runs a dev-only Metro middleware that reverse-proxies `/api/*` from the Expo web dev server to the api-server via the shared proxy (`localhost:80`). So the headless browser reaches the API same-origin — no cross-origin hop to `*.replit.dev` (which it cannot make).
+
+To run an authenticated UI test:
+
+1. Ensure the `artifacts/api-server: API Server` and `artifacts/squadz-native: expo` workflows are running.
+2. Seed a login: `curl -sX POST http://localhost:80/api/auth/register -H 'content-type: application/json' -d '{"email":"uitest+<unique>@example.com","password":"Test1234!","name":"UI Tester"}'` (registration is idempotent-ish; use a unique email per run). Note the email/password.
+3. In a `runTest` plan: create a context, go to `/`, use the onboarding "Log in" flow with those creds, then assert an authenticated screen (SquadZ / Profile / vault) renders real data (200s, not a perpetual spinner or 401).
+
+Native builds and the production static server (`server/serve.js`) are unaffected — native still uses the absolute API base, and the Metro proxy only exists under `expo start`.
+
 ## Staging Smoke Tests
 
 ### Push notifications end-to-end

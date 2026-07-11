@@ -5,18 +5,24 @@ import { Platform } from "react-native";
  * Resolves the API base URL for the current environment.
  *
  * In production native builds: set EXPO_PUBLIC_API_URL in the build environment.
- * In Expo Go / development: REPLIT_DEV_DOMAIN is injected via app.config.js extra
- * (`extra.apiBase`), so this returns the ABSOLUTE main dev domain.
- * In Expo web preview: that means /api calls are cross-origin (the preview is
- * served from $REPLIT_EXPO_DEV_DOMAIN, which bypasses the shared proxy), so the
- * api-server CORS allowlist must include the Expo origin. The Platform.OS==="web"
- * relative-URL fallback below only applies when no apiBase/EXPO_PUBLIC_API_URL is set.
+ * In Expo Go / native development: REPLIT_DEV_DOMAIN is injected via
+ * app.config.js extra (`extra.apiBase`), so this returns the ABSOLUTE main dev
+ * domain (native bundles run outside any proxy and need an absolute URL).
+ *
+ * On WEB we return "" (same-origin, relative `/api/...`). The app is served from
+ * $REPLIT_EXPO_DEV_DOMAIN (dev) or behind the shared proxy (prod), and `/api` is
+ * routed to the api-server from that SAME origin — in dev by the Metro proxy
+ * middleware in `metro.config.js`, in prod by the shared reverse proxy. Using a
+ * relative base means both the normal preview browser AND the headless UI-test
+ * (Playwright) browser can reach the API without any cross-origin hop, which the
+ * test browser cannot make to the main dev domain. An explicit
+ * EXPO_PUBLIC_API_URL still wins if set.
  */
 export function resolveApiBase(): string {
   if (process.env.EXPO_PUBLIC_API_URL) return process.env.EXPO_PUBLIC_API_URL;
+  if (Platform.OS === "web") return "";
   const extra = Constants.expoConfig?.extra as Record<string, string> | undefined;
   if (extra?.apiBase) return extra.apiBase;
-  if (Platform.OS === "web") return "";
   const devDomain = process.env.REPLIT_DEV_DOMAIN;
   if (devDomain) return `https://${devDomain}`;
   return "";

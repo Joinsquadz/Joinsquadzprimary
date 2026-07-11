@@ -1,32 +1,35 @@
 ---
-name: squadz-native E2E harness auth blocker
-description: Why Playwright/runTest can't exercise authenticated squadz-native web flows, and the reliable fallback.
+name: squadz-native E2E harness auth (RESOLVED)
+description: How authenticated squadz-native web flows became testable in Playwright/runTest, and the same-origin invariant that keeps them testable.
 ---
 
-# squadz-native authenticated flows can't be verified via Playwright/runTest
+# squadz-native authenticated web flows ARE testable via Playwright/runTest
 
-The Playwright browser used by `runTest` cannot exercise any **authenticated**
-squadz-native web flow (vault, squads, events, subscription, etc.).
+**Status: RESOLVED.** `runTest` can now log in as a seeded user and load real
+authenticated data in squadz-native web screens.
 
-**Symptom:** login via the real sign-in form appears to "succeed" (guard flips,
-UI reaches the tabs, no error banner) yet EVERY authenticated GET returns 401,
-and the api-server log shows ZERO `/api/*` requests during the whole test — only
-`GET / → 404` proxy health probes.
+**Original blocker:** on web, `API_BASE` resolved to the ABSOLUTE main dev domain
+(`extra.apiBase` = `https://$REPLIT_DEV_DOMAIN`), so the browser made
+cross-origin calls the headless Playwright browser could NOT reach (it can't hit
+`*.replit.dev` even though in-container `curl` to the same URL works). Login
+appeared to succeed (guard flipped, tabs rendered) but every authenticated GET
+401'd and the api-server logged ZERO `/api/*` hits.
 
-**Why:** on web, `API_BASE` resolves to `https://$REPLIT_DEV_DOMAIN`
-(`app.config.js` `extra.apiBase`), so the browser must make cross-origin calls to
-the main dev domain. The headless test browser can't reach `*.replit.dev` even
-though in-container `curl` to that same URL returns 200 (same root cause as the
-"Replit dev domain unreachable" note — container reachability ≠ browser
-reachability). So the login POST result the guard trusts is not backed by real
-API access, and data never loads.
+**Fix (same-origin on web):**
+- `lib/api.ts` `resolveApiBase()` returns `""` on web (relative `/api/...`),
+  BEFORE consulting `extra.apiBase`. Native still uses the absolute base.
+- `metro.config.js` adds a dev-only `server.enhanceMiddleware` reverse proxy that
+  forwards `/api/*` from the Expo web dev server to the shared proxy
+  (`http://localhost:80`, which routes `/api` to the api-server). Proxying happens
+  server-side in the container, so `localhost:80` is always reachable.
+- Net: relative same-origin `/api` works for BOTH the normal preview browser and
+  the headless test browser; no CORS cross-origin hop needed on web.
 
-**How to apply / reliable fallback:**
-- Prove server correctness with `curl` against `localhost:80/api` or the dev
-  domain (both work from the container).
-- Prove client render with a `screenshot` (chrome renders; only data is missing).
-- Prove the actual client LOGIC by extracting the pure transform out of the
-  screen into `lib/*` and unit-testing it with vitest (config includes
-  `**/__tests__/**/*.test.ts`, `@`→package root). Example: squad-vault
-  "By Events" grouping lives in `lib/vaultSections.ts`.
-- Don't burn repeated `runTest` attempts on this — the failure mode is stable.
+**Invariant to keep it working:** on web the app and its `/api` calls MUST share
+one origin. Don't reintroduce an absolute web API base, and don't remove the
+Metro `/api` proxy — either one re-breaks authenticated UI tests. Native/prod are
+untouched (native = absolute base; prod `/api` handled by the shared proxy).
+
+**Runbook:** see replit.md "Automated UI tests (authenticated mobile-app
+screens)" — start the api-server + expo workflows, seed a user via
+`POST /api/auth/register`, then drive the onboarding Log-in flow in `runTest`.
