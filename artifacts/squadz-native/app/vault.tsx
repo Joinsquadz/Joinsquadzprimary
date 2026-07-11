@@ -35,6 +35,7 @@ import AttachmentVideo from "@/components/AttachmentVideo";
 import VaultMediaDetail, { type VaultDetailPhoto } from "@/components/VaultMediaDetail";
 import VaultShareComposer, { type VaultShareTarget } from "@/components/VaultShareComposer";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
+import { buildSquadVaultSections, type VaultSectionPhoto } from "@/lib/vaultSections";
 import { SkeletonBox } from "@/components/SkeletonBox";
 
 const VAULT_SELECTED_KEY = "vault:selectedPhoto";
@@ -65,7 +66,7 @@ type VaultPhoto = {
   commentCount?: number;
 };
 
-interface SquadVaultPhoto {
+interface SquadVaultPhoto extends VaultSectionPhoto {
   id: number;
   url: string;
   eventId?: string | null;
@@ -282,45 +283,10 @@ export default function VaultScreen() {
   // photos" catch-all for items shared straight to the squad with no event.
   // Each section carries a single data row (the photo array) so the section body
   // renders as a flex-wrap grid rather than one row per photo.
-  const squadSections = useMemo(() => {
-    const groups = new Map<string, SquadVaultPhoto[]>();
-    const noEvent: SquadVaultPhoto[] = [];
-    for (const p of filteredSquadPhotos) {
-      if (p.eventId) {
-        const arr = groups.get(p.eventId) ?? [];
-        arr.push(p);
-        groups.set(p.eventId, arr);
-      } else {
-        noEvent.push(p);
-      }
-    }
-    const latest = (items: SquadVaultPhoto[]) =>
-      items.reduce((max, p) => Math.max(max, new Date(p.uploadedAt).getTime() || 0), 0);
-    const sections = Array.from(groups.entries())
-      .map(([evId, items]) => {
-        const ev = eventsById.get(evId);
-        return {
-          key: evId,
-          title: ev?.title ?? "Event",
-          emoji: ev?.emoji ?? "🎉",
-          count: items.length,
-          latest: latest(items),
-          data: [items],
-        };
-      })
-      .sort((a, b) => b.latest - a.latest);
-    if (noEvent.length > 0) {
-      sections.push({
-        key: "__none__",
-        title: "All other photos",
-        emoji: "📷",
-        count: noEvent.length,
-        latest: -1,
-        data: [noEvent],
-      });
-    }
-    return sections;
-  }, [filteredSquadPhotos, eventsById]);
+  const squadSections = useMemo(
+    () => buildSquadVaultSections(filteredSquadPhotos, eventsById),
+    [filteredSquadPhotos, eventsById],
+  );
 
   const filterLabel = eventName
     ? decodeURIComponent(eventName)
