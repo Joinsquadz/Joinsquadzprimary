@@ -66,6 +66,17 @@ To run an authenticated UI test:
 
 Native builds and the production static server (`server/serve.js`) are unaffected — native still uses the absolute API base, and the Metro proxy only exists under `expo start`.
 
+### Slow-login / cold-start 401 auth-race recovery (SquadZ, Events, Messages)
+
+Confirms the wired-up list screens survive a cold-start auth race: they stay on a loading spinner (never flash their empty state) while list fetches 401, show a "Try again" retry UI once the retry loop (`MAX_AUTH_RETRIES` in `lib/vaultAuthRace.ts`) is exhausted, and recover to real data once the 401s stop. Pure unit tests live in `artifacts/squadz-native/lib/__tests__/listAuthRace.test.ts`; this is the on-device (web) integration confirmation.
+
+**Do NOT drive this via the UI "Log in" flow** — the server login limiter (`rateLimited(req,"login",20)`, `artifacts/api-server/src/routes/auth.ts`) will 429 after repeated agent sign-in attempts and the test can never reach the shell. Instead simulate the cold start by seeding the token into `localStorage`:
+
+1. Ensure the `artifacts/api-server: API Server` and `artifacts/squadz-native: expo` workflows are running, and seed an account + data (a squad, an event, one event-chat message) so recovery has real content to render.
+2. In a `runTest` plan: new context → go to `/` (establish origin) → `window.localStorage.setItem('@squadz/authToken', '<token>')` (exact key the app restores on boot; with no `@squadz/onboardingPending` it drops straight into the authenticated shell) → `page.route` the list endpoints to return 401.
+3. Intercept `/api/events`, `/api/squads`, `/api/conversations` → 401; **never** intercept `/api/auth/*` (so `/api/auth/me` keeps the session logged in). Reload = cold start.
+4. Assert: during the race each screen shows a spinner and NOT its empty text (`No squads yet` / `No trips yet` / `No events yet` / `No messages yet`); after ~7 s the error UI appears (`Couldn't load your squads` / `Couldn't load your plans` / `Couldn't load messages` + `Try again`); then `page.unroute` and click "Try again" to confirm recovery to the seeded squad/event.
+
 ## Staging Smoke Tests
 
 ### Push notifications end-to-end
