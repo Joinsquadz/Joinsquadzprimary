@@ -25,6 +25,16 @@ import { UpgradeModal } from "@/components/UpgradeModal";
 import { router, useLocalSearchParams } from "expo-router";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
+// Shared auth-race guard (see lib/vaultAuthRace.ts). The profile's own on-mount
+// fetch (event count) can 401 during a slow login; keep the events stat loading
+// + retrying rather than briefly showing a misleading value before it restores.
+import {
+  INITIAL_AUTH_RACE_STATE,
+  applyVaultFetchOutcome,
+  nextRetryDecision,
+  vaultRenderMode,
+  type AuthRaceState,
+} from "@/lib/vaultAuthRace";
 
 type SettingItem = {
   icon: keyof typeof Ionicons.glyphMap;
@@ -40,7 +50,7 @@ type SettingItem = {
 export default function ProfileScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { currentUser, logout, authToken } = useAuth();
+  const { currentUser, logout, authToken, isAuthRestoring } = useAuth();
   const { events, squads, friendCode, updateOwnPaymentHandles } = useData();
   const params = useLocalSearchParams<{ checkout?: string }>();
 
@@ -54,6 +64,9 @@ export default function ProfileScreen() {
   const [showSuccessBanner, setShowSuccessBanner] = useState(didCheckoutSuccess);
   const [eventCount, setEventCount] = useState<number | null>(null);
   const [eventLimit] = useState(3);
+  // Auth-race guard for the on-mount event-count fetch (see lib/vaultAuthRace.ts).
+  const [countLoading, setCountLoading] = useState(true);
+  const [countAuth, setCountAuth] = useState<AuthRaceState>(INITIAL_AUTH_RACE_STATE);
   const [streaks, setStreaks] = useState<{ monthlyPlan: number; stayInTouch: number } | null>(null);
   const [paymentHandles, setPaymentHandles] = useState<{ venmoHandle: string | null; cashappHandle: string | null; zelleHandle: string | null }>({
     venmoHandle: null,
@@ -103,22 +116,70 @@ export default function ProfileScreen() {
     void checkSubscription();
   }, [checkSubscription]);
 
-  useEffect(() => {
-    async function fetchEventCount() {
-      try {
-        const res = await fetch(`${API_BASE}/api/events/count`, {
-          headers: authHeaders(),
-        });
-        if (res.ok) {
-          const data = await res.json() as { count: number; limit: number };
-          setEventCount(data.count);
-        }
-      } catch {
-        // silently ignore — event count is best-effort
+  const fetchEventCount = useCallback(async () => {
+    if (!authToken) {
+      // No token yet: during a slow-login race stay pending (loading) so the
+      // events stat doesn't flash a misleading value; if genuinely logged out,
+      // just stop loading.
+      if (isAuthRestoring) {
+        setCountAuth(prev => applyVaultFetchOutcome(prev, { kind: "unauthorized" }));
+      } else {
+        setCountLoading(false);
       }
+      return;
     }
+    setCountLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/events/count`, {
+        headers: authHeaders(),
+      });
+      if (res.status === 401) {
+        setCountAuth(prev => applyVaultFetchOutcome(prev, { kind: "unauthorized" }));
+        return;
+      }
+      if (!res.ok) {
+        setCountAuth(prev => applyVaultFetchOutcome(prev, { kind: "failure" }));
+        return;
+      }
+      const data = await res.json() as { count: number; limit: number };
+      setEventCount(data.count);
+      setCountAuth(prev => applyVaultFetchOutcome(prev, { kind: "ok" }));
+    } catch {
+      // silently ignore — event count is best-effort
+      setCountAuth(prev => applyVaultFetchOutcome(prev, { kind: "failure" }));
+    } finally {
+      setCountLoading(false);
+    }
+  }, [authHeaders, authToken, isAuthRestoring]);
+
+  useEffect(() => {
     void fetchEventCount();
-  }, [authHeaders]);
+  }, [fetchEventCount]);
+
+  // Retry driver: while the count fetch is auth-pending, re-run on a short
+  // cadence until an authenticated fetch lands, then give up into an error.
+  useEffect(() => {
+    const decision = nextRetryDecision(countAuth);
+    if (decision.action === "give-up") {
+      setCountAuth(decision.next);
+      return;
+    }
+    if (decision.action === "retry") {
+      const t = setTimeout(() => { void fetchEventCount(); }, decision.delayMs);
+      return () => clearTimeout(t);
+    }
+  }, [countAuth, fetchEventCount]);
+
+  // The count is only authoritative once a genuine authenticated response has
+  // arrived; while loading or mid auth-race the events/status stats stay neutral
+  // rather than flashing a misleading "0" / "New" during a slow login.
+  const countRenderMode = vaultRenderMode({
+    loading: countLoading,
+    authPending: countAuth.authPending,
+    authError: countAuth.authError,
+    photoCount: eventCount ?? 0,
+  });
+  const countReady = countRenderMode === "content" || countRenderMode === "empty";
 
   useEffect(() => {
     async function fetchStreaks() {
@@ -612,9 +673,9 @@ export default function ProfileScreen() {
           </View>
           <View style={styles.statsRow}>
             {[
-              { value: eventCount !== null ? String(eventCount) : "—", label: "Events" },
+              { value: countReady && eventCount !== null ? String(eventCount) : "—", label: "Events" },
               { value: mySquads.length.toString(), label: "Squads" },
-              { value: mySquads.length > 0 || (eventCount !== null && eventCount > 0) ? "Active" : "New", label: "Status" },
+              { value: mySquads.length > 0 || (countReady && eventCount !== null && eventCount > 0) ? "Active" : (countReady ? "New" : "—"), label: "Status" },
             ].map((s, i) => (
               <View key={i} style={styles.stat}>
                 <Text style={[styles.statValue, { color: colors.foreground }]}>{s.value}</Text>
@@ -644,7 +705,7 @@ export default function ProfileScreen() {
               </View>
             </TouchableOpacity>
           ) : null}
-          {eventCount !== null && !isPro && (
+          {countReady && eventCount !== null && !isPro && (
             <View style={[styles.eventUsageBar, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <View style={styles.eventUsageRow}>
                 <Text style={[styles.eventUsageLabel, { color: colors.mutedForeground }]}>

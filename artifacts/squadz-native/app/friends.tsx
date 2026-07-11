@@ -18,6 +18,9 @@ import * as Haptics from "expo-haptics";
 import QRCode from "react-native-qrcode-svg";
 import { useColors } from "@/hooks/useColors";
 import { useData, useAuth } from "@/context/AppContext";
+// Shared auth-race guard (see lib/vaultAuthRace.ts): a pre-token-restore 401 on
+// the friends fetch must keep this screen loading, not flash "No friends yet".
+import { vaultRenderMode } from "@/lib/vaultAuthRace";
 import { UserAvatar } from "@/components/UserAvatar";
 import { useMessages } from "@/context/MessagesContext";
 import { useUserCache } from "@/context/UserCacheContext";
@@ -27,7 +30,7 @@ import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollV
 export default function FriendsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { friends, friendCode, addFriend, removeFriend } = useData();
+  const { friends, friendCode, addFriend, removeFriend, friendsLoading, friendsAuthPending, friendsAuthError, retryFriends } = useData();
   const { authToken } = useAuth();
   const { resolveUser, prefetchUsers } = useUserCache();
   const { startDirectConversation } = useMessages();
@@ -61,6 +64,16 @@ export default function FriendsScreen() {
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
 
   const friendUsers = friends.map((id) => resolveUser(id));
+
+  // Single source of truth for the friends-list body. `authPending` keeps us on
+  // the spinner (never the empty state) during a slow-login auth race; the "No
+  // friends yet" empty is only reached for a genuine authenticated zero result.
+  const renderMode = vaultRenderMode({
+    loading: friendsLoading,
+    authPending: friendsAuthPending,
+    authError: friendsAuthError,
+    photoCount: friendUsers.length,
+  });
 
   function buildInviteUrl(code: string): string {
     if (Platform.OS === "web" && typeof window !== "undefined") {
@@ -302,7 +315,25 @@ export default function FriendsScreen() {
           </Text>
         </View>
 
-        {friendUsers.length === 0 ? (
+        {renderMode === "loading" ? (
+          <View style={[styles.empty, { borderColor: colors.border }]}>
+            <ActivityIndicator size="large" color={colors.primary} />
+          </View>
+        ) : renderMode === "error" ? (
+          <View style={[styles.empty, { borderColor: colors.border }]}>
+            <Ionicons name="cloud-offline-outline" size={40} color={colors.textDim} style={{ marginBottom: 10 }} />
+            <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Couldn't load your friends</Text>
+            <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>
+              Check your connection and try again.
+            </Text>
+            <TouchableOpacity
+              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); retryFriends(); }}
+              style={[styles.retryBtn, { backgroundColor: colors.primary }]}
+            >
+              <Text style={styles.retryBtnText}>Try again</Text>
+            </TouchableOpacity>
+          </View>
+        ) : renderMode === "empty" ? (
           <View style={[styles.empty, { borderColor: colors.border }]}>
             <Text style={{ fontSize: 40, marginBottom: 10 }}>👥</Text>
             <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No friends yet</Text>
@@ -426,6 +457,8 @@ const styles = StyleSheet.create({
   },
   emptyTitle: { fontSize: 17, fontWeight: "800", marginBottom: 6 },
   emptySub: { fontSize: 13, textAlign: "center", lineHeight: 18, paddingHorizontal: 24 },
+  retryBtn: { marginTop: 16, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 24 },
+  retryBtnText: { color: "#fff", fontWeight: "700", fontSize: 14 },
   inviteMoreBtn: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10,
     borderRadius: 14, borderWidth: 1.5, borderStyle: "dashed", padding: 14, marginTop: 4,

@@ -242,6 +242,14 @@ type AppContextType = {
   removeMember: (squadId: string, userId: string) => Promise<{ error?: string }>;
 
   friends: string[];
+  // Auth-race state for the friends fetch (same guard as events / squads). A
+  // pre-token-restore 401 keeps the Friends screen loading + retrying instead of
+  // flashing the "No friends yet" empty state; `friendsAuthError` means retries
+  // were exhausted (show retry UI).
+  friendsLoading: boolean;
+  friendsAuthPending: boolean;
+  friendsAuthError: boolean;
+  retryFriends: () => void;
   sentRequests: string[];
   friendCode: string;
   addFriend: (userId: string) => void;
@@ -283,6 +291,10 @@ const AppContext = createContext<AppContextType>({
   squadsAuthError: false,
   retryEvents: noop,
   retrySquads: noop,
+  friendsLoading: true,
+  friendsAuthPending: false,
+  friendsAuthError: false,
+  retryFriends: noop,
   events: [],
   getEvent: () => undefined,
   setRsvp: noop,
@@ -411,6 +423,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [eventsAuth, setEventsAuth] = useState<AuthRaceState>(INITIAL_AUTH_RACE_STATE);
   const [squadsAuth, setSquadsAuth] = useState<AuthRaceState>(INITIAL_AUTH_RACE_STATE);
   const [friends, setFriends] = useState<string[]>(INITIAL_FRIENDS);
+  const [friendsLoading, setFriendsLoading] = useState(true);
+  // Auth-race bookkeeping for the friends fetch (see lib/vaultAuthRace.ts) — same
+  // guard as events / squads so a pre-token-restore 401 keeps the Friends screen
+  // loading + retrying instead of flashing "No friends yet".
+  const [friendsAuth, setFriendsAuth] = useState<AuthRaceState>(INITIAL_AUTH_RACE_STATE);
   const [sentRequests, setSentRequests] = useState<string[]>([]);
   const [ownPaymentHandles, setOwnPaymentHandles] = useState<PaymentHandles>({ venmo: null, cashapp: null, zelle: null });
   const [conflictEventId, setConflictEventId] = useState<string | null>(null);
@@ -496,14 +513,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // was in flight (prevents one account's friends leaking into another's UI).
   const fetchFriends = useCallback(async () => {
     const startedToken = authTokenRef.current;
+    setFriendsLoading(true);
     try {
       const res = await apiFetch("/api/users/friends");
-      if (!res.ok) return;
+      // A 401 here almost always means the auth token hasn't finished restoring
+      // yet (cold start / slow login / token-refresh race). Treat it as "still
+      // loading" and schedule a retry instead of falling through to the empty
+      // state, which would falsely claim there are no friends.
+      if (res.status === 401) {
+        setFriendsAuth(prev => applyVaultFetchOutcome(prev, { kind: "unauthorized" }));
+        return;
+      }
+      if (!res.ok) {
+        setFriendsAuth(prev => applyVaultFetchOutcome(prev, { kind: "failure" }));
+        return;
+      }
       const data = (await res.json()) as { id: string }[];
       if (authTokenRef.current !== startedToken) return; // session changed mid-flight
       setFriends(data.map((u) => u.id));
+      setFriendsAuth(prev => applyVaultFetchOutcome(prev, { kind: "ok" }));
     } catch {
-      // Network unavailable — keep current list
+      // Network unavailable — keep current list; don't strand an auth retry.
+      setFriendsAuth(prev => applyVaultFetchOutcome(prev, { kind: "failure" }));
+    } finally {
+      setFriendsLoading(false);
     }
   }, [apiFetch]);
 
@@ -573,6 +606,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     },
     [apiFetch, fetchFriends],
   );
+
+  // Arm the friends fetch on cold start too (like events / squads): the first
+  // call before the token restores 401s, which sets authPending and starts the
+  // retry loop — keeping the Friends screen loading rather than flashing empty.
+  useEffect(() => {
+    void fetchFriends();
+  }, [fetchFriends]);
 
   useEffect(() => {
     if (authToken) {
@@ -841,6 +881,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setSquadsAuth(resetAuthRaceState());
     void fetchSquads();
   }, [fetchSquads]);
+
+  // Same auth-race retry loop for the friends fetch (see events / squads above).
+  useEffect(() => {
+    if (!authRaceActive) return;
+    const decision = nextRetryDecision(friendsAuth);
+    if (decision.action === "give-up") {
+      setFriendsAuth(decision.next);
+      return;
+    }
+    if (decision.action === "retry") {
+      const t = setTimeout(() => { void fetchFriends(); }, decision.delayMs);
+      return () => clearTimeout(t);
+    }
+  }, [friendsAuth, authToken, authRaceActive, fetchFriends]);
+
+  const retryFriends = useCallback(() => {
+    setFriendsAuth(resetAuthRaceState());
+    setFriendsLoading(true);
+    void fetchFriends();
+  }, [fetchFriends]);
 
   // Silent squad refresh (no loading spinner) used for foreground polling.
   const refreshSquads = useCallback(async () => {
@@ -2295,6 +2355,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       squadsAuthError: squadsAuth.authError,
       retryEvents,
       retrySquads,
+      friendsLoading,
+      friendsAuthPending: friendsAuth.authPending,
+      friendsAuthError: friendsAuth.authError,
+      retryFriends,
       events,
       getEvent,
       setRsvp,
@@ -2371,6 +2435,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       squadsAuth,
       retryEvents,
       retrySquads,
+      friendsLoading,
+      friendsAuth,
+      retryFriends,
       events,
       getEvent,
       setRsvp,
