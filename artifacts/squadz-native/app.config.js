@@ -7,5 +7,8 @@ module.exports = {
   ...baseConfig.expo,
   extra: {
     apiBase,
+    eas: {
+      projectId: "4651d477-18ad-41a3-b15a-90b68b981652",
+    },
   },
 };
