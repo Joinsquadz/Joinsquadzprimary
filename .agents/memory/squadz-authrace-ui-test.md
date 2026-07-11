@@ -19,3 +19,13 @@ Testing the list screens' (SquadZ/Events/Messages) slow-login recovery via `runT
 Assertions: during race, spinner + NOT empty text (`No squads yet`/`No trips yet`/`No events yet`/`No messages yet`); after ~7s, error text (`Couldn't load your squads`/`...your plans`/`...messages`) + `Try again`; then `page.unroute` + click Try again ⇒ recover to seeded content. Seed a squad + event + one event-chat message first so recovery has real data.
 
 Token must authenticate on `/api/auth/me` (JWT ~1h TTL) — verify with curl before the run; re-login/register if expired.
+
+**Also covers Vibe feed (`app/(tabs)/feed.tsx`, `/api/feed`).** Same recipe; intercept `/api/feed` (+`/api/feed/stream`) → 401; assert spinner + no `No vibes yet`; unroute → self-recovers on short retry cadence.
+
+**Two gotchas that cost real time:**
+- **Navigate to the FULL Expo dev domain (`https://$REPLIT_EXPO_DEV_DOMAIN/`), NOT the `/mobile/` shared-proxy path** — `squadz-native` `artifact.toml` has `router = "expo-domain"`, so the proxy path renders a blank/404 white screen. The same-origin `/api/*` Metro proxy lives on that Expo domain, so `page.route('**/api/**')` works there. First load = 10–15s bundle compile (blank ≠ broken).
+- **`No messages yet` is ambiguous on the inbox** — it's BOTH the empty-state title AND a message-less conversation's row *preview* (a seeded squad with no chat shows it as a row preview). Discriminate the empty state ONLY via subtitle `Start a chat with a friend or your squad`.
+
+**Messages recovery MUST tap "Try again", not switch tabs.** The inbox unions conversations + events; `retry` calls `retryEvents()` + `retryConversations()` (both refetch), but a tab-focus only refetches conversations — so a seeded event-chat row (e.g. "Test Dinner") won't come back on tab-switch alone.
+
+**Spinner-window caveat for the headless agent:** the ~5s window (`MAX_AUTH_RETRIES=8 × ~600ms`) is tight; if the agent misses it, the screen flips to the `Couldn't load messages` + `Try again` error state, which is itself a valid non-empty race outcome. The regression target is that the *empty state never flashes*, not that the spinner is always screenshotted.

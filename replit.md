@@ -77,6 +77,17 @@ Confirms the wired-up list screens survive a cold-start auth race: they stay on 
 3. Intercept `/api/events`, `/api/squads`, `/api/conversations` → 401; **never** intercept `/api/auth/*` (so `/api/auth/me` keeps the session logged in). Reload = cold start.
 4. Assert: during the race each screen shows a spinner and NOT its empty text (`No squads yet` / `No trips yet` / `No events yet` / `No messages yet`); after ~7 s the error UI appears (`Couldn't load your squads` / `Couldn't load your plans` / `Couldn't load messages` + `Try again`); then `page.unroute` and click "Try again" to confirm recovery to the seeded squad/event.
 
+### Vibe feed + Messages inbox cold-start auth-race (render-wiring confirmation)
+
+Extends the recipe above to the **Vibe feed** (`app/(tabs)/feed.tsx`, `GET /api/feed`) and the **Messages inbox** (`app/(tabs)/messages.tsx`). Pure unit tests live in `lib/__tests__/feedAuthRace.test.ts` + `listAuthRace.test.ts`; these `runTest` runs confirm the screens are actually *wired* to `vaultRenderMode` (that `renderMode` still gates the FlatList `data` and `ListEmptyComponent`), which a unit test can't catch. Both were confirmed passing.
+
+Two non-obvious gotchas learned running these:
+
+- **Navigate to the full Expo dev domain, NOT the `/mobile/` shared-proxy path.** `squadz-native`'s `artifact.toml` sets `router = "expo-domain"`, so the app is served on `https://$REPLIT_EXPO_DEV_DOMAIN/` (path `/`). Hitting the proxy `…kirk.replit.dev/mobile/` renders a blank/404 white screen for the Expo web SPA. The same-origin `/api/*` Metro proxy also lives on that Expo domain, so `page.route('**/api/**', …)` works there. First navigation triggers a 10–15 s bundle compile — a blank page early just means it's still bundling; warm it once (e.g. an `app_preview` screenshot) before the run.
+- **`No messages yet` is ambiguous on the inbox** — it's BOTH the empty-state title AND a per-row *preview* for a message-less conversation (a seeded squad with no chat shows `No messages yet` as its row preview). Discriminate the empty state ONLY via its subtitle `Start a chat with a friend or your squad`, never the bare `No messages yet` text.
+
+Feed run: intercept `/api/feed` (and `/api/feed/stream`) → 401; assert spinner + no `No vibes yet`; `unroute` → the feed self-recovers on its short retry cadence (or switch tabs) to the seeded post. Messages run: BOTH sources must 401 — intercept `/api/conversations` **and** `/api/events`; assert spinner + no `Start a chat with a friend or your squad`; `unroute` then **click "Try again"** (its `retry` calls `retryEvents()` + `retryConversations()`, refetching BOTH — merely switching tabs only refetches conversations via focus, so the seeded event-chat row won't return). The ~5 s spinner window (`MAX_AUTH_RETRIES × ~600 ms`) is tight for the headless agent to screenshot; if missed it flips to the `Couldn't load messages` + `Try again` error state, which is itself a valid non-empty race outcome — the regression target is that the *empty state* never flashes.
+
 ## Staging Smoke Tests
 
 ### Push notifications end-to-end
