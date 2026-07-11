@@ -38,6 +38,7 @@ import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { UserAvatar } from "@/components/UserAvatar";
 import { ProAvatar } from "@/components/ProAvatar";
 import { ContactSheet } from "@/components/ContactSheet";
+import AddressLink from "@/components/AddressLink";
 import FriendPickerSheet from "@/components/FriendPickerSheet";
 import { CelebrationOverlay } from "@/components/CelebrationOverlay";
 import { claimOnce } from "@/lib/seenFlags";
@@ -877,7 +878,11 @@ export default function EventDetailScreen() {
             alignSelf: "center",
           }}
         >
-          <Text style={[styles.heroLocation, { marginBottom: 0 }]}>{event.location}</Text>
+          <AddressLink
+            location={event.location}
+            textStyle={[styles.heroLocation, { marginBottom: 0 }]}
+            iconColor="rgba(255,255,255,0.85)"
+          />
         </Animated.View>
 
         {(() => {

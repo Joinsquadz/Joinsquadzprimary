@@ -27,6 +27,7 @@ import { useMessages } from "@/context/MessagesContext";
 import { useUserCache } from "@/context/UserCacheContext";
 import { useEventStream } from "@/hooks/useEventStream";
 import { UserAvatar } from "@/components/UserAvatar";
+import AddressLink from "@/components/AddressLink";
 import { IconPicker } from "@/components/IconPicker";
 import { StopSheet } from "@/components/StopSheet";
 import FriendPickerSheet from "@/components/FriendPickerSheet";
@@ -751,7 +752,14 @@ export default function TripDetailScreen() {
             </Text>
           ) : null}
           {stop.placeName ? <Text style={[styles.stopPlace, { color: colors.mutedForeground }]}>{stop.placeName}</Text> : null}
-          {stop.address ? <Text style={[styles.stopAddress, { color: colors.textDim }]}>{stop.address}</Text> : null}
+          {stop.address ? (
+            <AddressLink
+              location={stop.address}
+              textStyle={[styles.stopAddress, { color: colors.textDim }]}
+              iconColor={colors.primary}
+              iconSize={12}
+            />
+          ) : null}
           {stop.note ? <Text style={[styles.stopNote, { color: colors.mutedForeground }]}>{stop.note}</Text> : null}
           {stop.assigneeId ? (() => {
             const u = resolveUser(stop.assigneeId);
