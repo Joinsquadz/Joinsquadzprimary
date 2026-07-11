@@ -33,3 +33,17 @@ untouched (native = absolute base; prod `/api` handled by the shared proxy).
 **Runbook:** see replit.md "Automated UI tests (authenticated mobile-app
 screens)" — start the api-server + expo workflows, seed a user via
 `POST /api/auth/register`, then drive the onboarding Log-in flow in `runTest`.
+
+**Two runTest gotchas (multi-artifact era):**
+- Navigate to the **Expo dev domain** (`https://$REPLIT_EXPO_DEV_DOMAIN/`), NOT
+  the shared-proxy `/mobile/...` path. Under `/mobile/` the HTML loads but the JS
+  bundle `<script src>` points at the Expo domain (cross-origin/unreachable to the
+  headless browser) → blank white page. And the Metro `/api` same-origin proxy
+  only intercepts when the browser IS on the Expo origin. Enter at the Expo root
+  `/` and let the logged-out AuthGuard redirect to `/login`; deep-linking straight
+  to a sub-route (`/login`, `/vault`) on a cold load also renders blank.
+- After login, reach screens by **tapping through the app UI** (SPA `router.push`),
+  not by typing a new absolute URL. A hard URL navigation reloads the app; the
+  screen's first authed fetch can fire before the AsyncStorage/localStorage token
+  restore completes → transient 401 → e.g. squad vault shows "0 items / No photos
+  rolled up yet". SPA nav keeps `authToken` in memory so fetches are authed.
