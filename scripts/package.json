@@ -11,9 +11,11 @@
     "backfill-squad-invite-codes": "tsx ./src/backfill-squad-invite-codes.ts",
     "backfill-event-creations": "tsx ./src/backfill-event-creations.ts",
     "migrate-activity-table": "tsx ./src/migrate-activity-table.ts",
+    "seed-revenuecat": "tsx ./src/seedRevenueCat.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
+    "@replit/connectors-sdk": "^0.4.1",
     "@types/node": "catalog:",
     "@types/pg": "^8.20.0",
     "expo-server-sdk": "^6.1.0",

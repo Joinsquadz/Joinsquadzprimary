@@ -72,6 +72,9 @@ importers:
 
   .:
     dependencies:
+      '@replit/connectors-sdk':
+        specifier: ^0.4.1
+        version: 0.4.1
       '@replit/revenuecat-sdk':
         specifier: ^5.0.0
         version: 5.0.0(typescript@5.9.3)
@@ -881,6 +884,9 @@ importers:
         specifier: workspace:*
         version: link:../lib/db
     devDependencies:
+      '@replit/connectors-sdk':
+        specifier: ^0.4.1
+        version: 0.4.1
       '@types/node':
         specifier: 'catalog:'
         version: 25.6.2
@@ -3248,6 +3254,9 @@ packages:
 
   '@react-navigation/routers@7.5.5':
     resolution: {integrity: sha512-9/hhMte12Kgu+pMnLfA4EWJ0OQmIEAMVMX06FPH2yGkEQSQ3JhhCN/GkcRikzQhtEi97VYYQA15umptBUShcOQ==}
+
+  '@replit/connectors-sdk@0.4.1':
+    resolution: {integrity: sha512-iw0uy95+Qul8MPc/bBo8hBfYk1wm6RpBZ9sHyCpcA9A9T4zcUT9deSQxdyMyI0w3sv3+5uGmdfq1TpFTMrjD1g==}
 
   '@replit/revenuecat-sdk@5.0.0':
     resolution: {integrity: sha512-waW/1S5P53KNoTAfDdN+aDevzaTKSPb1GdLTWdFSwYaRqOlS+ljm8lkD3SHcLqhjnTgC/tmhNH4oo1TeLfKeXA==}
@@ -11029,6 +11038,8 @@ snapshots:
   '@react-navigation/routers@7.5.5':
     dependencies:
       nanoid: 3.3.12
+
+  '@replit/connectors-sdk@0.4.1': {}
 
   '@replit/revenuecat-sdk@5.0.0(typescript@5.9.3)':
     dependencies:

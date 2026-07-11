@@ -83,6 +83,9 @@ EXPO_PUBLIC_SUPABASE_URL = "https://grypxcaomfwmdtmlnsxx.supabase.co"
 SUPABASE_STORAGE_BUCKET = "Squadz storage bucket"
 STRIPE_STANDARD_PRICE_ID = "price_1ThOK7PC0Ww3FXFkhTB0TZoW"
 STRIPE_FOUNDING_PRICE_ID = "price_1ThOIDPC0Ww3FXFkbq3adsIq"
+EXPO_PUBLIC_REVENUECAT_IOS_KEY = "appl_LvAkfCnKUyRHhxUulPPvgamVTOz"
+EXPO_PUBLIC_REVENUECAT_ANDROID_KEY = "goog_GpcusvPHJLilCDywiobzwUUtolK"
+REVENUECAT_WEBHOOK_AUTH = "rcwh_3407df33d6c3acb2e591293b9ebec69acf68b7df954fc8a895fbd79b0ae49b0e"
 
 [userenv.development]
 ENABLE_EMAIL_PREVIEW_TEST = "true"

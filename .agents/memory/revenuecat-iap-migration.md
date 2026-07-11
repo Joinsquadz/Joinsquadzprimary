@@ -39,7 +39,33 @@ so purchase/restore/price calls `await ensureConfigured()` first (avoids a
 startup-race first-tap failure). No Expo config plugin for react-native-purchases —
 autolinking handles it; do NOT add it to app.json.
 
-**Gated on user (can't test live until done):** connect the RevenueCat integration
-/ set `REVENUECAT_API_KEY` + `REVENUECAT_WEBHOOK_AUTH` (server) and
-`EXPO_PUBLIC_REVENUECAT_IOS_KEY` / `_ANDROID_KEY` (client), plus create the products
-in the RC dashboard.
+**Setup state (done in-project):** the RevenueCat connector is bound (was
+`not_added`, which is why the connect flow "never redirected back"). The RC project
+was seeded from scratch (App Store + Play Store apps for `com.squadz.app`, the two
+yearly products, the `squadz_plus` entitlement, and a current `default` offering
+with founding + `$rc_annual` packages). Reproduce/extend via
+`pnpm --filter @workspace/scripts run seed-revenuecat` (idempotent;
+`scripts/src/seedRevenueCat.ts`, auth via the Replit RevenueCat connector — no API
+key). Public SDK keys are set as `EXPO_PUBLIC_REVENUECAT_IOS_KEY` /
+`_ANDROID_KEY`; `REVENUECAT_WEBHOOK_AUTH` is a self-generated shared secret that
+must match the RC webhook's `authorization_header` exactly (raw compare, no Bearer).
+
+**RC admin API access:** use `@replit/connectors-sdk`
+`new ReplitConnectors().proxy("revenuecat", "/v2/...")` → returns a raw `Response`
+(call `.json()`); there is NO plain API key to handle.
+
+**Webhook caveat:** the webhook points at the **dev domain** (ephemeral) for
+sandbox testing — swap `url` to the production domain (`.../api/revenuecat/webhook`)
+at deploy time (single field via API/dashboard); the auth header already matches.
+
+**Android identifier-match caveat (latent):** the client finds the founding package
+via `p.product.identifier === "squadz_plus_founding_yearly"` (exact). On Google Play
+`StoreProduct.identifier` is usually `subscriptionId:basePlanId`
+(`squadz_plus_founding_yearly:founding-yearly`), so the exact match can miss the
+founding package on Android once real Play products exist. Verify against real Play
+products before Android launch (a tolerant `.split(":")[0]` / `startsWith` match
+fixes it) — left as-is for now since no real store products exist yet.
+
+**Still gated on user (external, can't automate):** create the real in-app-purchase
+products in App Store Connect + Google Play Console (paid dev accounts) so live
+purchases can occur, and attach store credentials in RC.
