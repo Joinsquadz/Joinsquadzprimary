@@ -7,6 +7,7 @@ import { buildProWelcomeHtml } from '../emailService';
 import { getBaseUrl } from '../lib/urls';
 import { trackEvent } from '../services/analytics';
 import { decideCheckoutTier, priceIdForTier, getFoundingStatus } from '../lib/founding';
+import { resolveProStatus } from '../lib/proStatus';
 
 const router: IRouter = Router();
 
@@ -152,6 +153,15 @@ router.get('/subscription', requireAuth, async (req, res): Promise<void> => {
       return;
     }
 
+    // Unified status: RevenueCat (mobile IAP) sets is_squadz_plus via webhook.
+    // This is now the primary purchase surface, so check it first. There is no
+    // Stripe subscription object for IAP users.
+    if (user.isSquadzPlus) {
+      res.json({ subscription: null, isPro: true, source: 'revenuecat' });
+      return;
+    }
+
+    // Dormant Stripe fallback (legacy / reactivatable web checkout).
     // Primary: check stored subscriptionId (set by webhook linkage)
     if (user.stripeSubscriptionId) {
       const subscription = await storage.getSubscription(user.stripeSubscriptionId);
@@ -186,15 +196,7 @@ router.get('/calendar-sync', requireAuth, async (req, res): Promise<void> => {
     const { id: userId } = req.user!;
 
     const user = await storage.getUser(userId);
-    let isPro = false;
-
-    if (user?.stripeSubscriptionId) {
-      const sub = await storage.getSubscription(user.stripeSubscriptionId);
-      isPro = sub?.status === 'active' || sub?.status === 'trialing';
-    } else if (user?.stripeCustomerId) {
-      const sub = await storage.getActiveSubscriptionByCustomerId(user.stripeCustomerId);
-      isPro = !!sub;
-    }
+    const isPro = user ? await resolveProStatus(user) : false;
 
     if (!isPro) {
       res.status(403).json({ error: 'Calendar sync requires Squadz Pro', requiresPro: true });

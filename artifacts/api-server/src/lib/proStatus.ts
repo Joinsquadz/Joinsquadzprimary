@@ -4,12 +4,15 @@ type StorableUser = NonNullable<Awaited<ReturnType<typeof storage.getUser>>>;
 
 /**
  * Resolve whether a user has an active Squadz+ (Pro) subscription.
- * Primary check is the stripeSubscriptionId stored on the user; falls back to
- * looking up an active subscription by their Stripe customer id. Returns false
- * for users with no Stripe linkage. Shared across all Pro-gated routes so the
- * definition of "Pro" stays consistent.
+ *
+ * Primary source is the unified `is_squadz_plus` flag on the user, which is a
+ * webhook-maintained cache of the RevenueCat entitlement (mobile IAP is now the
+ * only purchase surface). The Stripe checks below are a DORMANT fallback kept for
+ * legacy/reactivatable web purchases — they never fire for IAP users. Shared
+ * across all Pro-gated routes so the definition of "Pro" stays consistent.
  */
 export async function resolveProStatus(user: StorableUser): Promise<boolean> {
+  if (user.isSquadzPlus) return true;
   if (user.stripeSubscriptionId) {
     const sub = await storage.getSubscription(user.stripeSubscriptionId);
     return sub?.status === "active" || sub?.status === "trialing";

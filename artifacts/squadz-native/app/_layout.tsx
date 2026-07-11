@@ -32,6 +32,7 @@ import { ToastBannerProvider } from "@/context/ToastBannerContext";
 import { ActivityBannerSurfacer } from "@/components/ActivityBannerSurfacer";
 import { TipCoachMark } from "@/components/TipCoachMark";
 import { installWebAlert } from "@/lib/webAlert";
+import { configureRevenueCat, logOutRevenueCat } from "@/lib/revenuecat";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { initMonitoring } from "@/lib/monitoring";
 import { initAnalytics } from "@/lib/analytics";
@@ -343,6 +344,21 @@ function PushNotificationHandler() {
   );
 }
 
+// Identify the signed-in user to RevenueCat (app_user_id = Squadz user id) so
+// purchases and entitlements are tied to the account, and detach on logout.
+// No-op on web / without SDK keys.
+function RevenueCatConnector() {
+  const { isLoggedIn, currentUser } = useAuth();
+  useEffect(() => {
+    if (isLoggedIn && currentUser.id) {
+      void configureRevenueCat(currentUser.id);
+    } else {
+      void logOutRevenueCat();
+    }
+  }, [isLoggedIn, currentUser.id]);
+  return null;
+}
+
 function MutedSquadsConnector({ children }: { children: React.ReactNode }) {
   const { authToken } = useAuth();
   return <MutedSquadsProvider authToken={authToken}>{children}</MutedSquadsProvider>;
@@ -352,6 +368,7 @@ function RootLayoutNav() {
   return (
     <>
       <AuthGuard />
+      <RevenueCatConnector />
       <PushNotificationHandler />
       <Stack screenOptions={{ headerShown: false, animation: "slide_from_right" }}>
         <Stack.Screen name="login" />

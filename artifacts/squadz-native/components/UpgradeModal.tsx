@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Modal,
   View,
@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
-  AppState,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
@@ -17,7 +16,7 @@ import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AppContext";
 import { useUserCache } from "@/context/UserCacheContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
-import { startProCheckout } from "@/lib/checkout";
+import { purchaseSquadzPlus, restoreSquadzPlus, getSquadzPlusPrices } from "@/lib/revenuecat";
 import { ProAvatar } from "@/components/ProAvatar";
 
 export type UpgradeTrigger =
@@ -35,15 +34,17 @@ interface Props {
   headline?: string;
 }
 
-// Display-only price labels. The real charge is enforced server-side from the
-// Stripe price env vars — these strings just mirror those amounts in the UI.
+// Display-only fallback price labels, used only when RevenueCat can't supply the
+// live store price (web preview / Expo Go without keys). The real charge is the
+// store product price surfaced by RevenueCat.
 const STANDARD_PRICE = "$29.99";
 const FOUNDING_PRICE = "$19.99";
 // Orange gradient used by all primary upgrade CTAs.
 const CTA_GRADIENT = ["#FF6B2C", "#FF8050"] as const;
 // Gold gradient for the founding badge + celebration ring.
 const GOLD_GRADIENT = ["#FFE08A", "#F5C242", "#C8941A"] as const;
-// Backoff delays (ms) for polling the subscription after returning from checkout.
+// Backoff delays (ms) for polling the server after a purchase, so the Pro gold
+// ring resolves once the RevenueCat webhook flips users.is_squadz_plus.
 const POLL_DELAYS = [0, 1000, 2000, 3000, 4000];
 // Max time we'll wait on founding-status before falling back to standard price.
 const FOUNDING_STATUS_TIMEOUT = 1000;
@@ -84,7 +85,7 @@ const PRO_BENEFITS: Array<{ icon: string; label: string; gold?: boolean }> = [
 type FoundingStatus = { spotsRemaining: number; isFoundingAvailable: boolean };
 type Phase = "idle" | "checkout" | "confirming" | "failed" | "celebrate";
 
-const welcomeSeenKey = (subId: string) => `hasSeenUpgradeWelcome_${subId}`;
+const welcomeSeenKey = (userId: string) => `hasSeenUpgradeWelcome_${userId}`;
 
 export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess, headline }: Props) {
   const colors = useColors();
@@ -94,17 +95,22 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess, head
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
   const [founding, setFounding] = useState<FoundingStatus | null>(null);
-  // True between launching checkout and the next app-foreground, so we know the
-  // foreground event is a checkout return and should confirm the upgrade.
-  const awaitingUpgrade = useRef(false);
+  // Live store prices from RevenueCat (never hardcoded). Nulls fall back to the
+  // display constants when RevenueCat is unavailable (web preview / no keys).
+  const [rcPrices, setRcPrices] = useState<{ founding: string | null; standard: string | null }>({
+    founding: null,
+    standard: null,
+  });
   const copy = TRIGGER_COPY[trigger];
 
   const firstName = currentUser.name?.trim().split(/\s+/)[0] ?? "";
   const isFounding = !!founding?.isFoundingAvailable && founding.spotsRemaining > 0;
-  const priceLabel = isFounding ? FOUNDING_PRICE : STANDARD_PRICE;
+  const foundingLabel = rcPrices.founding ?? FOUNDING_PRICE;
+  const standardLabel = rcPrices.standard ?? STANDARD_PRICE;
+  const priceLabel = isFounding ? foundingLabel : standardLabel;
 
-  // Pull live founding-status when the sheet opens. Bounded to 1s so we never
-  // block the UI: if it's slow we just show standard pricing.
+  // On open: pull live founding-status (server truth for spots remaining, which
+  // decides which package we sell) and the store prices from RevenueCat.
   useEffect(() => {
     if (!visible) return;
     let cancelled = false;
@@ -130,6 +136,16 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess, head
         clearTimeout(timer);
       }
     })();
+    // Store prices from RevenueCat (native only; resolves to nulls on web).
+    (async () => {
+      const prices = await getSquadzPlusPrices();
+      if (!cancelled && (prices.founding || prices.standard)) {
+        setRcPrices({
+          founding: prices.founding?.priceString ?? null,
+          standard: prices.standard?.priceString ?? null,
+        });
+      }
+    })();
     return () => {
       cancelled = true;
       clearTimeout(timer);
@@ -137,114 +153,115 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess, head
     };
   }, [visible]);
 
-  const fetchSubscription = useCallback(async (): Promise<{ isPro: boolean; subId: string | null }> => {
+  const fetchSubscription = useCallback(async (): Promise<boolean> => {
     try {
       const r = await fetch(`${API_BASE}/api/subscription`, {
         headers: buildAuthHeaders(authToken),
         credentials: "include",
       });
-      if (!r.ok) return { isPro: false, subId: null };
-      const d = (await r.json()) as {
-        isPro?: boolean;
-        subscription?: { id?: string; stripeSubscriptionId?: string } | null;
-      };
-      const subId = d.subscription?.stripeSubscriptionId ?? d.subscription?.id ?? null;
-      return { isPro: !!d.isPro, subId };
+      if (!r.ok) return false;
+      const d = (await r.json()) as { isPro?: boolean };
+      return !!d.isPro;
     } catch {
-      return { isPro: false, subId: null };
+      return false;
     }
   }, [authToken]);
 
-  // The Stripe webhook that flips the subscription to active can lag the browser
-  // return by a moment, so poll a few times with backoff before giving up.
-  const confirmLoop = useCallback(async () => {
-    setPhase("confirming");
-    setError(null);
+  // Best-effort: nudge the server-side entitlement to catch up. The RevenueCat
+  // webhook flips users.is_squadz_plus a moment after purchase, so poll a few
+  // times and bust the user cache once it lands (Pro gold ring across the app).
+  // The upgrade UX itself does NOT block on this — RevenueCat already confirmed
+  // the entitlement on-device.
+  const refreshServerState = useCallback(async () => {
     for (const delay of POLL_DELAYS) {
       if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
-      const { isPro, subId } = await fetchSubscription();
+      const isPro = await fetchSubscription();
       if (isPro) {
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        // Bust the shared user cache so the Pro gold ring resolves immediately
-        // on every avatar across the app, not just after a manual refresh.
         if (currentUser.id) refreshUsers([currentUser.id]);
-        onUpgradeSuccess?.();
-        // Show the celebration once per subscription. If we can't resolve a sub
-        // id, or it's already been seen, fall back to simply closing.
-        if (subId) {
-          try {
-            const seen = await AsyncStorage.getItem(welcomeSeenKey(subId));
-            if (!seen) {
-              await AsyncStorage.setItem(welcomeSeenKey(subId), "1");
-              setPhase("celebrate");
-              return;
-            }
-          } catch {
-            // Storage failure → skip celebration, just close.
-          }
-        }
-        setPhase("idle");
-        onClose();
         return;
       }
     }
-    setPhase("failed");
-    setError("Almost there — if you finished checkout, tap Refresh status.");
-  }, [fetchSubscription, onUpgradeSuccess, onClose, refreshUsers, currentUser.id]);
+  }, [fetchSubscription, refreshUsers, currentUser.id]);
+
+  // Shared success path once RevenueCat confirms an active entitlement (fresh
+  // purchase or restore).
+  const onEntitled = useCallback(async () => {
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    if (currentUser.id) refreshUsers([currentUser.id]);
+    onUpgradeSuccess?.();
+    void refreshServerState();
+    // Celebrate once per user.
+    try {
+      const key = welcomeSeenKey(currentUser.id ?? "me");
+      const seen = await AsyncStorage.getItem(key);
+      if (!seen) {
+        await AsyncStorage.setItem(key, "1");
+        setPhase("celebrate");
+        return;
+      }
+    } catch {
+      // Storage failure → skip celebration, just close.
+    }
+    setPhase("idle");
+    onClose();
+  }, [currentUser.id, refreshUsers, onUpgradeSuccess, refreshServerState, onClose]);
 
   // Reset transient state whenever the parent closes the modal. Clearing
-  // `founding` here means each fresh open re-fetches status and, if that fetch
-  // is slow/unavailable, falls back to standard pricing instead of showing a
+  // `founding`/`rcPrices` means each fresh open re-fetches, and if that's slow or
+  // unavailable, falls back to standard display pricing rather than showing a
   // stale founding price from a previous session.
   useEffect(() => {
     if (!visible) {
       setPhase("idle");
       setError(null);
       setFounding(null);
-      awaitingUpgrade.current = false;
+      setRcPrices({ founding: null, standard: null });
     }
   }, [visible]);
-
-  // On return from the external checkout browser, confirm the upgrade landed.
-  useEffect(() => {
-    const sub = AppState.addEventListener("change", (state) => {
-      if (state === "active" && awaitingUpgrade.current) {
-        awaitingUpgrade.current = false;
-        void confirmLoop();
-      }
-    });
-    return () => sub.remove();
-  }, [confirmLoop]);
 
   const handleUpgrade = useCallback(async () => {
     if (phase === "checkout" || phase === "confirming") return;
     setPhase("checkout");
     setError(null);
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    awaitingUpgrade.current = true;
-    const result = await startProCheckout(authToken);
-    // Always clear the flag before branching so AppState can't fire a
-    // duplicate confirmLoop if it happens to race on web.
-    awaitingUpgrade.current = false;
+    const result = await purchaseSquadzPlus(isFounding);
     if (!result.ok) {
-      setError(result.error);
+      // A user cancel is not an error — silently return to the sheet.
+      if (!result.cancelled) setError(result.error);
       setPhase("idle");
       return;
     }
-    if (result.confirmNow) {
-      // Native: in-app browser was dismissed — user may have just paid.
-      // Poll the subscription immediately instead of waiting for AppState.
-      void confirmLoop();
-    } else {
-      // Web: checkout tab is open in a separate window. AppState "active"
-      // fires when the user returns to this tab and triggers confirmLoop.
-      setPhase("idle");
+    if (result.isPro) {
+      await onEntitled();
+      return;
     }
-  }, [authToken, phase, confirmLoop]);
+    // Store confirmed the purchase but the entitlement isn't active on-device
+    // yet — fall back to briefly polling the server.
+    setPhase("confirming");
+    await refreshServerState();
+    if (await fetchSubscription()) {
+      await onEntitled();
+    } else {
+      setPhase("failed");
+      setError("Almost there — if your purchase completed, tap Restore purchases.");
+    }
+  }, [phase, isFounding, onEntitled, refreshServerState, fetchSubscription]);
+
+  const handleRestore = useCallback(async () => {
+    if (phase === "checkout" || phase === "confirming") return;
+    setPhase("confirming");
+    setError(null);
+    const result = await restoreSquadzPlus();
+    if (result.ok && result.isPro) {
+      await onEntitled();
+      return;
+    }
+    setPhase("idle");
+    setError(result.ok ? "No active Squadz+ purchase found to restore." : result.error);
+  }, [phase, onEntitled]);
 
   const busy = phase === "checkout" || phase === "confirming";
-  // While a checkout is starting or being confirmed, block dismissal so the
-  // `!visible` reset can't clear `awaitingUpgrade` before the app returns.
+  // While a purchase is in flight, block dismissal.
   const handleDismiss = useCallback(() => {
     if (!busy) onClose();
   }, [busy, onClose]);
@@ -361,9 +378,9 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess, head
               <>
                 <View style={styles.priceRow}>
                   <Text style={[styles.priceStrike, { color: colors.mutedForeground }]}>
-                    {STANDARD_PRICE}
+                    {standardLabel}
                   </Text>
-                  <Text style={[styles.priceNow, { color: colors.foreground }]}>{FOUNDING_PRICE}</Text>
+                  <Text style={[styles.priceNow, { color: colors.foreground }]}>{foundingLabel}</Text>
                   <Text style={[styles.priceInterval, { color: colors.mutedForeground }]}>/year</Text>
                 </View>
                 <LinearGradient
@@ -380,7 +397,7 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess, head
               </>
             ) : (
               <View style={styles.priceRow}>
-                <Text style={[styles.priceNow, { color: colors.foreground }]}>{STANDARD_PRICE}</Text>
+                <Text style={[styles.priceNow, { color: colors.foreground }]}>{standardLabel}</Text>
                 <Text style={[styles.priceInterval, { color: colors.mutedForeground }]}>/year</Text>
               </View>
             )}
@@ -390,7 +407,7 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess, head
 
           <TouchableOpacity
             style={styles.ctaWrap}
-            onPress={phase === "failed" ? confirmLoop : handleUpgrade}
+            onPress={phase === "failed" ? handleRestore : handleUpgrade}
             disabled={busy}
             activeOpacity={0.85}
           >
@@ -409,7 +426,7 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess, head
                 </View>
               ) : (
                 <Text style={styles.ctaLabel}>
-                  {phase === "failed" ? "Refresh status" : `Upgrade to Squadz+ — ${priceLabel}/year`}
+                  {phase === "failed" ? "Restore purchases" : `Upgrade to Squadz+ — ${priceLabel}/year`}
                 </Text>
               )}
             </LinearGradient>
@@ -418,6 +435,10 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess, head
           <Text style={[styles.fineprint, { color: colors.mutedForeground }]}>
             Cancel anytime. Billed annually.
           </Text>
+
+          <TouchableOpacity onPress={handleRestore} style={styles.notNow} disabled={busy}>
+            <Text style={[styles.notNowLabel, { color: colors.mutedForeground }]}>Restore purchases</Text>
+          </TouchableOpacity>
 
           <TouchableOpacity onPress={handleDismiss} style={styles.notNow} disabled={busy}>
             <Text style={[styles.notNowLabel, { color: colors.mutedForeground }]}>Not now</Text>

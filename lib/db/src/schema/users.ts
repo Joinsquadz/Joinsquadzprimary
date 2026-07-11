@@ -24,6 +24,11 @@ export const usersTable = pgTable("users", {
   emailVerified: boolean("email_verified").notNull().default(false),
   stripeCustomerId: text("stripe_customer_id"),
   stripeSubscriptionId: text("stripe_subscription_id"),
+  // Unified Squadz+ entitlement flag. Source-of-truth is RevenueCat (mobile IAP);
+  // this column is a webhook-maintained cache so server-side gating (squad/event
+  // limits, vault) is a single fast DB read. The dormant Stripe webhook writes the
+  // same field, so a future web purchase path can reactivate without schema churn.
+  isSquadzPlus: boolean("is_squadz_plus").notNull().default(false),
   calendarSyncEnabled: boolean("calendar_sync_enabled").notNull().default(false),
   calendarToken: text("calendar_token"),
   notifyEventInvites: boolean("notify_event_invites").notNull().default(true),

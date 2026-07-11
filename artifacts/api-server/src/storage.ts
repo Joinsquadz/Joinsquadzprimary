@@ -212,6 +212,20 @@ export class Storage {
   }
 
   /**
+   * Set the unified Squadz+ entitlement flag. Called by the RevenueCat webhook
+   * (mobile IAP) — and, when reactivated, the dormant Stripe webhook — so all
+   * Pro gating reads one field. Idempotent: writing the same value is a no-op.
+   */
+  async setSquadzPlus(userId: string, isSquadzPlus: boolean) {
+    const [user] = await db
+      .update(usersTable)
+      .set({ isSquadzPlus })
+      .where(eq(usersTable.id, userId))
+      .returning();
+    return user;
+  }
+
+  /**
    * Count events a user created within the trailing 12-month window, read from
    * the append-only `event_creations` ledger. Because ledger rows are never
    * deleted, deleting an event does NOT free a slot — a slot only frees once its
