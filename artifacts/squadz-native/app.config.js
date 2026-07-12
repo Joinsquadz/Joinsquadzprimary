@@ -5,6 +5,13 @@ const apiBase = replitDevDomain ? `https://${replitDevDomain}` : '';
 
 module.exports = {
   ...baseConfig.expo,
+  ios: {
+    ...baseConfig.expo.ios,
+    infoPlist: {
+      ...baseConfig.expo.ios.infoPlist,
+      ITSAppUsesNonExemptEncryption: false,
+    },
+  },
   extra: {
     apiBase,
     eas: {
