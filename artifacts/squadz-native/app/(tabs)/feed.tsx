@@ -28,6 +28,7 @@ import { Bounceable } from "@/components/Bounceable";
 import { AnimatedCount } from "@/components/AnimatedCount";
 import { SnapConfirm, type SnapConfirmHandle } from "@/components/SnapConfirm";
 import { MomentsRingRow } from "@/components/MomentsRingRow";
+import { stripImageExif } from "@/lib/imageUtils";
 import { LiveStatusBanner } from "@/components/LiveStatusBanner";
 import { ImageViewerModal } from "@/components/ImageViewerModal";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
@@ -424,10 +425,13 @@ export default function FeedScreen() {
         null;
 
       if (picked) {
-        // 1. Read the actual bytes first so we can validate the real file size
-        //    (ImagePicker reports fileSize: 0 for videos on some platforms,
-        //    notably web) and enforce the 150 MB cap by size, not duration.
-        const fileRes = await fetch(picked.uri);
+        // 1. Strip EXIF metadata from photos (removes GPS/location tags), then
+        //    read the actual bytes so we can validate the real file size.
+        const { uri: uploadUri, mimeType: uploadMimeType } =
+          picked.mediaType === "photo"
+            ? await stripImageExif(picked.uri, picked.mimeType)
+            : { uri: picked.uri, mimeType: picked.mimeType };
+        const fileRes = await fetch(uploadUri);
         const blob = await fileRes.blob();
         const byteSize = blob.size || picked.fileSize;
         if (byteSize > MAX_UPLOAD_BYTES) {
@@ -445,7 +449,7 @@ export default function FeedScreen() {
           body: JSON.stringify({
             name: picked.fileName,
             size: byteSize,
-            contentType: picked.mimeType,
+            contentType: uploadMimeType,
           }),
         });
         if (!urlRes.ok) {
@@ -461,7 +465,7 @@ export default function FeedScreen() {
         const putRes = await fetch(uploadURL, {
           method: "PUT",
           body: blob,
-          headers: { "Content-Type": picked.mimeType },
+          headers: { "Content-Type": uploadMimeType },
         });
         if (!putRes.ok) {
           Alert.alert("Couldn't upload", "Please try again.");
@@ -616,16 +620,83 @@ export default function FeedScreen() {
     [editDraft, editSaving, authToken, fetchFeed, handleCancelEdit],
   );
 
-  const handlePostMenu = useCallback(
+  const submitReport = useCallback(
+    async (post: FeedPost, reason: "spam" | "inappropriate" | "harassment" | "other") => {
+      try {
+        await fetch(`${API_BASE}/api/reports`, {
+          method: "POST",
+          headers: { ...buildAuthHeaders(authToken), "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contentType: "post",
+            contentId: post.id,
+            targetUserId: post.authorId,
+            reason,
+          }),
+        });
+        Alert.alert("Report submitted", "Thanks for letting us know. We'll review this post.");
+      } catch {
+        Alert.alert("Couldn't submit report", "Please check your connection and try again.");
+      }
+    },
+    [authToken],
+  );
+
+  const handleReportPost = useCallback(
     (post: FeedPost) => {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      Alert.alert("Post options", undefined, [
-        { text: "Edit", onPress: () => handleStartEdit(post) },
-        { text: "Delete", style: "destructive", onPress: () => handleDeletePost(post) },
+      Alert.alert("Report post", "Why are you reporting this?", [
+        { text: "Spam", onPress: () => void submitReport(post, "spam") },
+        { text: "Inappropriate content", onPress: () => void submitReport(post, "inappropriate") },
+        { text: "Harassment", onPress: () => void submitReport(post, "harassment") },
+        { text: "Other", onPress: () => void submitReport(post, "other") },
         { text: "Cancel", style: "cancel" },
       ]);
     },
-    [handleStartEdit, handleDeletePost],
+    [submitReport],
+  );
+
+  const handleBlockUser = useCallback(
+    (userId: string) => {
+      Alert.alert("Block user?", "They won't be able to see your posts and you won't see theirs.", [
+        {
+          text: "Block",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await fetch(`${API_BASE}/api/users/${userId}/block`, {
+                method: "POST",
+                headers: buildAuthHeaders(authToken),
+              });
+              // Refresh the feed so blocked user's posts disappear.
+              await fetchFeed();
+            } catch {
+              Alert.alert("Couldn't block user", "Please check your connection and try again.");
+            }
+          },
+        },
+        { text: "Cancel", style: "cancel" },
+      ]);
+    },
+    [authToken, fetchFeed],
+  );
+
+  const handlePostMenu = useCallback(
+    (post: FeedPost) => {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      if (post.canDelete) {
+        Alert.alert("Post options", undefined, [
+          { text: "Edit", onPress: () => handleStartEdit(post) },
+          { text: "Delete", style: "destructive", onPress: () => handleDeletePost(post) },
+          { text: "Cancel", style: "cancel" },
+        ]);
+      } else {
+        Alert.alert("", undefined, [
+          { text: "Report", onPress: () => handleReportPost(post) },
+          { text: "Block user", style: "destructive", onPress: () => handleBlockUser(post.authorId) },
+          { text: "Cancel", style: "cancel" },
+        ]);
+      }
+    },
+    [handleStartEdit, handleDeletePost, handleReportPost, handleBlockUser],
   );
 
   const toggleComments = useCallback(
@@ -883,11 +954,9 @@ export default function FeedScreen() {
                       {audienceLabel(post.audience)} · {timeAgo(post.createdAt)}
                     </Text>
                   </View>
-                  {post.canDelete && (
-                    <TouchableOpacity onPress={() => handlePostMenu(post)} hitSlop={8}>
-                      <Ionicons name="ellipsis-horizontal" size={18} color={colors.mutedForeground} />
-                    </TouchableOpacity>
-                  )}
+                  <TouchableOpacity onPress={() => handlePostMenu(post)} hitSlop={8}>
+                    <Ionicons name="ellipsis-horizontal" size={18} color={colors.mutedForeground} />
+                  </TouchableOpacity>
                 </View>
 
                 {editingPostId === post.id ? (

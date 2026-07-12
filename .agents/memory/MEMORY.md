@@ -1,3 +1,4 @@
+- [SecureStore + EXIF + Report/Block](securestore-exif-moderation.md) — auth tokens in SecureStore (not AsyncStorage); EXIF strip before upload; Drizzle eq() needs parseId() for req.params; or() type errors → two queries.
 - [Sentry + OTel + esbuild](sentry-otel-esbuild.md) — @sentry/node v8 needs @opentelemetry/* at runtime; externalize both "@opentelemetry/*" + "@sentry/node" in build.mjs or server crashes.
 - [stripe-replit-sync bundling](stripe-replit-sync-bundling.md) — externalize "stripe-replit-sync" in build.mjs + pass logger to runMigrations, else stripe.* tables (accounts) missing & sync half-works.
 - [Squadz design parity](squadz-design-parity.md) — web app is the visual source of truth; mobile mirrors it via SquadzIcon SVG + GradientButton, not PNG logo / flat buttons.

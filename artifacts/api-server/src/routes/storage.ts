@@ -22,6 +22,25 @@ const objectStorageService = new ObjectStorageService();
 const MAX_UPLOAD_BYTES = 150 * 1024 * 1024;
 
 /**
+ * Allowlist of accepted MIME types. Only photos and videos may be uploaded.
+ * Client-reported contentType is validated against this list before a presigned
+ * URL is issued — an unknown type is rejected before any bytes are transferred.
+ * Note: magic-bytes verification is not possible in the presigned-upload
+ * architecture (bytes go directly to Supabase), so this is the server-side gate.
+ */
+const ALLOWED_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/heic",
+  "image/heif",
+  "image/webp",
+  "video/mp4",
+  "video/quicktime",
+  "video/mov",
+]);
+
+/**
  * POST /storage/uploads/request-url
  *
  * Request a presigned URL for file upload.
@@ -38,6 +57,13 @@ router.post("/storage/uploads/request-url", requireAuth, async (req: Request, re
   if (parsed.data.size > MAX_UPLOAD_BYTES) {
     res.status(413).json({
       error: "File too large. Photos and videos must be 150 MB or smaller.",
+    });
+    return;
+  }
+
+  if (!ALLOWED_MIME_TYPES.has(parsed.data.contentType)) {
+    res.status(400).json({
+      error: "Unsupported file type. Only photos (JPEG, PNG, HEIC, WebP) and videos (MP4, MOV) are allowed.",
     });
     return;
   }

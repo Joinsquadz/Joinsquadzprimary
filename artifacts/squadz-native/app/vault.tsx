@@ -36,6 +36,7 @@ import VaultMediaDetail, { type VaultDetailPhoto } from "@/components/VaultMedia
 import VaultShareComposer, { type VaultShareTarget } from "@/components/VaultShareComposer";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { buildSquadVaultSections, type VaultSectionPhoto } from "@/lib/vaultSections";
+import { stripImageExif } from "@/lib/imageUtils";
 import {
   AUTH_RETRY_DELAY_MS,
   MAX_AUTH_RETRIES,
@@ -632,12 +633,15 @@ export default function VaultScreen() {
       }
       const { uploadURL, objectPath } = (await urlRes.json()) as { uploadURL: string; objectPath: string };
 
-      const fileRes = await fetch(asset.uri);
+      const { uri: uploadUri, mimeType: uploadMimeType } = !isVideo
+        ? await stripImageExif(asset.uri, contentType)
+        : { uri: asset.uri, mimeType: contentType };
+      const fileRes = await fetch(uploadUri);
       const blob = await fileRes.blob();
       const putRes = await fetch(uploadURL, {
         method: "PUT",
         body: blob,
-        headers: { "Content-Type": contentType },
+        headers: { "Content-Type": uploadMimeType },
       });
       if (!putRes.ok) {
         throw new Error("Couldn't upload the file to storage. Please try again.");

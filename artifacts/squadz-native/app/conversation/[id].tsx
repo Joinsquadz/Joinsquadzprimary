@@ -32,6 +32,7 @@ import {
 import AttachmentVideo from "@/components/AttachmentVideo";
 import { ProAvatar } from "@/components/ProAvatar";
 import { ImageViewerModal } from "@/components/ImageViewerModal";
+import { stripImageExif } from "@/lib/imageUtils";
 import { useUserCache } from "@/context/UserCacheContext";
 // Shared auth-race guard (see lib/vaultAuthRace.ts). Opening a conversation
 // directly on a cold start (deep link / push tap) can 401 before the token
@@ -256,12 +257,15 @@ export default function ConversationScreen() {
           uploadURL: string;
           objectPath: string;
         };
-        const fileRes = await fetch(asset.uri);
+        const { uri: uploadUri, mimeType: uploadMimeType } = !isVideo
+          ? await stripImageExif(asset.uri, contentType)
+          : { uri: asset.uri, mimeType: contentType };
+        const fileRes = await fetch(uploadUri);
         const blob = await fileRes.blob();
         const putRes = await fetch(uploadURL, {
           method: "PUT",
           body: blob,
-          headers: { "Content-Type": contentType },
+          headers: { "Content-Type": uploadMimeType },
         });
         if (!putRes.ok) return null;
         return {

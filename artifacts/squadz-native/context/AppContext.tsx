@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useCallback, useEffect, use
 import { useToast } from "@/context/ToastContext";
 import { AppState } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as SecureStore from "expo-secure-store";
 import { API_BASE } from "@/lib/api";
 // Expo's streaming-capable fetch. React Native's built-in fetch does NOT
 // populate `response.body` (no ReadableStream), so the SSE reader below could
@@ -26,6 +27,45 @@ import {
 
 const AUTH_TOKEN_KEY = "@squadz/authToken";
 const REFRESH_TOKEN_KEY = "@squadz/refreshToken";
+
+// ---------------------------------------------------------------------------
+// Secure token helpers
+// Auth tokens are stored in expo-secure-store (AES-256 encrypted on device)
+// instead of plain AsyncStorage. Includes:
+//   • a one-time migration from any AsyncStorage token found on first read
+//   • graceful AsyncStorage fallback when SecureStore is unavailable
+//     (e.g. rooted / unprotected-device Android)
+// ---------------------------------------------------------------------------
+async function getSecureToken(key: string): Promise<string | null> {
+  try {
+    const val = await SecureStore.getItemAsync(key);
+    if (val !== null) return val;
+    // One-time migration: move legacy AsyncStorage token to SecureStore.
+    const legacy = await AsyncStorage.getItem(key).catch(() => null);
+    if (legacy) {
+      await SecureStore.setItemAsync(key, legacy).catch(() => {});
+      await AsyncStorage.removeItem(key).catch(() => {});
+      return legacy;
+    }
+    return null;
+  } catch {
+    return AsyncStorage.getItem(key).catch(() => null);
+  }
+}
+
+async function setSecureToken(key: string, value: string): Promise<void> {
+  try {
+    await SecureStore.setItemAsync(key, value);
+    await AsyncStorage.removeItem(key).catch(() => {}); // purge any legacy copy
+  } catch {
+    await AsyncStorage.setItem(key, value).catch(() => {});
+  }
+}
+
+async function removeSecureToken(key: string): Promise<void> {
+  try { await SecureStore.deleteItemAsync(key); } catch {}
+  await AsyncStorage.removeItem(key).catch(() => {}); // also clear legacy location
+}
 // Set at register time (token persisted, but onboarding not yet finished) and
 // removed once onboarding's login() completes. Lets a relaunch distinguish a
 // registered-but-abandoned-onboarding session from a fully onboarded one, so we
@@ -46,9 +86,9 @@ export class SquadLimitError extends Error {
 
 // All app-level AsyncStorage keys. Add new keys here so they are
 // automatically cleared on logout, preventing data leaking between accounts.
+// Auth tokens are intentionally NOT in this list — they live in SecureStore now.
+// Explicit removeSecureToken calls in logout / deleteAccount handle them.
 const ALL_APP_STORAGE_KEYS: string[] = [
-  AUTH_TOKEN_KEY,
-  REFRESH_TOKEN_KEY,
   ONBOARDING_PENDING_KEY,
 ];
 
@@ -474,10 +514,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             if (refreshData.token) {
               authTokenRef.current = refreshData.token;
               setAuthToken(refreshData.token);
-              AsyncStorage.setItem(AUTH_TOKEN_KEY, refreshData.token).catch(() => {});
+              void setSecureToken(AUTH_TOKEN_KEY, refreshData.token);
               if (refreshData.refreshToken) {
                 refreshTokenRef.current = refreshData.refreshToken;
-                AsyncStorage.setItem(REFRESH_TOKEN_KEY, refreshData.refreshToken).catch(() => {});
+                void setSecureToken(REFRESH_TOKEN_KEY, refreshData.refreshToken);
               }
               const retryHeaders = { ...headers, Authorization: `Bearer ${refreshData.token}` };
               return fetch(`${API_BASE}${path}`, { ...options, headers: retryHeaders });
@@ -489,7 +529,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           setAuthToken(null);
           setIsLoggedIn(false);
           setApiUser(null);
-          AsyncStorage.multiRemove([AUTH_TOKEN_KEY, REFRESH_TOKEN_KEY]).catch(() => {});
+          void removeSecureToken(AUTH_TOKEN_KEY);
+          void removeSecureToken(REFRESH_TOKEN_KEY);
         } catch {
           // Network error during refresh — leave state intact, caller handles
         } finally {
@@ -658,6 +699,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // routes to /login instead of a blank, signed-in-but-empty account.
   const clearLocalSession = useCallback(() => {
     AsyncStorage.multiRemove(ALL_APP_STORAGE_KEYS).catch(() => {});
+    void removeSecureToken(AUTH_TOKEN_KEY);
+    void removeSecureToken(REFRESH_TOKEN_KEY);
     clearProfileCache();
     authTokenRef.current = null;
     refreshTokenRef.current = null;
@@ -702,7 +745,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // reading it straight from storage.)
         const refreshToken =
           refreshTokenRef.current ??
-          (await AsyncStorage.getItem(REFRESH_TOKEN_KEY).catch(() => null));
+          (await getSecureToken(REFRESH_TOKEN_KEY));
         let refreshedToken: string | null = null;
         if (refreshToken) {
           try {
@@ -720,10 +763,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 refreshedToken = refreshData.token;
                 authTokenRef.current = refreshData.token;
                 setAuthToken(refreshData.token);
-                AsyncStorage.setItem(AUTH_TOKEN_KEY, refreshData.token).catch(() => {});
+                void setSecureToken(AUTH_TOKEN_KEY, refreshData.token);
                 if (refreshData.refreshToken) {
                   refreshTokenRef.current = refreshData.refreshToken;
-                  AsyncStorage.setItem(REFRESH_TOKEN_KEY, refreshData.refreshToken).catch(() => {});
+                  void setSecureToken(REFRESH_TOKEN_KEY, refreshData.refreshToken);
                 }
               }
             }
@@ -1066,13 +1109,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    AsyncStorage.multiGet([AUTH_TOKEN_KEY, ONBOARDING_PENDING_KEY]).then(entries => {
-      const map = Object.fromEntries(entries) as Record<string, string | null>;
-      const token = map[AUTH_TOKEN_KEY];
+    Promise.all([
+      getSecureToken(AUTH_TOKEN_KEY),
+      AsyncStorage.getItem(ONBOARDING_PENDING_KEY).catch(() => null),
+    ]).then(([token, onboardingPending]) => {
       if (token) {
         authTokenRef.current = token;
         setAuthToken(token);
-        if (map[ONBOARDING_PENDING_KEY] === "1") {
+        if (onboardingPending === "1") {
           // Account exists server-side but onboarding was never finished —
           // resume onboarding rather than dropping the user into the app or login.
           setPendingOnboarding(true);
@@ -1080,10 +1124,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           setIsLoggedIn(true);
         }
         void fetchApiUser(token);
-        // Load the refresh token if present
-        AsyncStorage.getItem(REFRESH_TOKEN_KEY).then(rt => {
+        // Load the refresh token if present (fire-and-forget; failure is safe).
+        void getSecureToken(REFRESH_TOKEN_KEY).then(rt => {
           if (rt) refreshTokenRef.current = rt;
-        }).catch(() => {});
+        });
       }
     }).catch(() => {}).finally(() => {
       // Signal AuthGuard that it is now safe to make routing decisions. Until
@@ -1099,7 +1143,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const login = useCallback((token?: string) => {
     if (token) {
-      AsyncStorage.setItem(AUTH_TOKEN_KEY, token).catch(() => {});
+      void setSecureToken(AUTH_TOKEN_KEY, token);
       setAuthToken(token);
       void fetchApiUser(token);
     }
@@ -1122,10 +1166,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       markLoggedIn: boolean,
       refreshToken?: string | null,
     ) => {
-      AsyncStorage.setItem(AUTH_TOKEN_KEY, token).catch(() => {});
+      void setSecureToken(AUTH_TOKEN_KEY, token);
       authTokenRef.current = token;
       if (refreshToken) {
-        AsyncStorage.setItem(REFRESH_TOKEN_KEY, refreshToken).catch(() => {});
+        void setSecureToken(REFRESH_TOKEN_KEY, refreshToken);
         refreshTokenRef.current = refreshToken;
       }
       setAuthToken(token);
@@ -1266,6 +1310,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }).catch(() => {});
     }
     AsyncStorage.multiRemove(ALL_APP_STORAGE_KEYS).catch(() => {});
+    void removeSecureToken(AUTH_TOKEN_KEY);
+    void removeSecureToken(REFRESH_TOKEN_KEY);
     clearProfileCache();
     authTokenRef.current = null;
     refreshTokenRef.current = null;
@@ -1302,6 +1348,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     track("account_deleted");
     analyticsReset();
     AsyncStorage.multiRemove(ALL_APP_STORAGE_KEYS).catch(() => {});
+    void removeSecureToken(AUTH_TOKEN_KEY);
+    void removeSecureToken(REFRESH_TOKEN_KEY);
     clearProfileCache();
     authTokenRef.current = null;
     refreshTokenRef.current = null;

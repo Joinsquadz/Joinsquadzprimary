@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { and, eq, gt, inArray, isNull, desc } from "drizzle-orm";
+import { and, eq, gt, inArray, notInArray, isNull, desc } from "drizzle-orm";
 import { z } from "zod";
 import {
   db,
@@ -14,6 +14,7 @@ import { storage } from "../storage";
 import { logger } from "../lib/logger";
 import { sendPushNotifications } from "../lib/pushNotifications";
 import { emitFeedUpdate } from "../lib/feedEvents";
+import { getBlockedAndBlockerIds } from "./moderation";
 
 const router: IRouter = Router();
 
@@ -176,8 +177,12 @@ async function buildRings(moments: MomentRow[], viewerId: string) {
 router.get("/moments/friends", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = (req.user as { id: string }).id;
-    const friendIds = await getFriendIds(userId);
+    const [friendIds, blockedIds] = await Promise.all([
+      getFriendIds(userId),
+      getBlockedAndBlockerIds(userId),
+    ]);
     const authors = Array.from(new Set([userId, ...friendIds]));
+    const blockFilter = blockedIds.length > 0 ? notInArray(momentsTable.authorId, blockedIds) : undefined;
     const moments = await db
       .select()
       .from(momentsTable)
@@ -186,6 +191,7 @@ router.get("/moments/friends", requireAuth, async (req: Request, res: Response):
           liveCondition(),
           eq(momentsTable.audience, "friends"),
           inArray(momentsTable.authorId, authors),
+          blockFilter,
         ),
       )
       .orderBy(desc(momentsTable.createdAt));
@@ -214,10 +220,14 @@ router.get("/moments/friends", requireAuth, async (req: Request, res: Response):
 router.get("/moments/feed", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = (req.user as { id: string }).id;
-    const friendIds = await getFriendIds(userId);
+    const [friendIds, blockedIds] = await Promise.all([
+      getFriendIds(userId),
+      getBlockedAndBlockerIds(userId),
+    ]);
     const authors = Array.from(new Set([userId, ...friendIds]));
 
     // Moments are friends-only: the viewer's own + their friends' moments.
+    const blockFilter = blockedIds.length > 0 ? notInArray(momentsTable.authorId, blockedIds) : undefined;
     const audienceCondition = and(
       eq(momentsTable.audience, "friends"),
       inArray(momentsTable.authorId, authors),
@@ -226,7 +236,7 @@ router.get("/moments/feed", requireAuth, async (req: Request, res: Response): Pr
     const moments = await db
       .select()
       .from(momentsTable)
-      .where(and(liveCondition(), audienceCondition))
+      .where(and(liveCondition(), audienceCondition, blockFilter))
       .orderBy(desc(momentsTable.createdAt));
     const rings = await buildRings(moments, userId);
     rings.sort((a, b) => {

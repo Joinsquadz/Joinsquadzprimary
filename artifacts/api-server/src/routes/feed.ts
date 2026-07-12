@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { and, eq, inArray, isNull, lt, sql, desc } from "drizzle-orm";
+import { and, eq, inArray, notInArray, isNull, lt, sql, desc } from "drizzle-orm";
 import { z } from "zod";
 import {
   db,
@@ -16,6 +16,7 @@ import { logger } from "../lib/logger";
 import { sendPushNotifications } from "../lib/pushNotifications";
 import { emitFeedUpdate, onFeedUpdate } from "../lib/feedEvents";
 import { recordActivitySafe, removeActivity } from "../lib/activity";
+import { getBlockedAndBlockerIds } from "./moderation";
 
 const router: IRouter = Router();
 
@@ -133,7 +134,10 @@ router.get("/feed", requireAuth, async (req: Request, res: Response): Promise<vo
     const userId = (req.user as { id: string }).id;
     const before = typeof req.query.before === "string" ? new Date(req.query.before) : null;
 
-    const friendIds = await getFriendIds(userId);
+    const [friendIds, blockedIds] = await Promise.all([
+      getFriendIds(userId),
+      getBlockedAndBlockerIds(userId),
+    ]);
     const friendsAudienceAuthors = Array.from(new Set([userId, ...friendIds]));
 
     // Vibe posts are friends-only: a post is visible if it's a friends-post by
@@ -147,6 +151,10 @@ router.get("/feed", requireAuth, async (req: Request, res: Response): Promise<vo
     )`;
 
     const conditions = [isNull(feedPostsTable.deletedAt), visibility];
+    // Suppress posts from blocked users (both directions: viewer blocked them, or they blocked viewer).
+    if (blockedIds.length > 0) {
+      conditions.push(notInArray(feedPostsTable.authorId, blockedIds));
+    }
     if (before && !Number.isNaN(before.getTime())) {
       conditions.push(lt(feedPostsTable.createdAt, before));
     }
