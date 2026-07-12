@@ -47,3 +47,7 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Google service-account keys — never commit private keys; provide via env var GOOGLE_APPLICATION_CREDENTIALS or similar
+*-service-account.json
+google-services.json
