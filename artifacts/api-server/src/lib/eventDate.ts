@@ -41,3 +41,40 @@ export function parseEventStart(dateText: string | null | undefined, now: Date =
   const native = new Date(t);
   return Number.isNaN(native.getTime()) ? null : native;
 }
+
+/**
+ * Convert a Date to a "calendar day ID" — the UTC timestamp of midnight UTC
+ * for the given date expressed in the specified IANA timezone. Used to compare
+ * two dates by calendar day (ignoring time-of-day).
+ */
+function toCalendarDayId(d: Date, tz: string): number {
+  try {
+    // en-CA formats dates as "YYYY-MM-DD" which is unambiguous to parse.
+    const s = new Intl.DateTimeFormat("en-CA", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(d);
+    const [y, mo, day] = s.split("-").map(Number);
+    return Date.UTC(y!, mo! - 1, day!);
+  } catch {
+    // Invalid or unsupported timezone — fall back to UTC wall-clock date.
+    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  }
+}
+
+/**
+ * Number of calendar days from `now` to `start` in the given IANA timezone.
+ * Positive = start is in the future, 0 = same calendar day, negative = past.
+ * Falls back to UTC when `tz` is null, undefined, or an invalid string.
+ *
+ * Example: if now is Friday 11 PM EDT and start is Saturday 8 AM EDT, this
+ * returns 1 ("tomorrow") — correctly capturing the day boundary.
+ */
+export function calendarDaysUntil(now: Date, start: Date, tz: string | null | undefined): number {
+  const zone = tz ?? "UTC";
+  const nowDay = toCalendarDayId(now, zone);
+  const startDay = toCalendarDayId(start, zone);
+  return Math.round((startDay - nowDay) / (24 * 60 * 60 * 1000));
+}

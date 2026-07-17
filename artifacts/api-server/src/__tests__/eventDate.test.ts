@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseEventStart } from "../lib/eventDate";
+import { parseEventStart, calendarDaysUntil } from "../lib/eventDate";
 
 describe("parseEventStart", () => {
   const NOW = new Date("2026-06-01T12:00:00.000Z");
@@ -58,5 +58,66 @@ describe("parseEventStart", () => {
   it("returns null for unrecognised free text", () => {
     expect(parseEventStart("sometime next week", NOW)).toBeNull();
     expect(parseEventStart("whenever", NOW)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// calendarDaysUntil
+// ---------------------------------------------------------------------------
+
+describe("calendarDaysUntil", () => {
+  // Reference anchor: Thursday 2026-07-16 at 22:00 UTC.
+  const THU_22_UTC = new Date("2026-07-16T22:00:00Z");
+  // Friday 08:00 UTC — next calendar day in UTC.
+  const FRI_8_UTC = new Date("2026-07-17T08:00:00Z");
+  // Friday 02:00 UTC — next calendar day in UTC but still Thu evening in UTC-5.
+  const FRI_2_UTC = new Date("2026-07-17T02:00:00Z");
+  // Saturday midnight UTC.
+  const SAT_UTC = new Date("2026-07-18T00:00:00Z");
+
+  it("returns 0 when both timestamps are on the same UTC calendar day", () => {
+    const sameDay = new Date("2026-07-16T10:00:00Z");
+    expect(calendarDaysUntil(sameDay, THU_22_UTC, "UTC")).toBe(0);
+  });
+
+  it("returns 1 when start is the next UTC calendar day", () => {
+    expect(calendarDaysUntil(THU_22_UTC, FRI_8_UTC, "UTC")).toBe(1);
+  });
+
+  it("returns 2 when start is two UTC calendar days ahead", () => {
+    expect(calendarDaysUntil(THU_22_UTC, SAT_UTC, "UTC")).toBe(2);
+  });
+
+  it("returns negative when start is in the past", () => {
+    expect(calendarDaysUntil(FRI_8_UTC, THU_22_UTC, "UTC")).toBe(-1);
+  });
+
+  it("timezone fix: Fri 02:00 UTC is still Thu evening in America/New_York (UTC-4 summer) → daysUntil=0", () => {
+    // now: Thu 22:00 UTC = Thu 18:00 EDT
+    // start: Fri 02:00 UTC = Thu 22:00 EDT  → SAME calendar day → 0
+    expect(calendarDaysUntil(THU_22_UTC, FRI_2_UTC, "America/New_York")).toBe(0);
+    // But in UTC it looks like the next day → 1.
+    expect(calendarDaysUntil(THU_22_UTC, FRI_2_UTC, "UTC")).toBe(1);
+  });
+
+  it("timezone fix: Thu 22:00 UTC is already Fri in Asia/Karachi (UTC+5) → start on same day as event → 0", () => {
+    // now: Thu 22:00 UTC = Fri 03:00 PKT
+    // start: Fri 08:00 UTC = Fri 13:00 PKT → same calendar day → 0
+    expect(calendarDaysUntil(THU_22_UTC, FRI_8_UTC, "Asia/Karachi")).toBe(0);
+    // UTC interpretation: Fri is 1 day after Thu.
+    expect(calendarDaysUntil(THU_22_UTC, FRI_8_UTC, "UTC")).toBe(1);
+  });
+
+  it("falls back to UTC when timezone is null", () => {
+    expect(calendarDaysUntil(THU_22_UTC, FRI_8_UTC, null)).toBe(1);
+  });
+
+  it("falls back to UTC when timezone is undefined", () => {
+    expect(calendarDaysUntil(THU_22_UTC, FRI_8_UTC, undefined)).toBe(1);
+  });
+
+  it("falls back gracefully for an invalid timezone (no throw, UTC result)", () => {
+    expect(() => calendarDaysUntil(THU_22_UTC, FRI_8_UTC, "Fake/Zone")).not.toThrow();
+    expect(calendarDaysUntil(THU_22_UTC, FRI_8_UTC, "Fake/Zone")).toBe(1);
   });
 });

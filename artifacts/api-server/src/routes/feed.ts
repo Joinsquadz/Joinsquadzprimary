@@ -14,6 +14,7 @@ import { requireAuth } from "../middleware/currentUser";
 import { storage } from "../storage";
 import { logger } from "../lib/logger";
 import { sendPushNotifications } from "../lib/pushNotifications";
+import { shouldSendNotification } from "../lib/notificationDebounce";
 import { emitFeedUpdate, onFeedUpdate } from "../lib/feedEvents";
 import { recordActivitySafe, removeActivity } from "../lib/activity";
 import { getBlockedAndBlockerIds } from "./moderation";
@@ -580,6 +581,9 @@ router.post(
       if (post.authorId !== userId) {
         void (async () => {
           try {
+            // 2-minute debounce: suppress rapid-fire "X commented" pushes from
+            // the same commenter on the same post author's content.
+            if (!shouldSendNotification(userId, post.authorId, "feed_comment", 2 * 60 * 1000)) return;
             const commenter = await storage.getUser(userId);
             const commenterName = commenter?.firstName ?? "Someone";
             const tokens = await storage.getPushTokensForUsers([post.authorId], {

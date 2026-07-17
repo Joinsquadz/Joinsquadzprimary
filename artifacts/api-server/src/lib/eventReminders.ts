@@ -1,7 +1,7 @@
 import { logger } from './logger';
 import { sendPushNotifications } from './pushNotifications';
 import { storage } from '../storage';
-import { parseEventStart } from './eventDate';
+import { parseEventStart, calendarDaysUntil } from './eventDate';
 
 // Automatic "starting soon" event reminders. Event `date` is free-form text
 // (e.g. "Sat, Jun 7 · 5:00 PM"), so we best-effort parse it and notify the
@@ -131,11 +131,16 @@ export async function runDayOfReminderScan(): Promise<void> {
     if (tokens.length === 0) continue;
 
     try {
+      // Compute a calendar-day-aware label using the event's stored timezone so
+      // the copy is correct in the creator's locale, not just the server's UTC.
+      const daysUntil = calendarDaysUntil(now, start, (event as { timezone?: string | null }).timezone ?? null);
+      const dayLabel = daysUntil === 0 ? 'today' : daysUntil === 1 ? 'tomorrow' : null;
+      const body = dayLabel != null ? `Coming up ${dayLabel} — ${event.date}` : event.date;
       const result = await sendPushNotifications(
         tokens,
         {
           title: `${event.emoji} ${event.title}`,
-          body: `Coming up today — ${event.date}`,
+          body,
           data: { screen: 'event', eventId: event.id },
         },
         { onStaleToken: (token) => storage.clearPushToken(token) },

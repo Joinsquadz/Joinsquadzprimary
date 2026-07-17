@@ -13,6 +13,7 @@ import { requireAuth } from "../middleware/currentUser";
 import { storage } from "../storage";
 import { logger } from "../lib/logger";
 import { sendPushNotifications } from "../lib/pushNotifications";
+import { shouldSendNotification } from "../lib/notificationDebounce";
 import { emitFeedUpdate } from "../lib/feedEvents";
 import { getBlockedAndBlockerIds } from "./moderation";
 
@@ -387,6 +388,9 @@ router.post(
       if (moment.authorId !== userId) {
         void (async () => {
           try {
+            // 2-minute debounce: a user could react, undo, re-react in quick
+            // succession — only push the first one in the window.
+            if (!shouldSendNotification(userId, moment.authorId, "moment_reaction", 2 * 60 * 1000)) return;
             const reactor = await storage.getUser(userId);
             const reactorName = reactor?.firstName ?? "Someone";
             const tokens = await storage.getPushTokensForUsers([moment.authorId], {

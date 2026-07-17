@@ -66,3 +66,4 @@
 - [Web clipboard in iframe](web-clipboard-iframe.md) — navigator.clipboard is BLOCKED in the preview iframe; copy on web via hidden-textarea+execCommand FIRST (sync, in-gesture), keep link selectable as fallback.
 - [Shared emoji choices](shared-emoji-choices.md) — squad+event icon pickers all import constants/emojis.ts EMOJI_CHOICES; create screens use wrap grid, edit modals stay horizontal (settings modal has no vert scroll → grid overflows).
 - [Squadz cold-start auth-race UI test](squadz-authrace-ui-test.md) — test slow-login recovery by SEEDING localStorage @squadz/authToken + route-401 the list endpoints (never /api/auth/*); UI login trips the 429 login limiter.
+- [Push notif scanner window constraints](push-scanner-window.md) — day-of scanner window is REMINDER_LEAD_MS(2h)–DAY_OF_LEAD_MS(14h); tests using exactly 2h hit the ≤ boundary and mark-without-send; "2+ calendar days" unreachable within 14h → test calendarDaysUntil in isolation, not via scanner.

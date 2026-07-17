@@ -88,6 +88,11 @@ export const eventsTable = pgTable("events", {
   // revokes squad-only access; an explicit invitee is a separate intentional grant.
   invitedUserIds: jsonb("invited_user_ids").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   isPublic: boolean("is_public").notNull().default(false),
+  // IANA timezone string captured from the creator's device at event creation
+  // time (e.g. "America/Los_Angeles"). Used by the day-of reminder scanner to
+  // compute a calendar-day-aware "today"/"tomorrow" label. NULL = unknown; the
+  // scanner falls back to UTC so existing events keep working.
+  timezone: text("timezone"),
   reminderSentAt: timestamp("reminder_sent_at", { withTimezone: true }),
   // Fire-once marker for the "day-of" heads-up reminder (sent the morning of /
   // hours-ahead of the event, distinct from the 2h "starting soon" reminder).

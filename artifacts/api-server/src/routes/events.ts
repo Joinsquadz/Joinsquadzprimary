@@ -116,6 +116,10 @@ const CreateEventBody = z.object({
   description: z.string().default(""),
   inviteCode: z.string().optional(),
   isPublic: z.boolean().default(false),
+  // IANA timezone string from the creator's device (e.g. "America/Los_Angeles").
+  // Stored on the event so the day-of reminder scanner can compute "today" vs
+  // "tomorrow" in the creator's locale rather than server UTC.
+  timezone: z.string().optional(),
   // Friends invited directly at creation time (by user id). They gain access
   // immediately and are notified, in addition to any squad members.
   invitedUserIds: z.array(z.string().min(1)).default([]),
@@ -1096,22 +1100,10 @@ router.post("/events/:id/invite", requireAuth, async (req: Request, res: Respons
     });
   }
 
-  // Push notify invitees.
+  // Push notify invitees — same helper as creation-time invites (#14/#15) so
+  // title, preference gate (requireNotifyEventInvites), and mute logic match.
   if (inserted.length > 0) {
-    const inviterUser = await storage.getUser(userId);
-    const inviterName = displayName(inviterUser);
-    const tokens = await storage.getPushTokensForUsers(inserted.map((i) => i.invitedUserId));
-    if (tokens.length > 0) {
-      void sendPushNotifications(
-        tokens,
-        {
-          title: "Trip invite",
-          body: `${inviterName} invited you to "${existing.title}"`,
-          data: { screen: "activity" },
-        },
-        { onStaleToken: (token) => storage.clearPushToken(token) },
-      );
-    }
+    void notifyInvitees(existing, userId, inserted.map((i) => i.invitedUserId));
   }
 });
 

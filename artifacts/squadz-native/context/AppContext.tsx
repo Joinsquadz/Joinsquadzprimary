@@ -178,6 +178,9 @@ export type NewEventInput = {
   itinerary?: ItineraryStop[];
   /** Friend user ids to invite directly at creation time. */
   invitedUserIds?: string[];
+  /** IANA timezone string from the device (e.g. "America/Los_Angeles"). Stored
+   *  on the event so the day-of reminder sends "today"/"tomorrow" correctly. */
+  timezone?: string;
 };
 
 export type ConflictSnapshot = {
@@ -1481,6 +1484,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       ...(input.invitedUserIds && input.invitedUserIds.length > 0
         ? { invitedUserIds: input.invitedUserIds }
         : {}),
+      ...(input.timezone ? { timezone: input.timezone } : {}),
     };
 
     let res: Response;

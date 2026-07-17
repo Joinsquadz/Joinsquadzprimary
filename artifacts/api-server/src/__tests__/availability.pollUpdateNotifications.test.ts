@@ -12,6 +12,7 @@ const storageMock = vi.hoisted(() => ({
   getSquad: vi.fn(),
   getEvent: vi.fn(),
   getUsers: vi.fn(),
+  markPollUpdateNotified: vi.fn(),
 }));
 
 const sendPushNotificationsMock = vi.hoisted(() => vi.fn());
@@ -65,6 +66,7 @@ beforeEach(() => {
   storageMock.upsertAvailabilityResponse.mockResolvedValue({});
   storageMock.canAccessAvailabilityPoll.mockResolvedValue(true);
   storageMock.clearPushToken.mockResolvedValue(undefined);
+  storageMock.markPollUpdateNotified.mockResolvedValue(undefined);
   sendPushNotificationsMock.mockResolvedValue({ staleTokens: [] });
 });
 

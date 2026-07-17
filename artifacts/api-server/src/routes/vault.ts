@@ -6,6 +6,7 @@ import { emitSquadUpdate } from "../lib/squadEvents";
 import { emitVaultPhotoUpdate, onVaultPhotoUpdate } from "../lib/vaultEvents";
 import { emitFeedUpdate } from "../lib/feedEvents";
 import { sendPushNotifications } from "../lib/pushNotifications";
+import { shouldSendNotification } from "../lib/notificationDebounce";
 import { db, feedPostsTable } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { copyStorageObject } from "../services/objectStorage";
@@ -519,6 +520,9 @@ router.post("/vault/photos/:id/comments", requireAuth, async (req: Request, res:
     if (photo.uploaderId !== userId) {
       void (async () => {
         try {
+          // 2-minute debounce: suppress duplicate "X commented" pushes when
+          // someone leaves several comments in quick succession on the same photo.
+          if (!shouldSendNotification(userId, photo.uploaderId, "vault_comment", 2 * 60 * 1000)) return;
           const tokens = await storage.getPushTokensForUsers([photo.uploaderId], {
             requireNotifyFriendActivity: true,
           });

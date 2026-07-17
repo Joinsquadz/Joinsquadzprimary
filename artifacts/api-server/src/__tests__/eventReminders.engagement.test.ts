@@ -85,6 +85,56 @@ describe("runDayOfReminderScan", () => {
     expect(storageMock.markEventDayOfReminderSent).toHaveBeenCalledWith("evt-1");
   });
 
+  it("body says 'today' when the event is the same calendar day (UTC, no timezone)", async () => {
+    // 8h ahead → same calendar day in UTC (test runner is UTC).
+    storageMock.getEventsPendingDayOfReminder.mockResolvedValue([
+      evt({ date: dateStr(8 * 60 * 60 * 1000), timezone: null }),
+    ]);
+    await runDayOfReminderScan();
+    const [, payload] = sendPushNotificationsMock.mock.calls[0] as [unknown, { body: string }];
+    expect(payload.body).toMatch(/\btoday\b/i);
+  });
+
+  it("body says 'tomorrow' when the event is the next calendar day (UTC, no timezone)", async () => {
+    // Fake now = 22:00 UTC. Event is 8h later = 06:00 UTC next day → daysUntil=1
+    // in UTC ("tomorrow"). 8h is inside DAY_OF_LEAD_MS (14h) and outside
+    // REMINDER_LEAD_MS (2h), so the scanner fires.
+    const fakeNow = new Date("2026-07-16T22:00:00Z");
+    vi.useFakeTimers({ now: fakeNow });
+    const dateString = dateStr(8 * 60 * 60 * 1000);
+    storageMock.getEventsPendingDayOfReminder.mockResolvedValue([
+      evt({ date: dateString, timezone: null }),
+    ]);
+    await runDayOfReminderScan();
+    vi.useRealTimers();
+    const [, payload] = sendPushNotificationsMock.mock.calls[0] as [unknown, { body: string }];
+    expect(payload.body).toMatch(/\btomorrow\b/i);
+  });
+
+  it("uses timezone to determine 'today' vs 'tomorrow' across midnight boundaries", async () => {
+    // Simulate the classic bug: server is UTC, event is 3h ahead (still tonight),
+    // but the clock just crossed midnight UTC so the event is technically
+    // "tomorrow" in UTC even though it's "tonight" for the user in UTC-3.
+    //
+    // We fake "now" to be 23:30 UTC. The event is 3h later = 02:30 UTC next day.
+    // In UTC → daysUntil=1 ("tomorrow").
+    // In America/Sao_Paulo (UTC-3 in winter) → 20:30 local now, 23:30 local event → same day ("today").
+    // 3h > REMINDER_LEAD_MS (2h) and < DAY_OF_LEAD_MS (14h) → scanner fires.
+    const fakeNow = new Date("2026-07-16T23:30:00Z");
+    vi.useFakeTimers({ now: fakeNow });
+    const dateString = dateStr(3 * 60 * 60 * 1000);
+    storageMock.getEventsPendingDayOfReminder.mockResolvedValue([
+      evt({ date: dateString, timezone: "America/Sao_Paulo" }),
+    ]);
+
+    await runDayOfReminderScan();
+
+    vi.useRealTimers();
+    const [, payload] = sendPushNotificationsMock.mock.calls[0] as [unknown, { body: string }];
+    // With the correct timezone, the event is still "today" in Sao Paulo.
+    expect(payload.body).toMatch(/\btoday\b/i);
+  });
+
   it("does NOT send for events still further out than the day-of window", async () => {
     storageMock.getEventsPendingDayOfReminder.mockResolvedValue([evt({ date: dateStr(DAY_OF_LEAD_MS + 60 * 60 * 1000) })]);
 

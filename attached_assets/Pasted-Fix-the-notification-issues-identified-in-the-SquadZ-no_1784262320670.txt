@@ -1,0 +1,22 @@
+Fix the notification issues identified in the SquadZ notification audit. This is a multi-phase remediation — implement in order, and run the full regression suite after each phase before moving to the next.
+Product decisions (already made, implement as specified — don’t ask):
+	•	Day-of reminder copy will be computed dynamically from a calendar-day comparison, not derived from the existing 2h/14h firing window. The window still controls when the scan considers sending; the copy is now independently calculated.
+	•	If events does not already have a stored timezone (IANA string, e.g. "America/Los_Angeles"), add one, captured from the device at event creation time. If a timezone column already exists, use it — check before adding a duplicate.
+	•	Poll-updated notifications (#27) get a per-poll cooldown, matching the existing debounce pattern used for manual nudges (#28).
+	•	Personal invite post-create (#20) is brought in line with #14/#15 — same title logic, same preference gate. This was an inconsistency, not an intentional difference.
+Phase 1 — Day-of reminder timezone fix (lib/eventReminders.ts:106–155)
+	•	Add/confirm timezone column on events as described above.
+	•	In the day-of reminder path, compute daysUntil as the difference in calendar dates between “now converted to the event’s timezone” and “event start in the event’s timezone” — not a raw millisecond delta.
+	•	Generate copy based on daysUntil: 0 → “Coming up today”, 1 → “Coming up tomorrow”, otherwise fall back to the existing formatted date string. Remove the hardcoded “today” literal.
+	•	Apply the same calendar-day-aware approach to any other relative-date language in scheduled reminders (#1 starting-soon, #3 recap) — audit those two for the same class of bug even though their current copy doesn’t use relative-day language, in case that changes later.
+Phase 2 — Fix #20 (routes/events.ts:1105–1112)
+	•	Replace hardcoded “Trip invite” title with the same kind logic used in #14 (notifyInvitees helper, routes/events.ts:59–69) — “a trip” vs “an event” based on event type.
+	•	Add the requireNotifyEventInvites preference gate, matching #14/#15.
+Phase 3 — Frequency capping (routes/availability.ts, routes/vault.ts, routes/feed.ts, routes/moments.ts)
+	•	Add a pollUpdateNotifiedAt cooldown column to polls; poll-updated notifications (#27) should not re-fire within a 15-minute window of the last one for that poll.
+	•	Add a lightweight reusable debounce helper (actor + recipient + notification type + window) and apply a 2-minute cooldown to: vault photo comments (#29), feed post comments (#32), moment reactions (#34). These are the highest-frequency, lowest-urgency notification types and are most exposed to rapid-fire bursts.
+	•	Do not add capping to #21/#22 (payments) or #16/#17 (RSVPs) — those are low-frequency and each instance is independently meaningful.
+Phase 4 — Regression
+	•	Run full API and mobile test suites plus multi-user simulation, matching the coverage from the last session (577 API / 96 mobile / 34 simulation).
+	•	Add new test cases specifically for: an event starting at multiple different times of day across at least 3 timezones, to confirm “today”/“tomorrow” copy is correct in each case; the #20 title now matching trip vs. event; the poll-update cooldown correctly suppressing a rapid second edit and correctly allowing a send after the cooldown expires.
+Report back with pass/fail counts per phase and flag anything that required a judgment call not covered above.

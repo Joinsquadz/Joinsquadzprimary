@@ -41,6 +41,10 @@ export const availabilityPollsTable = pgTable("availability_polls", {
   // marks the poll as converted: it stops appearing in the "Existing" chooser so
   // people don't resume a poll that already became a plan.
   convertedEventId: text("converted_event_id"),
+  // Timestamp of the last push fan-out triggered by a poll-range update. Used
+  // to enforce a 15-minute cooldown: rapid consecutive edits only send one push
+  // so participants aren't spammed when the organizer tweaks the grid repeatedly.
+  pollUpdateNotifiedAt: timestamp("poll_update_notified_at", { withTimezone: true }),
 });
 
 // One row per (poll, user). `cells` are the selected grid keys, e.g. "Mon-8PM".

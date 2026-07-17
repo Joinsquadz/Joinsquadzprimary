@@ -1719,6 +1719,16 @@ export class Storage {
       .where(eq(eventsTable.id, eventId));
   }
 
+  /** Stamp the current time as the last poll-update notification timestamp.
+   *  Call AFTER a successful push fan-out so a server restart in between
+   *  doesn't prevent the next push from going out. */
+  async markPollUpdateNotified(pollId: string): Promise<void> {
+    await db
+      .update(availabilityPollsTable)
+      .set({ pollUpdateNotifiedAt: new Date() })
+      .where(eq(availabilityPollsTable.id, pollId));
+  }
+
   /** Events eligible for a post-event "drop your photos" recap prompt
    *  (fire-once via recapPromptSentAt). */
   async getEventsPendingRecap(): Promise<DbEvent[]> {

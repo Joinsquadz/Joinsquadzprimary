@@ -308,6 +308,7 @@ export default function CreateEventScreen() {
     setCreating(true);
     try {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      const deviceTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
       let id: string;
       if (kind === "trip" && tripStart) {
         const end = tripEnd ?? tripStart;
@@ -319,7 +320,7 @@ export default function CreateEventScreen() {
           location: location.trim(), description: description.trim(),
           squadId: selectedSquad, isPublic,
           type: "trip", startAt: startISO, endAt: endISO, allDay, coverStyle,
-          invitedUserIds,
+          invitedUserIds, timezone: deviceTimezone,
         });
         // Templates are a Squadz+ feature: only materialize their stops for pro
         // users. This re-checks entitlement server-trust-free at create time so
@@ -347,7 +348,7 @@ export default function CreateEventScreen() {
           endAt: eventAtISO ? endAtISO : undefined,
           location: location.trim(),
           description: description.trim(), squadId: selectedSquad,
-          isPublic, invitedUserIds,
+          isPublic, invitedUserIds, timezone: deviceTimezone,
         });
       }
       fetch(`${API_BASE}/api/events/count`, { headers: authHeaders() })

@@ -661,7 +661,20 @@ router.patch("/availability/polls/:id", requireAuth, async (req: Request, res: R
 
     // Fire-and-forget: push notifications to participants who haven't re-submitted
     // since the range was updated. We respond first so the host isn't blocked.
+    //
+    // Cooldown: if a push was sent for this poll within the last 15 minutes,
+    // skip this one — organizers often tweak the grid several times in a row
+    // and participants shouldn't receive a burst of "updated" notifications.
+    const POLL_UPDATE_COOLDOWN_MS = 15 * 60 * 1000;
+    const lastNotified = updatedPoll.pollUpdateNotifiedAt;
+    const cooldownActive =
+      lastNotified != null &&
+      Date.now() - new Date(lastNotified as Date).getTime() < POLL_UPDATE_COOLDOWN_MS;
+    if (!cooldownActive) {
+      await storage.markPollUpdateNotified(updatedPoll.id);
+    }
     void (async () => {
+      if (cooldownActive) return;
       try {
         const pollUpdatedAt = updatedPoll.updatedAt ?? new Date();
 
