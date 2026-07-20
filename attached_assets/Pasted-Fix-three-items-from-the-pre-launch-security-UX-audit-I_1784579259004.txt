@@ -1,0 +1,19 @@
+Fix three items from the pre-launch security/UX audit. Implement in phases; run regression after each. Product decisions below are final — implement as specified, don’t ask.
+Phase 1 — Strip EXIF/GPS metadata on upload
+	•	Identify every upload path that accepts user photos/videos: squad vault, personal vault, feed posts, moments, profile pictures.
+	•	Add metadata stripping (EXIF, GPS, any embedded location/device data) at the point of upload/ingestion, before the file is written to Supabase storage — not as a display-time transform.
+	•	Confirm this applies to both images and video (video can carry embedded GPS metadata too, depending on format — check and handle if present).
+	•	Add a test that uploads a file with known injected EXIF/GPS data and asserts the stored file has none.
+Phase 2 — Migrate auth tokens from AsyncStorage to expo-secure-store
+	•	Move all auth token storage/retrieval to expo-secure-store.
+	•	Add a one-time migration path: on app launch, if a token exists in AsyncStorage but not secure-store, treat it as invalid and force re-authentication — do not attempt to silently carry the old token forward into secure-store, since that defeats the point of moving it (an already-compromised token shouldn’t get a security upgrade, it should get invalidated).
+	•	Remove the AsyncStorage token code path entirely once migration is complete — no dual-write, no fallback.
+	•	Add a test confirming a token present only in AsyncStorage results in a forced logout/re-auth, and confirming normal login writes only to secure-store.
+Phase 3 — Root-cause and fix the free-tier cap display bug
+	•	Before changing any UI copy, trace whether the actual enforcement logic (server-side cap check) allows 5 plans or 3. Report which one it is.
+	•	If enforcement is correct at 5 and only the UI label is wrong, fix the display only.
+	•	If enforcement itself is capping at 3, that’s a separate and more serious bug — fix the enforcement logic to correctly allow 5, and add a regression test asserting a user can create exactly 5 active plans (trips + events combined) in a rolling 12-month window before being blocked on the 6th.
+	•	Either way, add a test confirming the displayed count and the enforced limit agree.
+Phase 4 — Regression
+	•	Full API + mobile suite.
+	•	Report pass/fail per phase, and explicitly state in Phase 3 which root cause was found (UI-only vs. enforcement bug) since that changes the severity of what shipped.

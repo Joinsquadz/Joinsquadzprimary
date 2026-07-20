@@ -22,6 +22,7 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { GradientButton } from "@/components/GradientButton";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { API_BASE, buildAuthHeaders, resolveUploadedUrl } from "@/lib/api";
+import { stripImageExif } from "@/lib/imageUtils";
 
 function splitName(name: string): { first: string; last: string } {
   const parts = name.trim().split(/\s+/);
@@ -100,12 +101,14 @@ export default function EditProfileScreen() {
 
   async function uploadPhoto(uri: string): Promise<string | null> {
     try {
-      const resp = await fetch(uri);
+      // Strip EXIF/GPS metadata from the avatar photo before uploading.
+      const { uri: strippedUri, mimeType: strippedMime } = await stripImageExif(uri, "image/jpeg");
+      const resp = await fetch(strippedUri);
       const blob = await resp.blob();
       const urlRes = await fetch(`${API_BASE}/api/storage/uploads/request-url`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify({ name: `avatar-${Date.now()}.jpg`, size: blob.size, contentType: blob.type || "image/jpeg", isPublicAccess: true }),
+        body: JSON.stringify({ name: `avatar-${Date.now()}.jpg`, size: blob.size, contentType: strippedMime, isPublicAccess: true }),
       });
       if (!urlRes.ok) return null;
       const { uploadURL, objectPath } = await urlRes.json() as { uploadURL: string; objectPath: string };

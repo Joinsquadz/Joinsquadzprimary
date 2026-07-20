@@ -20,7 +20,7 @@ import { SnapConfirm, type SnapConfirmHandle } from "@/components/SnapConfirm";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AppContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
-import { stripImageExif } from "@/lib/imageUtils";
+import { stripMediaExif } from "@/lib/imageUtils";
 
 const MAX_VIDEO_MS = 60 * 1000;
 
@@ -101,10 +101,7 @@ export default function MomentComposeScreen() {
       };
 
       // 2. Strip EXIF metadata from photos, then PUT the media bytes.
-      const { uri: uploadUri, mimeType: uploadMimeType } =
-        picked.mediaType === "photo"
-          ? await stripImageExif(picked.uri, picked.mimeType)
-          : { uri: picked.uri, mimeType: picked.mimeType };
+      const { uri: uploadUri, mimeType: uploadMimeType } = await stripMediaExif(picked.uri, picked.mimeType);
       const fileRes = await fetch(uploadUri);
       const blob = await fileRes.blob();
       const putRes = await fetch(uploadURL, {

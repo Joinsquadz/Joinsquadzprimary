@@ -28,7 +28,7 @@ import { Bounceable } from "@/components/Bounceable";
 import { AnimatedCount } from "@/components/AnimatedCount";
 import { SnapConfirm, type SnapConfirmHandle } from "@/components/SnapConfirm";
 import { MomentsRingRow } from "@/components/MomentsRingRow";
-import { stripImageExif } from "@/lib/imageUtils";
+import { stripMediaExif } from "@/lib/imageUtils";
 import { LiveStatusBanner } from "@/components/LiveStatusBanner";
 import { ImageViewerModal } from "@/components/ImageViewerModal";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
@@ -427,10 +427,7 @@ export default function FeedScreen() {
       if (picked) {
         // 1. Strip EXIF metadata from photos (removes GPS/location tags), then
         //    read the actual bytes so we can validate the real file size.
-        const { uri: uploadUri, mimeType: uploadMimeType } =
-          picked.mediaType === "photo"
-            ? await stripImageExif(picked.uri, picked.mimeType)
-            : { uri: picked.uri, mimeType: picked.mimeType };
+        const { uri: uploadUri, mimeType: uploadMimeType } = await stripMediaExif(picked.uri, picked.mimeType);
         const fileRes = await fetch(uploadUri);
         const blob = await fileRes.blob();
         const byteSize = blob.size || picked.fileSize;

@@ -36,7 +36,7 @@ import VaultMediaDetail, { type VaultDetailPhoto } from "@/components/VaultMedia
 import VaultShareComposer, { type VaultShareTarget } from "@/components/VaultShareComposer";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { buildSquadVaultSections, type VaultSectionPhoto } from "@/lib/vaultSections";
-import { stripImageExif } from "@/lib/imageUtils";
+import { stripMediaExif } from "@/lib/imageUtils";
 import {
   AUTH_RETRY_DELAY_MS,
   MAX_AUTH_RETRIES,
@@ -633,9 +633,7 @@ export default function VaultScreen() {
       }
       const { uploadURL, objectPath } = (await urlRes.json()) as { uploadURL: string; objectPath: string };
 
-      const { uri: uploadUri, mimeType: uploadMimeType } = !isVideo
-        ? await stripImageExif(asset.uri, contentType)
-        : { uri: asset.uri, mimeType: contentType };
+      const { uri: uploadUri, mimeType: uploadMimeType } = await stripMediaExif(asset.uri, contentType);
       const fileRes = await fetch(uploadUri);
       const blob = await fileRes.blob();
       const putRes = await fetch(uploadURL, {

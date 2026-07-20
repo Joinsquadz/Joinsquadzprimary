@@ -63,7 +63,7 @@ export default function ProfileScreen() {
   const [avatarViewerOpen, setAvatarViewerOpen] = useState(false);
   const [showSuccessBanner, setShowSuccessBanner] = useState(didCheckoutSuccess);
   const [eventCount, setEventCount] = useState<number | null>(null);
-  const [eventLimit] = useState(3);
+  const [eventLimit, setEventLimit] = useState(5);
   // Auth-race guard for the on-mount event-count fetch (see lib/vaultAuthRace.ts).
   const [countLoading, setCountLoading] = useState(true);
   const [countAuth, setCountAuth] = useState<AuthRaceState>(INITIAL_AUTH_RACE_STATE);
@@ -143,6 +143,7 @@ export default function ProfileScreen() {
       }
       const data = await res.json() as { count: number; limit: number };
       setEventCount(data.count);
+      setEventLimit(data.limit);
       setCountAuth(prev => applyVaultFetchOutcome(prev, { kind: "ok" }));
     } catch {
       // silently ignore — event count is best-effort

@@ -21,7 +21,7 @@ const TRIGGER_COPY: Record<UpgradeTrigger, { icon: string; title: string; body: 
   events: {
     icon: "🎉",
     title: "You're on a roll!",
-    body: "You've planned 3 events this year — the free plan limit. Upgrade to keep the momentum going.",
+    body: "You've planned 5 events this year — the free plan limit. Upgrade to keep the momentum going.",
   },
   photos: {
     icon: "📸",

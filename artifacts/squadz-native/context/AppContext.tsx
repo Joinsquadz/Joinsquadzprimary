@@ -31,35 +31,39 @@ const REFRESH_TOKEN_KEY = "@squadz/refreshToken";
 // ---------------------------------------------------------------------------
 // Secure token helpers
 // Auth tokens are stored in expo-secure-store (AES-256 encrypted on device)
-// instead of plain AsyncStorage. Includes:
-//   • a one-time migration from any AsyncStorage token found on first read
-//   • graceful AsyncStorage fallback when SecureStore is unavailable
-//     (e.g. rooted / unprotected-device Android)
+// instead of plain AsyncStorage. Design invariants:
+//   • Tokens are ONLY ever written to / read from SecureStore.
+//   • No AsyncStorage fallback — a fallback to plaintext defeats the purpose.
+//   • Legacy migration path: if a token is found ONLY in AsyncStorage (written
+//     before SecureStore adoption), it is treated as potentially compromised
+//     and DELETED — the user is forced to re-authenticate rather than silently
+//     carrying the old token forward into SecureStore.
 // ---------------------------------------------------------------------------
 async function getSecureToken(key: string): Promise<string | null> {
   try {
     const val = await SecureStore.getItemAsync(key);
     if (val !== null) return val;
-    // One-time migration: move legacy AsyncStorage token to SecureStore.
+    // Invalidation path: a token present only in AsyncStorage was stored in
+    // plaintext before SecureStore was adopted. Delete it and return null to
+    // force re-authentication — we never promote an insecure token into
+    // SecureStore, since it was already exposed.
     const legacy = await AsyncStorage.getItem(key).catch(() => null);
     if (legacy) {
-      await SecureStore.setItemAsync(key, legacy).catch(() => {});
       await AsyncStorage.removeItem(key).catch(() => {});
-      return legacy;
     }
     return null;
   } catch {
-    return AsyncStorage.getItem(key).catch(() => null);
+    // SecureStore unavailable (very rare — OS-level encryption fault).
+    // Treat as unauthenticated; no plaintext fallback.
+    return null;
   }
 }
 
 async function setSecureToken(key: string, value: string): Promise<void> {
-  try {
-    await SecureStore.setItemAsync(key, value);
-    await AsyncStorage.removeItem(key).catch(() => {}); // purge any legacy copy
-  } catch {
-    await AsyncStorage.setItem(key, value).catch(() => {});
-  }
+  // Write only to SecureStore. No AsyncStorage fallback — storing auth tokens
+  // in plaintext is a security regression, not a graceful degradation.
+  await SecureStore.setItemAsync(key, value);
+  await AsyncStorage.removeItem(key).catch(() => {}); // purge any legacy copy
 }
 
 async function removeSecureToken(key: string): Promise<void> {
