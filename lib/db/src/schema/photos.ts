@@ -12,6 +12,7 @@ export const photosTable = pgTable("photos", {
   sharedToSquad: boolean("shared_to_squad").notNull().default(false),
   mediaType: text("media_type").notNull().default("image"),
   caption: text("caption"),
+  status: text("status").notNull().default("active").$type<"active" | "hidden">(),
   uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

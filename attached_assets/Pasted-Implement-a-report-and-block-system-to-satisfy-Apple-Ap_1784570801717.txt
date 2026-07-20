@@ -1,0 +1,31 @@
+Implement a report and block system to satisfy Apple App Store Guideline 1.2 (UGC apps must offer a way to report objectionable content and block abusive users). Implement in phases; run regression after each.
+
+Product decisions (final — implement as specified):
+
+Reportable content types: feed posts, moments, vault photos, DM messages, user profiles.
+Report reasons: fixed enum — spam, harassment, inappropriate_content, other (with free-text field for other).
+No admin UI. Reports write to a new reports table (reporter_id, content_type, content_id, reported_user_id, reason, free_text, created_at, status) and trigger an email notification to the app owner via existing email infra (check what's already wired for transactional email; if none exists, use a simple SMTP/service call — do not build a new provider integration, flag if one is needed).
+Auto-hide: if a single piece of content accumulates reports from 3+ distinct reporter_ids, set its status to hidden automatically. Hidden content is excluded from all normal queries but retained in the DB for review.
+Blocking: new blocks table (blocker_id, blocked_id, created_at). Blocking is mutual in effect — once a block exists between two users (in either direction), both must be filtered from: each other's feed/moments/vault visibility, DM ability (new DMs blocked, existing thread hidden from both), friend requests, and squad invites between them. Blocking does NOT remove either user from a squad they're already both in.
+Block does not require a report first — accessible directly from a user's profile at any time.
+
+Phase 1 — Schema + backend
+
+Add reports and blocks tables per above.
+Add POST /reports (content_type, content_id, reason, optional free_text) and POST /users/:id/block, DELETE /users/:id/block (unblock).
+Add the mutual-visibility filter as a reusable helper (e.g. filterBlockedUsers) and apply it everywhere the existing filterUnmutedForSquad pattern is used, plus DM thread listing and friend-request/invite flows.
+Implement the 3-report auto-hide trigger and content status field on the affected content tables (feed posts, moments, vault photos — DM messages don't need a "hidden" status, reporting a message is enough without needing to hide it from the sender for a 1:1 thread).
+Wire the email notification on new report creation.
+
+Phase 2 — Client
+
+Add a "Report" action (long-press or overflow menu) on feed posts, moments, vault photos, and DM messages, opening the reason picker.
+Add "Block" action on user profile, plus an inline "Block this person" follow-up option immediately after submitting a report.
+Blocked users disappear from feed/moments/vault/DMs/friend-request flows on the client per the backend filter — confirm no client-side caching shows stale blocked content.
+
+Phase 3 — Regression
+
+Full API + mobile suite.
+New tests: report creation for each content type; auto-hide fires at exactly 3 distinct reporters and not before; blocked users are filtered from all listed surfaces in both directions; blocking doesn't remove squad membership; unblock restores visibility.
+
+Report pass/fail per phase and flag anything ambiguous, especially if there's no existing transactional email provider wired up — that's a real dependency, not a code detail.

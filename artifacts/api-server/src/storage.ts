@@ -87,6 +87,7 @@ const enrichedPhotoColumns = {
   sharedToSquad: photosTable.sharedToSquad,
   mediaType: photosTable.mediaType,
   caption: photosTable.caption,
+  status: photosTable.status,
   uploadedAt: photosTable.uploadedAt,
   eventTitle: eventsTable.title,
   eventEmoji: eventsTable.emoji,

@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { and, eq, gt, inArray, notInArray, isNull, desc } from "drizzle-orm";
+import { and, eq, gt, inArray, ne, notInArray, isNull, desc } from "drizzle-orm";
 import { z } from "zod";
 import {
   db,
@@ -190,6 +190,7 @@ router.get("/moments/friends", requireAuth, async (req: Request, res: Response):
       .where(
         and(
           liveCondition(),
+          ne(momentsTable.status, "hidden"),
           eq(momentsTable.audience, "friends"),
           inArray(momentsTable.authorId, authors),
           blockFilter,
@@ -237,7 +238,7 @@ router.get("/moments/feed", requireAuth, async (req: Request, res: Response): Pr
     const moments = await db
       .select()
       .from(momentsTable)
-      .where(and(liveCondition(), audienceCondition, blockFilter))
+      .where(and(liveCondition(), ne(momentsTable.status, "hidden"), audienceCondition, blockFilter))
       .orderBy(desc(momentsTable.createdAt));
     const rings = await buildRings(moments, userId);
     rings.sort((a, b) => {

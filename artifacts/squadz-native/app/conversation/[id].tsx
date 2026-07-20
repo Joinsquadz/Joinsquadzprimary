@@ -579,7 +579,59 @@ export default function ConversationScreen() {
                           }}
                         />
                       )}
-                      <View style={{ maxWidth: "76%" }}>
+                      <TouchableOpacity
+                        style={{ maxWidth: "76%" }}
+                        activeOpacity={1}
+                        onLongPress={!mine ? () => {
+                          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          Alert.alert("", undefined, [
+                            {
+                              text: "Report message",
+                              onPress: () =>
+                                Alert.alert("Report message", "Why are you reporting this?", [
+                                  {
+                                    text: "Spam",
+                                    onPress: () =>
+                                      void fetch(`${API_BASE}/api/reports`, {
+                                        method: "POST",
+                                        headers: { ...buildAuthHeaders(authToken), "Content-Type": "application/json" },
+                                        body: JSON.stringify({ contentType: "message", contentId: m.id, targetUserId: m.senderId, reason: "spam" }),
+                                      }).then(() => Alert.alert("Report submitted", "Thanks for letting us know.")),
+                                  },
+                                  {
+                                    text: "Inappropriate content",
+                                    onPress: () =>
+                                      void fetch(`${API_BASE}/api/reports`, {
+                                        method: "POST",
+                                        headers: { ...buildAuthHeaders(authToken), "Content-Type": "application/json" },
+                                        body: JSON.stringify({ contentType: "message", contentId: m.id, targetUserId: m.senderId, reason: "inappropriate_content" }),
+                                      }).then(() => Alert.alert("Report submitted", "Thanks for letting us know.")),
+                                  },
+                                  {
+                                    text: "Harassment",
+                                    onPress: () =>
+                                      void fetch(`${API_BASE}/api/reports`, {
+                                        method: "POST",
+                                        headers: { ...buildAuthHeaders(authToken), "Content-Type": "application/json" },
+                                        body: JSON.stringify({ contentType: "message", contentId: m.id, targetUserId: m.senderId, reason: "harassment" }),
+                                      }).then(() => Alert.alert("Report submitted", "Thanks for letting us know.")),
+                                  },
+                                  {
+                                    text: "Other",
+                                    onPress: () =>
+                                      void fetch(`${API_BASE}/api/reports`, {
+                                        method: "POST",
+                                        headers: { ...buildAuthHeaders(authToken), "Content-Type": "application/json" },
+                                        body: JSON.stringify({ contentType: "message", contentId: m.id, targetUserId: m.senderId, reason: "other" }),
+                                      }).then(() => Alert.alert("Report submitted", "Thanks for letting us know.")),
+                                  },
+                                  { text: "Cancel", style: "cancel" },
+                                ]),
+                            },
+                            { text: "Cancel", style: "cancel" },
+                          ]);
+                        } : undefined}
+                      >
                           <View
                             style={[
                               styles.bubble,
@@ -628,7 +680,7 @@ export default function ConversationScreen() {
                             {receipt}
                           </Text>
                         )}
-                      </View>
+                      </TouchableOpacity>
                     </View>
                   </View>
                 );

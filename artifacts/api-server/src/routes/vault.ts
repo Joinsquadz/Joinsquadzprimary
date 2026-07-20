@@ -11,6 +11,7 @@ import { db, feedPostsTable } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { copyStorageObject } from "../services/objectStorage";
 import { recordActivitySafe, removeActivity } from "../lib/activity";
+import { getBlockedAndBlockerIds } from "./moderation";
 
 const router: IRouter = Router();
 
@@ -136,6 +137,17 @@ router.get("/vault/photos", requireAuth, async (req: Request, res: Response): Pr
       rawPhotos = result.photos;
     } else {
       rawPhotos = await storage.getPhotosByUploaderId(userId);
+    }
+
+    // For squad/event views: filter out photos from blocked users and hidden content.
+    // Personal vault (no scope) shows the user's own photos regardless of status
+    // so they can see moderation outcomes.
+    if (squadId || eventId) {
+      const blockedIds = await getBlockedAndBlockerIds(userId);
+      const blockedSet = new Set(blockedIds);
+      rawPhotos = rawPhotos.filter(
+        (p) => !blockedSet.has(p.uploaderId) && p.status !== "hidden",
+      );
     }
 
     const favoriteIds = await storage.getUserFavoritePhotoIds(userId);

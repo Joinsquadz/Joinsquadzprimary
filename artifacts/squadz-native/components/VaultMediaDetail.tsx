@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
@@ -339,13 +340,9 @@ export default function VaultMediaDetail({
               </Text>
             )}
           </View>
-          {(isUploader || onDelete) ? (
-            <TouchableOpacity onPress={() => setOptionsOpen((o) => !o)} hitSlop={10} style={styles.headerBtn}>
-              <Ionicons name="ellipsis-horizontal" size={22} color={colors.foreground} />
-            </TouchableOpacity>
-          ) : (
-            <View style={styles.headerBtn} />
-          )}
+          <TouchableOpacity onPress={() => setOptionsOpen((o) => !o)} hitSlop={10} style={styles.headerBtn}>
+            <Ionicons name="ellipsis-horizontal" size={22} color={colors.foreground} />
+          </TouchableOpacity>
         </View>
 
         {optionsOpen && (
@@ -366,6 +363,57 @@ export default function VaultMediaDetail({
               >
                 <Ionicons name="trash-outline" size={18} color={colors.destructive} />
                 <Text style={[styles.optionText, { color: colors.destructive }]}>{deleteLabel}</Text>
+              </TouchableOpacity>
+            )}
+            {!isUploader && (
+              <TouchableOpacity
+                style={styles.optionRow}
+                onPress={() => {
+                  setOptionsOpen(false);
+                  Alert.alert("Report photo", "Why are you reporting this?", [
+                    {
+                      text: "Spam",
+                      onPress: () =>
+                        void fetch(`${API_BASE}/api/reports`, {
+                          method: "POST",
+                          headers: { ...authHeaders, "Content-Type": "application/json" },
+                          body: JSON.stringify({ contentType: "photo", contentId: String(photo.id), targetUserId: photo.uploaderId, reason: "spam" }),
+                        }),
+                    },
+                    {
+                      text: "Inappropriate content",
+                      onPress: () =>
+                        void fetch(`${API_BASE}/api/reports`, {
+                          method: "POST",
+                          headers: { ...authHeaders, "Content-Type": "application/json" },
+                          body: JSON.stringify({ contentType: "photo", contentId: String(photo.id), targetUserId: photo.uploaderId, reason: "inappropriate_content" }),
+                        }),
+                    },
+                    {
+                      text: "Harassment",
+                      onPress: () =>
+                        void fetch(`${API_BASE}/api/reports`, {
+                          method: "POST",
+                          headers: { ...authHeaders, "Content-Type": "application/json" },
+                          body: JSON.stringify({ contentType: "photo", contentId: String(photo.id), targetUserId: photo.uploaderId, reason: "harassment" }),
+                        }),
+                    },
+                    {
+                      text: "Other",
+                      onPress: () =>
+                        void fetch(`${API_BASE}/api/reports`, {
+                          method: "POST",
+                          headers: { ...authHeaders, "Content-Type": "application/json" },
+                          body: JSON.stringify({ contentType: "photo", contentId: String(photo.id), targetUserId: photo.uploaderId, reason: "other" }),
+                        }),
+                    },
+                    { text: "Cancel", style: "cancel" },
+                  ]);
+                }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="flag-outline" size={18} color={colors.foreground} />
+                <Text style={[styles.optionText, { color: colors.foreground }]}>Report photo</Text>
               </TouchableOpacity>
             )}
           </View>

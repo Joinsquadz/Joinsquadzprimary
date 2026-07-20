@@ -10,6 +10,7 @@ export const momentsTable = pgTable(
     mediaUrl: text("media_url").notNull(),
     mediaType: text("media_type").notNull().$type<"photo" | "video">(),
     durationMs: integer("duration_ms"),
+    status: text("status").notNull().default("active").$type<"active" | "hidden">(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),

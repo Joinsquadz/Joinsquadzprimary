@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { and, eq, inArray, notInArray, isNull, lt, sql, desc } from "drizzle-orm";
+import { and, eq, inArray, ne, notInArray, isNull, lt, sql, desc } from "drizzle-orm";
 import { z } from "zod";
 import {
   db,
@@ -151,7 +151,11 @@ router.get("/feed", requireAuth, async (req: Request, res: Response): Promise<vo
       OR ${feedPostsTable.authorId} = ${userId}
     )`;
 
-    const conditions = [isNull(feedPostsTable.deletedAt), visibility];
+    const conditions = [
+      isNull(feedPostsTable.deletedAt),
+      ne(feedPostsTable.status, "hidden"),
+      visibility,
+    ];
     // Suppress posts from blocked users (both directions: viewer blocked them, or they blocked viewer).
     if (blockedIds.length > 0) {
       conditions.push(notInArray(feedPostsTable.authorId, blockedIds));

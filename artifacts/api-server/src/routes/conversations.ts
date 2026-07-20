@@ -5,6 +5,7 @@ import { requireAuth } from "../middleware/currentUser";
 import { logger } from "../lib/logger";
 import { sendPushNotifications } from "../lib/pushNotifications";
 import { emitConversationUpdate, onConversationUpdate } from "../lib/conversationUpdates";
+import { getBlockedAndBlockerIds } from "./moderation";
 
 function displayName(user: { firstName?: string | null; lastName?: string | null; email?: string | null } | null | undefined): string {
   if (!user) return "Someone";
@@ -44,8 +45,15 @@ const StartDirectBody = z.object({
 router.get("/conversations", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = (req.user as { id: string }).id;
-    const conversations = await storage.listConversationsForUser(userId);
-    res.json(conversations);
+    const [conversations, blockedIds] = await Promise.all([
+      storage.listConversationsForUser(userId),
+      getBlockedAndBlockerIds(userId),
+    ]);
+    const blockedSet = new Set(blockedIds);
+    const visible = conversations.filter(
+      (c) => c.type !== "direct" || !c.otherUserId || !blockedSet.has(c.otherUserId),
+    );
+    res.json(visible);
   } catch (err) {
     logger.error({ err }, "Error listing conversations");
     res.status(500).json({ error: "Failed to list conversations" });
@@ -85,6 +93,11 @@ router.post(
       return;
     }
     try {
+      const blockedIds = await getBlockedAndBlockerIds(userId);
+      if (blockedIds.includes(otherUserId)) {
+        res.status(403).json({ error: "Cannot message this user" });
+        return;
+      }
       const convo = await storage.getOrCreateDirectConversation(userId, otherUserId);
       res.status(201).json({ id: convo.id });
     } catch (err) {

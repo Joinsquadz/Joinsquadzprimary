@@ -11,6 +11,7 @@ export const feedPostsTable = pgTable(
     mediaUrl: text("media_url"),
     mediaType: text("media_type").$type<"photo" | "video">(),
     durationMs: integer("duration_ms"),
+    status: text("status").notNull().default("active").$type<"active" | "hidden">(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },

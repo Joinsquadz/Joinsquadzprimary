@@ -221,6 +221,35 @@ export function MomentViewer({ rings, initialRingIndex, onClose, onChanged }: Pr
     [moment, authToken, ring, reacted],
   );
 
+  const handleReport = useCallback(
+    (reason: "spam" | "inappropriate_content" | "harassment" | "other") => {
+      if (!moment || !ring) return;
+      void fetch(`${API_BASE}/api/reports`, {
+        method: "POST",
+        headers: { ...buildAuthHeaders(authToken), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contentType: "moment",
+          contentId: moment.id,
+          targetUserId: ring.authorId,
+          reason,
+        }),
+      });
+      Alert.alert("Report submitted", "Thanks for letting us know. We'll review this moment.");
+    },
+    [moment, ring, authToken],
+  );
+
+  const handleMomentMenu = useCallback(() => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Alert.alert("Report moment", "Why are you reporting this?", [
+      { text: "Spam", onPress: () => handleReport("spam") },
+      { text: "Inappropriate content", onPress: () => handleReport("inappropriate_content") },
+      { text: "Harassment", onPress: () => handleReport("harassment") },
+      { text: "Other", onPress: () => handleReport("other") },
+      { text: "Cancel", style: "cancel" },
+    ]);
+  }, [handleReport]);
+
   const handleDelete = useCallback(() => {
     if (!moment || !authToken) return;
     Alert.alert("Delete moment?", "This can't be undone.", [
@@ -336,13 +365,17 @@ export function MomentViewer({ rings, initialRingIndex, onClose, onChanged }: Pr
             </View>
           </View>
           <View style={styles.headerRight}>
-            {ring.isSelf && (
+            {ring.isSelf ? (
               <TouchableOpacity onPress={handleDelete} hitSlop={10} disabled={deleting} style={styles.iconBtn}>
                 {deleting ? (
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (
                   <Ionicons name="trash-outline" size={22} color="#fff" />
                 )}
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity onPress={handleMomentMenu} hitSlop={10} style={styles.iconBtn}>
+                <Ionicons name="ellipsis-horizontal" size={22} color="#fff" />
               </TouchableOpacity>
             )}
             <TouchableOpacity onPress={onClose} hitSlop={10} style={styles.iconBtn}>

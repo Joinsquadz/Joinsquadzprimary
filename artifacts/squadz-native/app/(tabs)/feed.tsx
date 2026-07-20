@@ -621,7 +621,7 @@ export default function FeedScreen() {
   );
 
   const submitReport = useCallback(
-    async (post: FeedPost, reason: "spam" | "inappropriate" | "harassment" | "other") => {
+    async (post: FeedPost, reason: "spam" | "inappropriate_content" | "harassment" | "other") => {
       try {
         await fetch(`${API_BASE}/api/reports`, {
           method: "POST",
@@ -645,7 +645,7 @@ export default function FeedScreen() {
     (post: FeedPost) => {
       Alert.alert("Report post", "Why are you reporting this?", [
         { text: "Spam", onPress: () => void submitReport(post, "spam") },
-        { text: "Inappropriate content", onPress: () => void submitReport(post, "inappropriate") },
+        { text: "Inappropriate content", onPress: () => void submitReport(post, "inappropriate_content") },
         { text: "Harassment", onPress: () => void submitReport(post, "harassment") },
         { text: "Other", onPress: () => void submitReport(post, "other") },
         { text: "Cancel", style: "cancel" },

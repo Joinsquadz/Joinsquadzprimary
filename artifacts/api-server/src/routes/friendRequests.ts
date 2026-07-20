@@ -6,6 +6,7 @@ import {
   usersTable,
   friendshipsTable,
   friendRequestsTable,
+  userBlocksTable,
   activityTable,
 } from "@workspace/db";
 import { requireAuth } from "../middleware/currentUser";
@@ -65,6 +66,22 @@ router.post(
         );
       if (existing) {
         res.status(409).json({ error: "Already friends" });
+        return;
+      }
+
+      // Block check: reject if either party has blocked the other
+      const [blockRow] = await db
+        .select({ id: userBlocksTable.id })
+        .from(userBlocksTable)
+        .where(
+          or(
+            and(eq(userBlocksTable.blockerId, userId), eq(userBlocksTable.blockedId, toUserId)),
+            and(eq(userBlocksTable.blockerId, toUserId), eq(userBlocksTable.blockedId, userId)),
+          ),
+        )
+        .limit(1);
+      if (blockRow) {
+        res.status(403).json({ error: "Cannot send a friend request to this user" });
         return;
       }
 

@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  Alert,
   Platform,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
@@ -56,6 +57,7 @@ export default function UserProfileScreen() {
   const [error, setError] = useState<string | null>(null);
   const [friendLoading, setFriendLoading] = useState(false);
   const [avatarOpen, setAvatarOpen] = useState(false);
+  const [blocked, setBlocked] = useState(false);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const isSelf = id === currentUser?.id;
@@ -99,6 +101,76 @@ export default function UserProfileScreen() {
     } finally {
       setFriendLoading(false);
     }
+  }
+
+  function handleBlock() {
+    if (!id) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Alert.alert(
+      "Block user?",
+      `${profile?.name ?? "This user"} won't be able to interact with you and you won't see their content.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Block",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await fetch(`${API_BASE}/api/users/${id}/block`, {
+                method: "POST",
+                headers: buildAuthHeaders(authToken),
+              });
+              setBlocked(true);
+            } catch {
+              Alert.alert("Couldn't block user", "Please check your connection and try again.");
+            }
+          },
+        },
+      ],
+    );
+  }
+
+  function handleReportProfile() {
+    if (!id) return;
+    Alert.alert("Report profile", "Why are you reporting this?", [
+      {
+        text: "Spam",
+        onPress: () =>
+          void fetch(`${API_BASE}/api/reports`, {
+            method: "POST",
+            headers: { ...buildAuthHeaders(authToken), "Content-Type": "application/json" },
+            body: JSON.stringify({ contentType: "profile", contentId: id, targetUserId: id, reason: "spam" }),
+          }).then(() => Alert.alert("Report submitted", "Thanks for letting us know.")),
+      },
+      {
+        text: "Inappropriate content",
+        onPress: () =>
+          void fetch(`${API_BASE}/api/reports`, {
+            method: "POST",
+            headers: { ...buildAuthHeaders(authToken), "Content-Type": "application/json" },
+            body: JSON.stringify({ contentType: "profile", contentId: id, targetUserId: id, reason: "inappropriate_content" }),
+          }).then(() => Alert.alert("Report submitted", "Thanks for letting us know.")),
+      },
+      {
+        text: "Harassment",
+        onPress: () =>
+          void fetch(`${API_BASE}/api/reports`, {
+            method: "POST",
+            headers: { ...buildAuthHeaders(authToken), "Content-Type": "application/json" },
+            body: JSON.stringify({ contentType: "profile", contentId: id, targetUserId: id, reason: "harassment" }),
+          }).then(() => Alert.alert("Report submitted", "Thanks for letting us know.")),
+      },
+      {
+        text: "Other",
+        onPress: () =>
+          void fetch(`${API_BASE}/api/reports`, {
+            method: "POST",
+            headers: { ...buildAuthHeaders(authToken), "Content-Type": "application/json" },
+            body: JSON.stringify({ contentType: "profile", contentId: id, targetUserId: id, reason: "other" }),
+          }).then(() => Alert.alert("Report submitted", "Thanks for letting us know.")),
+      },
+      { text: "Cancel", style: "cancel" },
+    ]);
   }
 
   if (loading) {
@@ -178,32 +250,49 @@ export default function UserProfileScreen() {
           ) : null}
 
           {!isSelf && (
-            <TouchableOpacity
-              onPress={handleToggleFriend}
-              disabled={friendLoading || isPending}
-              style={[
-                styles.friendBtn,
-                {
-                  backgroundColor: isFriend ? colors.card : isPending ? colors.muted : colors.primary,
-                  borderColor: isFriend ? colors.border : isPending ? colors.border : colors.primary,
-                },
-              ]}
-            >
-              {friendLoading ? (
-                <ActivityIndicator size="small" color={isFriend ? colors.foreground : "#fff"} />
-              ) : (
-                <>
-                  <Ionicons
-                    name={isFriend ? "person-remove-outline" : isPending ? "time-outline" : "person-add-outline"}
-                    size={16}
-                    color={isFriend || isPending ? colors.foreground : "#fff"}
-                  />
-                  <Text style={[styles.friendBtnText, { color: isFriend || isPending ? colors.foreground : "#fff" }]}>
-                    {isFriend ? "Remove friend" : isPending ? "Request sent" : "Add friend"}
-                  </Text>
-                </>
-              )}
-            </TouchableOpacity>
+            <>
+              <TouchableOpacity
+                onPress={handleToggleFriend}
+                disabled={friendLoading || isPending}
+                style={[
+                  styles.friendBtn,
+                  {
+                    backgroundColor: isFriend ? colors.card : isPending ? colors.muted : colors.primary,
+                    borderColor: isFriend ? colors.border : isPending ? colors.border : colors.primary,
+                  },
+                ]}
+              >
+                {friendLoading ? (
+                  <ActivityIndicator size="small" color={isFriend ? colors.foreground : "#fff"} />
+                ) : (
+                  <>
+                    <Ionicons
+                      name={isFriend ? "person-remove-outline" : isPending ? "time-outline" : "person-add-outline"}
+                      size={16}
+                      color={isFriend || isPending ? colors.foreground : "#fff"}
+                    />
+                    <Text style={[styles.friendBtnText, { color: isFriend || isPending ? colors.foreground : "#fff" }]}>
+                      {isFriend ? "Remove friend" : isPending ? "Request sent" : "Add friend"}
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+              <View style={styles.modRow}>
+                {!blocked ? (
+                  <TouchableOpacity onPress={handleBlock} hitSlop={6} style={styles.modBtn}>
+                    <Ionicons name="ban-outline" size={14} color={colors.mutedForeground} />
+                    <Text style={[styles.modBtnText, { color: colors.mutedForeground }]}>Block</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <Text style={[styles.modBtnText, { color: colors.mutedForeground }]}>Blocked</Text>
+                )}
+                <Text style={[styles.modSep, { color: colors.mutedForeground }]}>·</Text>
+                <TouchableOpacity onPress={handleReportProfile} hitSlop={6} style={styles.modBtn}>
+                  <Ionicons name="flag-outline" size={14} color={colors.mutedForeground} />
+                  <Text style={[styles.modBtnText, { color: colors.mutedForeground }]}>Report</Text>
+                </TouchableOpacity>
+              </View>
+            </>
           )}
         </View>
 
@@ -327,4 +416,8 @@ const styles = StyleSheet.create({
   emptyText: { fontSize: 15, textAlign: "center", maxWidth: 260 },
   editBtn: { paddingHorizontal: 24, paddingVertical: 10, borderRadius: 20, marginTop: 4 },
   editBtnText: { color: "#fff", fontWeight: "600", fontSize: 14 },
+  modRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 },
+  modBtn: { flexDirection: "row", alignItems: "center", gap: 4 },
+  modBtnText: { fontSize: 13 },
+  modSep: { fontSize: 13 },
 });
