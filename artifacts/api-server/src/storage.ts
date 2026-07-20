@@ -1719,6 +1719,41 @@ export class Storage {
       .where(eq(eventsTable.id, eventId));
   }
 
+  /** Events eligible for the 3-day-out heads-up reminder (fire-once via
+   *  threeDayReminderSentAt). Only returns events whose toggle is on. */
+  async getEventsPending3DayReminder(): Promise<DbEvent[]> {
+    return db
+      .select()
+      .from(eventsTable)
+      .where(
+        and(
+          eq(eventsTable.cancelled, false),
+          eq(eventsTable.remind3DaysToggle, true),
+          isNull(eventsTable.threeDayReminderSentAt),
+          ne(eventsTable.date, ""),
+          ne(eventsTable.date, "TBD"),
+        ),
+      );
+  }
+
+  async markEvent3DayReminderSent(eventId: string): Promise<void> {
+    await db
+      .update(eventsTable)
+      .set({ threeDayReminderSentAt: new Date() })
+      .where(eq(eventsTable.id, eventId));
+  }
+
+  /** Stamp the cooldown time for a manual host/co-admin reminder. Each type
+   *  ("general" or "rsvp") has its own independent cooldown column so firing
+   *  one doesn't block the other. */
+  async markManualReminderSent(eventId: string, type: 'general' | 'rsvp'): Promise<void> {
+    const field =
+      type === 'general'
+        ? { manualReminderGeneralSentAt: new Date() }
+        : { manualReminderRsvpSentAt: new Date() };
+    await db.update(eventsTable).set(field).where(eq(eventsTable.id, eventId));
+  }
+
   /** Stamp the current time as the last poll-update notification timestamp.
    *  Call AFTER a successful push fan-out so a server restart in between
    *  doesn't prevent the next push from going out. */

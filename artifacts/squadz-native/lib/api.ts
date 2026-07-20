@@ -56,3 +56,37 @@ export function resolveUploadedUrl(objectPath: string): string {
 export function buildAuthHeaders(token: string | null): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
+
+/**
+ * Asks the API server to send a manual organizer reminder for the given event.
+ *
+ * - type "general"  → notifies all going + maybe RSVPs (excludes sender).
+ * - type "rsvp"     → notifies squad members + invited friends who haven't responded.
+ *
+ * Each type has an independent 1-hour cooldown enforced server-side.
+ * Returns `{ ok: true }` on success, or `{ ok: false, status, retryAfterMs?, error? }` on failure.
+ */
+export async function sendManualReminder(
+  eventId: string,
+  type: "general" | "rsvp",
+  token: string | null,
+): Promise<{ ok: true; sent?: number } | { ok: false; status: number; retryAfterMs?: number; error?: string }> {
+  const res = await fetch(`${API_BASE}/api/events/${eventId}/remind`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...buildAuthHeaders(token),
+    },
+    body: JSON.stringify({ type }),
+  });
+  const data = (await res.json()) as Record<string, unknown>;
+  if (!res.ok) {
+    return {
+      ok: false,
+      status: res.status,
+      retryAfterMs: typeof data.retryAfterMs === "number" ? data.retryAfterMs : undefined,
+      error: typeof data.error === "string" ? data.error : undefined,
+    };
+  }
+  return { ok: true, sent: typeof data.sent === "number" ? data.sent : undefined };
+}

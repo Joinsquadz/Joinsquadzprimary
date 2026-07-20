@@ -3,6 +3,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const storageMock = vi.hoisted(() => ({
   getEventsPendingDayOfReminder: vi.fn(),
   markEventDayOfReminderSent: vi.fn(),
+  getEventsPending3DayReminder: vi.fn(),
+  markEvent3DayReminderSent: vi.fn(),
   getEventsPendingRecap: vi.fn(),
   markEventRecapSent: vi.fn(),
   getPollsPendingNudge: vi.fn(),
@@ -22,10 +24,13 @@ vi.mock("../lib/pushNotifications", () => ({ sendPushNotifications: sendPushNoti
 
 import {
   runDayOfReminderScan,
+  run3DayReminderScan,
   runEventRecapScan,
   runPollNudgeScan,
   REMINDER_LEAD_MS,
   DAY_OF_LEAD_MS,
+  THREE_DAY_LEAD_MS,
+  MIN_PLAN_AGE_FOR_3DAY_MS,
   RECAP_DELAY_MS,
   RECAP_MAX_AGE_MS,
   POLL_NUDGE_MIN_AGE_MS,
@@ -65,6 +70,7 @@ beforeEach(() => {
   storageMock.filterUnmutedForSquad.mockImplementation(async (ids: string[]) => ids);
   storageMock.getPushTokensForUsers.mockResolvedValue(["ExponentPushToken[x]"]);
   storageMock.markEventDayOfReminderSent.mockResolvedValue(undefined);
+  storageMock.markEvent3DayReminderSent.mockResolvedValue(undefined);
   storageMock.markEventRecapSent.mockResolvedValue(undefined);
   storageMock.markPollNudgeSent.mockResolvedValue(undefined);
   storageMock.clearPushToken.mockResolvedValue(undefined);
@@ -86,11 +92,15 @@ describe("runDayOfReminderScan", () => {
   });
 
   it("body says 'today' when the event is the same calendar day (UTC, no timezone)", async () => {
-    // 8h ahead → same calendar day in UTC (test runner is UTC).
+    // Pin 'now' to noon UTC so that 8h later (20:00 UTC) is still the same
+    // calendar day regardless of when the CI runner executes.
+    const fakeNow = new Date("2026-07-16T12:00:00Z");
+    vi.useFakeTimers({ now: fakeNow });
     storageMock.getEventsPendingDayOfReminder.mockResolvedValue([
       evt({ date: dateStr(8 * 60 * 60 * 1000), timezone: null }),
     ]);
     await runDayOfReminderScan();
+    vi.useRealTimers();
     const [, payload] = sendPushNotificationsMock.mock.calls[0] as [unknown, { body: string }];
     expect(payload.body).toMatch(/\btoday\b/i);
   });
@@ -221,6 +231,116 @@ describe("runEventRecapScan", () => {
 
     expect(sendPushNotificationsMock).not.toHaveBeenCalled();
     expect(storageMock.markEventRecapSent).toHaveBeenCalledWith("evt-1");
+  });
+});
+
+describe("run3DayReminderScan", () => {
+  // Helper: build an event whose eventAt is msFromNow in the future and whose
+  // createdAt is planAgeMs before that start — controls the plan-age gate.
+  function evt3day(msFromNow: number, planAgeMs: number, over: Partial<Record<string, unknown>> = {}): Record<string, unknown> {
+    const start = new Date(Date.now() + msFromNow);
+    const createdAt = new Date(start.getTime() - planAgeMs);
+    return {
+      id: "evt-1",
+      title: "BBQ",
+      emoji: "🔥",
+      date: "Fri, Jul 25 · 6:00 PM",
+      eventAt: start.toISOString(),
+      squadId: "",
+      hostId: "host",
+      rsvps: { [GOING]: "going" },
+      createdAt: createdAt.toISOString(),
+      timezone: null,
+      ...over,
+    };
+  }
+
+  it("sends to going RSVPs inside the 3-day window with a plan old enough, then marks sent", async () => {
+    // 48h out (inside 72h window), plan created 5 days before start.
+    storageMock.getEventsPending3DayReminder.mockResolvedValue([
+      evt3day(48 * 60 * 60 * 1000, 5 * 24 * 60 * 60 * 1000),
+    ]);
+    await run3DayReminderScan();
+    const [recipientIds, opts] = storageMock.getPushTokensForUsers.mock.calls[0] as [string[], { requireNotifyReminders?: boolean }];
+    expect(recipientIds).toEqual([GOING]);
+    expect(opts.requireNotifyReminders).toBe(true);
+    expect(sendPushNotificationsMock).toHaveBeenCalledTimes(1);
+    expect(storageMock.markEvent3DayReminderSent).toHaveBeenCalledWith("evt-1");
+  });
+
+  it("does NOT send when the event is still more than 3 days out", async () => {
+    // 80h out → beyond the 72h window.
+    storageMock.getEventsPending3DayReminder.mockResolvedValue([
+      evt3day(THREE_DAY_LEAD_MS + 60 * 60 * 1000, 10 * 24 * 60 * 60 * 1000),
+    ]);
+    await run3DayReminderScan();
+    expect(sendPushNotificationsMock).not.toHaveBeenCalled();
+    expect(storageMock.markEvent3DayReminderSent).not.toHaveBeenCalled();
+  });
+
+  it("marks (without sending) when already inside the day-of window to avoid a duplicate", async () => {
+    // 10h out → inside DAY_OF_LEAD_MS (14h), so day-of scanner handles it.
+    storageMock.getEventsPending3DayReminder.mockResolvedValue([
+      evt3day(10 * 60 * 60 * 1000, 7 * 24 * 60 * 60 * 1000),
+    ]);
+    await run3DayReminderScan();
+    expect(sendPushNotificationsMock).not.toHaveBeenCalled();
+    expect(storageMock.markEvent3DayReminderSent).toHaveBeenCalledWith("evt-1");
+  });
+
+  it("marks (without sending) when plan age < 4 days (created too close to the event)", async () => {
+    // 48h out but plan was only created 2 days before start → too fresh.
+    storageMock.getEventsPending3DayReminder.mockResolvedValue([
+      evt3day(48 * 60 * 60 * 1000, MIN_PLAN_AGE_FOR_3DAY_MS - 60 * 60 * 1000),
+    ]);
+    await run3DayReminderScan();
+    expect(sendPushNotificationsMock).not.toHaveBeenCalled();
+    expect(storageMock.markEvent3DayReminderSent).toHaveBeenCalledWith("evt-1");
+  });
+
+  it("does NOT notify maybe RSVPs — only going is the audience (mirrors day-of scanner)", async () => {
+    storageMock.getEventsPending3DayReminder.mockResolvedValue([
+      evt3day(48 * 60 * 60 * 1000, 5 * 24 * 60 * 60 * 1000, {
+        rsvps: { [GOING]: "going", [MAYBE]: "maybe" },
+      }),
+    ]);
+    await run3DayReminderScan();
+    const [recipientIds] = storageMock.getPushTokensForUsers.mock.calls[0] as [string[]];
+    expect(recipientIds).toEqual([GOING]);
+    expect(recipientIds).not.toContain(MAYBE);
+  });
+
+  it("body uses calendarDaysUntil 'today'/'tomorrow' labels via the event timezone", async () => {
+    // Pin now to midnight UTC (00:00). Event is 20h away = 20:00 UTC same day.
+    // 20h is inside the 3-day window (< 72h) and outside the day-of window (> 14h),
+    // so the scanner fires and the label should be "today".
+    const fakeNow = new Date("2026-07-16T00:00:00Z");
+    vi.useFakeTimers({ now: fakeNow });
+    storageMock.getEventsPending3DayReminder.mockResolvedValue([
+      evt3day(20 * 60 * 60 * 1000, 7 * 24 * 60 * 60 * 1000, { timezone: null }),
+    ]);
+    await run3DayReminderScan();
+    vi.useRealTimers();
+    const [, payload] = sendPushNotificationsMock.mock.calls[0] as [unknown, { body: string }];
+    expect(payload.body).toMatch(/\btoday\b/i);
+  });
+
+  it("skips events with no going RSVPs without marking sent (fire-and-forget would be wasteful)", async () => {
+    storageMock.getEventsPending3DayReminder.mockResolvedValue([
+      evt3day(48 * 60 * 60 * 1000, 5 * 24 * 60 * 60 * 1000, { rsvps: { [MAYBE]: "maybe" } }),
+    ]);
+    await run3DayReminderScan();
+    expect(sendPushNotificationsMock).not.toHaveBeenCalled();
+    expect(storageMock.markEvent3DayReminderSent).not.toHaveBeenCalled();
+  });
+
+  it("does not mark when the send is not confirmed, so it retries next scan", async () => {
+    storageMock.getEventsPending3DayReminder.mockResolvedValue([
+      evt3day(48 * 60 * 60 * 1000, 5 * 24 * 60 * 60 * 1000),
+    ]);
+    sendPushNotificationsMock.mockResolvedValue({ staleTokens: [], okCount: 0, hadSendError: true });
+    await run3DayReminderScan();
+    expect(storageMock.markEvent3DayReminderSent).not.toHaveBeenCalled();
   });
 });
 

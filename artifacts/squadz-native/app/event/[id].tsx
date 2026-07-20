@@ -25,6 +25,7 @@ import { shareIcsFile } from "@/lib/shareIcs";
 import { findMyConflicts, getPlanSpan } from "@/lib/conflicts";
 import ConflictBanner from "@/components/ConflictBanner";
 import { scheduleRsvpReminder } from "@/lib/reminders";
+import { sendManualReminder } from "@/lib/api";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -335,6 +336,8 @@ export default function EventDetailScreen() {
   >({});
   const [calBusy, setCalBusy] = useState(false);
   const [remBusy, setRemBusy] = useState(false);
+  const [generalReminderBusy, setGeneralReminderBusy] = useState(false);
+  const [rsvpReminderBusy, setRsvpReminderBusy] = useState(false);
 
   const [togglingTaskIds, setTogglingTaskIds] = useState<Set<string>>(new Set());
   const [claimingTaskIds, setClaimingTaskIds] = useState<Set<string>>(new Set());
@@ -475,6 +478,51 @@ export default function EventDetailScreen() {
   // the event or change who the co-admins are.
   const canManage = isHost || eventCoAdminIds.includes(currentUser.id);
   const squad = getSquad(event.squadId);
+
+  // Manual reminder cooldown state (1 h, independent per type).
+  const MANUAL_REMINDER_COOLDOWN_MS = 60 * 60 * 1000;
+  const nowMs = Date.now();
+  const generalLastSentMs = event.manualReminderGeneralSentAt
+    ? new Date(event.manualReminderGeneralSentAt).getTime()
+    : null;
+  const rsvpLastSentMs = event.manualReminderRsvpSentAt
+    ? new Date(event.manualReminderRsvpSentAt).getTime()
+    : null;
+  const generalOnCooldown = generalLastSentMs !== null && nowMs - generalLastSentMs < MANUAL_REMINDER_COOLDOWN_MS;
+  const rsvpOnCooldown = rsvpLastSentMs !== null && nowMs - rsvpLastSentMs < MANUAL_REMINDER_COOLDOWN_MS;
+
+  const handleManualReminder = async (type: "general" | "rsvp") => {
+    if (type === "general" ? generalReminderBusy : rsvpReminderBusy) return;
+    const setBusy = type === "general" ? setGeneralReminderBusy : setRsvpReminderBusy;
+    setBusy(true);
+    try {
+      Haptics.selectionAsync();
+      const result = await sendManualReminder(event.id, type, authToken);
+      if (!result.ok) {
+        if (result.status === 429 && result.retryAfterMs != null) {
+          const minsLeft = Math.ceil(result.retryAfterMs / 60000);
+          Alert.alert(
+            "Reminder sent recently",
+            `You can send another in about ${minsLeft} minute${minsLeft !== 1 ? "s" : ""}.`,
+          );
+        } else {
+          Alert.alert("Couldn't send reminder", result.error ?? "Something went wrong.");
+        }
+        return;
+      }
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      const label =
+        type === "general"
+          ? "Your guests have been reminded about this event."
+          : "Guests who haven't responded yet have been nudged.";
+      Alert.alert("Reminder sent", label);
+      void refreshEvents();
+    } catch {
+      Alert.alert("Couldn't send reminder", "Something went wrong.");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   function resolveForDisplay(userId: string): ResolvedUser {
     if (userId === currentUser.id) {
@@ -1684,12 +1732,42 @@ export default function EventDetailScreen() {
               <Ionicons name="chevron-forward" size={16} color={colors.textDim} />
             </TouchableOpacity>
             <TouchableOpacity
-              onPress={() => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); Alert.alert("Reminder sent", "Your guests have been nudged about this event."); }}
-              style={[styles.adminRow, { backgroundColor: colors.card, borderColor: colors.border }]}
+              onPress={() => void handleManualReminder("general")}
+              disabled={generalReminderBusy || generalOnCooldown}
+              style={[
+                styles.adminRow,
+                { backgroundColor: colors.card, borderColor: colors.border },
+                (generalReminderBusy || generalOnCooldown) && { opacity: 0.5 },
+              ]}
             >
               <Ionicons name="notifications-outline" size={20} color={colors.foreground} />
-              <Text style={[styles.adminLabel, { color: colors.foreground }]}>Send reminder to guests</Text>
-              <Ionicons name="chevron-forward" size={16} color={colors.textDim} />
+              <Text style={[styles.adminLabel, { color: colors.foreground }]}>
+                {generalOnCooldown ? "General reminder sent (1 h cooldown)" : "Remind everyone (going / maybe)"}
+              </Text>
+              {generalReminderBusy ? (
+                <ActivityIndicator size="small" color={colors.textDim} />
+              ) : (
+                <Ionicons name="chevron-forward" size={16} color={colors.textDim} />
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => void handleManualReminder("rsvp")}
+              disabled={rsvpReminderBusy || rsvpOnCooldown}
+              style={[
+                styles.adminRow,
+                { backgroundColor: colors.card, borderColor: colors.border },
+                (rsvpReminderBusy || rsvpOnCooldown) && { opacity: 0.5 },
+              ]}
+            >
+              <Ionicons name="mail-outline" size={20} color={colors.foreground} />
+              <Text style={[styles.adminLabel, { color: colors.foreground }]}>
+                {rsvpOnCooldown ? "RSVP nudge sent (1 h cooldown)" : "Nudge guests who haven't responded"}
+              </Text>
+              {rsvpReminderBusy ? (
+                <ActivityIndicator size="small" color={colors.textDim} />
+              ) : (
+                <Ionicons name="chevron-forward" size={16} color={colors.textDim} />
+              )}
             </TouchableOpacity>
 
             {/* Co-admins — host only */}

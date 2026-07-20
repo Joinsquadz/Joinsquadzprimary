@@ -14,6 +14,12 @@ export const REMINDER_LEAD_MS = 2 * 60 * 60 * 1000;
 // than the "starting soon" lead away, so the two reminders don't collide.
 export const DAY_OF_LEAD_MS = 14 * 60 * 60 * 1000;
 
+// 3-day-out reminder: fires once per event when the start is within 3 calendar
+// days but still outside the day-of window. Gated by a plan-age check so a
+// plan created 3 days before the event doesn't trigger immediately.
+export const THREE_DAY_LEAD_MS = 3 * 24 * 60 * 60 * 1000; // 72 h
+export const MIN_PLAN_AGE_FOR_3DAY_MS = 4 * 24 * 60 * 60 * 1000; // 96 h
+
 // Post-event recap: prompt for photos once the event is comfortably over, but
 // not so long after that it feels stale.
 export const RECAP_DELAY_MS = 3 * 60 * 60 * 1000;
@@ -155,6 +161,74 @@ export async function runDayOfReminderScan(): Promise<void> {
       }
     } catch (err) {
       logger.error({ err, eventId: event.id }, 'Day-of reminder send failed; will retry');
+    }
+  }
+}
+
+// 3-day-out reminder to going RSVPs, fired once per event when the start is
+// within THREE_DAY_LEAD_MS but still outside the day-of window. An additional
+// plan-age gate prevents plans created <4 days before the event from firing
+// immediately (the organizer just made the plan — the reminder would be noise).
+export async function run3DayReminderScan(): Promise<void> {
+  const events = await storage.getEventsPending3DayReminder();
+  const now = new Date();
+  for (const event of events) {
+    const start = eventStartFor(event, now);
+    if (!start) continue;
+    const msUntil = start.getTime() - now.getTime();
+
+    // Already inside the day-of window — mark done (day-of scanner covers it).
+    if (msUntil <= DAY_OF_LEAD_MS) {
+      await storage.markEvent3DayReminderSent(event.id);
+      continue;
+    }
+    if (msUntil > THREE_DAY_LEAD_MS) continue; // still too far out
+
+    // Plan-age gate: skip (and mark done) if the event was created fewer than
+    // 4 days before its start — the reminder would fire almost immediately,
+    // which is not useful to an organizer who just created the plan.
+    const createdAt = event.createdAt ? new Date(event.createdAt).getTime() : now.getTime();
+    const planAge = start.getTime() - createdAt;
+    if (planAge < MIN_PLAN_AGE_FOR_3DAY_MS) {
+      await storage.markEvent3DayReminderSent(event.id);
+      continue;
+    }
+
+    const rsvps = (event.rsvps ?? {}) as Record<string, string>;
+    const goingIds = Object.keys(rsvps).filter((uid) => rsvps[uid] === 'going');
+    if (goingIds.length === 0) continue;
+
+    const recipientIds = event.squadId
+      ? await storage.filterUnmutedForSquad(goingIds, event.squadId)
+      : goingIds;
+    if (recipientIds.length === 0) continue;
+
+    const tokens = await storage.getPushTokensForUsers(recipientIds, { requireNotifyReminders: true });
+    if (tokens.length === 0) continue;
+
+    try {
+      const daysUntil = calendarDaysUntil(now, start, (event as { timezone?: string | null }).timezone ?? null);
+      const dayLabel = daysUntil === 0 ? 'today' : daysUntil === 1 ? 'tomorrow' : null;
+      const body = dayLabel != null ? `Coming up ${dayLabel} — ${event.date}` : event.date;
+      const result = await sendPushNotifications(
+        tokens,
+        {
+          title: `${event.emoji} ${event.title}`,
+          body,
+          data: { screen: 'event', eventId: event.id },
+        },
+        { onStaleToken: (token) => storage.clearPushToken(token) },
+      );
+      if (result.okCount > 0 && !result.hadSendError) {
+        await storage.markEvent3DayReminderSent(event.id);
+      } else {
+        logger.warn(
+          { eventId: event.id, okCount: result.okCount, hadSendError: result.hadSendError },
+          '3-day reminder not confirmed sent; will retry next scan',
+        );
+      }
+    } catch (err) {
+      logger.error({ err, eventId: event.id }, '3-day reminder send failed; will retry');
     }
   }
 }

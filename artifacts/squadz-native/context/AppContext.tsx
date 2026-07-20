@@ -181,6 +181,9 @@ export type NewEventInput = {
   /** IANA timezone string from the device (e.g. "America/Los_Angeles"). Stored
    *  on the event so the day-of reminder sends "today"/"tomorrow" correctly. */
   timezone?: string;
+  /** Whether the automated 3-day-out reminder should be sent for this event.
+   *  Defaults to true on the server; only send explicitly when the user opts out. */
+  remind3DaysToggle?: boolean;
 };
 
 export type ConflictSnapshot = {
@@ -1485,6 +1488,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ? { invitedUserIds: input.invitedUserIds }
         : {}),
       ...(input.timezone ? { timezone: input.timezone } : {}),
+      ...(input.remind3DaysToggle === false ? { remind3DaysToggle: false } : {}),
     };
 
     let res: Response;

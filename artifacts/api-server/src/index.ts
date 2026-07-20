@@ -9,6 +9,7 @@ import {
   REMINDER_SCAN_INTERVAL_MS,
   runEventReminderScan,
   runDayOfReminderScan,
+  run3DayReminderScan,
   runEventRecapScan,
   runPollNudgeScan,
 } from './lib/eventReminders';
@@ -138,6 +139,7 @@ logger.info({ intervalMs: REMINDER_SCAN_INTERVAL_MS }, 'Engagement scans schedul
 setInterval(() => {
   runEventReminderScan().catch((err) => logger.error({ err }, 'Event reminder scan failed'));
   runDayOfReminderScan().catch((err) => logger.error({ err }, 'Day-of reminder scan failed'));
+  run3DayReminderScan().catch((err) => logger.error({ err }, '3-day reminder scan failed'));
   runEventRecapScan().catch((err) => logger.error({ err }, 'Event recap scan failed'));
   runPollNudgeScan().catch((err) => logger.error({ err }, 'Poll nudge scan failed'));
 }, REMINDER_SCAN_INTERVAL_MS).unref();

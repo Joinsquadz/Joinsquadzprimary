@@ -97,6 +97,16 @@ export const eventsTable = pgTable("events", {
   // Fire-once marker for the "day-of" heads-up reminder (sent the morning of /
   // hours-ahead of the event, distinct from the 2h "starting soon" reminder).
   dayOfReminderSentAt: timestamp("day_of_reminder_sent_at", { withTimezone: true }),
+  // Fire-once marker for the 3-day-out heads-up reminder. Only fires when the
+  // plan was created at least 4 days before the event (gated by the scanner).
+  // Can be opted-out by the organizer via remind3DaysToggle = false.
+  remind3DaysToggle: boolean("remind_3_days_toggle").notNull().default(true),
+  threeDayReminderSentAt: timestamp("three_day_reminder_sent_at", { withTimezone: true }),
+  // Cooldown stamps for host/co-admin manual "push" reminders. Two independent
+  // cooldown tracks — "general" (going+maybe audience) and "rsvp" (no-response
+  // audience) — so one type firing doesn't block the other.
+  manualReminderGeneralSentAt: timestamp("manual_reminder_general_sent_at", { withTimezone: true }),
+  manualReminderRsvpSentAt: timestamp("manual_reminder_rsvp_sent_at", { withTimezone: true }),
   // Fire-once marker for the post-event "drop your photos" recap prompt.
   recapPromptSentAt: timestamp("recap_prompt_sent_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),

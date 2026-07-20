@@ -134,6 +134,13 @@ export type Event = {
   budget?: number;
   isPublic?: boolean;
   version: number;
+  /** Whether the automated 3-day-out reminder is enabled for this event. */
+  remind3DaysToggle?: boolean;
+  /** ISO timestamp of the last manual "general" reminder sent by the host/co-admin.
+   *  Used by the event detail screen to compute and display the 1-hour cooldown. */
+  manualReminderGeneralSentAt?: string | null;
+  /** ISO timestamp of the last manual "RSVP" reminder sent by the host/co-admin. */
+  manualReminderRsvpSentAt?: string | null;
 };
 
 export type Squad = {

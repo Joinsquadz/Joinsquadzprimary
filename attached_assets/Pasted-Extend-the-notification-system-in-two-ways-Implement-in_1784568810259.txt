@@ -1,0 +1,31 @@
+Extend the notification system in two ways. Implement in order; run regression after each phase. All product decisions below are final — implement as specified, don't ask.
+
+Guardrails (final):
+
+Permission: both manual reminder types are host + co-admin only, matching the existing #13/#19 permission check pattern.
+Cooldown: 1 hour per (event, reminder type) — "general" and "rsvp" cooldowns are independent of each other and don't block one another.
+Preference gate: both manual reminder types respect requireNotifyReminders and squad mute filtering, same as automated reminders (#1–3).
+Button visibility: "Remind Everyone" is always visible to host/co-admins on the event detail screen (disabled with a countdown during its cooldown). "Remind to RSVP" is hidden entirely — not shown disabled — whenever there are zero pending (non-responded) attendees. Recompute this on every screen load/RSVP change, not just on mount.
+Copy source: both manual types must generate body copy via the shared date-comparison utility from Phase 1 (calendarDaysUntil or equivalent). No duplicated relative-date logic.
+
+Phase 1 — 3-day-out reminder (lib/eventReminders.ts)
+
+Add THREE_DAY_LEAD_MS window, gated to plans where (planStartDate - planCreatedAt) >= 4 days.
+Add remind3DaysToggle (boolean, default true) to the plan/event schema; expose in create/edit screens.
+Reuse the existing sent-once DB flag pattern (threeDayReminderSentAt).
+Respects requireNotifyReminders + squad mute, matching #1–3.
+
+Phase 2 — Manual organizer reminders (new route, e.g. POST /events/:id/remind)
+
+Accept type: "general" or "rsvp".
+general audience: going + maybe RSVPs, excluding sender.
+rsvp audience: users with no RSVP response yet.
+Apply all guardrails above (permission, independent cooldowns, pref gate, button visibility, shared copy utility).
+Copy: general → "{title} is in ${relativeTime} — don't forget!"; rsvp → " {title} is in ${relativeTime} — RSVP so the squad knows you're in."
+Return 429 with remaining cooldown time if triggered early.
+
+Phase 3 — Regression
+
+Full API + mobile suite, plus new tests: 3-day reminder fires/skips correctly around the 4-day plan-age boundary; toggle-off suppresses it; manual reminder audience filtering (general vs rsvp) is correct; independent cooldowns block/allow correctly; RSVP button visibility hides/shows correctly as responses change; copy correctness across several time-until values using the Phase 1 shared utility.
+
+Report pass/fail per phase. Flag anything ambiguous rather than guessing.

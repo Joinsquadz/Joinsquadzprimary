@@ -9,6 +9,7 @@ import { logger } from "../lib/logger";
 import { sendPushNotifications } from "../lib/pushNotifications";
 import { emitEventUpdate, onEventUpdate } from "../lib/eventUpdates";
 import { recordActivitySafe, removeActivity } from "../lib/activity";
+import { parseEventStart, calendarDaysUntil } from "../lib/eventDate";
 
 const router: IRouter = Router();
 
@@ -123,6 +124,8 @@ const CreateEventBody = z.object({
   // Friends invited directly at creation time (by user id). They gain access
   // immediately and are notified, in addition to any squad members.
   invitedUserIds: z.array(z.string().min(1)).default([]),
+  // Whether the automated 3-day-out reminder should fire for this event.
+  remind3DaysToggle: z.boolean().default(true),
 });
 
 // Body for inviting friends to an existing event/trip after creation.
@@ -147,6 +150,8 @@ const UpdateEventBody = z.object({
   // co-admins cannot move an event between squads.
   squadId: z.string().optional(),
   version: z.number().int().optional(),
+  // Toggle the automated 3-day-out reminder on or off after creation.
+  remind3DaysToggle: z.boolean().optional(),
 });
 
 const CoAdminBody = z.object({ userId: z.string().min(1) });
@@ -1997,6 +2002,131 @@ router.delete("/events/:id/packing/:itemId", requireAuth, async (req: Request, r
   }
   res.json(event);
   emitEventUpdate(id);
+});
+
+// ── Manual organizer reminder ─────────────────────────────────────────────────
+const ManualReminderBody = z.object({
+  type: z.enum(["general", "rsvp"]),
+});
+
+const MANUAL_REMINDER_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour per type
+
+// POST /events/:id/remind — host or co-admin sends a manual push reminder.
+// "general" reaches going + maybe RSVPs; "rsvp" reaches those who haven't
+// responded yet (squad members ∪ invitedUserIds minus rsvp'd). Each type has an
+// independent 1-hour cooldown. Returns {retryAfterMs} on 429.
+router.post("/events/:id/remind", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const userId = (req.user as { id: string }).id;
+  const id = req.params.id;
+
+  try {
+    const event = await getEventAsMember(id, userId, res);
+    if (!event) return;
+
+    if (!canManageEvent(event, userId)) {
+      res.status(403).json({ error: "Only the host or a co-admin can send manual reminders." });
+      return;
+    }
+
+    const parsed = ManualReminderBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+    const { type } = parsed.data;
+
+    // Check independent per-type cooldown.
+    const now = Date.now();
+    const lastSent =
+      type === "general" ? event.manualReminderGeneralSentAt : event.manualReminderRsvpSentAt;
+    if (lastSent != null) {
+      const elapsed = now - new Date(lastSent as Date).getTime();
+      if (elapsed < MANUAL_REMINDER_COOLDOWN_MS) {
+        const retryAfterMs = MANUAL_REMINDER_COOLDOWN_MS - elapsed;
+        res.status(429).json({ error: "Reminder sent recently — please wait before sending another.", retryAfterMs });
+        return;
+      }
+    }
+
+    // Require a parseable start so the body copy can include a date label.
+    const nowDate = new Date();
+    const start = event.eventAt
+      ? (() => { const t = event.eventAt instanceof Date ? event.eventAt : new Date(event.eventAt as string); return Number.isNaN(t.getTime()) ? null : t; })()
+      : parseEventStart(event.date, nowDate);
+    if (!start) {
+      res.status(400).json({ error: "Event doesn't have a clear date yet — can't send a timed reminder." });
+      return;
+    }
+
+    const tz = (event as { timezone?: string | null }).timezone ?? null;
+    const daysUntil = calendarDaysUntil(nowDate, start, tz);
+    const relativeTime = daysUntil === 0 ? "today" : daysUntil === 1 ? "tomorrow" : event.date;
+
+    const rsvps = (event.rsvps ?? {}) as Record<string, string>;
+    let audienceIds: string[];
+
+    if (type === "general") {
+      // going + maybe RSVPs, excluding the sender.
+      audienceIds = Object.entries(rsvps)
+        .filter(([uid, status]) => uid !== userId && (status === "going" || status === "maybe"))
+        .map(([uid]) => uid);
+    } else {
+      // rsvp: anyone who could respond but hasn't yet (squad members ∪ invitedUserIds).
+      const respondedIds = new Set(Object.keys(rsvps));
+      const potentialIds = new Set<string>([event.hostId]);
+      if (event.squadId) {
+        const squad = await storage.getSquad(event.squadId);
+        if (squad) for (const mid of squad.memberIds) potentialIds.add(mid);
+      }
+      for (const uid of ((event.invitedUserIds ?? []) as string[])) potentialIds.add(uid);
+      audienceIds = [...potentialIds].filter((uid) => uid !== userId && !respondedIds.has(uid));
+    }
+
+    if (audienceIds.length === 0) {
+      // Stamp the cooldown even when there's nobody to notify so repeated
+      // presses on an empty audience don't bypass the gate.
+      await storage.markManualReminderSent(event.id, type);
+      res.json({ ok: true, sent: 0 });
+      return;
+    }
+
+    // Respect per-squad mute preferences.
+    const filteredIds = event.squadId
+      ? await storage.filterUnmutedForSquad(audienceIds, event.squadId)
+      : audienceIds;
+
+    // Stamp the cooldown before the fire-and-forget push so the UI can unblock
+    // immediately without waiting for APNs delivery.
+    await storage.markManualReminderSent(event.id, type);
+
+    res.json({ ok: true });
+
+    void (async () => {
+      try {
+        const tokens = await storage.getPushTokensForUsers(filteredIds, { requireNotifyReminders: true });
+        if (tokens.length === 0) return;
+        const body =
+          type === "general"
+            ? `${event.emoji} ${event.title} is ${relativeTime === "today" || relativeTime === "tomorrow" ? relativeTime : `on ${relativeTime}`} — don't forget!`
+            : `${event.emoji} ${event.title} is ${relativeTime === "today" || relativeTime === "tomorrow" ? relativeTime : `on ${relativeTime}`} — RSVP so the squad knows you're in.`;
+        const result = await sendPushNotifications(
+          tokens,
+          {
+            title: `${event.emoji} ${event.title}`,
+            body,
+            data: { screen: "event", eventId: event.id },
+          },
+          { onStaleToken: (token) => storage.clearPushToken(token) },
+        );
+        logger.info({ eventId: event.id, type, okCount: result.okCount }, "Manual event reminder sent");
+      } catch (err) {
+        logger.error({ err, eventId: event.id, type }, "Manual reminder push failed");
+      }
+    })();
+  } catch (err) {
+    req.log.error({ err }, "Error in POST /events/:id/remind");
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 export default router;
