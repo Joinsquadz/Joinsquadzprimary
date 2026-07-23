@@ -128,4 +128,33 @@ describe("authMiddleware — Bearer token path", () => {
 
     expect(clearSession).not.toHaveBeenCalled();
   });
+
+  it("C9 — clears session and returns unauthenticated when expires_at is in the past and no refresh_token", async () => {
+    // Session exists but is expired; no refresh_token means it cannot be renewed.
+    // The middleware must clear the session cookie and not set req.user.
+    mockSession.value = {
+      sid: "expired-session",
+      user: {
+        id: "user-expired",
+        email: "expired@test.com",
+        firstName: "Old",
+        lastName: "Token",
+        profileImageUrl: null,
+      },
+      access_token: "stale-token",
+      expires_at: Math.floor(Date.now() / 1000) - 3600, // 1 hour ago
+      // No refresh_token — cannot silently renew.
+    };
+
+    const app = await makeApp();
+    const res = await request(app)
+      .get("/test")
+      .set("Authorization", "Bearer expired-session");
+
+    // Session expired → user is not authenticated.
+    expect(res.status).toBe(200);
+    expect(res.body.user).toBeNull();
+    // clearSession must be called so the stale cookie is cleared.
+    expect(clearSession).toHaveBeenCalled();
+  });
 });

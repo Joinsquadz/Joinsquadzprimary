@@ -63,6 +63,14 @@ The auth register route checks email existence with a SELECT before INSERT. The 
 
 `DELETE /api/account` uses `tx.execute(sql\`DELETE FROM sessions...\`)` for session cleanup. The transaction mock MUST include `execute: vi.fn().mockResolvedValue(undefined)`. The route also accesses many tables whose column properties are dereferenced at call time — if a table is missing from the mock, `undefined.columnName` throws → 500. Required tables: `conversationMessagesTable` (senderId, conversationId, createdAt, text), `feedReactionsTable` (userId), `feedCommentsTable` (authorId), `momentViewsTable` (viewerId), `momentReactionsTable` (userId), `availabilityNudgesTable` (fromUserId, toUserId), `friendshipsTable` (ownerId, friendId), `squadRemovalNoticesTable` (userId), `objectUploadsTable` (ownerId).
 
+## activityTable mock for purgeSquadData (C6)
+
+`purgeSquadData` deletes from `activityTable` twice (events + squad). To assert both calls: pass the same `activityTableRef` object as the table reference and spy on the `delete(table)` call inside the transaction mock. Seed `mockEventRows` to return event IDs so the event-activity branch is exercised. Compare `JSON.stringify(cond).includes("squad")` and `includes("event")` on the tracked call args since Drizzle SQL objects don't support deep equality.
+
+## Mobile pure-function test pattern for AppContext mutations (C3/C4/C5)
+
+AppContext `useCallback` hooks (sendMessage, updateSquad, markSharePaid) are not importable without React. Test their return-value contracts by extracting the core logic into a standalone pure function inline in the test file. This verifies the behavior contract without React Test Renderer. The function body should mirror the source exactly (same fetch URL, same return values, same error messages).
+
 ## Moments router is separate from feed router
 
 `DELETE /api/moments/:id` is defined in `moments.ts` (separate router), NOT in `feed.ts`. Tests for moments moderation must import `momentsRouter from "../routes/moments"` and use it — using `feedRouter` returns 404 for moments routes.

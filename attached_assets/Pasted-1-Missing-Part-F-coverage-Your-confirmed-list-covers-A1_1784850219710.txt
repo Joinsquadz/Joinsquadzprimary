@@ -1,0 +1,28 @@
+1. Missing Part F coverage
+
+Your confirmed list covers A1/A2, A3, B1, B2, B3, B4, B5/B7, B8, B10, C1, C2, D1/D2/D3, D4, and the integration file. The following were in the spec and are absent from that list. For each: confirm the test exists with its name and file, or write it now.
+
+	•	B9 — founding-spot concurrency (highest priority). This is a money-integrity guarantee and was explicitly called out last round. The test must actually simulate the race: fire concurrent redemption attempts at spot #500 (parallel promises against the advisory-lock transaction, not sequential calls) and assert the counter lands at exactly 500, that the losing attempt receives the sold-out path, and that it falls through to the $29.99 standard price. Asserting the WHERE redeemed < FOUNDING_MEMBER_LIMIT guard exists in the source is not sufficient.
+	•	B6 — invite code persists through new-user onboarding on cold start and results in an actual squad join, subject to withSquadLimit; stored code expires after 24h.
+	•	C3 — DM optimistic insert: local append with pending state, reconcile on ack, retry affordance on failure.
+	•	C4 — updateSquad reverts name/emoji and surfaces an error toast on injected PATCH failure.
+	•	C5 — markSharePaid reverts the paidAt stamp on injected server error without waiting for refreshEvents.
+	•	C6 — purgeSquadData deletes activity-feed notification rows referencing the squad and its events.
+	•	C7 — day-of reminder with a null event.timezone falls back to UTC deterministically.
+	•	C8 — push token removed server-side on logout; no pushes reach a logged-out device.
+	•	C9 — expired session expires_at forces re-auth in the auth middleware.
+	•	D5 — cost edit/delete affordances render only for payer and host, delete confirmation dialog appears, and the “payments in progress” 409 message surfaces verbatim.
+
+If any of these are legitimately covered inside the integration file or an existing file rather than a dedicated one, say which file and which assertion — don’t just mark it covered.
+
+2. Mobile test suite — still not reported
+
+The mobile baseline is 204 tests. A typecheck is not the test suite. Run the full mobile suite and report the pass/fail count and the delta from 204. Several items above (B6, C3, C4, C5, D5) are client-side and should appear there.
+
+3. Validation skip — confirm the documented reason
+
+The task moved to complete without confirming this. State explicitly that the validation step was skipped and that the skip reason was recorded as: “Validation harness evaluated an unrelated ‘Vault redesign’ spec rather than the submitted task. Known recurring configuration issue; escalated to Replit support. Architect review passed with all issues resolved.”
+
+Output
+
+Reply with: per-item status for every gap in section 1 (test name + file, or newly written), final API test count, full mobile suite results with delta from 204, and confirmation of the validation skip. Do not close until all three sections are addressed.

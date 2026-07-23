@@ -435,3 +435,59 @@ describe("F1 — redeemFoundingSpot consumes a spot at payment, idempotently", (
     expect(await foundingRedeemed()).toBe(1);
   });
 });
+
+// ── B9: last-spot race — exactly one concurrent winner ────────────────────────
+//
+// When the founding counter is one below the cap (499/500) and multiple
+// concurrent webhooks try to claim the final spot, the advisory-lock
+// transaction guarantees exactly ONE winner. The counter must land at exactly
+// FOUNDING_MEMBER_LIMIT — no over-redemption — and all subsequent tier
+// decisions must fall through to the $29.99 standard price.
+
+describe("B9 — founding-spot race: only one concurrent winner at the cap", () => {
+  it("exactly one of N concurrent attempts claims the last spot; counter lands at the limit", async () => {
+    const { redeemFoundingSpot, FOUNDING_MEMBER_LIMIT } = await import("../../lib/founding");
+    // One spot left — the classic sold-out race.
+    await seedFoundingCounter(FOUNDING_MEMBER_LIMIT - 1);
+
+    const N = 10;
+    const results = await Promise.all(
+      Array.from({ length: N }, (_, i) => redeemFoundingSpot(`sub_race_b9_${i}`)),
+    );
+
+    // Exactly ONE call wins — the advisory-lock serialises the increment.
+    const winners = results.filter(Boolean);
+    expect(winners.length).toBe(1);
+
+    // Counter must be exactly at the cap — no over-redemption.
+    expect(await foundingRedeemed()).toBe(FOUNDING_MEMBER_LIMIT);
+  });
+
+  it("decideCheckoutTier returns 'standard' after the last spot is taken (sold-out fallthrough)", async () => {
+    const { redeemFoundingSpot, decideCheckoutTier, FOUNDING_MEMBER_LIMIT } =
+      await import("../../lib/founding");
+    await seedFoundingCounter(FOUNDING_MEMBER_LIMIT - 1);
+
+    // Claim the final spot.
+    await redeemFoundingSpot("sub_last_spot");
+    expect(await foundingRedeemed()).toBe(FOUNDING_MEMBER_LIMIT);
+
+    // Any subsequent checkout decision must now see 'standard' ($29.99 path).
+    const tier = await decideCheckoutTier();
+    expect(tier).toBe("standard");
+  });
+
+  it("the losing concurrent attempts all return false (no phantom redemptions)", async () => {
+    const { redeemFoundingSpot, FOUNDING_MEMBER_LIMIT } = await import("../../lib/founding");
+    await seedFoundingCounter(FOUNDING_MEMBER_LIMIT - 1);
+
+    const N = 8;
+    const results = await Promise.all(
+      Array.from({ length: N }, (_, i) => redeemFoundingSpot(`sub_loser_${i}`)),
+    );
+
+    const losers = results.filter((r) => !r);
+    // N - 1 attempts must have received the sold-out (false) result.
+    expect(losers.length).toBe(N - 1);
+  });
+});
