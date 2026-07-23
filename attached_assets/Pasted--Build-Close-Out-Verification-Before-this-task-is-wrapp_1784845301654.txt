@@ -1,0 +1,42 @@
+# Build Close-Out Verification
+
+Before this task is wrapped up, I need three things resolved. Do not mark the task complete until all three are answered.
+
+## 1. Test count delta
+
+The API suite was at **670 tests before this build** and you're reporting **670 after**. Part F of the remediation spec required new tests for every item in Parts A–D. That should have added a substantial number of tests, so the unchanged count suggests Part F was skipped or only partially implemented.
+
+Report the exact delta: how many tests existed before, how many exist now, and which files the new tests live in.
+
+If the Part F tests were not written, write them now. At minimum, confirm explicit test coverage exists for each of the following — list the test name and file for each:
+
+- **A1** — edit push fires only on material field changes (time/location/title), correct recipient set, 5-minute debounce collapses multiple edits, description/emoji-only edits produce no push
+- **A2** — cancellation push fires exactly once; re-saving an already-cancelled event does not re-notify
+- **A3** — every mutating sub-resource route on a cancelled event returns 410 (costs, messages, poll votes, poll creation, task creation)
+- **B1** — DM pagination cursor correctness, including behavior with concurrent inserts
+- **B2** — blocked-thread message send returns 403 in both directions
+- **B3** — moderation delete authorization matrix: author / host / co-admin / unrelated member
+- **B4** — `/iap/sync` sets and clears `is_squadz_plus` idempotently
+- **B5** — Play cancellation invoked when an active subscription exists; deletion proceeds when it fails; iOS path surfaces the manage-subscription state
+- **B6** — invite code survives full new-user onboarding on cold start and results in the squad join
+- **B7** — `invitedUserIds` scrubbed on account deletion
+- **B8** — host transfer fires on both leave and removal
+- **B9** — founding counter cannot exceed 500 under concurrent redemptions (must actually simulate the race at spot #500, not just assert the guard exists)
+- **B10** — unverified-email cross-provider merge is rejected
+- **C1–C9** — past-event RSVP rejected; closed poll rejects votes; DM optimistic insert and retry; `updateSquad` and `markSharePaid` rollback on injected failure; null-timezone day-of reminder; push token removed on logout; expired session forces re-auth
+- **D1–D5** — cost delete/edit authorization, version conflicts, edit blocked when any share has `paidAt`, settle-up excludes cancelled events, departed-member rendering
+- **Multi-user simulation** — the full chain: host edits event time → attendees receive one debounced push → host cancels → attendees notified once → no further costs/messages/votes accepted → settle-up excludes that event's costs → a member leaves → their hosted event transfers and their cost shares render with "(left squad)"
+
+## 2. Mobile test suite
+
+"Mobile typecheck clean" is not the same as the mobile test suite passing. The baseline was **204 mobile tests**. Run the full mobile suite and report the pass/fail count and the delta from 204.
+
+## 3. Stuck validation step
+
+The validation review evaluated a "Vault redesign" spec instead of this remediation work. This is a known recurring harness/config issue on this project, not a problem with the code. Do not retry validation and do not attempt to satisfy the Vault redesign criteria.
+
+Skip the validation step and document the skip reason as: *"Validation harness evaluated an unrelated 'Vault redesign' spec rather than the submitted task. Known recurring configuration issue; escalated to Replit support. Architect review passed with all issues resolved."*
+
+## Output
+
+Reply with: the API test count before/after plus new test file locations, the per-item coverage list above with test names, the mobile suite results, and confirmation that validation was skipped with the documented reason. Do not close the task until all three sections are addressed.

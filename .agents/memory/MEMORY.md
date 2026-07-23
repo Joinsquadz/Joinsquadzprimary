@@ -8,6 +8,7 @@
 - [RN-web Alert no-op](rn-web-alert.md) — `Alert.alert` does nothing in react-native-web; squadz-native patches it web-only in `lib/webAlert.ts` (installed from `app/_layout.tsx`). Dead alert buttons in the web preview are usually this, not broken screen logic.
 - [OIDC web iframe](oidc-web-iframe.md) — Replit-OIDC web sign-in can't complete in the canvas iframe (blocked storage + framed IdP); detect embedded, open standalone tab.
 - [api-server verification](api-server-verification.md) — verify with `run test` not typecheck (vitest.config rootDir error is pre-existing); restart workflow to pick up new routes.
+- [api-server test mock patterns](api-server-test-mock-patterns.md) — chainable thenable db mock; moderation mock path; conversationUpdates required; supabase null for DB path; account.ts tx.execute + table mocks.
 - [api-server test cold-import](api-server-test-cold-import.md) — hoist router/middleware import to a static import below vi.mock; never load the real dep graph inside a timed hook.
 - [Squad photo roll-up](squad-photo-rollup.md) — curated per-squad vault via photos.squadId+sharedToSquad; member-only routes, share only your OWN photos; web SquadDetail is mock, mobile is functional.
 - [Friends IS server-backed](friends-no-backend.md) — /api/users/friends GET/POST/DELETE exist; AppContext friends[]+addFriend/removeFriend/fetchFriends; derive isFriend via friends.includes(id), no helper.
