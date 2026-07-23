@@ -1,0 +1,95 @@
+# SquadZ Full-App Audit — Benchmark & Broken-Logic Pass
+
+This is an AUDIT ONLY. Do not change any code, do not propose refactors inline, do not fix anything. Trace actual code paths (server routes, client logic, DB schema) and report findings with file/line references. I will batch fixes separately after reviewing your report.
+
+**The bar:** SquadZ should feel as polished and logically airtight as the best consumer apps in each category — Partiful (events/RSVP), Splitwise (cost splitting), WhatsApp/iMessage (DMs), BeReal/Locket (photo moments), and Apple's HIG for overall interaction quality. For each domain below, answer: (a) how does the current implementation actually behave, (b) where does it fall short of the best-in-class benchmark, (c) what logic is broken, inconsistent, or dangerous?
+
+For EVERY domain, hunt specifically for: state that can desync between server and client; mutations missing authorization checks; entities referencing deleted/departed users or cancelled/deleted parents; race conditions on concurrent writes; validation enforced client-side but not server-side; UI states with no empty/error/loading handling; and any place where free-tier limits or Squadz+ gates can be bypassed.
+
+---
+
+## 1. Auth & Onboarding
+- Full sign-up/sign-in flows including OAuth on device. Any path where a user can end up half-created (auth record without profile row, or vice versa)?
+- Token lifecycle in `expo-secure-store`: expiry, refresh, forced re-auth for stale tokens — any flow that silently fails and strands the user?
+- Deep link → invite acceptance → onboarding sequencing: does a brand-new user who taps an invite link land in the squad after completing signup, on both cold start and warm start? Trace the exact handoff.
+- Account deletion: does it exist, and what happens to the user's squads, plans, costs, messages, and moments? (Apple requires in-app account deletion.)
+
+## 2. Squads & Membership
+- Create/join/leave/remove flows. Who can remove whom? Can a host leave their own squad — and if so, who inherits?
+- Last-member-leaves and host-deletes-squad: what cascades (plans, DMs, moments, costs)? Any orphaned data or crashes when rendering references to a deleted squad?
+- Co-admin permission model: enumerate every action gated to host/co-admin and verify server-side enforcement on each, not just hidden UI.
+- Free tier "2 active squads": exact definition of "active," enforcement point, and every path that could bypass it (invite acceptance, being added by someone else, un-archiving).
+
+## 3. Plans — Events & Trips
+- Creation, editing, cancellation for both types. What can be edited after RSVPs exist, and are attendees notified of material changes (time/place) the way Partiful notifies?
+- RSVP model: statuses supported, changing RSVP, un-RSVPing, RSVP after event start, waitlist/capacity if any.
+- Cancellation semantics: what does `cancelled` suppress — reminders, RSVP changes, cost additions, visibility? Anything that still fires or renders for a cancelled plan?
+- Conflict detection: confirm warnings remain private to the affected user only, and check behavior across timezones and all-day events.
+- Free tier "5 plans per rolling 12-month window, account-wide, no reset on leave/delete": trace the counter implementation end-to-end. Off-by-one errors, timezone edges on the rolling window, whether cancelled plans count, whether the earlier 3-vs-5 display bug is fully dead everywhere the number renders.
+
+## 4. Polls
+- Create/vote/close lifecycle. Vote changing, vote visibility, ties, polls on cancelled events.
+- Debounce and frequency-cap behavior on poll-update notifications: verify the cap matches the manual-reminder counterpart as designed, and that rapid vote sequences can't slip duplicate pushes past the debounce.
+
+## 5. Notifications & Reminder Ladder
+- Re-verify the full 34-notification matrix post-remediation: for each, the trigger, the preference gate, the frequency cap, and the copy — flag any that ignore their preference toggle or fire for cancelled/deleted entities.
+- Day-of reminder timezone logic: verify correctness for organizer and attendees in different timezones, DST transitions, and events created in one timezone then viewed in another.
+- Manual reminder buttons ("Remind Everyone" / "Remind to RSVP"): 1-hour independent cooldowns, host/co-admin gate server-side, "Remind to RSVP" hidden when everyone has responded, correct recipient sets (confirmed vs. non-responders).
+- Push token lifecycle: registration, refresh, revocation on logout, behavior when a user has multiple devices.
+
+## 6. Cost Splitting
+Already audited in depth previously. Do not re-produce that report. Only verify two things: (a) nothing in the cost system has changed since that audit, and (b) list any interaction points between costs and OTHER domains in this audit (cancelled events, departed members, squad deletion, account deletion) that your other findings touch.
+
+## 7. DMs
+- Threading model (1:1 only, or group?), delivery states, unread counts, ordering under concurrent sends.
+- Blocking: verify mutual blocking fully severs DMs in both directions, and what a blocked user sees (silent fail vs. error).
+- DMs with a user who left the squad or deleted their account: does the thread render, can new messages be sent, any crashes?
+- Benchmark: does message send feel instant (optimistic insert) with retry-on-failure, per WhatsApp standard? Pagination/infinite scroll on long threads?
+
+## 8. Vibe Feed & Moments
+- Posting, viewing, deletion. Who can delete whose content (author, host, co-admin)?
+- Privacy: confirm nothing in feed or moments is visible across squad boundaries under any query path, including via notification payloads and unauthenticated invite previews.
+- Report/block system end-to-end: fixed reason enums, moderation email fires, 3-distinct-reporter auto-hide (verify "distinct" is enforced — same reporter re-reporting must not count), un-hide path if any, and blocked users' content hidden bidirectionally in feed/moments, not just DMs.
+- EXIF/GPS stripping: re-verify EVERY upload path including any added since the last audit (profile photos, moments, event covers, DM attachments if they exist). One unstripped path fails the whole guarantee.
+
+## 9. Personal Vault & Favorites (Squadz+ gates)
+- Verify both gates are enforced server-side (API rejects, not just paywalled UI).
+- What happens to vault contents and favorites when a subscription lapses — preserved-but-locked (correct) or deleted (unacceptable)?
+
+## 10. Freemium & Paywall
+- Every gate in one table: squads limit, plans limit, vault, favorites — with the exact server-side enforcement point for each and any client-only gaps.
+- Paywall triggers: where the upgrade sheet appears, and confirm upgrade pressure applies to all members per our gating philosophy, not just organizers.
+- Founding price logic ($19.99 first 500 paying subscribers, then $29.99): where is the 500 counter, is it race-safe under concurrent purchases, and what does subscriber #500/#501 actually see and pay?
+
+## 11. IAP / RevenueCat
+- Purchase flow, restore purchases, entitlement sync on fresh install, family sharing behavior if enabled.
+- Entitlement source of truth: RevenueCat webhook → server, or client-side check? Any path where client-claimed entitlement is trusted without server verification?
+- Lapse/renewal/billing-retry states: does access degrade gracefully at the right moment, and re-activate on renewal without user action?
+- No references to the retired Stripe web checkout anywhere in client copy, settings, or dead code paths that could confuse App Review.
+
+## 12. Invite Links
+- Generation, expiry/revocation, single-use vs. multi-use semantics.
+- Unauthenticated preview: confirm it shows ONLY generic branding — no squad name, member names, avatars, or plan details — in the preview page, OG/meta tags, and any API the preview hits.
+- Abuse: can a revoked or expired link still admit anyone via any race or cached path? Can an invite admit someone into a squad that's at the inviter's free-tier limit?
+
+## 13. Calendar Export (.ics)
+- Validate generated .ics against RFC 5545 basics: correct TZID handling, DTSTART/DTEND, escaping of special characters in titles/descriptions, UID stability. Does an updated event export with the same UID so calendar apps update rather than duplicate?
+
+## 14. Cross-Cutting: Data Lifecycle & Integrity
+Build a cascade matrix: for each deletion/departure event (account deleted, user leaves squad, user removed, squad deleted, plan cancelled, subscription lapsed), list what happens to every dependent entity (memberships, RSVPs, costs, shares, DMs, moments, polls, votes, reports, push tokens, vault). Flag every cell that is unhandled, inconsistent, or produces orphaned references the UI might render.
+
+## 15. Cross-Cutting: Client Quality
+- Optimistic update + rollback coverage: which mutations have it, which don't.
+- Offline/poor-network behavior on the top 10 user actions: queued, failed-with-retry, or silently lost?
+- Empty states, loading states, and error states: list screens missing any of the three.
+- Version-guarded (409) conflict handling: which mutations use it, which mutations that modify shared state don't.
+
+---
+
+## Output Format
+
+Produce a single report with:
+1. **Findings table** — every issue with: ID, domain, severity (BLOCKER = broken logic or data corruption or policy/App Review risk; HIGH = clearly below best-in-class bar with user-visible impact; MEDIUM = polish gap; LOW = nice-to-have), one-line description, file:line reference.
+2. **Cascade matrix** from section 14 as its own table.
+3. **Per-domain benchmark verdict** — one short paragraph each: "meets bar" / "gaps: ..."
+4. **No fixes, no code.** Findings only. Do not soften findings; if something is broken, mark it BLOCKER even if it was recently "completed."
