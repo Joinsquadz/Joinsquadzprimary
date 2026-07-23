@@ -1,0 +1,27 @@
+Please provide a full technical audit of the cost-splitting feature as it currently exists in the codebase. Do not change any code — this is a documentation/explanation request only. Answer each item below in detail, with file/function references:
+1. Split calculation logic
+	•	What split methods are currently supported (equal, exact amounts, percentages, shares/weights, itemized)?
+	•	Show the actual calculation function(s) for each method.
+	•	How is the total expense amount divided among participants — what’s the exact formula?
+2. Rounding & remainder handling
+	•	When a split doesn’t divide evenly (e.g., $10.00 / 3 people), how is the remainder allocated? Who absorbs the extra cent(s)?
+	•	Is rounding done per-transaction or is there a running remainder tracker?
+3. Multi-currency behavior
+	•	Does the system support expenses in different currencies within the same squad?
+	•	If yes, what conversion rate/source is used, and when is conversion locked in (at expense creation vs. settle-up)?
+4. Debt simplification / settle-up
+	•	Does the system simplify group debts (e.g., “who owes whom” minimization), or does it track every pairwise transaction individually?
+	•	If simplification exists, what algorithm is used?
+5. Editing & recalculation
+	•	If an expense is edited after creation (amount changed, participant added/removed), how are existing balances recalculated? Are prior settle-up records affected?
+6. Partial payments & settling up
+	•	How is a partial payment against a debt recorded? Does it reduce the specific pairwise balance or get applied generally?
+	•	What happens to the underlying expense record once a debt is marked settled?
+7. Data model
+	•	Show the relevant database schema/tables (expenses, participants, splits, balances, settlements).
+	•	Is there a stored “balance” table, or are balances computed on-the-fly from expense history?
+8. Edge cases currently handled (or not)
+	•	Deleting an expense with existing partial payments against it
+	•	A user leaving a squad with an outstanding balance
+	•	Negative amounts / refunds
+Please respond with a plain-language + code-referenced explanation only — no fixes or refactors in this pass.
