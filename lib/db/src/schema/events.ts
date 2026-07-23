@@ -109,6 +109,10 @@ export const eventsTable = pgTable("events", {
   manualReminderRsvpSentAt: timestamp("manual_reminder_rsvp_sent_at", { withTimezone: true }),
   // Fire-once marker for the post-event "drop your photos" recap prompt.
   recapPromptSentAt: timestamp("recap_prompt_sent_at", { withTimezone: true }),
+  // Cooldown stamp for the "[Event] was updated" material-edit push (date/time,
+  // location or title changes). Multiple material edits within the cooldown
+  // window collapse into a single push — same pattern as poll-update cooldowns.
+  materialEditNotifiedAt: timestamp("material_edit_notified_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   version: integer("version").notNull().default(1),
 });

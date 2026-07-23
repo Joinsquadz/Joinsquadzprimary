@@ -21,7 +21,11 @@ vi.mock("@workspace/db", () => ({
     update: () => ({
       set: () => ({
         where: (pred: unknown) => {
-          capturedUpdateWhere.arg = pred;
+          // Capture only the FIRST update predicate per test: the primary
+          // event UPDATE always runs first; later side-effect updates (e.g.
+          // the material-edit push cooldown stamp) use a plain id WHERE and
+          // must not overwrite the predicate under assertion.
+          if (capturedUpdateWhere.arg === null) capturedUpdateWhere.arg = pred;
           return { returning: () => Promise.resolve(mockUpdateRows.value) };
         },
       }),

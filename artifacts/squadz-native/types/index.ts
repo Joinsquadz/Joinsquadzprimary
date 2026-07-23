@@ -42,6 +42,7 @@ export type Poll = {
   id: string;
   question: string;
   options: PollOption[];
+  closed?: boolean;
 };
 
 export type Message = {

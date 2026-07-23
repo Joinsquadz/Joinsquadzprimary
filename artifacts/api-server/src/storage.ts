@@ -1380,12 +1380,43 @@ export class Storage {
     return total;
   }
 
-  async getConversationMessages(conversationId: string): Promise<DbConversationMessage[]> {
-    return db
+  // Cursor-paginated: returns the newest page of messages BEFORE the cursor
+  // message (exclusive), in ascending order within the page. `hasMore` tells
+  // the client whether an older page exists. Cursor is a message id (stable
+  // under concurrent inserts, unlike a bare timestamp).
+  async getConversationMessages(
+    conversationId: string,
+    opts?: { before?: string; limit?: number },
+  ): Promise<{ messages: DbConversationMessage[]; hasMore: boolean }> {
+    const limit = Math.min(Math.max(opts?.limit ?? 50, 1), 100);
+    const conditions = [eq(conversationMessagesTable.conversationId, conversationId)];
+    if (opts?.before) {
+      const [cursorMsg] = await db
+        .select()
+        .from(conversationMessagesTable)
+        .where(
+          and(
+            eq(conversationMessagesTable.id, opts.before),
+            eq(conversationMessagesTable.conversationId, conversationId),
+          ),
+        );
+      if (cursorMsg) {
+        // Tuple comparison (createdAt, id) < (cursor.createdAt, cursor.id):
+        // deterministic even when several messages share a timestamp.
+        conditions.push(
+          sql`(${conversationMessagesTable.createdAt}, ${conversationMessagesTable.id}) < (${cursorMsg.createdAt}, ${cursorMsg.id})`,
+        );
+      }
+    }
+    const rows = await db
       .select()
       .from(conversationMessagesTable)
-      .where(eq(conversationMessagesTable.conversationId, conversationId))
-      .orderBy(asc(conversationMessagesTable.createdAt));
+      .where(and(...conditions))
+      .orderBy(desc(conversationMessagesTable.createdAt), desc(conversationMessagesTable.id))
+      .limit(limit + 1);
+    const hasMore = rows.length > limit;
+    const page = rows.slice(0, limit).reverse();
+    return { messages: page, hasMore };
   }
 
   async addConversationMessage(
@@ -1618,6 +1649,13 @@ export class Storage {
       .where(eq(usersTable.id, userId))
       .limit(1);
     return rows[0]?.pushToken ?? null;
+  }
+
+  async clearPushTokenForUser(userId: string): Promise<void> {
+    await db
+      .update(usersTable)
+      .set({ pushToken: null })
+      .where(eq(usersTable.id, userId));
   }
 
   async clearPushToken(token: string): Promise<void> {

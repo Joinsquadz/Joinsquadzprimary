@@ -38,6 +38,8 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
   const {
     currentUser,
     addCost,
+    updateCost,
+    deleteCost,
     markSharePaid,
     confirmShare,
     fetchPaymentHandles,
@@ -53,6 +55,8 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
 
   // ---- Cost modal state ----
   const [costModal, setCostModal] = useState(false);
+  // Non-null while the modal is editing an existing cost (vs. adding a new one).
+  const [editingCostId, setEditingCostId] = useState<string | null>(null);
   const [costDesc, setCostDesc] = useState("");
   const [costTotal, setCostTotal] = useState("");
   const [costShares, setCostShares] = useState<Record<string, string>>({});
@@ -99,14 +103,74 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
 
   const participantIdSet = new Set(participants.map((p) => p.id));
 
+  // ---- Departed-member display (D4) ----
+  // A payer/debtor whose id is neither the current user nor a current
+  // participant can no longer be resolved to a squad member — render a
+  // stable "(left squad)" / "Former member" label instead of a raw miss.
+  const isDeparted = (userId: string): boolean =>
+    userId !== currentUser.id && !participantIdSet.has(userId);
+  const departedLabel = (userId: string): string => {
+    const u = resolveForDisplay(userId);
+    const known = !!u.name && u.name !== "..." && u.name !== "Unknown";
+    return known ? `${u.name} (left squad)` : "Former member";
+  };
+  // Full display name for a payer line.
+  const payerName = (userId: string): string =>
+    userId === currentUser.id ? "you" : isDeparted(userId) ? departedLabel(userId) : resolveForDisplay(userId).name;
+  // Short (first-name) label used in the "Split with" summary.
+  const shortName = (userId: string): string => {
+    if (userId === currentUser.id) return "you";
+    if (isDeparted(userId)) return departedLabel(userId);
+    return resolveForDisplay(userId).name.split(" ")[0];
+  };
+
   // ---- Handlers ----
   const openCostModal = () => {
+    setEditingCostId(null);
     setCostDesc("");
     setCostTotal("");
     setCostShares({});
     setSplitMode("even");
     setSelectedParticipantIds(new Set(participants.map((p) => p.id)));
     setCostModal(true);
+  };
+
+  const openEditCostModal = (cost: Event["costs"][number]) => {
+    setEditingCostId(cost.id);
+    setCostDesc(cost.description);
+    setCostTotal(String(cost.amount));
+    const shareMap: Record<string, string> = {};
+    cost.shares.forEach((s) => { shareMap[s.userId] = String(s.amount); });
+    setCostShares(shareMap);
+    setSplitMode("manual");
+    // Prefill selection with the cost's current split members that are still
+    // resolvable participants (departed members drop out of the editable set).
+    setSelectedParticipantIds(
+      new Set(cost.shares.map((s) => s.userId).filter((uid) => participantIdSet.has(uid))),
+    );
+    setCostModal(true);
+  };
+
+  const confirmDeleteCost = (cost: Event["costs"][number]) => {
+    Alert.alert(
+      "Delete this cost? Balances for everyone in this split will update.",
+      undefined,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            const result = await deleteCost(event.id, cost.id, event.version);
+            if (result.error) {
+              Alert.alert(result.conflict ? "Cost changed" : "Couldn't delete expense", result.error);
+              return;
+            }
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          },
+        },
+      ],
+    );
   };
 
   const toggleSplitParticipant = (uid: string) => {
@@ -150,9 +214,15 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
       .filter((s) => s.amount > 0);
     setCostSaving(true);
     try {
-      const result = await addCost(event.id, { description: costDesc.trim(), amount: totalNum, shares }, event.version);
+      const payload = { description: costDesc.trim(), amount: totalNum, shares };
+      const result = editingCostId
+        ? await updateCost(event.id, editingCostId, payload, event.version)
+        : await addCost(event.id, payload, event.version);
       if (result.error) {
-        Alert.alert("Couldn't save expense", result.error);
+        Alert.alert(
+          "conflict" in result && result.conflict ? "Cost changed" : "Couldn't save expense",
+          result.error,
+        );
         return;
       }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -250,11 +320,11 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
               },
             }}
             resolveUser={resolveForDisplay}
+            memberIds={new Set([currentUser.id, ...participantIdSet])}
             onMarkPaid={(costId, paid) => markSharePaid(event.id, costId, paid, event.version)}
             onConfirm={(costId, debtorId, confirmed) => confirmShare(event.id, costId, debtorId, confirmed, event.version)}
           />
           {event.costs.map((cost) => {
-            const payer = resolveForDisplay(cost.paidById);
             const myShare = cost.shares.find((s) => s.userId === currentUser.id)?.amount ?? 0;
             const shareIds = cost.shares.map((s) => s.userId);
             const isEveryone =
@@ -263,15 +333,15 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
               shareIds.every((uid) => participantIdSet.has(uid));
             const participantLabel = isEveryone
               ? "Everyone"
-              : shareIds
-                  .map((uid) => (uid === currentUser.id ? "you" : resolveForDisplay(uid).name.split(" ")[0]))
-                  .join(", ");
+              : shareIds.map((uid) => shortName(uid)).join(", ");
+            // D5: only the payer or the event host may edit/delete a cost.
+            const canModify = cost.paidById === currentUser.id || isHost;
             return (
               <View key={cost.id} style={[styles.costRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.costDesc, { color: colors.foreground }]}>{cost.description}</Text>
                   <Text style={[styles.costPayer, { color: colors.mutedForeground }]}>
-                    Paid by {payer.id === currentUser.id ? "you" : payer.name}
+                    Paid by {payerName(cost.paidById)}
                   </Text>
                   <Text style={[styles.costPayer, { color: colors.mutedForeground }]} numberOfLines={2}>
                     Split with: {participantLabel}
@@ -281,6 +351,24 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
                   <Text style={[styles.costTotal, { color: colors.foreground }]}>${cost.amount.toFixed(2)}</Text>
                   <Text style={[styles.costShare, { color: colors.mutedForeground }]}>you owe ${myShare.toFixed(2)}</Text>
                 </View>
+                {canModify && (
+                  <View style={styles.costActions}>
+                    <TouchableOpacity
+                      onPress={() => { Haptics.selectionAsync(); openEditCostModal(cost); }}
+                      hitSlop={8}
+                      style={styles.costActionBtn}
+                    >
+                      <Ionicons name="pencil" size={17} color={colors.mutedForeground} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => { Haptics.selectionAsync(); confirmDeleteCost(cost); }}
+                      hitSlop={8}
+                      style={styles.costActionBtn}
+                    >
+                      <Ionicons name="trash-outline" size={17} color={colors.destructive} />
+                    </TouchableOpacity>
+                  </View>
+                )}
               </View>
             );
           })}
@@ -295,7 +383,7 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
       <Modal visible={costModal} transparent animationType="slide" onRequestClose={() => setCostModal(false)}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalCardLarge, { backgroundColor: colors.surface, borderColor: colors.border, paddingBottom: botPad + 16 }]}>
-            <Text style={[styles.modalTitle, { color: colors.foreground }]}>Add expense</Text>
+            <Text style={[styles.modalTitle, { color: colors.foreground }]}>{editingCostId ? "Edit expense" : "Add expense"}</Text>
             <Text style={[styles.modalHint, { color: colors.mutedForeground }]}>You paid. Choose how to split the bill.</Text>
             <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
               <TextInput
@@ -414,7 +502,7 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
                 {costSaving ? (
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (
-                  <Text style={[styles.modalBtnText, { color: covered ? "#fff" : colors.textDim }]}>Save expense</Text>
+                  <Text style={[styles.modalBtnText, { color: covered ? "#fff" : colors.textDim }]}>{editingCostId ? "Save changes" : "Save expense"}</Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -477,6 +565,8 @@ const styles = StyleSheet.create({
   costDesc: { fontSize: 14, fontWeight: "700" },
   costPayer: { fontSize: 12, marginTop: 2 },
   costRight: { alignItems: "flex-end" },
+  costActions: { flexDirection: "row", alignItems: "center", gap: 4, marginLeft: 8 },
+  costActionBtn: { padding: 6 },
   costTotal: { fontSize: 16, fontWeight: "800" },
   costShare: { fontSize: 12 },
   addRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 12, borderWidth: 1.5, borderStyle: "dashed", padding: 14 },

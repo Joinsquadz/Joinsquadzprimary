@@ -26,6 +26,7 @@ import {
 import { requireAuth } from "../middleware/currentUser";
 import { logger } from "../lib/logger";
 import { getUncachableStripeClient } from "../stripeClient";
+import { cancelPlaySubscriptionBestEffort } from "../lib/playBilling";
 
 const router: IRouter = Router();
 
@@ -60,7 +61,22 @@ router.delete("/account", requireAuth, async (req: Request, res: Response): Prom
       return;
     }
 
-    // 1. Best-effort cancel the Stripe subscription (external; outside the tx).
+    // 1a. Best-effort cancel an active Google Play subscription (external;
+    // outside the tx). Apple provides NO API to cancel App Store subscriptions
+    // — the client shows a "Manage Subscription" link instead (see mobile
+    // deletion screen). Failures are logged and never block deletion.
+    if (user.isSquadzPlus) {
+      try {
+        await cancelPlaySubscriptionBestEffort(userId);
+      } catch (err) {
+        logger.error(
+          { err, userId },
+          "Failed to cancel Play subscription during account deletion; continuing with data purge",
+        );
+      }
+    }
+
+    // 1b. Best-effort cancel the Stripe subscription (external; outside the tx).
     if (user.stripeSubscriptionId) {
       try {
         const stripe = await getUncachableStripeClient();
@@ -183,11 +199,15 @@ router.delete("/account", requireAuth, async (req: Request, res: Response): Prom
             OR ${eventsTable.tasks}::text LIKE ${"%" + userId + "%"}
             OR ${eventsTable.polls}::text LIKE ${"%" + userId + "%"}
             OR ${eventsTable.messages}::text LIKE ${"%" + userId + "%"}
+            OR ${eventsTable.invitedUserIds} @> ${JSON.stringify([userId])}::jsonb
           )`,
         );
       for (const ev of referencingEvents) {
         const rsvps = { ...((ev.rsvps ?? {}) as Record<string, string>) };
         delete rsvps[userId];
+        const invitedUserIds = ((ev.invitedUserIds ?? []) as string[]).filter(
+          (uid) => uid !== userId,
+        );
         const messages = ((ev.messages ?? []) as Array<{ senderId?: string }>).filter(
           (m) => m.senderId !== userId,
         );
@@ -206,7 +226,7 @@ router.delete("/account", requireAuth, async (req: Request, res: Response): Prom
         }));
         await tx
           .update(eventsTable)
-          .set({ rsvps, messages, tasks, costs, polls, version: (ev.version ?? 1) + 1 })
+          .set({ rsvps, messages, tasks, costs, polls, invitedUserIds, version: (ev.version ?? 1) + 1 })
           .where(eq(eventsTable.id, ev.id));
       }
 

@@ -149,6 +149,9 @@ const UpdateEventBody = z.object({
   // Re-associate a trip/event with a squad (or clear it with ""). Host-only —
   // co-admins cannot move an event between squads.
   squadId: z.string().optional(),
+  // Cancel (or un-cancel) the event. Host-only — co-admins cannot cancel.
+  cancelled: z.boolean().optional(),
+  timezone: z.string().optional(),
   version: z.number().int().optional(),
   // Toggle the automated 3-day-out reminder on or off after creation.
   remind3DaysToggle: z.boolean().optional(),
@@ -303,6 +306,24 @@ async function getEventAsMember(
   }
   if (!(await userCanAccessEvent(event, userId))) {
     res.status(403).json({ error: "Access denied" });
+    return null;
+  }
+  return event;
+}
+
+// Like getEventAsMember, but for MUTATING sub-resource routes: a cancelled
+// event is read-only (410), matching the invite-code join guard. Settle-up
+// actions (mark-paid / confirm) deliberately do NOT use this — debts on a
+// cancelled event stay payable.
+async function getEventAsMemberForWrite(
+  id: string,
+  userId: string,
+  res: Response,
+): Promise<(typeof eventsTable.$inferSelect) | null> {
+  const event = await getEventAsMember(id, userId, res);
+  if (!event) return null;
+  if (event.cancelled) {
+    res.status(410).json({ error: "This event was cancelled" });
     return null;
   }
   return event;
@@ -719,6 +740,20 @@ router.patch("/events/:id", requireAuth, async (req: Request, res: Response): Pr
     return;
   }
   const { version: clientVersion, ...fieldsToUpdate } = parsed.data;
+  // Cancelling (or un-cancelling) is host-only — co-admins cannot cancel.
+  if (
+    fieldsToUpdate.cancelled !== undefined &&
+    fieldsToUpdate.cancelled !== existing.cancelled &&
+    existing.hostId !== userId
+  ) {
+    res.status(403).json({ error: "Only the host can cancel this event." });
+    return;
+  }
+  // A cancelled event is read-only except for the host un-cancelling it.
+  if (existing.cancelled && fieldsToUpdate.cancelled !== false) {
+    res.status(410).json({ error: "This event was cancelled" });
+    return;
+  }
   // Re-associating the event with a different squad is a structural change
   // reserved for the host; co-admins only get details/color/itinerary.
   if (
@@ -767,39 +802,121 @@ router.patch("/events/:id", requireAuth, async (req: Request, res: Response): Pr
   res.json(event);
   emitEventUpdate(id);
 
-  // Fire-and-forget: when a concrete time is locked in (date set to a real
-  // value that changed), tell attendees the best time is set.
-  const newDate = parsed.data.date?.trim();
-  const dateLockedIn =
-    newDate !== undefined &&
-    newDate !== "" &&
-    newDate.toUpperCase() !== "TBD" &&
-    newDate !== existing.date;
-  if (dateLockedIn) {
+  // Audience for edit/cancel pushes: everyone who has RSVP'd (any status) plus
+  // explicitly invited users, excluding the editor. Squad events respect the
+  // per-squad mute; the Event Invites preference gates delivery (consistent
+  // with the other event-lifecycle pushes).
+  const collectEditAudience = async (): Promise<string[]> => {
+    const audience = new Set<string>(Object.keys((event.rsvps ?? {}) as Record<string, string>));
+    for (const uid of ((event.invitedUserIds ?? []) as string[])) audience.add(uid);
+    audience.add(event.hostId);
+    audience.delete(userId);
+    const recipients = [...audience];
+    if (recipients.length === 0) return [];
+    return event.squadId
+      ? await storage.filterUnmutedForSquad(recipients, event.squadId)
+      : recipients;
+  };
+
+  // ── Cancellation push (fires exactly once: only on the false→true edge) ────
+  const justCancelled = fieldsToUpdate.cancelled === true && !existing.cancelled;
+  if (justCancelled) {
     void (async () => {
       try {
-        const rsvps = (event.rsvps ?? {}) as Record<string, string>;
-        const recipientIds = Object.keys(rsvps).filter((uid) => uid !== event.hostId);
-        if (recipientIds.length === 0) return;
-        // Squad events respect per-squad mute; standalone events skip the filter.
-        const unmuted = event.squadId
-          ? await storage.filterUnmutedForSquad(recipientIds, event.squadId)
-          : recipientIds;
+        const unmuted = await collectEditAudience();
         if (unmuted.length === 0) return;
         const tokens = await storage.getPushTokensForUsers(unmuted, { requireNotifyEventInvites: true });
         if (tokens.length === 0) return;
-
+        const hasCosts = ((event.costs ?? []) as unknown[]).length > 0;
         await sendPushNotifications(
           tokens,
           {
-            title: `${event.emoji} ${event.title}`,
-            body: `The time is set: ${newDate}`,
+            title: `${event.title} was cancelled`,
+            body: hasCosts
+              ? "This plan is off. Any costs already logged still appear in settle-up."
+              : "This plan is off.",
             data: { screen: "event", eventId: event.id },
           },
           { onStaleToken: (token) => storage.clearPushToken(token) },
         );
       } catch (err) {
-        logger.error({ err }, "Error sending best-time-locked push notifications");
+        logger.error({ err }, "Error sending event-cancelled push notifications");
+      }
+    })();
+    return; // A cancel edit never also fires a material-edit push.
+  }
+
+  // ── Material-edit push (date/time, location, title) ────────────────────────
+  // Fire-and-forget: when a concrete time is locked in from TBD, keep the
+  // celebratory "time is set" copy; other material edits get "[Event] was
+  // updated" with a body prioritizing time > place > title. Debounced: material
+  // edits within a 5-minute window collapse into one push (poll-update pattern).
+  if (event.cancelled) return; // no edit pushes on a cancelled event
+  const newDate = parsed.data.date?.trim();
+  const dateChanged =
+    newDate !== undefined &&
+    newDate !== "" &&
+    newDate.toUpperCase() !== "TBD" &&
+    newDate !== existing.date;
+  const eventAtChanged =
+    fieldsToUpdate.eventAt !== undefined &&
+    new Date(fieldsToUpdate.eventAt).getTime() !== (existing.eventAt ? new Date(existing.eventAt as unknown as string).getTime() : NaN);
+  const timeChanged = dateChanged || eventAtChanged;
+  const locationChanged =
+    fieldsToUpdate.location !== undefined &&
+    fieldsToUpdate.location.trim() !== "" &&
+    fieldsToUpdate.location !== existing.location;
+  const titleChanged =
+    fieldsToUpdate.title !== undefined &&
+    fieldsToUpdate.title.trim() !== "" &&
+    fieldsToUpdate.title !== existing.title;
+  const wasTbd = !existing.date || existing.date.trim() === "" || existing.date.trim().toUpperCase() === "TBD";
+  const dateLockedIn = dateChanged && wasTbd;
+
+  if (timeChanged || locationChanged || titleChanged) {
+    // 5-minute collapse window, stamped in the DB (survives restarts, same as
+    // the poll-update cooldown). Check-then-stamp before the async send.
+    const MATERIAL_EDIT_COOLDOWN_MS = 5 * 60 * 1000;
+    const lastNotified = event.materialEditNotifiedAt;
+    const cooldownActive =
+      lastNotified != null &&
+      Date.now() - new Date(lastNotified as unknown as string).getTime() < MATERIAL_EDIT_COOLDOWN_MS;
+    if (!cooldownActive) {
+      await db
+        .update(eventsTable)
+        .set({ materialEditNotifiedAt: new Date() })
+        .where(eq(eventsTable.id, id));
+    }
+    void (async () => {
+      if (cooldownActive) return;
+      try {
+        const unmuted = await collectEditAudience();
+        if (unmuted.length === 0) return;
+        const tokens = await storage.getPushTokensForUsers(unmuted, { requireNotifyEventInvites: true });
+        if (tokens.length === 0) return;
+        // Body prioritizes time > place > title when several fields changed.
+        const body = timeChanged
+          ? `New time: ${newDate ?? event.date}`
+          : locationChanged
+            ? `New location: ${event.location}`
+            : `New name: ${event.title}`;
+        await sendPushNotifications(
+          tokens,
+          dateLockedIn
+            ? {
+                title: `${event.emoji} ${event.title}`,
+                body: `The time is set: ${newDate}`,
+                data: { screen: "event", eventId: event.id },
+              }
+            : {
+                title: `${event.title} was updated`,
+                body,
+                data: { screen: "event", eventId: event.id },
+              },
+          { onStaleToken: (token) => storage.clearPushToken(token) },
+        );
+      } catch (err) {
+        logger.error({ err }, "Error sending event-updated push notifications");
       }
     })();
   }
@@ -927,8 +1044,16 @@ router.post("/events/:id/rsvp", requireAuth, async (req: Request, res: Response)
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const existing = await getEventAsMember(id, userId, res);
+  const existing = await getEventAsMemberForWrite(id, userId, res);
   if (!existing) return;
+  // Past events don't accept new RSVPs or RSVP changes: RSVP is a plan-ahead
+  // action, and late flips would silently corrupt the historical attendance
+  // record (and settle-up assumptions). Trips are considered past after endAt.
+  const eventEnd = existing.endAt ?? existing.eventAt;
+  if (eventEnd && new Date(eventEnd as unknown as string).getTime() < Date.now()) {
+    res.status(410).json({ error: "This event already happened — RSVPs are closed." });
+    return;
+  }
   const { status } = parsed.data;
   // Atomic per-user RSVP merge: each user only ever writes their OWN key in the
   // rsvps JSON map, so we merge that single key server-side (`||`) instead of a
@@ -1006,7 +1131,7 @@ router.post("/events/:id/invite", requireAuth, async (req: Request, res: Respons
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const existing = await getEventAsMember(id, userId, res);
+  const existing = await getEventAsMemberForWrite(id, userId, res);
   if (!existing) return;
 
   const targets = await filterInvitableTargets(
@@ -1119,7 +1244,7 @@ router.delete("/events/:id/invite/:userId", requireAuth, async (req: Request, re
   const id = parseId(req.params.id);
   const userId = (req.user as { id: string }).id;
   const targetId = parseId(req.params.userId);
-  const existing = await getEventAsMember(id, userId, res);
+  const existing = await getEventAsMemberForWrite(id, userId, res);
   if (!existing) return;
   if (existing.hostId !== userId && targetId !== userId) {
     res.status(403).json({ error: "Only the host can remove other people's invites" });
@@ -1157,7 +1282,7 @@ router.post("/events/:id/tasks", requireAuth, async (req: Request, res: Response
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const existing = await getEventAsMember(id, userId, res);
+  const existing = await getEventAsMemberForWrite(id, userId, res);
   if (!existing) return;
   const { version: clientVersion, title, category } = parsed.data;
   const tasks = [
@@ -1188,7 +1313,7 @@ router.patch("/events/:id/tasks/:taskId", requireAuth, async (req: Request, res:
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const existing = await getEventAsMember(id, userId, res);
+  const existing = await getEventAsMemberForWrite(id, userId, res);
   if (!existing) return;
   const { version: clientVersion, ...taskFields } = parsed.data;
   const tasks = (existing.tasks as Array<{ id: string; done: boolean; assigneeId: string | null; title: string }>).map(
@@ -1224,7 +1349,7 @@ router.post("/events/:id/costs", requireAuth, async (req: Request, res: Response
     res.status(400).json({ error: "Invalid cost: amount must be positive and shares must sum to total" });
     return;
   }
-  const existing = await getEventAsMember(id, userId, res);
+  const existing = await getEventAsMemberForWrite(id, userId, res);
   if (!existing) return;
   // Every referenced user (payer + each share) must be a legitimate participant
   // of this event, and each user may appear at most once. This blocks spoofing
@@ -1462,7 +1587,7 @@ router.post("/events/:id/polls", requireAuth, async (req: Request, res: Response
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const existing = await getEventAsMember(id, userId, res);
+  const existing = await getEventAsMemberForWrite(id, userId, res);
   if (!existing) return;
   const { version: clientVersion, question, options } = parsed.data;
   const pollId = `p${Date.now()}`;
@@ -1498,9 +1623,19 @@ router.post("/events/:id/polls/:pollId/vote", requireAuth, async (req: Request, 
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const existing = await getEventAsMember(id, userId, res);
+  const existing = await getEventAsMemberForWrite(id, userId, res);
   if (!existing) return;
   const { optionId, version: clientVersion } = parsed.data;
+  const allPolls = existing.polls as Array<{ id: string; closed?: boolean }>;
+  const targetPoll = allPolls.find((p) => p.id === pollId);
+  if (!targetPoll) {
+    res.status(404).json({ error: "Poll not found" });
+    return;
+  }
+  if (targetPoll.closed) {
+    res.status(400).json({ error: "This poll is closed — voting has ended." });
+    return;
+  }
   const polls = (
     existing.polls as Array<{ id: string; question: string; options: Array<{ id: string; label: string; voterIds: string[] }> }>
   ).map((poll) =>
@@ -1532,6 +1667,231 @@ router.post("/events/:id/polls/:pollId/vote", requireAuth, async (req: Request, 
   emitEventUpdate(id);
 });
 
+// PATCH /events/:id/polls/:pollId — host/co-admin closes (or reopens) a poll.
+// Closed polls reject votes server-side and render results-only in the client.
+const PatchPollBody = z.object({
+  closed: z.boolean(),
+  version: z.number().int().optional(),
+});
+router.patch("/events/:id/polls/:pollId", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const id = parseId(req.params.id);
+  const pollId = parseId(req.params.pollId);
+  const userId = (req.user as { id: string }).id;
+  const parsed = PatchPollBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const existing = await getEventAsMemberForWrite(id, userId, res);
+  if (!existing) return;
+  if (!canManageEvent(existing, userId)) {
+    res.status(403).json({ error: "Only the host or a co-admin can close a poll." });
+    return;
+  }
+  const currentPolls = existing.polls as Array<{ id: string; closed?: boolean }>;
+  if (!currentPolls.some((p) => p.id === pollId)) {
+    res.status(404).json({ error: "Poll not found" });
+    return;
+  }
+  const polls = currentPolls.map((p) => (p.id === pollId ? { ...p, closed: parsed.data.closed } : p));
+  const clientVersion = parsed.data.version;
+  const updateWhere = clientVersion !== undefined
+    ? and(eq(eventsTable.id, id), eq(eventsTable.version, clientVersion))
+    : eq(eventsTable.id, id);
+  const [event] = await db.update(eventsTable)
+    .set({ polls, version: sql`${eventsTable.version} + 1` })
+    .where(updateWhere)
+    .returning();
+  if (!event) {
+    res.status(409).json({ error: "Someone else just updated this — refresh to see the latest", conflict: true });
+    return;
+  }
+  res.json(event);
+  emitEventUpdate(id);
+});
+
+// ── Cost edit & delete (settle-up integrity) ─────────────────────────────────
+
+// Shared authz for editing/removing a cost: the person who paid it or the
+// event host.
+function canEditCost(event: typeof eventsTable.$inferSelect, cost: StoredCost, userId: string): boolean {
+  return cost.paidById === userId || event.hostId === userId;
+}
+
+const EditCostBody = z.object({
+  description: z.string().min(1),
+  amount: z.number().positive(),
+  shares: z.array(z.object({ userId: z.string(), amount: z.number() })),
+  version: z.number().int().optional(),
+});
+
+// PATCH /events/:id/costs/:costId — edit description/amount/shares (full share
+// replacement). Blocked once any share has a payment in progress. paidById is
+// immutable; the cost id is preserved.
+router.patch("/events/:id/costs/:costId", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const id = parseId(req.params.id);
+  const costId = parseId(req.params.costId);
+  const userId = (req.user as { id: string }).id;
+  const parsed = EditCostBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const { amount, shares } = parsed.data;
+  const hasInvalid = shares.some((s) => s.amount < 0);
+  const assigned = shares.reduce((sum, s) => sum + s.amount, 0);
+  if (amount <= 0 || hasInvalid || Math.abs(amount - assigned) >= 0.01) {
+    res.status(400).json({ error: "Invalid cost: amount must be positive and shares must sum to total" });
+    return;
+  }
+  const existing = await getEventAsMemberForWrite(id, userId, res);
+  if (!existing) return;
+  const costs = existing.costs as StoredCost[];
+  const cost = costs.find((c) => c.id === costId);
+  if (!cost) {
+    res.status(404).json({ error: "Cost not found" });
+    return;
+  }
+  if (!canEditCost(existing, cost, userId)) {
+    res.status(403).json({ error: "Only the person who paid or the host can edit this cost" });
+    return;
+  }
+  if (cost.shares.some((s) => s.paidAt)) {
+    res.status(409).json({
+      error: "This cost has payments in progress. Ask people to unmark payments first, or delete and recreate it.",
+      paymentsInProgress: true,
+    });
+    return;
+  }
+  // Same participant validation as cost creation.
+  const allowed = await allowedParticipantIds(existing);
+  const seenShareUsers = new Set<string>();
+  for (const s of shares) {
+    if (!allowed.has(s.userId)) {
+      res.status(400).json({ error: "A share references someone who isn't a member of this event" });
+      return;
+    }
+    if (seenShareUsers.has(s.userId)) {
+      res.status(400).json({ error: "Each person can appear at most once in a cost split" });
+      return;
+    }
+    seenShareUsers.add(s.userId);
+  }
+  const updatedCost: StoredCost = {
+    id: cost.id,
+    description: parsed.data.description,
+    amount,
+    paidById: cost.paidById, // immutable
+    shares: shares.map((s) => ({ userId: s.userId, amount: s.amount })),
+  };
+  const nextCosts = costs.map((c) => (c.id === costId ? updatedCost : c));
+  const clientVersion = parsed.data.version;
+  const updateWhere = clientVersion !== undefined
+    ? and(eq(eventsTable.id, id), eq(eventsTable.version, clientVersion))
+    : eq(eventsTable.id, id);
+  const [event] = await db.update(eventsTable)
+    .set({ costs: nextCosts, version: sql`${eventsTable.version} + 1` })
+    .where(updateWhere)
+    .returning();
+  if (!event) {
+    res.status(409).json({ error: "Someone else just updated this — refresh to see the latest", conflict: true });
+    return;
+  }
+  res.json(event);
+  emitEventUpdate(id);
+
+  // Fire-and-forget: tell each non-zero debtor in the NEW shares (except the
+  // editor) that the cost changed. Respects the payments preference.
+  void (async () => {
+    try {
+      const debtors = updatedCost.shares.filter(
+        (s) => s.userId !== updatedCost.paidById && s.userId !== userId && s.amount > 0,
+      );
+      if (debtors.length === 0) return;
+      const editor = await storage.getUser(userId);
+      const editorName = displayName(editor);
+      for (const debtor of debtors) {
+        const tokens = await storage.getPushTokensForUsers([debtor.userId], { requireNotifyPayments: true });
+        if (tokens.length === 0) continue;
+        await sendPushNotifications(
+          tokens,
+          {
+            title: `${editorName} updated a cost`,
+            body: `Your share of '${updatedCost.description}' is now $${debtor.amount.toFixed(2)} for ${existing.title}`,
+            data: { screen: "event", eventId: id, tab: "costs" },
+          },
+          { onStaleToken: (token) => storage.clearPushToken(token) },
+        );
+      }
+    } catch (err) {
+      logger.error({ err }, "Error sending cost-updated push notifications");
+    }
+  })();
+});
+
+// DELETE /events/:id/costs/:costId — remove a cost from the split entirely.
+// Allowed at any time regardless of paid/confirmed state.
+router.delete("/events/:id/costs/:costId", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const id = parseId(req.params.id);
+  const costId = parseId(req.params.costId);
+  const userId = (req.user as { id: string }).id;
+  const clientVersion = typeof req.body?.version === "number" ? req.body.version : undefined;
+  const existing = await getEventAsMemberForWrite(id, userId, res);
+  if (!existing) return;
+  const costs = existing.costs as StoredCost[];
+  const cost = costs.find((c) => c.id === costId);
+  if (!cost) {
+    res.status(404).json({ error: "Cost not found" });
+    return;
+  }
+  if (!canEditCost(existing, cost, userId)) {
+    res.status(403).json({ error: "Only the person who paid or the host can delete this cost" });
+    return;
+  }
+  const nextCosts = costs.filter((c) => c.id !== costId);
+  const updateWhere = clientVersion !== undefined
+    ? and(eq(eventsTable.id, id), eq(eventsTable.version, clientVersion))
+    : eq(eventsTable.id, id);
+  const [event] = await db.update(eventsTable)
+    .set({ costs: nextCosts, version: sql`${eventsTable.version} + 1` })
+    .where(updateWhere)
+    .returning();
+  if (!event) {
+    res.status(409).json({ error: "Someone else just updated this — refresh to see the latest", conflict: true });
+    return;
+  }
+  res.json(event);
+  emitEventUpdate(id);
+
+  // Fire-and-forget: tell all non-zero debtors (except the deleter) the cost
+  // was removed. Respects the payments preference.
+  void (async () => {
+    try {
+      const debtors = cost.shares.filter(
+        (s) => s.userId !== cost.paidById && s.userId !== userId && s.amount > 0,
+      );
+      if (debtors.length === 0) return;
+      const payer = await storage.getUser(cost.paidById);
+      const payerName = displayName(payer);
+      for (const debtor of debtors) {
+        const tokens = await storage.getPushTokensForUsers([debtor.userId], { requireNotifyPayments: true });
+        if (tokens.length === 0) continue;
+        await sendPushNotifications(
+          tokens,
+          {
+            title: `${payerName} removed a cost`,
+            body: `'${cost.description}' ($${cost.amount.toFixed(2)}) was deleted from ${existing.title}`,
+            data: { screen: "event", eventId: id, tab: "costs" },
+          },
+          { onStaleToken: (token) => storage.clearPushToken(token) },
+        );
+      }
+    } catch (err) {
+      logger.error({ err }, "Error sending cost-deleted push notifications");
+    }
+  })();
+});
+
 router.post("/events/:id/messages", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const id = parseId(req.params.id);
   const userId = (req.user as { id: string }).id;
@@ -1540,7 +1900,7 @@ router.post("/events/:id/messages", requireAuth, async (req: Request, res: Respo
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const existing = await getEventAsMember(id, userId, res);
+  const existing = await getEventAsMemberForWrite(id, userId, res);
   if (!existing) return;
   const { version: clientVersion, text } = parsed.data;
   const messages = [
@@ -1635,7 +1995,7 @@ router.get('/events/:id/photos', requireAuth, async (req, res): Promise<void> =>
       res.status(404).json({ error: 'Event not found' });
       return;
     }
-    if (event.hostId !== userId) {
+    if (!(await userCanAccessEvent(event, userId))) {
       res.status(403).json({ error: 'Access denied' });
       return;
     }
@@ -1697,7 +2057,7 @@ router.post("/events/:id/itinerary", requireAuth, async (req: Request, res: Resp
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const existing = await getEventAsMember(id, userId, res);
+  const existing = await getEventAsMemberForWrite(id, userId, res);
   if (!existing) return;
   if (!ensureTripEvent(existing, res)) return;
   if (!(await ensureStopParticipants(existing, parsed.data, res))) return;
@@ -1750,7 +2110,7 @@ router.patch("/events/:id/itinerary/:stopId", requireAuth, async (req: Request, 
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const existing = await getEventAsMember(id, userId, res);
+  const existing = await getEventAsMemberForWrite(id, userId, res);
   if (!existing) return;
   if (!ensureTripEvent(existing, res)) return;
   if (!(await ensureStopParticipants(existing, parsed.data, res))) return;
@@ -1787,7 +2147,7 @@ router.delete("/events/:id/itinerary/:stopId", requireAuth, async (req: Request,
     res.status(400).json({ error: "version is required" });
     return;
   }
-  const existing = await getEventAsMember(id, userId, res);
+  const existing = await getEventAsMemberForWrite(id, userId, res);
   if (!existing) return;
   if (!ensureTripEvent(existing, res)) return;
   const current = (existing.itinerary ?? []) as ItineraryStop[];
@@ -1826,7 +2186,7 @@ router.post("/events/:id/itinerary/:stopId/vote", requireAuth, async (req: Reque
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const existing = await getEventAsMember(id, userId, res);
+  const existing = await getEventAsMemberForWrite(id, userId, res);
   if (!existing) return;
   if (!ensureTripEvent(existing, res)) return;
   const { version: clientVersion } = parsed.data;
@@ -1867,7 +2227,7 @@ router.post("/events/:id/itinerary/:stopId/confirm", requireAuth, async (req: Re
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const existing = await getEventAsMember(id, userId, res);
+  const existing = await getEventAsMemberForWrite(id, userId, res);
   if (!existing) return;
   if (!ensureTripEvent(existing, res)) return;
   const { version: clientVersion } = parsed.data;
@@ -1904,7 +2264,7 @@ router.post("/events/:id/packing", requireAuth, async (req: Request, res: Respon
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const existing = await getEventAsMember(id, userId, res);
+  const existing = await getEventAsMemberForWrite(id, userId, res);
   if (!existing) return;
   if (!ensureTripEvent(existing, res)) return;
   const { version: clientVersion, label } = parsed.data;
@@ -1941,7 +2301,7 @@ router.patch("/events/:id/packing/:itemId", requireAuth, async (req: Request, re
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const existing = await getEventAsMember(id, userId, res);
+  const existing = await getEventAsMemberForWrite(id, userId, res);
   if (!existing) return;
   if (!ensureTripEvent(existing, res)) return;
   const { version: clientVersion, ...itemFields } = parsed.data;
@@ -1975,7 +2335,7 @@ router.delete("/events/:id/packing/:itemId", requireAuth, async (req: Request, r
     res.status(400).json({ error: "version is required" });
     return;
   }
-  const existing = await getEventAsMember(id, userId, res);
+  const existing = await getEventAsMemberForWrite(id, userId, res);
   if (!existing) return;
   if (!ensureTripEvent(existing, res)) return;
   const current = (existing.packing ?? []) as PackingItem[];
@@ -2017,10 +2377,10 @@ const MANUAL_REMINDER_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour per type
 // independent 1-hour cooldown. Returns {retryAfterMs} on 429.
 router.post("/events/:id/remind", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const userId = (req.user as { id: string }).id;
-  const id = req.params.id;
+  const id = parseId(req.params.id);
 
   try {
-    const event = await getEventAsMember(id, userId, res);
+    const event = await getEventAsMemberForWrite(id, userId, res);
     if (!event) return;
 
     if (!canManageEvent(event, userId)) {

@@ -63,8 +63,17 @@ async function purgeSquadData(
   const eventIds = squadEvents.map((e) => e.id);
   if (eventIds.length > 0) {
     await tx.delete(eventInvitesTable).where(inArray(eventInvitesTable.eventId, eventIds));
+    // Activity rows pointing at this squad's events (invites, RSVPs, etc.)
+    // would dangle after the events are gone — remove them too.
+    await tx
+      .delete(activityTable)
+      .where(and(eq(activityTable.subjectType, "event"), inArray(activityTable.subjectId, eventIds)));
     await tx.delete(eventsTable).where(inArray(eventsTable.id, eventIds));
   }
+  // Activity rows about the squad itself (invites/joins/leaves).
+  await tx
+    .delete(activityTable)
+    .where(and(eq(activityTable.subjectType, "squad"), eq(activityTable.subjectId, squadId)));
   await tx.delete(conversationsTable).where(eq(conversationsTable.squadId, squadId));
   await tx.delete(squadInvitesTable).where(eq(squadInvitesTable.squadId, squadId));
   await tx.delete(availabilityPollsTable).where(eq(availabilityPollsTable.squadId, squadId));
@@ -1184,6 +1193,15 @@ router.delete("/squads/:id/members/:userId", requireAuth, async (req: Request, r
           changed = true;
           delete rsvps[targetUserId];
         }
+        // Host transfer: if the departing member hosts a still-active squad
+        // event, hand hosting to the squad's (possibly just-transferred)
+        // creator so the event doesn't become unmanageable. Cancelled events
+        // are left as-is for the historical record.
+        let hostId = ev.hostId;
+        if (ev.hostId === targetUserId && !ev.cancelled && nextCreatorId) {
+          hostId = nextCreatorId;
+          changed = true;
+        }
         if (!changed) continue;
         await db
           .update(eventsTable)
@@ -1191,6 +1209,7 @@ router.delete("/squads/:id/members/:userId", requireAuth, async (req: Request, r
             itinerary: itinerary as typeof ev.itinerary,
             polls: polls as typeof ev.polls,
             rsvps,
+            hostId,
             version: sql`${eventsTable.version} + 1`,
           })
           .where(and(eq(eventsTable.id, ev.id), eq(eventsTable.version, ev.version)));

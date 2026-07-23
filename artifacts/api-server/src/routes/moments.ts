@@ -459,13 +459,47 @@ router.delete("/moments/:id", requireAuth, async (req: Request, res: Response): 
       res.status(404).json({ error: "Moment not found" });
       return;
     }
+    // Author may always delete. For squad-scoped moments, the squad host or a
+    // co-admin may moderate-delete. Friends-scoped moments stay author-only.
+    let isModerationDelete = false;
     if (moment.authorId !== userId) {
-      res.status(403).json({ error: "You can only delete your own moments." });
-      return;
+      let canModerate = false;
+      if (moment.audience !== "friends") {
+        const [squad] = await db.select().from(squadsTable).where(eq(squadsTable.id, moment.audience));
+        if (squad) {
+          const coAdminIds = (squad.coAdminIds ?? []) as string[];
+          canModerate = squad.creatorId === userId || coAdminIds.includes(userId);
+        }
+      }
+      if (!canModerate) {
+        res.status(403).json({ error: "You can only delete your own moments." });
+        return;
+      }
+      isModerationDelete = true;
     }
     await db.update(momentsTable).set({ deletedAt: new Date() }).where(eq(momentsTable.id, id));
     res.json({ ok: true });
     emitFeedUpdate(userId);
+    emitFeedUpdate(moment.authorId);
+    if (isModerationDelete) {
+      void (async () => {
+        try {
+          const tokens = await storage.getPushTokensForUsers([moment.authorId]);
+          if (tokens.length === 0) return;
+          await sendPushNotifications(
+            tokens,
+            {
+              title: "Moment removed",
+              body: "Your post was removed by a squad admin.",
+              data: { screen: "feed" },
+            },
+            { onStaleToken: (token) => storage.clearPushToken(token) },
+          );
+        } catch (err) {
+          logger.error({ err }, "Error sending moderation-delete push");
+        }
+      })();
+    }
   } catch (err) {
     logger.error({ err }, "Error deleting moment");
     res.status(500).json({ error: "Failed to delete moment" });

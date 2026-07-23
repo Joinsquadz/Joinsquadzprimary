@@ -15,6 +15,7 @@ import { useColors } from "@/hooks/useColors";
 import { useData, useAuth } from "@/context/AppContext";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { API_BASE } from "@/lib/api";
+import { savePendingInviteCode, clearPendingInviteCode } from "@/lib/pendingInvite";
 import type { Squad } from "@/types";
 
 type SquadPreview = {
@@ -56,6 +57,12 @@ export default function SquadJoinScreen() {
   const code = params.code?.trim().toUpperCase() ?? null;
   const loggedIn = isLoggedIn || authIsLoggedIn;
 
+  // B6: persist the pending invite code for logged-out visitors so the
+  // deep-link survives onboarding even across a cold start (24h expiry).
+  useEffect(() => {
+    if (code && !loggedIn) void savePendingInviteCode(code);
+  }, [code, loggedIn]);
+
   // Unauthenticated read-only preview so the invitee sees the squad before
   // signing up. Non-fatal on failure — we fall back to the generic hero.
   useEffect(() => {
@@ -88,6 +95,8 @@ export default function SquadJoinScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
       const result = await joinSquadByCode(code);
+      // Any definitive server response consumes the stored pending code.
+      void clearPendingInviteCode();
       if (result.revoked) {
         setRevoked(true);
       } else if (result.limit) {

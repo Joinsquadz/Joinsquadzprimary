@@ -179,6 +179,24 @@ export async function purchaseSquadzPlus(preferFounding: boolean): Promise<Purch
   }
 }
 
+/**
+ * Whether the on-device RevenueCat customer info currently has the Squadz+
+ * entitlement active. Returns null when the SDK is unavailable (web / not
+ * configured) so callers can distinguish "no" from "unknown".
+ */
+export async function getLocalEntitlementActive(): Promise<boolean | null> {
+  if (Platform.OS === "web") return null;
+  await ensureConfigured();
+  const Purchases = await getPurchases();
+  if (!Purchases || !_configured) return null;
+  try {
+    const info = await Purchases.getCustomerInfo();
+    return !!info.entitlements.active[RC_ENTITLEMENT_ID];
+  } catch {
+    return null;
+  }
+}
+
 /** Restore previous purchases (e.g. after reinstall / new device). */
 export async function restoreSquadzPlus(): Promise<PurchaseOutcome> {
   if (Platform.OS === "web") {

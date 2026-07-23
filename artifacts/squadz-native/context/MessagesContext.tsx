@@ -68,7 +68,18 @@ export type ThreadData = {
   conversation: { id: string; type: string; squadId: string | null };
   messages: ChatMessage[];
   participants: ChatParticipant[];
+  // Cursor pagination: hasMore = older messages exist before this page;
+  // nextCursor = the messageId to pass as ?before to fetch that older page.
+  hasMore: boolean;
+  nextCursor: string | null;
 };
+
+// Result of a send. `blocked` distinguishes a 403 blocked-thread rejection
+// (either party has blocked the other) from a generic failure, so the
+// conversation screen can swap the composer for a neutral read-only state.
+export type SendMessageResult =
+  | { ok: true; message: ChatMessage }
+  | { ok: false; blocked: boolean };
 
 // Result of a thread fetch, tagged with the HTTP outcome so the conversation
 // screen can drive the shared auth-race guard (lib/vaultAuthRace.ts): a
@@ -92,12 +103,14 @@ type MessagesContextType = {
   unreadCount: number;
   refreshConversations: () => Promise<void>;
   refreshUnread: () => Promise<void>;
-  fetchThread: (conversationId: string) => Promise<ThreadFetchResult>;
+  // `before` = messageId cursor; when set, fetches the page of OLDER messages
+  // before that id (infinite scroll up). Omit for the latest page.
+  fetchThread: (conversationId: string, before?: string) => Promise<ThreadFetchResult>;
   sendMessage: (
     conversationId: string,
     text: string,
     attachments: ChatAttachment[],
-  ) => Promise<ChatMessage | null>;
+  ) => Promise<SendMessageResult>;
   markRead: (conversationId: string) => Promise<void>;
   startDirectConversation: (userId: string) => Promise<string | null>;
   getSquadConversation: (squadId: string) => Promise<string | null>;
@@ -198,9 +211,10 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
   }, [apiFetch]);
 
   const fetchThread = useCallback(
-    async (conversationId: string): Promise<ThreadFetchResult> => {
+    async (conversationId: string, before?: string): Promise<ThreadFetchResult> => {
       try {
-        const res = await apiFetch(`/api/conversations/${conversationId}/messages`);
+        const qs = before ? `?before=${encodeURIComponent(before)}` : "";
+        const res = await apiFetch(`/api/conversations/${conversationId}/messages${qs}`);
         // A 401 almost always means the auth token hasn't finished restoring yet
         // (cold start / deep-link open / token-refresh race). Surface it so the
         // screen can stay loading and retry instead of flashing a false empty.
@@ -219,19 +233,32 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
       conversationId: string,
       text: string,
       attachments: ChatAttachment[],
-    ): Promise<ChatMessage | null> => {
+    ): Promise<SendMessageResult> => {
       try {
         const res = await apiFetch(`/api/conversations/${conversationId}/messages`, {
           method: "POST",
           body: JSON.stringify({ text, attachments }),
         });
-        if (!res.ok) return null;
+        if (!res.ok) {
+          // 403 on a send means the thread is blocked (either party blocked the
+          // other). Prefer the explicit { blocked: true } body flag, but treat
+          // any 403 as blocked so the screen can swap in the read-only state.
+          if (res.status === 403) {
+            try {
+              const body = (await res.json()) as { blocked?: boolean };
+              return { ok: false, blocked: body?.blocked !== false };
+            } catch {
+              return { ok: false, blocked: true };
+            }
+          }
+          return { ok: false, blocked: false };
+        }
         const message = (await res.json()) as ChatMessage;
         // Reflect new activity in the list/badge promptly.
         void refreshConversations();
-        return message;
+        return { ok: true, message };
       } catch {
-        return null;
+        return { ok: false, blocked: false };
       }
     },
     [apiFetch, refreshConversations],

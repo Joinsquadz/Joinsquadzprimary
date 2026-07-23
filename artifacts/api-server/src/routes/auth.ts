@@ -14,6 +14,7 @@ import {
   clearSession,
   getOidcConfig,
   getSessionId,
+  getSession,
   createSession,
   deleteSession,
   hashPassword,
@@ -27,6 +28,19 @@ import { sendVerificationEmail, sendPasswordResetEmail } from "../emailService";
 import { supabaseAdmin, supabaseAuth } from "../services/supabase";
 import { trackEvent, identifyUser } from "../services/analytics";
 import { logger } from "../lib/logger";
+import { storage } from "../storage";
+
+// C8: on logout, delete the device's push token server-side so a logged-out
+// device stops receiving pushes. Best-effort — never blocks the logout.
+async function clearPushTokenForSession(sid: string): Promise<void> {
+  try {
+    const session = await getSession(sid);
+    const userId = session?.user?.id;
+    if (userId) await storage.clearPushTokenForUser(userId);
+  } catch (err) {
+    logger.error({ err }, "Failed to clear push token on logout");
+  }
+}
 
 const OIDC_COOKIE_TTL = 10 * 60 * 1000;
 
@@ -114,6 +128,16 @@ function sanitizeMobileReturnTo(value: unknown, req: Request): string {
   return u.toString();
 }
 
+// Thrown when a sign-in would auto-merge into an existing account via an
+// UNVERIFIED email claim — that would let anyone claiming your email take over
+// your account. Callers surface a clear "sign in with your original method".
+export class EmailLinkingError extends Error {
+  constructor() {
+    super("An account with this email already exists. Sign in with your original method.");
+    this.name = "EmailLinkingError";
+  }
+}
+
 async function upsertUser(claims: Record<string, unknown>) {
   const profileData = {
     id: claims.sub as string,
@@ -135,6 +159,12 @@ async function upsertUser(claims: Record<string, unknown>) {
       .from(usersTable)
       .where(eq(usersTable.email, profileData.email));
     if (byEmail && byEmail.id !== profileData.id) {
+      // Only trust the merge when the provider asserts a VERIFIED email —
+      // unverified claims must not link into (and take over) an existing
+      // account that merely shares the address.
+      if (claims.email_verified !== true) {
+        throw new EmailLinkingError();
+      }
       const [linked] = await db
         .update(usersTable)
         .set({
@@ -245,9 +275,16 @@ router.get("/callback", async (req: Request, res: Response) => {
     return;
   }
 
-  const dbUser = await upsertUser(
-    claims as unknown as Record<string, unknown>,
-  );
+  let dbUser;
+  try {
+    dbUser = await upsertUser(claims as unknown as Record<string, unknown>);
+  } catch (err) {
+    if (err instanceof EmailLinkingError) {
+      res.redirect(`${returnTo}#error=${encodeURIComponent(err.message)}`);
+      return;
+    }
+    throw err;
+  }
 
   const now = Math.floor(Date.now() / 1000);
   const sessionData: SessionData = {
@@ -341,7 +378,16 @@ router.get("/mobile-auth/web-callback", async (req: Request, res: Response) => {
       return;
     }
 
-    const dbUser = await upsertUser(claims as unknown as Record<string, unknown>);
+    let dbUser;
+    try {
+      dbUser = await upsertUser(claims as unknown as Record<string, unknown>);
+    } catch (err) {
+      if (err instanceof EmailLinkingError) {
+        res.redirect(`${returnTo}#error=${encodeURIComponent(err.message)}`);
+        return;
+      }
+      throw err;
+    }
 
     const now = Math.floor(Date.now() / 1000);
     const sessionData: SessionData = {
@@ -370,6 +416,7 @@ router.get("/logout", async (req: Request, res: Response) => {
   const origin = getOrigin(req);
 
   const sid = getSessionId(req);
+  if (sid) await clearPushTokenForSession(sid);
   await clearSession(res, sid);
 
   const endSessionUrl = oidc.buildEndSessionUrl(config, {
@@ -412,9 +459,16 @@ router.post(
         return;
       }
 
-      const dbUser = await upsertUser(
-        claims as unknown as Record<string, unknown>,
-      );
+      let dbUser;
+      try {
+        dbUser = await upsertUser(claims as unknown as Record<string, unknown>);
+      } catch (upsertErr) {
+        if (upsertErr instanceof EmailLinkingError) {
+          res.status(409).json({ error: upsertErr.message });
+          return;
+        }
+        throw upsertErr;
+      }
 
       const now = Math.floor(Date.now() / 1000);
       const sessionData: SessionData = {
@@ -442,6 +496,7 @@ router.post(
 router.post("/mobile-auth/logout", async (req: Request, res: Response) => {
   const sid = getSessionId(req);
   if (sid) {
+    await clearPushTokenForSession(sid);
     await deleteSession(sid);
   }
   res.json(LogoutMobileSessionResponse.parse({ success: true }));
@@ -768,7 +823,10 @@ router.post("/auth/login", async (req: Request, res: Response) => {
 
 router.post("/auth/logout", async (req: Request, res: Response) => {
   const sid = getSessionId(req);
-  if (sid) await deleteSession(sid);
+  if (sid) {
+    await clearPushTokenForSession(sid);
+    await deleteSession(sid);
+  }
   res.json({ ok: true });
 });
 

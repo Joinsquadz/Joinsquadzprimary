@@ -15,7 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AppContext";
 import { useUserCache } from "@/context/UserCacheContext";
-import { API_BASE, buildAuthHeaders } from "@/lib/api";
+import { API_BASE, buildAuthHeaders, syncIapEntitlement } from "@/lib/api";
 import { purchaseSquadzPlus, restoreSquadzPlus, getSquadzPlusPrices } from "@/lib/revenuecat";
 import { ProAvatar } from "@/components/ProAvatar";
 
@@ -187,6 +187,8 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess, head
   // purchase or restore).
   const onEntitled = useCallback(async () => {
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    // B4: authoritative server-side reconciliation with live RC state.
+    void syncIapEntitlement(authToken);
     if (currentUser.id) refreshUsers([currentUser.id]);
     onUpgradeSuccess?.();
     void refreshServerState();
@@ -204,7 +206,7 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess, head
     }
     setPhase("idle");
     onClose();
-  }, [currentUser.id, refreshUsers, onUpgradeSuccess, refreshServerState, onClose]);
+  }, [authToken, currentUser.id, refreshUsers, onUpgradeSuccess, refreshServerState, onClose]);
 
   // Reset transient state whenever the parent closes the modal. Clearing
   // `founding`/`rcPrices` means each fresh open re-fetches, and if that's slow or
@@ -252,13 +254,16 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess, head
     setPhase("confirming");
     setError(null);
     const result = await restoreSquadzPlus();
+    // B4: sync the server entitlement after every restore attempt (sets OR
+    // clears is_squadz_plus based on live RevenueCat state; idempotent).
+    if (result.ok) void syncIapEntitlement(authToken);
     if (result.ok && result.isPro) {
       await onEntitled();
       return;
     }
     setPhase("idle");
     setError(result.ok ? "No active Squadz+ purchase found to restore." : result.error);
-  }, [phase, onEntitled]);
+  }, [phase, authToken, onEntitled]);
 
   const busy = phase === "checkout" || phase === "confirming";
   // While a purchase is in flight, block dismissal.

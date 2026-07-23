@@ -19,6 +19,7 @@ import { SquadzIcon } from "@/components/SquadzIcon";
 import { GradientButton } from "@/components/GradientButton";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { fonts } from "@/constants/fonts";
+import { readPendingInviteCode } from "@/lib/pendingInvite";
 
 type Screen = "splash" | "signin";
 
@@ -94,7 +95,13 @@ export default function LoginScreen() {
     } else if (params.publicSquadId) {
       router.replace({ pathname: "/squad/join-public", params: { id: params.publicSquadId } } as never);
     } else {
-      router.replace("/(tabs)" as never);
+      // B6: fall back to a stored pending invite code (survives cold start).
+      const stored = await readPendingInviteCode();
+      if (stored) {
+        router.replace({ pathname: "/squad/join", params: { code: stored, auto: "1" } } as never);
+      } else {
+        router.replace("/(tabs)" as never);
+      }
     }
   };
 

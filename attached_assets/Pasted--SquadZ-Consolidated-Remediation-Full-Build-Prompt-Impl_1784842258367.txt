@@ -1,0 +1,123 @@
+# SquadZ Consolidated Remediation — Full Build Prompt
+
+Implement everything below in one pass. All decisions are final — do not ask for confirmation, propose alternatives, or expand scope. Follow existing codebase patterns: version-guarded optimistic locking on JSONB event mutations, Zod validation, the established push notification conventions (preference gates, frequency caps), and `AppContext.tsx` optimistic-update patterns. Finding IDs reference the audit report.
+
+---
+
+## PART A — Blockers
+
+### A1. Push notification on material event edits (F-01)
+In the event PATCH handler, when any of **date/time, location, or title** changes on a non-cancelled event:
+- Send a push to all users who have RSVP'd (any status) plus invited users, excluding the editor.
+- Copy: "[Event name] was updated" / body summarizing what changed, e.g. "New time: Sat, Aug 8, 7:00 PM" or "New location: [place]" — if multiple fields changed, list the most important (time > place > title).
+- Respect the appropriate event-notification preference gate consistent with the existing 34-notification matrix.
+- Multiple material edits within a 5-minute window collapse into one push (reuse the existing debounce pattern from poll updates).
+- Description/emoji/cover-image-only edits do NOT trigger a push.
+
+### A2. Cancellation push (F-03)
+When an event is cancelled (PATCH sets `cancelled: true`):
+- Push to all RSVP'd + invited users, excluding the canceller: "[Event name] was cancelled" / "This plan is off. Any costs already logged still appear in settle-up." (omit the costs sentence if the event has no costs).
+- Fires once — re-saving an already-cancelled event must not re-notify.
+- Same preference gate treatment as A1.
+
+### A3. Cancelled-event write guards (F-02)
+Add `if (existing.cancelled) → 410` guards (matching the existing RSVP guard pattern at events.ts:630) to:
+- `POST /events/:id/costs`
+- `POST /events/:id/messages`
+- `POST /events/:id/polls/:pollId/vote`
+- Poll creation and task creation on the same event, and any other mutating sub-resource route on events not already guarded — sweep the full route file.
+Client: hide/disable the corresponding composers and buttons when `cancelled` is true, with a "This event was cancelled" state.
+
+## PART B — High-Severity Fixes
+
+### B1. DM message pagination (F-04)
+- `getConversationMessages`: add cursor-based pagination (before-message-id or before-timestamp cursor), default page size 50, ordered newest-first.
+- Client: load latest page on open, infinite scroll upward to fetch older pages. Preserve scroll position on prepend.
+
+### B2. Block check on existing DM threads (F-05)
+- In `POST /conversations/:id/messages`, check `getBlockedAndBlockerIds` (same check used at conversation creation) and return 403 if either party has blocked the other.
+- Client: when a thread is blocked, show a neutral "You can't message this person" state instead of the composer. Do not reveal who blocked whom.
+
+### B3. Host/co-admin moderation delete — Feed & Moments (F-06, F-07)
+- Extend the delete authorization on feed posts and moments: author OR squad host OR co-admin (for content associated with their squad) may delete.
+- If feed posts are friends-scoped without a squad FK, apply the moderation override only where a squad/event association exists; author-delete remains the baseline elsewhere.
+- Moderation deletes notify the author: "Your post was removed by a squad admin." No push for self-deletes.
+
+### B4. Restore-purchases server sync (F-08)
+- Add `POST /iap/sync`: authenticated endpoint that calls the RevenueCat REST API (GET /subscribers/{app_user_id}) server-side, and sets/clears `is_squadz_plus` based on the live entitlement. Idempotent.
+- Client: call `/iap/sync` after `restorePurchases()` resolves, after successful purchase, and on app launch when local RC entitlement disagrees with server-gated feature access.
+
+### B5. Account deletion vs. IAP billing (F-09)
+Apple provides no API to cancel App Store subscriptions — do not attempt it.
+- **Google Play:** during account deletion, if an active Play subscription exists, cancel it via the Google Play Developer API (`purchases.subscriptions.cancel`) using the existing `squadz-play-api` service credentials. Best-effort; log failures without blocking deletion.
+- **iOS:** if an active App Store subscription exists, the deletion confirmation screen must state that deleting the account does not cancel the subscription and show a "Manage Subscription" button deep-linking to `https://apps.apple.com/account/subscriptions` (or `Linking.openURL` to the native subscriptions sheet). Deletion proceeds regardless.
+- Keep the existing Stripe best-effort cancel for legacy accounts.
+
+### B6. Invite deep-link survives onboarding (F-10)
+- Persist the pending invite code (not just a flag) in `ONBOARDING_PENDING_KEY` (or a dedicated key) when an unauthenticated/new user opens an invite link.
+- After onboarding completes, read the stored code, execute the squad join (subject to the normal `withSquadLimit` check), clear the key, and land the user in the joined squad. Must work on both cold start and warm start. Expire stored codes after 24h.
+
+### B7. Scrub invitedUserIds on account deletion (F-11)
+- In the account-deletion transaction, filter the deleted user's ID out of `events.invitedUserIds` across all events, alongside the existing RSVP/cost/message scrubs.
+
+### B8. Event host transfer when host leaves squad (F-12)
+- When a user leaves or is removed from a squad, reassign `hostId` on their non-cancelled squad events to the squad creator (or, if the departed host IS handled by other flows, the first co-admin; the creator cannot currently leave, so creator is a safe default).
+- The new host gets a quiet in-app attribution (no push required). Past/cancelled events keep the original hostId for historical accuracy but must render departed hosts safely (see D4).
+
+### B9. Founding-spot cap guard (F-13)
+- Inside the existing `pg_advisory_xact_lock` transaction in `redeemFoundingSpot`, add a `WHERE redeemed < FOUNDING_MEMBER_LIMIT` guard (or read-check-then-increment within the lock). If the cap is reached, the redemption returns "sold out" and the purchase proceeds at the standard $29.99 price path. Counter must be provably incapable of exceeding 500.
+
+### B10. Email account-linking trust (F-14)
+- In `upsertUser`, only auto-merge accounts across providers when the incoming provider asserts a verified email (`email_verified: true` claim). If unverified, create a separate account or require sign-in with the original method, with a clear error: "An account with this email already exists. Sign in with your original method."
+
+## PART C — Polish & Integrity (cheap mediums)
+
+- **C1 (F-16):** Server-side guard rejecting new RSVPs and RSVP changes once `eventAt` is in the past (410 or 400 with friendly message). Client hides RSVP controls on past events.
+- **C2 (F-17):** Add a `closed` boolean to event polls. Host/co-admin can close a poll (version-guarded PATCH). Closed polls reject votes server-side (400) and render results-only in the client. No auto-close for now.
+- **C3 (F-18):** Optimistic insert on DM send: append the message locally with a pending indicator immediately, reconcile on server ack, show retry affordance on failure. Match the existing optimistic patterns.
+- **C4 (F-20):** Give `updateSquad` a real async signature with rollback: revert the optimistic name/emoji and show an error toast if the PATCH fails.
+- **C5 (F-21):** Add explicit optimistic rollback to `markSharePaid` (revert the `paidAt` stamp on server error) instead of waiting for `refreshEvents`.
+- **C6 (F-23):** In `purgeSquadData`, also delete activity-feed notification rows referencing the squad or its events.
+- **C7 (F-25):** In the day-of reminder scanner, when `event.timezone` is null/undefined, fall back explicitly to UTC (and verify `calendarDaysUntil` handles it deterministically). Add a test with a null-timezone event.
+- **C8 (F-28):** On logout, delete the device's push token server-side before clearing the session. Verify no pushes reach a logged-out device.
+- **C9 (F-29):** Enforce stored session `expires_at` in the auth middleware for all session types; expired sessions force re-auth (the secure-store re-auth flow already exists).
+
+## PART D — Cost Splitting (previously locked decisions)
+
+### D1. DELETE cost endpoint
+`DELETE /events/:id/costs/:costId`. Authorized: cost's `paidById` or event host. Deletable at any time regardless of paid/confirmed state. Version-guarded (409 pattern). Removes the cost from the JSONB array. Push to all non-zero-amount debtors (excluding deleter): "[Payer] removed a cost" / "'[description]' ($X.XX) was deleted from [event name]." Respect `notifyPayments`.
+
+### D2. EDIT cost endpoint
+`PATCH /events/:id/costs/:costId`. Authorized: `paidById` or host. Editable: `description`, `amount`, `shares` (full replacement). **Blocked with 409 if ANY share has `paidAt` set** — error: "This cost has payments in progress. Ask people to unmark payments first, or delete and recreate it." All create-time validations apply to new values; `paidById` cannot change; original cost `id` preserved; version-guarded. Push to all non-zero debtors in the NEW shares (excluding editor): "[Payer] updated a cost" / "'[description]' is now $X.XX — your share is $Y.YY." Respect `notifyPayments`.
+
+### D3. Cancelled events excluded from settle-up
+Filter costs from cancelled events out of `computeOwed`, `computeOwedToMe`, and `computeSettle` (display-layer only — never delete data). Costs panel on a cancelled event is read-only. (New cost creation on cancelled events is already blocked by A3.)
+
+### D4. Departed-member rendering in settle-up
+Settle-up and cost views must tolerate userIds absent from current membership: resolve names from available data, append "(left squad)", keep debts fully visible and payable via stored payment handles, never crash or render blank rows. Apply the same safe rendering to departed `paidById` and departed event hosts (B8 historical cases).
+
+### D5. Cost UI
+Edit and delete affordances on each cost, visible only to payer + host. Delete requires confirmation: "Delete this cost? Balances for everyone in this split will update." Edit reuses the creation UI (even/manual toggle) pre-populated. Surface the D2 409 message verbatim in a friendly alert. Optimistic updates + rollback per existing patterns.
+
+## PART E — Explicitly OUT OF SCOPE (do not build)
+
+- Event capacity / waitlists (F-27)
+- Family sharing entitlements (F-22)
+- ICS TZID named-timezone property (F-24)
+- Squad-creator leave/transfer flow (F-19)
+- Pushes for squad rename, member removal, co-admin changes (F-15 remainder)
+- Feed/moments purge on squad deletion (F-26 — friends-scoped by design)
+- Percentage/weighted/itemized splits, multi-currency, partial payments, debt simplification
+- Any storage-model changes (costs stay JSONB; no new balance tables)
+
+## PART F — Testing Requirements
+
+Add API + client tests for every item above. Minimum coverage:
+- **A1–A3:** edit push fires only on material fields with correct recipients and debounce; cancel push fires exactly once; every cancelled-event mutation route returns 410; preference gates respected.
+- **B-series:** pagination cursor correctness incl. concurrent inserts; blocked-thread 403 both directions; moderation delete authz matrix (author/host/co-admin/other); `/iap/sync` sets and clears the flag idempotently; Play cancel invoked on deletion with active sub, iOS path shows manage-subscription state; invite code survives full new-user onboarding cold-start; invitedUserIds scrubbed; host transfer on leave AND on removal; founding counter cannot exceed 500 under concurrent redemptions (simulate the #500 race); unverified-email merge rejected.
+- **C-series:** past-event RSVP rejected; closed poll rejects votes; DM optimistic insert + retry; updateSquad and markSharePaid rollback on injected failure; null-timezone day-of reminder; push token removed on logout; expired session forces re-auth.
+- **D-series:** delete/edit authz, version conflicts, paid-share edit block, settle-up excludes cancelled events, departed-member rendering.
+- **Multi-user simulation:** host edits event time → attendees receive one debounced push → host cancels → attendees notified once → no further costs/messages/votes accepted → settle-up excludes the cancelled event's costs → a member leaves → their hosted event transfers and their cost shares render with "(left squad)".
+- **Full regression:** all existing API and mobile suites must remain green.
+
+Report back with files changed, decisions taken where the spec left micro-details open, and full test results.

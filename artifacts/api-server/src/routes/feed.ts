@@ -386,9 +386,23 @@ router.delete("/feed/posts/:id", requireAuth, async (req: Request, res: Response
       res.status(404).json({ error: "Post not found" });
       return;
     }
+    // Author may always delete. For squad-scoped posts, the squad host or a
+    // co-admin may moderate-delete. Friends-scoped posts stay author-only.
+    let isModerationDelete = false;
     if (post.authorId !== userId) {
-      res.status(403).json({ error: "You can only delete your own posts." });
-      return;
+      let canModerate = false;
+      if (post.audience !== "friends") {
+        const [squad] = await db.select().from(squadsTable).where(eq(squadsTable.id, post.audience));
+        if (squad) {
+          const coAdminIds = (squad.coAdminIds ?? []) as string[];
+          canModerate = squad.creatorId === userId || coAdminIds.includes(userId);
+        }
+      }
+      if (!canModerate) {
+        res.status(403).json({ error: "You can only delete your own posts." });
+        return;
+      }
+      isModerationDelete = true;
     }
     await db
       .update(feedPostsTable)
@@ -397,8 +411,27 @@ router.delete("/feed/posts/:id", requireAuth, async (req: Request, res: Response
     res.json({ ok: true });
     emitFeedUpdate(userId);
     void (async () => {
-      const recipientIds = await feedPostReaders(userId, post.audience);
+      const recipientIds = await feedPostReaders(post.authorId, post.audience);
       recipientIds.forEach((rid) => emitFeedUpdate(rid));
+      emitFeedUpdate(post.authorId);
+      // Moderation deletes notify the author; self-deletes never push.
+      if (isModerationDelete) {
+        try {
+          const tokens = await storage.getPushTokensForUsers([post.authorId]);
+          if (tokens.length === 0) return;
+          await sendPushNotifications(
+            tokens,
+            {
+              title: "Post removed",
+              body: "Your post was removed by a squad admin.",
+              data: { screen: "feed" },
+            },
+            { onStaleToken: (token) => storage.clearPushToken(token) },
+          );
+        } catch (err) {
+          logger.error({ err }, "Error sending moderation-delete push");
+        }
+      }
     })();
   } catch (err) {
     logger.error({ err }, "Error deleting feed post");

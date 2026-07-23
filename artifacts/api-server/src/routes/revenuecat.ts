@@ -1,8 +1,10 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request, type Response } from "express";
 import { storage } from "../storage";
 import { logger } from "../lib/logger";
+import { requireAuth } from "../middleware/currentUser";
 import { redeemFoundingSpot } from "../lib/founding";
 import {
+  RC_ENTITLEMENT_ID,
   decideEntitlement,
   shouldRedeemFounding,
   foundingLedgerKey,
@@ -10,6 +12,41 @@ import {
 } from "../lib/revenuecat";
 
 const router: IRouter = Router();
+
+// POST /iap/sync — reconcile the caller's Squadz+ flag against RevenueCat's
+// live subscriber state (REST API). Called after restorePurchases(), after a
+// successful purchase, and on launch when client/server entitlement disagree.
+// Idempotent: sets or clears is_squadz_plus to match RC exactly.
+router.post("/iap/sync", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const userId = (req.user as { id: string }).id;
+  const apiKey = process.env.REVENUECAT_API_KEY;
+  if (!apiKey) {
+    res.status(503).json({ error: "IAP sync is not configured" });
+    return;
+  }
+  try {
+    const rcRes = await fetch(
+      `https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(userId)}`,
+      { headers: { Authorization: `Bearer ${apiKey}` } },
+    );
+    if (!rcRes.ok) {
+      logger.error({ status: rcRes.status, userId }, "RevenueCat subscriber lookup failed");
+      res.status(502).json({ error: "Could not reach the purchase service" });
+      return;
+    }
+    const body = (await rcRes.json()) as {
+      subscriber?: { entitlements?: Record<string, { expires_date?: string | null }> };
+    };
+    const ent = body.subscriber?.entitlements?.[RC_ENTITLEMENT_ID];
+    const active =
+      !!ent && (ent.expires_date == null || new Date(ent.expires_date).getTime() > Date.now());
+    await storage.setSquadzPlus(userId, active);
+    res.json({ ok: true, isSquadzPlus: active });
+  } catch (err) {
+    logger.error({ err, userId }, "IAP sync failed");
+    res.status(500).json({ error: "Failed to sync purchases" });
+  }
+});
 
 // RevenueCat server-to-server webhook. Mobile IAP (App Store / Play) is the only
 // purchase surface, so this is the sole path that flips a user's Squadz+ status

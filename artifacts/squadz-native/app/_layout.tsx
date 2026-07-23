@@ -32,8 +32,8 @@ import { ToastBannerProvider } from "@/context/ToastBannerContext";
 import { ActivityBannerSurfacer } from "@/components/ActivityBannerSurfacer";
 import { TipCoachMark } from "@/components/TipCoachMark";
 import { installWebAlert } from "@/lib/webAlert";
-import { configureRevenueCat, logOutRevenueCat } from "@/lib/revenuecat";
-import { API_BASE, buildAuthHeaders } from "@/lib/api";
+import { configureRevenueCat, logOutRevenueCat, getLocalEntitlementActive } from "@/lib/revenuecat";
+import { API_BASE, buildAuthHeaders, syncIapEntitlement } from "@/lib/api";
 import { initMonitoring } from "@/lib/monitoring";
 import { initAnalytics } from "@/lib/analytics";
 
@@ -348,14 +348,31 @@ function PushNotificationHandler() {
 // purchases and entitlements are tied to the account, and detach on logout.
 // No-op on web / without SDK keys.
 function RevenueCatConnector() {
-  const { isLoggedIn, currentUser } = useAuth();
+  const { isLoggedIn, currentUser, authToken } = useAuth();
   useEffect(() => {
     if (isLoggedIn && currentUser.id) {
-      void configureRevenueCat(currentUser.id);
+      void (async () => {
+        await configureRevenueCat(currentUser.id);
+        // B4: on launch, if the on-device RC entitlement disagrees with the
+        // server-gated state, ask the server to re-sync from RevenueCat.
+        try {
+          const local = await getLocalEntitlementActive();
+          if (local === null) return;
+          const r = await fetch(`${API_BASE}/api/subscription`, {
+            headers: buildAuthHeaders(authToken),
+            credentials: "include",
+          });
+          if (!r.ok) return;
+          const d = (await r.json()) as { isPro?: boolean };
+          if (!!d.isPro !== local) void syncIapEntitlement(authToken);
+        } catch {
+          // Best-effort reconciliation only — never block launch on billing.
+        }
+      })();
     } else {
       void logOutRevenueCat();
     }
-  }, [isLoggedIn, currentUser.id]);
+  }, [isLoggedIn, currentUser.id, authToken]);
   return null;
 }
 

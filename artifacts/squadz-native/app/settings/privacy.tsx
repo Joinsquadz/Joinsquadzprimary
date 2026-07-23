@@ -39,6 +39,9 @@ export default function PrivacyScreen() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  // B5: iOS App Store subscriptions can't be cancelled server-side, so if this
+  // user has Squadz+ we must warn them and link to the native manage screen.
+  const [hasPlus, setHasPlus] = useState(false);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
 
@@ -64,6 +67,22 @@ export default function PrivacyScreen() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (Platform.OS !== "ios") return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/subscription`, { headers: authHeaders() });
+        if (!res.ok) return;
+        const d = await res.json() as { isPro?: boolean };
+        if (!cancelled) setHasPlus(!!d.isPro);
+      } catch {
+        // Unknown → don't show the subscription warning.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [authHeaders]);
 
   async function toggle(key: keyof Prefs, value: boolean) {
     if (!prefs) return;
@@ -201,6 +220,20 @@ export default function PrivacyScreen() {
               This permanently erases your profile, squads you solely own, photos, messages, events, and friends. Squads you created with others will transfer to another member. This can't be undone.
             </Text>
 
+            {Platform.OS === "ios" && hasPlus ? (
+              <>
+                <Text style={[styles.modalBody, { color: colors.mutedForeground, marginTop: 8 }]}>
+                  Deleting your account does not cancel your App Store subscription. Manage it in your Apple ID settings.
+                </Text>
+                <TouchableOpacity
+                  onPress={() => { void Linking.openURL("https://apps.apple.com/account/subscriptions"); }}
+                  style={[styles.manageSubBtn, { borderColor: colors.border }]}
+                >
+                  <Text style={[styles.manageSubText, { color: colors.foreground }]}>Manage Subscription</Text>
+                </TouchableOpacity>
+              </>
+            ) : null}
+
             {deleteError ? (
               <Text style={styles.modalError}>{deleteError}</Text>
             ) : null}
@@ -249,6 +282,8 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: 19, fontWeight: "800", marginBottom: 10, textAlign: "center" },
   modalBody: { fontSize: 14, lineHeight: 21, textAlign: "center", marginBottom: 18 },
   modalError: { color: "#E5484D", fontSize: 13, textAlign: "center", marginBottom: 14 },
+  manageSubBtn: { width: "100%", borderWidth: 1, borderRadius: 14, paddingVertical: 12, alignItems: "center", justifyContent: "center", marginBottom: 10 },
+  manageSubText: { fontSize: 15, fontWeight: "600" },
   deleteBtn: { width: "100%", backgroundColor: "#E5484D", borderRadius: 14, paddingVertical: 15, alignItems: "center", justifyContent: "center", minHeight: 50 },
   deleteBtnText: { color: "#fff", fontSize: 16, fontWeight: "700" },
   cancelBtn: { width: "100%", paddingVertical: 14, alignItems: "center", marginTop: 4 },

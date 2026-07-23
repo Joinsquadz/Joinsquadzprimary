@@ -141,8 +141,13 @@ router.get(
         res.status(403).json({ error: "Access denied" });
         return;
       }
-      const [messages, participants] = await Promise.all([
-        storage.getConversationMessages(id),
+      // Cursor pagination: ?before=<messageId> fetches the page of older
+      // messages before that message; no cursor = latest page.
+      const before = typeof req.query.before === "string" ? req.query.before : undefined;
+      const limitRaw = typeof req.query.limit === "string" ? parseInt(req.query.limit, 10) : NaN;
+      const limit = Number.isFinite(limitRaw) ? limitRaw : undefined;
+      const [{ messages, hasMore }, participants] = await Promise.all([
+        storage.getConversationMessages(id, { before, limit }),
         storage.getConversationParticipants(id),
       ]);
 
@@ -154,6 +159,8 @@ router.get(
         },
         messages,
         participants,
+        hasMore,
+        nextCursor: hasMore && messages.length > 0 ? messages[0].id : null,
       });
     } catch (err) {
       logger.error({ err }, "Error fetching conversation messages");
@@ -179,6 +186,19 @@ router.post(
       if (!convo) {
         res.status(403).json({ error: "Access denied" });
         return;
+      }
+
+      // Block check on EXISTING direct threads (mirrors the creation-time
+      // check): if either party has blocked the other, sends are rejected.
+      // Neutral copy — never reveal who blocked whom.
+      if (convo.type === "direct") {
+        const participants = await storage.getConversationParticipants(id);
+        const otherIds = participants.map((p) => p.userId).filter((uid) => uid !== userId);
+        const blockedIds = await getBlockedAndBlockerIds(userId);
+        if (otherIds.some((uid) => blockedIds.includes(uid))) {
+          res.status(403).json({ error: "You can't message this person" });
+          return;
+        }
       }
 
       // Provenance: only attach media you uploaded. The attachment ACL authorizes

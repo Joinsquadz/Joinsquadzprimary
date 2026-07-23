@@ -115,15 +115,10 @@ export async function authMiddleware(
 
   const refreshed = await refreshIfExpired(sid, session);
   if (!refreshed) {
-    if (bearerToken && session.access_token) {
-      // Session expired and couldn't refresh — try the stored access token via OIDC userinfo
-      const user = await getUserFromAccessToken(session.access_token);
-      if (user) {
-        req.user = user;
-        next();
-        return;
-      }
-    }
+    // Session's stored expires_at has passed and it couldn't be refreshed —
+    // enforce expiry for ALL session types: delete the session and force
+    // re-auth (no fallback to a possibly-still-valid stored access token,
+    // which would keep an expired session alive indefinitely).
     await clearSession(res, sid);
     next();
     return;

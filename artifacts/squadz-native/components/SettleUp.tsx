@@ -41,6 +41,7 @@ export function SettleUp({
   resolveUser,
   onMarkPaid,
   onConfirm,
+  memberIds,
 }: {
   costs: Cost[];
   meId: string;
@@ -50,9 +51,25 @@ export function SettleUp({
   resolveUser: (id: string) => ResolvedUser;
   onMarkPaid: (costId: string, paid: boolean) => void;
   onConfirm: (costId: string, debtorId: string, confirmed: boolean) => void;
+  /** Ids of the event's current participants (squad members + invited + host).
+   *  Used to detect debtors/payers who have left the squad (D4). Optional: when
+   *  omitted, departure is inferred from a failed name lookup alone. */
+  memberIds?: Set<string>;
 }) {
   const iOwe = computeOwed(costs, meId);
   const owedToMe = computeOwedToMe(costs, meId);
+
+  // D4: a share/payer user who is neither me nor a current participant — or
+  // whose profile can't be resolved at all — is rendered as a departed member
+  // rather than a blank / placeholder. Never blank, never a crash.
+  const displayFor = (userId: string): { name: string; user: ResolvedUser } => {
+    const user = resolveUser(userId);
+    const unresolved = !user.name || user.name === "..." || user.name === "Unknown";
+    const departed = userId !== meId && (memberIds ? !memberIds.has(userId) : unresolved);
+    if (!departed) return { name: user.name, user };
+    const known = !unresolved;
+    return { name: known ? `${user.name} (left squad)` : "Former member", user };
+  };
 
   const toneColor = (tone: "muted" | "pending" | "done") =>
     tone === "done" ? colors.green : tone === "pending" ? colors.primary : colors.textDim;
@@ -77,8 +94,7 @@ export function SettleUp({
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={[styles.header, { color: colors.foreground }]}>You owe</Text>
           {iOwe.map((group) => {
-            const other = resolveUser(group.userId);
-            const firstName = other.name.split(" ")[0];
+            const { name: firstName, user: other } = displayFor(group.userId);
             const h = handles[group.userId] ?? { venmo: null, cashapp: null, zelle: null };
             const note = `${eventTitle} — settle up`;
             return (
@@ -161,8 +177,7 @@ export function SettleUp({
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={[styles.header, { color: colors.foreground }]}>Owed to you</Text>
           {owedToMe.map((group) => {
-            const other = resolveUser(group.userId);
-            const firstName = other.name.split(" ")[0];
+            const { name: firstName, user: other } = displayFor(group.userId);
             return (
               <View key={group.userId} style={[styles.group, { borderColor: colors.border }]}>
                 <View style={styles.groupHead}>

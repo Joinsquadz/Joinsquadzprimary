@@ -90,3 +90,21 @@ export async function sendManualReminder(
   }
   return { ok: true, sent: typeof data.sent === "number" ? data.sent : undefined };
 }
+
+/**
+ * B4: Reconcile the server-side Squadz+ entitlement with the live RevenueCat
+ * subscriber state. Called after purchase/restore and on launch when the
+ * on-device entitlement disagrees with the server. Best-effort + idempotent.
+ */
+export async function syncIapEntitlement(token: string | null): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/api/iap/sync`, {
+      method: "POST",
+      headers: buildAuthHeaders(token),
+      credentials: "include",
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}

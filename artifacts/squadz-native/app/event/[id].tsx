@@ -118,6 +118,7 @@ export default function EventDetailScreen() {
     fetchPaymentHandles,
     addPoll,
     votePoll,
+    setPollClosed,
     sendMessage,
     refreshEvents,
     inviteToEvent,
@@ -821,6 +822,8 @@ export default function EventDetailScreen() {
     : event?.eventAt
       ? new Date(event.eventAt)
       : parseEventStart(event?.date ?? "");
+  const isCancelled = !!event.cancelled;
+  const isPastEvent = eventStart != null && eventStart.getTime() < Date.now();
   const saveEdit = () => {
     if (!edit.title.trim()) {
       Alert.alert("Missing info", "Event needs a title.");
@@ -999,7 +1002,16 @@ export default function EventDetailScreen() {
           );
         })()}
 
-        {/* RSVP buttons */}
+        {/* Cancelled banner */}
+        {isCancelled && (
+          <View style={styles.cancelledBanner}>
+            <Ionicons name="close-circle" size={15} color="#fff" />
+            <Text style={styles.cancelledBannerText}>This event was cancelled</Text>
+          </View>
+        )}
+
+        {/* RSVP buttons — hidden when the event is cancelled or already happened */}
+        {!isCancelled && !isPastEvent && (
         <View style={styles.rsvpRow}>
           {(["going", "maybe", "notgoing"] as RsvpStatus[]).map((v) => {
             const rsvpBusy = pendingRsvp !== null;
@@ -1043,6 +1055,7 @@ export default function EventDetailScreen() {
             );
           })}
         </View>
+        )}
 
         {showRsvpMoment && myRsvp === "going" && (() => {
           const going = Object.entries(event.rsvps)
@@ -1209,7 +1222,7 @@ export default function EventDetailScreen() {
                 <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
               </TouchableOpacity>
 
-              {myRsvp == null && (
+              {myRsvp == null && !isCancelled && !isPastEvent && (
                 <>
                   <View style={{ height: 1, backgroundColor: colors.border }} />
                   <TouchableOpacity
@@ -1238,27 +1251,44 @@ export default function EventDetailScreen() {
             <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <View style={styles.cardHeaderRow}>
                 <Text style={[styles.cardTitle, { color: colors.mutedForeground }]}>Polls</Text>
-                <TouchableOpacity onPress={() => setPollModal(true)} style={styles.inlineAdd}>
-                  <Ionicons name="add" size={16} color={colors.primary} />
-                  <Text style={[styles.inlineAddText, { color: colors.primary }]}>New poll</Text>
-                </TouchableOpacity>
+                {!isCancelled && (
+                  <TouchableOpacity onPress={() => setPollModal(true)} style={styles.inlineAdd}>
+                    <Ionicons name="add" size={16} color={colors.primary} />
+                    <Text style={[styles.inlineAddText, { color: colors.primary }]}>New poll</Text>
+                  </TouchableOpacity>
+                )}
               </View>
               {event.polls.length === 0 ? (
                 <Text style={[styles.cardBody, { color: colors.textDim }]}>No polls yet. Start one to decide together.</Text>
               ) : (
                 event.polls.map((poll) => {
                   const totalVotes = poll.options.reduce((s, o) => s + o.voterIds.length, 0);
+                  const pollClosed = !!poll.closed;
+                  const votingDisabled = pollClosed || isCancelled;
                   return (
                     <View key={poll.id} style={{ gap: 8, marginTop: 4 }}>
-                      <Text style={[styles.pollQ, { color: colors.foreground }]}>{poll.question}</Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                        <Text style={[styles.pollQ, { color: colors.foreground, flex: 1 }]}>{poll.question}</Text>
+                        {pollClosed && (
+                          <View style={[styles.pollClosedBadge, { backgroundColor: colors.border }]}>
+                            <Ionicons name="lock-closed" size={11} color={colors.mutedForeground} />
+                            <Text style={[styles.pollClosedText, { color: colors.mutedForeground }]}>Closed</Text>
+                          </View>
+                        )}
+                      </View>
                       {poll.options.map((o) => {
                         const pct = totalVotes ? Math.round((o.voterIds.length / totalVotes) * 100) : 0;
                         const voted = o.voterIds.includes(currentUser.id);
                         return (
                           <TouchableOpacity
                             key={o.id}
-                            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); votePoll(event.id, poll.id, o.id); }}
-                            style={[styles.pollOpt, { borderColor: voted ? colors.primary : colors.border }]}
+                            disabled={votingDisabled}
+                            onPress={() => {
+                              if (votingDisabled) return;
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              votePoll(event.id, poll.id, o.id);
+                            }}
+                            style={[styles.pollOpt, { borderColor: voted ? colors.primary : colors.border, opacity: pollClosed ? 0.75 : 1 }]}
                           >
                             <View style={[styles.pollFill, { width: `${pct}%`, backgroundColor: colors.primary + "22" }]} />
                             <View style={styles.pollOptRow}>
@@ -1273,9 +1303,23 @@ export default function EventDetailScreen() {
                           </TouchableOpacity>
                         );
                       })}
-                      <Text style={[styles.pollMeta, { color: colors.textDim }]}>
-                        {totalVotes} {totalVotes === 1 ? "vote" : "votes"}
-                      </Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                        <Text style={[styles.pollMeta, { color: colors.textDim }]}>
+                          {totalVotes} {totalVotes === 1 ? "vote" : "votes"}
+                        </Text>
+                        {canManage && !isCancelled && (
+                          <TouchableOpacity
+                            onPress={() => {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              setPollClosed(event.id, poll.id, !pollClosed);
+                            }}
+                          >
+                            <Text style={[styles.pollMeta, { color: colors.primary, fontWeight: "700" }]}>
+                              {pollClosed ? "Reopen poll" : "Close poll"}
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
                     </View>
                   );
                 })
@@ -1470,13 +1514,15 @@ export default function EventDetailScreen() {
                 </View>
               );
             })}
-            <TouchableOpacity
-              onPress={() => setTaskModal(true)}
-              style={[styles.addRow, { borderColor: colors.border }]}
-            >
-              <Ionicons name="add" size={20} color={colors.primary} />
-              <Text style={[styles.addText, { color: colors.primary }]}>Add task</Text>
-            </TouchableOpacity>
+            {!isCancelled && (
+              <TouchableOpacity
+                onPress={() => setTaskModal(true)}
+                style={[styles.addRow, { borderColor: colors.border }]}
+              >
+                <Ionicons name="add" size={20} color={colors.primary} />
+                <Text style={[styles.addText, { color: colors.primary }]}>Add task</Text>
+              </TouchableOpacity>
+            )}
           </Animated.View>
         )}
 
@@ -1541,13 +1587,15 @@ export default function EventDetailScreen() {
                       );
                     })
                   )}
-                  <TouchableOpacity
-                    onPress={() => setFoodModal(true)}
-                    style={[styles.addRow, { borderColor: colors.border }]}
-                  >
-                    <Ionicons name="add" size={20} color={colors.primary} />
-                    <Text style={[styles.addText, { color: colors.primary }]}>Add food item</Text>
-                  </TouchableOpacity>
+                  {!isCancelled && (
+                    <TouchableOpacity
+                      onPress={() => setFoodModal(true)}
+                      style={[styles.addRow, { borderColor: colors.border }]}
+                    >
+                      <Ionicons name="add" size={20} color={colors.primary} />
+                      <Text style={[styles.addText, { color: colors.primary }]}>Add food item</Text>
+                    </TouchableOpacity>
+                  )}
                 </>
               );
             })()}
@@ -1621,6 +1669,13 @@ export default function EventDetailScreen() {
                     },
                   }}
                   resolveUser={resolveForDisplay}
+                  memberIds={new Set([
+                    event.hostId,
+                    currentUser.id,
+                    ...(squad?.memberIds ?? []),
+                    ...Object.keys(event.rsvps),
+                    ...(event.invitedUserIds ?? []),
+                  ])}
                   onMarkPaid={(costId, paid) => markSharePaid(event.id, costId, paid)}
                   onConfirm={(costId, debtorId, confirmed) => confirmShare(event.id, costId, debtorId, confirmed)}
                 />
@@ -1666,13 +1721,15 @@ export default function EventDetailScreen() {
                 })}
               </>
             )}
-            <TouchableOpacity
-              onPress={openCostModal}
-              style={[styles.addRow, { borderColor: colors.border }]}
-            >
-              <Ionicons name="add" size={20} color={colors.primary} />
-              <Text style={[styles.addText, { color: colors.primary }]}>Add expense</Text>
-            </TouchableOpacity>
+            {!isCancelled && (
+              <TouchableOpacity
+                onPress={openCostModal}
+                style={[styles.addRow, { borderColor: colors.border }]}
+              >
+                <Ionicons name="add" size={20} color={colors.primary} />
+                <Text style={[styles.addText, { color: colors.primary }]}>Add expense</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
 
@@ -1837,8 +1894,15 @@ export default function EventDetailScreen() {
         )}
       </ScrollView>
 
-      {/* Chat composer */}
-      {tab === "chat" && (
+      {/* Chat composer — replaced with a read-only note when the event is cancelled */}
+      {tab === "chat" && isCancelled && (
+        <View style={[styles.composer, { borderTopColor: colors.border, backgroundColor: colors.background, paddingBottom: botPad + 10, justifyContent: "center" }]}>
+          <Text style={[styles.cardBody, { color: colors.mutedForeground, textAlign: "center", flex: 1 }]}>
+            This event was cancelled — chat is closed.
+          </Text>
+        </View>
+      )}
+      {tab === "chat" && !isCancelled && (
         <View style={[styles.composer, { borderTopColor: colors.border, backgroundColor: colors.background, paddingBottom: botPad + 10 }]}>
           <TextInput
             placeholder="Message your squad..."
@@ -2349,6 +2413,27 @@ const styles = StyleSheet.create({
   },
   countdownText: { fontSize: 12, fontWeight: "700", color: "#fff" },
   rsvpRow: { flexDirection: "row", gap: 8, justifyContent: "center" },
+  cancelledBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    backgroundColor: "rgba(0,0,0,0.35)",
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    alignSelf: "center",
+  },
+  cancelledBannerText: { color: "#fff", fontWeight: "700", fontSize: 13 },
+  pollClosedBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  pollClosedText: { fontSize: 11, fontWeight: "700" },
   rsvpBtn: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 20, borderWidth: 1.5, paddingHorizontal: 14, paddingVertical: 8 },
   rsvpText: { fontSize: 13, fontWeight: "700", color: "#fff" },
   rsvpMoment: {

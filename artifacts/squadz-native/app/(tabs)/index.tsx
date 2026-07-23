@@ -295,6 +295,8 @@ export default function HomeScreen() {
     const meId = currentUser.id;
     const result: EventBalance[] = [];
     for (const ev of events) {
+      // D3: cancelled events are excluded from settle-up (display-only filter).
+      if (ev.cancelled) continue;
       if (!ev.costs || ev.costs.length === 0) continue;
       let iOwe = 0;
       let owedToMe = 0;

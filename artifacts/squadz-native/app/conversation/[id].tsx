@@ -117,7 +117,23 @@ export default function ConversationScreen() {
   const [text, setText] = useState("");
   const [uploading, setUploading] = useState(false);
   const [viewer, setViewer] = useState<{ uri: string; headers: Record<string, string> } | null>(null);
+  // Cursor pagination (infinite scroll up). hasMore/nextCursor track the OLDER
+  // page; loadingOlder gates the spinner + double-fetch guard.
+  const [hasMore, setHasMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  // Blocked-thread state for direct conversations — swaps the composer for a
+  // neutral read-only notice (never reveals who blocked whom).
+  const [blocked, setBlocked] = useState(false);
   const scrollRef = useRef<FlatList<ChatMessage>>(null);
+  // Guards a concurrent older-page fetch (never double-fetch).
+  const loadingOlderRef = useRef(false);
+  // Set true right before prepending an older page so onContentSizeChange skips
+  // its auto-scroll-to-end (position is preserved by maintainVisibleContentPosition).
+  const skipAutoScrollRef = useRef(false);
+  // Once the user has paged back, refreshes must not reset the cursor to the
+  // latest page's oldest id (that would forget how far back we've loaded).
+  const hasPagedRef = useRef(false);
 
   const listItem = conversations.find((c) => c.id === conversationId);
 
@@ -160,13 +176,28 @@ export default function ConversationScreen() {
       if (result.kind === "ok") {
         const data = result.data;
         setMessages((prev) => {
-          const pending = prev.filter((m) => m.pending || m.failed);
           const serverIds = new Set(data.messages.map((m) => m.id));
+          // Preserve already-loaded OLDER pages (merge by id) so a poll/SSE
+          // refresh of the latest page never wipes them out. Pending/failed
+          // optimistic messages are kept and re-appended at the tail.
+          const pending = prev.filter((m) => m.pending || m.failed);
+          const olderKept = prev.filter(
+            (m) => !m.pending && !m.failed && !serverIds.has(m.id),
+          );
+          const merged = [...olderKept, ...data.messages].sort(
+            (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+          );
           const keptPending = pending.filter((p) => !serverIds.has(p.id));
-          return [...data.messages, ...keptPending];
+          return [...merged, ...keptPending];
         });
         setParticipants(data.participants);
         setConvType(data.conversation.type === "squad" ? "squad" : "direct");
+        // Only seed hasMore/nextCursor from the latest page until the user has
+        // paged back — after that, loadOlder owns the cursor.
+        if (!hasPagedRef.current) {
+          setHasMore(data.hasMore);
+          setNextCursor(data.nextCursor);
+        }
       }
       if (track) {
         setAuthRace((prev) => applyVaultFetchOutcome(prev, { kind: result.kind }));
@@ -177,6 +208,9 @@ export default function ConversationScreen() {
   );
 
   useEffect(() => {
+    // Reset per-conversation state when the screen instance is reused for a
+    // different conversation — the blocked notice must never leak across threads.
+    setBlocked(false);
     void loadThread(true, true);
     void markRead(conversationId);
   }, [loadThread, markRead, conversationId]);
@@ -200,6 +234,31 @@ export default function ConversationScreen() {
     setAuthRace(resetAuthRaceState());
     void loadThread(true, true);
   }, [loadThread]);
+
+  // Infinite scroll up: fetch the page of OLDER messages before nextCursor and
+  // PREPEND them (merge by id). loadingOlderRef guards against double-fetch;
+  // skipAutoScrollRef stops the content-size handler from yanking to the bottom
+  // (position is preserved by maintainVisibleContentPosition).
+  const loadOlder = useCallback(async () => {
+    if (loadingOlderRef.current || !hasMore || !nextCursor) return;
+    loadingOlderRef.current = true;
+    setLoadingOlder(true);
+    const result = await fetchThread(conversationId, nextCursor);
+    if (result.kind === "ok") {
+      const data = result.data;
+      hasPagedRef.current = true;
+      skipAutoScrollRef.current = true;
+      setMessages((prev) => {
+        const existing = new Set(prev.map((m) => m.id));
+        const older = data.messages.filter((m) => !existing.has(m.id));
+        return [...older, ...prev];
+      });
+      setHasMore(data.hasMore);
+      setNextCursor(data.nextCursor);
+    }
+    loadingOlderRef.current = false;
+    setLoadingOlder(false);
+  }, [conversationId, fetchThread, hasMore, nextCursor]);
 
   // Single source of truth for the thread body. `authPending` keeps us on the
   // spinner (never the empty state) during a slow-login auth race; "No messages
@@ -232,10 +291,14 @@ export default function ConversationScreen() {
     return () => clearInterval(interval);
   }, [loadThread, markRead, conversationId]);
 
+  const lastMessageId = messages.length ? messages[messages.length - 1].id : null;
   useEffect(() => {
+    // Only auto-scroll when the newest (last) message changes — appending a new
+    // message at the tail or the initial load. Prepending an older page leaves
+    // the last id unchanged, so it won't fire and yank the user to the bottom.
     const t = setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
     return () => clearTimeout(t);
-  }, [messages.length]);
+  }, [lastMessageId]);
 
   const uploadAsset = useCallback(
     async (asset: ImagePicker.ImagePickerAsset): Promise<ChatAttachment | null> => {
@@ -298,21 +361,51 @@ export default function ConversationScreen() {
       setMessages((prev) => [...prev, optimistic]);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
-      const saved = await sendMessage(conversationId, trimmed, attachments);
-      if (!saved) {
+      const result = await sendMessage(conversationId, trimmed, attachments);
+      if (result.ok) {
+        // Server ack: swap the temp message for the real one.
+        setMessages((prev) =>
+          prev.map((m) => (m.id === tempId ? { ...result.message, pending: false } : m)),
+        );
+      } else if (result.blocked) {
+        // Blocked thread: drop the optimistic message and swap the composer for
+        // the neutral read-only state (direct conversations only).
+        setMessages((prev) => prev.filter((m) => m.id !== tempId));
+        if (convType === "direct") setBlocked(true);
+        showToast("You can't message this person");
+      } else {
+        // Generic failure: mark the temp message failed (tap to resend/remove).
+        setMessages((prev) =>
+          prev.map((m) => (m.id === tempId ? { ...m, pending: false, failed: true } : m)),
+        );
         showToast("Message failed to send");
       }
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === tempId
-            ? saved
-              ? { ...saved, pending: false }
-              : { ...m, pending: false, failed: true }
-            : m,
-        ),
-      );
     },
-    [conversationId, currentUser.id, sendMessage, showToast],
+    [conversationId, currentUser.id, sendMessage, showToast, convType],
+  );
+
+  // Failed-send affordance: tap a failed bubble to resend (re-optimistic with a
+  // fresh temp id) or remove it entirely.
+  const handleFailedPress = useCallback(
+    (m: ChatMessage) => {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      Alert.alert("Message not sent", undefined, [
+        {
+          text: "Try again",
+          onPress: () => {
+            setMessages((prev) => prev.filter((x) => x.id !== m.id));
+            void doSend(m.text, m.attachments);
+          },
+        },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: () => setMessages((prev) => prev.filter((x) => x.id !== m.id)),
+        },
+        { text: "Cancel", style: "cancel" },
+      ]);
+    },
+    [doSend],
   );
 
   const handleSendText = useCallback(() => {
@@ -531,7 +624,28 @@ export default function ConversationScreen() {
             keyExtractor={(m) => m.id}
             contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 24 }}
             showsVerticalScrollIndicator={false}
-            onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
+            onContentSizeChange={() => {
+              // Skip the auto-scroll-to-end when an older page was just prepended
+              // (position is preserved by maintainVisibleContentPosition).
+              if (skipAutoScrollRef.current) {
+                skipAutoScrollRef.current = false;
+                return;
+              }
+              scrollRef.current?.scrollToEnd({ animated: true });
+            }}
+            onScroll={(e) => {
+              // Reaching the top of the (non-inverted) list loads the older page.
+              if (e.nativeEvent.contentOffset.y <= 40) void loadOlder();
+            }}
+            scrollEventThrottle={16}
+            maintainVisibleContentPosition={{ minIndexForVisible: 1 }}
+            ListHeaderComponent={
+              loadingOlder ? (
+                <View style={styles.olderSpinner}>
+                  <ActivityIndicator size="small" color={colors.primary} />
+                </View>
+              ) : null
+            }
             initialNumToRender={12}
             maxToRenderPerBatch={12}
             windowSize={11}
@@ -581,7 +695,8 @@ export default function ConversationScreen() {
                       )}
                       <TouchableOpacity
                         style={{ maxWidth: "76%" }}
-                        activeOpacity={1}
+                        activeOpacity={mine && m.failed ? 0.7 : 1}
+                        onPress={mine && m.failed ? () => handleFailedPress(m) : undefined}
                         onLongPress={!mine ? () => {
                           void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                           Alert.alert("", undefined, [
@@ -661,14 +776,30 @@ export default function ConversationScreen() {
                                 {m.text}
                               </Text>
                             )}
-                            <Text
-                              style={[
-                                styles.bubbleTime,
-                                { color: mine ? "rgba(255,255,255,0.7)" : colors.textDim },
-                              ]}
-                            >
-                              {formatTime(m.createdAt)}
-                            </Text>
+                            <View style={styles.bubbleMeta}>
+                              {m.pending && (
+                                <Ionicons
+                                  name="time-outline"
+                                  size={11}
+                                  color={mine ? "rgba(255,255,255,0.7)" : colors.textDim}
+                                />
+                              )}
+                              {m.failed && (
+                                <Ionicons
+                                  name="alert-circle"
+                                  size={12}
+                                  color={mine ? "#fff" : colors.destructive}
+                                />
+                              )}
+                              <Text
+                                style={[
+                                  styles.bubbleTime,
+                                  { color: mine ? "rgba(255,255,255,0.7)" : colors.textDim },
+                                ]}
+                              >
+                                {formatTime(m.createdAt)}
+                              </Text>
+                            </View>
                           </View>
                         {receipt && (
                           <Text
@@ -688,46 +819,65 @@ export default function ConversationScreen() {
           />
         )}
 
-        <View
-          style={[
-            styles.composer,
-            {
-              borderTopColor: colors.border,
-              backgroundColor: colors.background,
-              paddingBottom: botPad,
-            },
-          ]}
-        >
-          <TouchableOpacity
-            onPress={onAttachPress}
-            disabled={uploading}
-            style={[styles.attachBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
-          >
-            {uploading ? (
-              <ActivityIndicator size="small" color={colors.primary} />
-            ) : (
-              <Ionicons name="add" size={22} color={colors.primary} />
-            )}
-          </TouchableOpacity>
-          <TextInput
-            placeholder="Message…"
-            placeholderTextColor={colors.textDim}
-            value={text}
-            onChangeText={setText}
-            multiline
+        {blocked && convType === "direct" ? (
+          // Blocked thread: neutral read-only notice in place of the composer.
+          // The thread above stays readable; never reveal who blocked whom.
+          <View
             style={[
-              styles.input,
-              { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground },
+              styles.blockedNotice,
+              {
+                borderTopColor: colors.border,
+                backgroundColor: colors.background,
+                paddingBottom: botPad,
+              },
             ]}
-          />
-          <TouchableOpacity
-            onPress={handleSendText}
-            disabled={!text.trim()}
-            style={[styles.sendBtn, { backgroundColor: text.trim() ? colors.primary : colors.border }]}
           >
-            <Ionicons name="send" size={18} color={text.trim() ? "#fff" : colors.textDim} />
-          </TouchableOpacity>
-        </View>
+            <Text style={[styles.blockedText, { color: colors.mutedForeground }]}>
+              You can't message this person
+            </Text>
+          </View>
+        ) : (
+          <View
+            style={[
+              styles.composer,
+              {
+                borderTopColor: colors.border,
+                backgroundColor: colors.background,
+                paddingBottom: botPad,
+              },
+            ]}
+          >
+            <TouchableOpacity
+              onPress={onAttachPress}
+              disabled={uploading}
+              style={[styles.attachBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+            >
+              {uploading ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
+                <Ionicons name="add" size={22} color={colors.primary} />
+              )}
+            </TouchableOpacity>
+            <TextInput
+              placeholder="Message…"
+              placeholderTextColor={colors.textDim}
+              value={text}
+              onChangeText={setText}
+              multiline
+              style={[
+                styles.input,
+                { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground },
+              ]}
+            />
+            <TouchableOpacity
+              onPress={handleSendText}
+              disabled={!text.trim()}
+              style={[styles.sendBtn, { backgroundColor: text.trim() ? colors.primary : colors.border }]}
+            >
+              <Ionicons name="send" size={18} color={text.trim() ? "#fff" : colors.textDim} />
+            </TouchableOpacity>
+          </View>
+        )}
       </KeyboardAvoidingView>
 
       <ImageViewerModal
@@ -771,7 +921,9 @@ const styles = StyleSheet.create({
   bubble: { borderRadius: 18, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 9 },
   senderName: { fontSize: 11, fontWeight: "700", marginBottom: 3 },
   bubbleText: { fontSize: 15, lineHeight: 20 },
-  bubbleTime: { fontSize: 10, marginTop: 5, alignSelf: "flex-end" },
+  bubbleMeta: { flexDirection: "row", alignItems: "center", gap: 3, marginTop: 5, alignSelf: "flex-end" },
+  bubbleTime: { fontSize: 10 },
+  olderSpinner: { paddingVertical: 12, alignItems: "center", justifyContent: "center" },
   dateSeparator: { alignItems: "center", marginVertical: 8 },
   dateSeparatorText: {
     fontSize: 12,
@@ -805,4 +957,9 @@ const styles = StyleSheet.create({
     paddingVertical: 6, backgroundColor: "#6B728012",
   },
   reconnectBannerText: { fontSize: 12, fontWeight: "600", color: "#6B7280", letterSpacing: 0.2 },
+  blockedNotice: {
+    alignItems: "center", justifyContent: "center",
+    paddingHorizontal: 24, paddingTop: 16, borderTopWidth: 1,
+  },
+  blockedText: { fontSize: 14, fontWeight: "600", textAlign: "center" },
 });

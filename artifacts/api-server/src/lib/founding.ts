@@ -92,6 +92,22 @@ export async function redeemFoundingSpot(subscriptionId: string): Promise<boolea
     // Already redeemed for this subscription — never double-count.
     if (inserted.length === 0) return false;
 
+    // Cap guard INSIDE the advisory lock: the counter can never exceed the
+    // limit, even under concurrent redemptions racing for the last spot. If
+    // the cap is already reached, roll back the ledger row (so a later free
+    // spot — e.g. refund — could still honour this subscription) and report
+    // "sold out"; the purchase then proceeds on the standard price path.
+    const [counter] = await tx
+      .select()
+      .from(foundingMemberCounterTable)
+      .where(eq(foundingMemberCounterTable.id, 1));
+    if ((counter?.redeemed ?? 0) >= FOUNDING_MEMBER_LIMIT) {
+      await tx
+        .delete(foundingMemberRedemptionsTable)
+        .where(eq(foundingMemberRedemptionsTable.subscriptionId, subscriptionId));
+      return false;
+    }
+
     await tx
       .insert(foundingMemberCounterTable)
       .values({ id: 1, redeemed: 1 })

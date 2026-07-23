@@ -262,6 +262,8 @@ type AppContextType = {
   claimTask: (eventId: string, taskId: string) => Promise<void>;
   addTask: (eventId: string, title: string, category?: string) => Promise<{ error?: string }>;
   addCost: (eventId: string, input: { description: string; amount: number; shares: CostShare[] }, explicitVersion?: number) => Promise<{ error?: string }>;
+  updateCost: (eventId: string, costId: string, input: { description: string; amount: number; shares: CostShare[] }, explicitVersion?: number) => Promise<{ error?: string; conflict?: boolean }>;
+  deleteCost: (eventId: string, costId: string, explicitVersion?: number) => Promise<{ error?: string; conflict?: boolean }>;
   markSharePaid: (eventId: string, costId: string, paid: boolean, explicitVersion?: number) => void;
   confirmShare: (eventId: string, costId: string, debtorId: string, confirmed: boolean, explicitVersion?: number) => void;
   ownPaymentHandles: PaymentHandles;
@@ -271,6 +273,7 @@ type AppContextType = {
   ) => Promise<Record<string, { venmo: string | null; cashapp: string | null; zelle: string | null }>>;
   addPoll: (eventId: string, question: string, options: string[]) => Promise<{ error?: string }>;
   votePoll: (eventId: string, pollId: string, optionId: string) => void;
+  setPollClosed: (eventId: string, pollId: string, closed: boolean) => void;
   sendMessage: (eventId: string, text: string) => Promise<{ error?: string }>;
   refreshEvents: () => Promise<void>;
   refreshSquads: () => Promise<void>;
@@ -283,7 +286,7 @@ type AppContextType = {
   squads: Squad[];
   getSquad: (id: string) => Squad | undefined;
   addSquad: (input: { name: string; description?: string; emoji: string; color: string; isPublic?: boolean }) => Promise<string>;
-  updateSquad: (id: string, patch: Partial<Pick<Squad, "name" | "description" | "emoji" | "color" | "isPublic" | "membersCanInvite">>) => void;
+  updateSquad: (id: string, patch: Partial<Pick<Squad, "name" | "description" | "emoji" | "color" | "isPublic" | "membersCanInvite">>) => Promise<{ error?: string }>;
   regenerateInviteCode: (squadId: string) => Promise<{ error?: string; inviteCode?: string }>;
   leaveSquad: (id: string) => void;
   joinSquad: (squadId: string) => Promise<{ error?: string }>;
@@ -362,6 +365,8 @@ const AppContext = createContext<AppContextType>({
   claimTask: async () => {},
   addTask: async () => ({}),
   addCost: async () => ({}),
+  updateCost: async () => ({}),
+  deleteCost: async () => ({}),
   markSharePaid: noop,
   confirmShare: noop,
   ownPaymentHandles: { venmo: null, cashapp: null, zelle: null },
@@ -369,6 +374,7 @@ const AppContext = createContext<AppContextType>({
   fetchPaymentHandles: async () => ({}),
   addPoll: async () => ({}),
   votePoll: noop,
+  setPollClosed: noop,
   sendMessage: async () => ({}),
   refreshEvents: async () => {},
   refreshSquads: async () => {},
@@ -380,7 +386,7 @@ const AppContext = createContext<AppContextType>({
   squads: [],
   getSquad: () => undefined,
   addSquad: asyncNoop,
-  updateSquad: noop,
+  updateSquad: async () => ({}),
   regenerateInviteCode: async () => ({}),
   leaveSquad: noop,
   joinSquad: async () => ({}),
@@ -1890,6 +1896,151 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [apiFetch, applyEventUpdate, apiUser, events, refreshEvents],
   );
 
+  const updateCost = useCallback(
+    async (
+      eventId: string,
+      costId: string,
+      input: { description: string; amount: number; shares: CostShare[] },
+      explicitVersion?: number,
+    ): Promise<{ error?: string; conflict?: boolean }> => {
+      const hasInvalid = input.shares.some((s) => s.amount < 0);
+      const assigned = input.shares.reduce((sum, s) => sum + s.amount, 0);
+      if (input.amount <= 0 || hasInvalid || Math.abs(input.amount - assigned) >= 0.01)
+        return { error: "Invalid cost input." };
+      const currentVersion = explicitVersion ?? events.find((e) => e.id === eventId)?.version;
+      // Capture the pre-change cost so a failure can roll back precisely.
+      const prevCost = events
+        .find((e) => e.id === eventId)
+        ?.costs.find((c) => c.id === costId);
+      if (!prevCost) return { error: "Cost not found." };
+      // Optimistic update: replace the cost in place (paidById is immutable).
+      setEvents((prev) =>
+        prev.map((e) =>
+          e.id !== eventId
+            ? e
+            : {
+                ...e,
+                costs: e.costs.map((c) =>
+                  c.id !== costId
+                    ? c
+                    : { ...c, description: input.description, amount: input.amount, shares: input.shares },
+                ),
+              },
+        ),
+      );
+      const rollback = () =>
+        setEvents((prev) =>
+          prev.map((e) =>
+            e.id !== eventId
+              ? e
+              : { ...e, costs: e.costs.map((c) => (c.id === costId ? prevCost : c)) },
+          ),
+        );
+      try {
+        const body: Record<string, unknown> = { ...input };
+        if (currentVersion !== undefined) body.version = currentVersion;
+        const res = await apiFetch(`/api/events/${eventId}/costs/${costId}`, {
+          method: "PATCH",
+          body: JSON.stringify(body),
+        });
+        if (res.status === 409) {
+          rollback();
+          // Parse the body ONCE — res.json() can only be consumed a single time.
+          let errBody: { conflict?: boolean; error?: string } = {};
+          try {
+            errBody = (await res.json()) as { conflict?: boolean; error?: string };
+          } catch { /* ignore parse errors */ }
+          if (errBody.conflict === true) {
+            return {
+              conflict: true,
+              error: "This cost changed while you were editing. Review the latest and try again.",
+            };
+          }
+          // Non-version 409 (e.g. payments in progress) — surface the server message.
+          return {
+            error: errBody.error
+              ?? "This cost changed while you were editing. Review the latest and try again.",
+          };
+        }
+        if (!res.ok) {
+          rollback();
+          let message = "Could not update expense. Please try again.";
+          try {
+            const errBody = (await res.json()) as { error?: string };
+            if (errBody.error) message = errBody.error;
+          } catch { /* ignore parse errors */ }
+          return { error: message };
+        }
+        const data = (await res.json()) as Record<string, unknown>;
+        applyEventUpdate(data);
+        return {};
+      } catch {
+        rollback();
+        return { error: "Could not update expense. Check your connection and try again." };
+      }
+    },
+    [apiFetch, applyEventUpdate, events],
+  );
+
+  const deleteCost = useCallback(
+    async (
+      eventId: string,
+      costId: string,
+      explicitVersion?: number,
+    ): Promise<{ error?: string; conflict?: boolean }> => {
+      const currentVersion = explicitVersion ?? events.find((e) => e.id === eventId)?.version;
+      const prevCost = events
+        .find((e) => e.id === eventId)
+        ?.costs.find((c) => c.id === costId);
+      if (!prevCost) return { error: "Cost not found." };
+      // Optimistic removal.
+      setEvents((prev) =>
+        prev.map((e) =>
+          e.id !== eventId ? e : { ...e, costs: e.costs.filter((c) => c.id !== costId) },
+        ),
+      );
+      const rollback = () =>
+        setEvents((prev) =>
+          prev.map((e) =>
+            e.id !== eventId || e.costs.some((c) => c.id === costId)
+              ? e
+              : { ...e, costs: [...e.costs, prevCost] },
+          ),
+        );
+      try {
+        const body: Record<string, unknown> = {};
+        if (currentVersion !== undefined) body.version = currentVersion;
+        const res = await apiFetch(`/api/events/${eventId}/costs/${costId}`, {
+          method: "DELETE",
+          body: JSON.stringify(body),
+        });
+        if (res.status === 409) {
+          rollback();
+          return {
+            conflict: true,
+            error: "This cost changed while you were editing. Review the latest and try again.",
+          };
+        }
+        if (!res.ok) {
+          rollback();
+          let message = "Could not delete expense. Please try again.";
+          try {
+            const errBody = (await res.json()) as { error?: string };
+            if (errBody.error) message = errBody.error;
+          } catch { /* ignore parse errors */ }
+          return { error: message };
+        }
+        const data = (await res.json()) as Record<string, unknown>;
+        applyEventUpdate(data);
+        return {};
+      } catch {
+        rollback();
+        return { error: "Could not delete expense. Check your connection and try again." };
+      }
+    },
+    [apiFetch, applyEventUpdate, events],
+  );
+
   const markSharePaid = useCallback(
     (eventId: string, costId: string, paid: boolean, explicitVersion?: number) => {
       const userId = apiUser?.id ?? currentUserIdRef.current;
@@ -1914,6 +2065,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               },
         ),
       );
+      // Capture the pre-change stamp so a failure can roll back precisely
+      // (C5) instead of waiting on a full refreshEvents round-trip.
+      const prevShare = events
+        .find((e) => e.id === eventId)
+        ?.costs.find((c) => c.id === costId)
+        ?.shares.find((s) => s.userId === userId);
+      const prevPaidAt = prevShare?.paidAt ?? null;
       const currentVersion = explicitVersion ?? events.find((e) => e.id === eventId)?.version;
       const body: Record<string, unknown> = { paid };
       if (currentVersion !== undefined) body.version = currentVersion;
@@ -1924,10 +2082,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         .then((res) => (res.ok ? (res.json() as Promise<Record<string, unknown>>) : Promise.reject()))
         .then(applyEventUpdate)
         .catch(() => {
+          // Roll back the optimistic stamp, then reconcile with the server.
+          setEvents((prev) =>
+            prev.map((e) =>
+              e.id !== eventId
+                ? e
+                : {
+                    ...e,
+                    costs: e.costs.map((c) =>
+                      c.id !== costId
+                        ? c
+                        : {
+                            ...c,
+                            shares: c.shares.map((s) =>
+                              s.userId === userId ? { ...s, paidAt: prevPaidAt } : s,
+                            ),
+                          },
+                    ),
+                  },
+            ),
+          );
+          showToast("Couldn't update payment — please try again");
           void refreshEvents();
         });
     },
-    [apiFetch, applyEventUpdate, apiUser, events, refreshEvents],
+    [apiFetch, applyEventUpdate, apiUser, events, refreshEvents, showToast],
   );
 
   const confirmShare = useCallback(
@@ -2090,6 +2269,56 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [apiFetch, applyEventUpdate, apiUser, events, refreshEvents, showToast],
   );
 
+  const setPollClosed = useCallback(
+    (eventId: string, pollId: string, closed: boolean) => {
+      const currentVersion = events.find((e) => e.id === eventId)?.version;
+      const prevClosed = events
+        .find((e) => e.id === eventId)
+        ?.polls.find((p) => p.id === pollId)?.closed ?? false;
+      // Optimistic update
+      setEvents((prev) =>
+        prev.map((e) =>
+          e.id !== eventId
+            ? e
+            : { ...e, polls: e.polls.map((p) => (p.id === pollId ? { ...p, closed } : p)) },
+        ),
+      );
+      const rollback = () =>
+        setEvents((prev) =>
+          prev.map((e) =>
+            e.id !== eventId
+              ? e
+              : { ...e, polls: e.polls.map((p) => (p.id === pollId ? { ...p, closed: prevClosed } : p)) },
+          ),
+        );
+      const body: Record<string, unknown> = { closed };
+      if (currentVersion !== undefined) body.version = currentVersion;
+      void apiFetch(`/api/events/${eventId}/polls/${pollId}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      })
+        .then(async (res) => {
+          if (res.status === 409) {
+            const data = await res.json() as { error?: string; conflict?: boolean };
+            if (data.conflict) {
+              rollback();
+              showToast(data.error ?? "Someone else just updated this", { durationMs: 8000, action: { label: "Refresh", onPress: () => void refreshEvents() } });
+              return;
+            }
+            return Promise.reject();
+          }
+          if (!res.ok) return Promise.reject();
+          return res.json() as Promise<Record<string, unknown>>;
+        })
+        .then((data) => { if (data) applyEventUpdate(data); })
+        .catch(() => {
+          rollback();
+          showToast(closed ? "Couldn't close the poll — please try again" : "Couldn't reopen the poll — please try again");
+        });
+    },
+    [apiFetch, applyEventUpdate, events, refreshEvents, showToast],
+  );
+
   const sendMessage = useCallback(
     async (eventId: string, text: string): Promise<{ error?: string }> => {
       const senderId = apiUser?.id ?? currentUserIdRef.current;
@@ -2185,30 +2414,42 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [apiFetch, apiUser]);
 
   const updateSquad = useCallback(
-    (sid: string, patch: Partial<Pick<Squad, "name" | "description" | "emoji" | "color" | "isPublic" | "membersCanInvite">>) => {
-      // Optimistic update
-      const currentVersion = squads.find((s) => s.id === sid)?.version;
+    async (sid: string, patch: Partial<Pick<Squad, "name" | "description" | "emoji" | "color" | "isPublic" | "membersCanInvite">>): Promise<{ error?: string }> => {
+      // Optimistic update, keeping the previous snapshot for rollback (C4).
+      const prevSquad = squads.find((s) => s.id === sid);
+      const currentVersion = prevSquad?.version;
       const body = currentVersion !== undefined ? { ...patch, version: currentVersion } : patch;
       setSquads((prev) => prev.map((s) => (s.id === sid ? { ...s, ...patch } : s)));
-      void apiFetch(`/api/squads/${sid}`, { method: "PATCH", body: JSON.stringify(body) })
-        .then(async (res) => {
-          if (res.status === 409) {
-            const data = await res.json() as { error?: string; conflict?: boolean };
-            if (data.conflict) {
-              showToast("Someone else just updated this — showing latest");
-              setConflictSquadId(sid);
-              void refreshSquads();
-              return;
-            }
-            return Promise.reject();
+      const rollback = () => {
+        if (prevSquad) setSquads((prev) => prev.map((s) => (s.id === sid ? prevSquad : s)));
+      };
+      try {
+        const res = await apiFetch(`/api/squads/${sid}`, { method: "PATCH", body: JSON.stringify(body) });
+        if (res.status === 409) {
+          const data = await res.json() as { error?: string; conflict?: boolean };
+          if (data.conflict) {
+            showToast("Someone else just updated this — showing latest");
+            setConflictSquadId(sid);
+            void refreshSquads();
+            return {};
           }
-          if (!res.ok) return Promise.reject();
-          return res.json() as Promise<Record<string, unknown>>;
-        })
-        .then((updated) => {
-          if (updated) setSquads((prev) => prev.map((s) => (s.id === sid ? dbSquadToSquad(updated) : s)));
-        })
-        .catch(() => { void refreshSquads(); showToast("Couldn't save changes — please try again"); });
+          rollback();
+          showToast("Couldn't save changes — please try again");
+          return { error: data.error ?? "Couldn't save changes." };
+        }
+        if (!res.ok) {
+          rollback();
+          showToast("Couldn't save changes — please try again");
+          return { error: "Couldn't save changes." };
+        }
+        const updated = await res.json() as Record<string, unknown>;
+        setSquads((prev) => prev.map((s) => (s.id === sid ? dbSquadToSquad(updated) : s)));
+        return {};
+      } catch {
+        rollback();
+        showToast("Couldn't save changes — please try again");
+        return { error: "Network error. Please try again." };
+      }
     },
     [apiFetch, refreshSquads, showToast, squads],
   );
@@ -2436,6 +2677,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       claimTask,
       addTask,
       addCost,
+      updateCost,
+      deleteCost,
       markSharePaid,
       confirmShare,
       ownPaymentHandles,
@@ -2443,6 +2686,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       fetchPaymentHandles,
       addPoll,
       votePoll,
+      setPollClosed,
       sendMessage,
       refreshEvents,
       refreshSquads,
@@ -2515,6 +2759,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       claimTask,
       addTask,
       addCost,
+      updateCost,
+      deleteCost,
       markSharePaid,
       confirmShare,
       ownPaymentHandles,
@@ -2522,6 +2768,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       fetchPaymentHandles,
       addPoll,
       votePoll,
+      setPollClosed,
       sendMessage,
       refreshEvents,
       refreshSquads,
