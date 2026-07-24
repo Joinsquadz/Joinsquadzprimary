@@ -2,12 +2,12 @@
 /**
  * Expo startup wrapper with automatic iOS bundle pre-warm.
  *
- * Problem: Metro takes ~18s to compile the iOS bundle cold. Expo Go's timeout
- * fires before compilation finishes → "Unknown error: The request timed out."
+ * Why piping stdout doesn't work: Expo checks process.stdout.isTTY. Piping
+ * sets isTTY=false → Expo enters CI/non-interactive mode → CommandError.
  *
- * Fix: start Metro, wait for it to be ready, then immediately fetch the iOS
- * bundle URL so Metro compiles and caches it. By the time the user scans the
- * QR code the bundle is already in Metro's cache and serves in <1s.
+ * Approach: run Expo with fully inherited stdio (so Expo thinks it has a
+ * terminal), and use stderr to print unmissable "WAIT" / "SCAN NOW" messages
+ * that bracket the QR code reveal moment.
  */
 const { spawn } = require("child_process");
 const http = require("http");
@@ -20,51 +20,27 @@ const env = {
   EXPO_PUBLIC_DOMAIN: process.env.REPLIT_DEV_DOMAIN,
   EXPO_PUBLIC_REPL_ID: process.env.REPL_ID,
   REACT_NATIVE_PACKAGER_HOSTNAME: process.env.REPLIT_DEV_DOMAIN,
+  EXPO_NO_TELEMETRY: "1",
 };
 
-// ── Start Expo / Metro ────────────────────────────────────────────────────────
+// ── helpers ───────────────────────────────────────────────────────────────────
 
-const expo = spawn(
-  "pnpm",
-  ["exec", "expo", "start", "--localhost", "--port", port],
-  { env, stdio: "inherit" },
-);
-
-expo.on("error", (err) => {
-  console.error("[start] Expo failed to start:", err.message);
-  process.exit(1);
-});
-
-expo.on("exit", (code) => process.exit(code ?? 0));
-
-// Propagate signals so the workflow can cleanly stop Expo.
-for (const sig of ["SIGINT", "SIGTERM"]) {
-  process.on(sig, () => {
-    expo.kill(sig);
-  });
-}
-
-// ── Auto pre-warm ─────────────────────────────────────────────────────────────
-
-function get(opts, onData) {
+function httpGet(opts) {
   return new Promise((resolve) => {
     const req = http.get(opts, (res) => {
       let data = "";
       res.on("data", (c) => (data += c));
       res.on("end", () => resolve({ status: res.statusCode, data }));
     });
-    req.setTimeout(5000, () => {
-      req.destroy();
-      resolve({ status: 0, data: "" });
-    });
+    req.setTimeout(8000, () => { req.destroy(); resolve({ status: 0, data: "" }); });
     req.on("error", () => resolve({ status: 0, data: "" }));
   });
 }
 
-async function waitForMetro(maxAttempts = 40) {
+async function waitForMetro(maxAttempts = 50) {
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise((r) => setTimeout(r, 3000));
-    const { status } = await get({
+    const { status } = await httpGet({
       hostname: "localhost",
       port,
       path: "/",
@@ -76,7 +52,7 @@ async function waitForMetro(maxAttempts = 40) {
 }
 
 async function getBundleUrl() {
-  const { status, data } = await get({
+  const { status, data } = await httpGet({
     hostname: "localhost",
     port,
     path: "/",
@@ -87,56 +63,85 @@ async function getBundleUrl() {
     const manifest = JSON.parse(data);
     const url = manifest?.launchAsset?.url;
     if (!url) return null;
-    // Rewrite the public domain to localhost so the fetch stays in-container.
     return url.replace(
       `https://${process.env.REPLIT_EXPO_DEV_DOMAIN}`,
       `http://localhost:${port}`,
     );
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
-async function prewarm(bundleUrl) {
-  const u = new URL(bundleUrl);
+function downloadBundle(bundleUrl) {
   return new Promise((resolve) => {
+    const u = new URL(bundleUrl);
     const req = http.get(
       { hostname: u.hostname, port: u.port || 80, path: u.pathname + u.search },
       (res) => {
         let bytes = 0;
         res.on("data", (c) => (bytes += c.length));
-        res.on("end", () => {
-          const mb = (bytes / 1024 / 1024).toFixed(1);
-          console.log(
-            `\n[prewarm] ✓ iOS bundle cached (${mb} MB). Scan the QR code now.\n`,
-          );
-          resolve();
-        });
+        res.on("end", () => resolve(bytes));
       },
     );
-    // No timeout — let Metro compile however long it needs.
-    req.on("error", (err) => {
-      console.log("[prewarm] Bundle fetch error:", err.message);
-      resolve();
-    });
+    req.on("error", () => resolve(0));
   });
 }
 
+// ── Expo process ──────────────────────────────────────────────────────────────
+
+// All stdio inherited — Expo sees a TTY (isTTY=true) and behaves normally.
+// We communicate with the user exclusively via stderr.
+const expo = spawn(
+  "pnpm",
+  ["exec", "expo", "start", "--localhost", "--port", port],
+  { env, stdio: "inherit" },
+);
+
+expo.on("error", (err) => {
+  process.stderr.write(`[Squadz] Expo failed to start: ${err.message}\n`);
+  process.exit(1);
+});
+
+expo.on("exit", (code) => process.exit(code ?? 0));
+
+for (const sig of ["SIGINT", "SIGTERM"]) {
+  process.on(sig, () => expo.kill(sig));
+}
+
+// ── Pre-warm ──────────────────────────────────────────────────────────────────
+
+const WAIT_BANNER = `
+╔══════════════════════════════════════════════════════════════╗
+║  ⏳  Squadz — iOS bundle compiling, do NOT scan yet!        ║
+╚══════════════════════════════════════════════════════════════╝
+`;
+
+const READY_BANNER = (mb) => `
+╔══════════════════════════════════════════════════════════════╗
+║  ✅  iOS bundle ready (${mb} MB) — SCAN THE QR CODE NOW!   ║
+╚══════════════════════════════════════════════════════════════╝
+`;
+
 (async () => {
-  // Give Metro a head-start before polling.
-  console.log("[prewarm] Waiting for Metro to start…");
+  // Print the warning BEFORE Metro shows the QR code.
+  // Metro starts ~5-10s after this wrapper starts, so this message races with
+  // (and often precedes) the QR code in the terminal.
+  process.stderr.write(WAIT_BANNER);
+
   const ready = await waitForMetro();
   if (!ready) {
-    console.log("[prewarm] Metro did not become ready in time — skipping pre-warm.");
+    process.stderr.write("[Squadz] Metro did not start — skipping pre-warm.\n");
     return;
   }
 
   const bundleUrl = await getBundleUrl();
   if (!bundleUrl) {
-    console.log("[prewarm] Could not read manifest — skipping pre-warm.");
+    process.stderr.write("[Squadz] Could not read manifest — skipping pre-warm.\n");
     return;
   }
 
-  console.log("[prewarm] Metro ready. Compiling iOS bundle in background…");
-  await prewarm(bundleUrl);
+  const bytes = await downloadBundle(bundleUrl);
+  const mb = (bytes / 1024 / 1024).toFixed(1);
+
+  // Print the "ready" banner — this races with Metro's log output but stands
+  // out because of the box-drawing characters.
+  process.stderr.write(READY_BANNER(mb));
 })();
