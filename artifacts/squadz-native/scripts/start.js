@@ -1,29 +1,20 @@
 #!/usr/bin/env node
 /**
- * Expo startup wrapper with automatic iOS bundle pre-warm.
+ * Expo startup wrapper:
+ *  1. Opens a serveo.net SSH tunnel (public HTTPS URL for Expo Go on device).
+ *  2. Starts Expo Metro with that tunnel URL as the packager proxy.
+ *  3. Pre-warms BOTH the iOS bundle (Expo Go) and web bundle (Replit preview)
+ *     in parallel, then prints a ✅ banner when it's safe to scan.
  *
- * Why piping stdout doesn't work: Expo checks process.stdout.isTTY. Piping
- * sets isTTY=false → Expo enters CI/non-interactive mode → CommandError.
- *
- * Approach: run Expo with fully inherited stdio (so Expo thinks it has a
- * terminal), and use stderr to print unmissable "WAIT" / "SCAN NOW" messages
- * that bracket the QR code reveal moment.
+ * Why not pipe Expo stdout?  isTTY=false → CI mode → CommandError on startup.
+ * All stdio is inherited; we communicate exclusively via stderr.
  */
 const { spawn } = require("child_process");
 const http = require("http");
 
 const port = process.env.PORT || "22402";
 
-const env = {
-  ...process.env,
-  EXPO_PACKAGER_PROXY_URL: `https://${process.env.REPLIT_EXPO_DEV_DOMAIN}`,
-  EXPO_PUBLIC_DOMAIN: process.env.REPLIT_DEV_DOMAIN,
-  EXPO_PUBLIC_REPL_ID: process.env.REPL_ID,
-  REACT_NATIVE_PACKAGER_HOSTNAME: process.env.REPLIT_DEV_DOMAIN,
-  EXPO_NO_TELEMETRY: "1",
-};
-
-// ── helpers ───────────────────────────────────────────────────────────────────
+// ── HTTP helper ───────────────────────────────────────────────────────────────
 
 function httpGet(opts) {
   return new Promise((resolve) => {
@@ -32,10 +23,65 @@ function httpGet(opts) {
       res.on("data", (c) => (data += c));
       res.on("end", () => resolve({ status: res.statusCode, data }));
     });
-    req.setTimeout(8000, () => { req.destroy(); resolve({ status: 0, data: "" }); });
+    req.setTimeout(8000, () => {
+      req.destroy();
+      resolve({ status: 0, data: "" });
+    });
     req.on("error", () => resolve({ status: 0, data: "" }));
   });
 }
+
+// ── Serveo tunnel ─────────────────────────────────────────────────────────────
+
+function startServeoTunnel() {
+  return new Promise((resolve) => {
+    let resolved = false;
+    process.stderr.write("[Squadz] Starting serveo.net tunnel…\n");
+
+    const ssh = spawn(
+      "ssh",
+      [
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "ServerAliveInterval=30",
+        "-o", "ServerAliveCountMax=3",
+        "-o", "ConnectTimeout=20",
+        "-R", `80:localhost:${port}`,
+        "serveo.net",
+      ],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+
+    function tryParse(text) {
+      const m = text.match(/Forwarding HTTP traffic from (https:\/\/[^\s]+)/);
+      if (m && !resolved) {
+        resolved = true;
+        resolve({ url: m[1], proc: ssh });
+      }
+    }
+
+    ssh.stdout.on("data", (c) => tryParse(c.toString()));
+    ssh.stderr.on("data", (c) => tryParse(c.toString()));
+
+    ssh.on("exit", () => {
+      if (!resolved) {
+        resolved = true;
+        resolve({ url: null, proc: null });
+      } else {
+        process.stderr.write("[Squadz] ⚠  Serveo tunnel disconnected — Expo Go may stop working. Restart the workflow to reconnect.\n");
+      }
+    });
+
+    // Fall back after 30 s
+    setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        resolve({ url: null, proc: ssh });
+      }
+    }, 30_000);
+  });
+}
+
+// ── Metro readiness & bundle pre-warm ────────────────────────────────────────
 
 async function waitForMetro(maxAttempts = 50) {
   for (let i = 0; i < maxAttempts; i++) {
@@ -51,80 +97,105 @@ async function waitForMetro(maxAttempts = 50) {
   return false;
 }
 
-async function getBundleUrl() {
-  const { status, data } = await httpGet({
-    hostname: "localhost",
-    port,
-    path: "/",
-    headers: { "Expo-Platform": "ios", "Expo-API": "expo" },
-  });
-  if (status !== 200) return null;
-  try {
-    const manifest = JSON.parse(data);
-    const url = manifest?.launchAsset?.url;
-    if (!url) return null;
-    return url.replace(
-      `https://${process.env.REPLIT_EXPO_DEV_DOMAIN}`,
-      `http://localhost:${port}`,
-    );
-  } catch { return null; }
+// Expo Router entry bundle path (same for all platforms)
+const ENTRY = "/node_modules/.pnpm/expo-router@6.0.24_@types+react-dom@19.1.11_@types+react@19.1.17__@types+react@19.1.17__4094ee48018c5b5c8f1246009fce9036/node_modules/expo-router/entry.bundle";
+
+async function getBundleUrl(platform) {
+  const params =
+    platform === "ios"
+      ? "platform=ios&dev=true&hot=false&lazy=true&transform.engine=hermes&transform.bytecode=1&transform.routerRoot=app&transform.reactCompiler=true&unstable_transformProfile=hermes-stable"
+      : "platform=web&dev=true&hot=false&lazy=true&transform.routerRoot=app&transform.reactCompiler=true";
+  return `http://localhost:${port}${ENTRY}?${params}`;
 }
 
-function downloadBundle(bundleUrl) {
+function downloadBundle(label, bundleUrl) {
   return new Promise((resolve) => {
+    if (!bundleUrl) {
+      process.stderr.write(`[Squadz] ${label} bundle URL not found — skipping.\n`);
+      resolve(0);
+      return;
+    }
     const u = new URL(bundleUrl);
     const req = http.get(
-      { hostname: u.hostname, port: u.port || 80, path: u.pathname + u.search },
+      {
+        hostname: u.hostname,
+        port: u.port || 80,
+        path: u.pathname + u.search,
+        headers: { "Accept-Encoding": "gzip" },
+      },
       (res) => {
         let bytes = 0;
         res.on("data", (c) => (bytes += c.length));
-        res.on("end", () => resolve(bytes));
+        res.on("end", () => {
+          const mb = (bytes / 1024 / 1024).toFixed(1);
+          process.stderr.write(`[Squadz] ✓ ${label} bundle ready (${mb} MB compressed)\n`);
+          resolve(bytes);
+        });
       },
     );
-    req.on("error", () => resolve(0));
+    req.on("error", (e) => {
+      process.stderr.write(`[Squadz] ${label} bundle fetch error: ${e.message}\n`);
+      resolve(0);
+    });
   });
 }
 
-// ── Expo process ──────────────────────────────────────────────────────────────
-
-// All stdio inherited — Expo sees a TTY (isTTY=true) and behaves normally.
-// We communicate with the user exclusively via stderr.
-const expo = spawn(
-  "pnpm",
-  ["exec", "expo", "start", "--localhost", "--port", port],
-  { env, stdio: "inherit" },
-);
-
-expo.on("error", (err) => {
-  process.stderr.write(`[Squadz] Expo failed to start: ${err.message}\n`);
-  process.exit(1);
-});
-
-expo.on("exit", (code) => process.exit(code ?? 0));
-
-for (const sig of ["SIGINT", "SIGTERM"]) {
-  process.on(sig, () => expo.kill(sig));
-}
-
-// ── Pre-warm ──────────────────────────────────────────────────────────────────
-
-const WAIT_BANNER = `
-╔══════════════════════════════════════════════════════════════╗
-║  ⏳  Squadz — iOS bundle compiling, do NOT scan yet!        ║
-╚══════════════════════════════════════════════════════════════╝
-`;
-
-const READY_BANNER = (mb) => `
-╔══════════════════════════════════════════════════════════════╗
-║  ✅  iOS bundle ready (${mb} MB) — SCAN THE QR CODE NOW!   ║
-╚══════════════════════════════════════════════════════════════╝
-`;
+// ── Main ──────────────────────────────────────────────────────────────────────
 
 (async () => {
-  // Print the warning BEFORE Metro shows the QR code.
-  // Metro starts ~5-10s after this wrapper starts, so this message races with
-  // (and often precedes) the QR code in the terminal.
-  process.stderr.write(WAIT_BANNER);
+  // 1. Start tunnel first so Expo gets the right EXPO_PACKAGER_PROXY_URL.
+  const { url: tunnelUrl, proc: tunnelProc } = await startServeoTunnel();
+
+  const packagerUrl = tunnelUrl || `https://${process.env.REPLIT_EXPO_DEV_DOMAIN}`;
+
+  if (tunnelUrl) {
+    process.stderr.write(`[Squadz] ✓ Tunnel ready: ${tunnelUrl}\n`);
+    process.stderr.write(`[Squadz]   Expo Go will use this URL — scan AFTER the ✅ banner below.\n`);
+  } else {
+    process.stderr.write(`[Squadz] ⚠  Tunnel unavailable — falling back to Replit dev domain.\n`);
+    process.stderr.write(`[Squadz]   Expo Go on device may still time out; the Replit preview will still work.\n`);
+  }
+
+  const env = {
+    ...process.env,
+    EXPO_PACKAGER_PROXY_URL: packagerUrl,
+    EXPO_PUBLIC_DOMAIN: process.env.REPLIT_DEV_DOMAIN,
+    EXPO_PUBLIC_REPL_ID: process.env.REPL_ID,
+    REACT_NATIVE_PACKAGER_HOSTNAME: process.env.REPLIT_DEV_DOMAIN,
+    EXPO_NO_TELEMETRY: "1",
+  };
+
+  // 2. Start Expo (stdio inherited so it keeps isTTY=true).
+  const expo = spawn(
+    "pnpm",
+    ["exec", "expo", "start", "--localhost", "--port", port],
+    { env, stdio: "inherit" },
+  );
+
+  expo.on("error", (err) => {
+    process.stderr.write(`[Squadz] Expo failed to start: ${err.message}\n`);
+    if (tunnelProc) tunnelProc.kill();
+    process.exit(1);
+  });
+
+  expo.on("exit", (code) => {
+    if (tunnelProc) tunnelProc.kill();
+    process.exit(code ?? 0);
+  });
+
+  for (const sig of ["SIGINT", "SIGTERM"]) {
+    process.on(sig, () => {
+      expo.kill(sig);
+      if (tunnelProc) tunnelProc.kill();
+    });
+  }
+
+  // 3. Wait for Metro, then pre-warm iOS + web in parallel.
+  process.stderr.write(
+    "\n╔══════════════════════════════════════════════════════════════╗\n" +
+    "║  ⏳  Compiling bundles — do NOT scan the QR code yet!      ║\n" +
+    "╚══════════════════════════════════════════════════════════════╝\n\n",
+  );
 
   const ready = await waitForMetro();
   if (!ready) {
@@ -132,16 +203,24 @@ const READY_BANNER = (mb) => `
     return;
   }
 
-  const bundleUrl = await getBundleUrl();
-  if (!bundleUrl) {
-    process.stderr.write("[Squadz] Could not read manifest — skipping pre-warm.\n");
-    return;
-  }
+  const [iosUrl, webUrl] = await Promise.all([
+    getBundleUrl("ios"),
+    getBundleUrl("web"),
+  ]);
 
-  const bytes = await downloadBundle(bundleUrl);
-  const mb = (bytes / 1024 / 1024).toFixed(1);
+  await Promise.all([
+    downloadBundle("iOS (Expo Go)", iosUrl),
+    downloadBundle("Web (Replit preview)", webUrl),
+  ]);
 
-  // Print the "ready" banner — this races with Metro's log output but stands
-  // out because of the box-drawing characters.
-  process.stderr.write(READY_BANNER(mb));
+  const urlLine = tunnelUrl
+    ? `║  📱 Expo Go URL: ${tunnelUrl.padEnd(42)}║`
+    : "║  📱 Expo Go: scan the QR code in the Metro terminal        ║";
+
+  process.stderr.write(
+    "\n╔══════════════════════════════════════════════════════════════╗\n" +
+    "║  ✅  All bundles ready — SCAN THE QR CODE NOW!             ║\n" +
+    `${urlLine}\n` +
+    "╚══════════════════════════════════════════════════════════════╝\n\n",
+  );
 })();
