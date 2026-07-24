@@ -140,6 +140,65 @@ function serveExpoGoQr(res) {
 </html>`);
 }
 
+// ── Manifest hostUri rewrite ──────────────────────────────────────────────────
+// EXPO_PACKAGER_PROXY_URL is set to the Replit dev domain so the manifest's
+// launchAsset.url points to Replit HTTPS for reliable 3 MB bundle downloads
+// from iPhone.  But Metro also bakes EXPO_PACKAGER_PROXY_URL as the dev-server
+// hostUri that Expo Go uses for HMR WebSocket — and the Replit dev domain's
+// WebSocket is not reachable from external iOS clients.
+//
+// Fix: intercept Expo manifest responses and rewrite hostUri to the serveo
+// tunnel hostname.  The tunnel handles WebSocket upgrades transparently.
+// Result: bundle via Replit HTTPS  (no reconnecting spinner) ✓
+//         HMR WebSocket via serveo (live reload works)        ✓
+
+function withManifestHostRewrite(req, res, next, base) {
+  const isExpoManifest =
+    req.headers["expo-platform"] &&
+    (req.headers["accept"] || "").includes("application/expo+json");
+  if (!isExpoManifest) return base(req, res, next);
+
+  const tunnelUrl = readTunnelUrl();
+  if (!tunnelUrl) return base(req, res, next);
+
+  let tunnelHostname;
+  try { tunnelHostname = new URL(tunnelUrl).hostname; }
+  catch { return base(req, res, next); }
+
+  // Intercept the response chunks so we can rewrite the JSON.
+  const origWrite = res.write.bind(res);
+  const origEnd = res.end.bind(res);
+  const chunks = [];
+
+  res.write = (chunk, encoding, cb) => {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, encoding || "utf8"));
+    if (typeof encoding === "function") encoding();
+    else if (cb) cb();
+    return true;
+  };
+
+  res.end = (chunk, encoding, cb) => {
+    if (chunk) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, encoding || "utf8"));
+    const body = Buffer.concat(chunks).toString("utf8");
+    try {
+      const manifest = JSON.parse(body);
+      // Rewrite hostUri → tunnel hostname so HMR WebSocket goes through the tunnel.
+      if (manifest?.extra?.expoClient) {
+        manifest.extra.expoClient.hostUri = tunnelHostname;
+      }
+      const newBody = JSON.stringify(manifest);
+      res.removeHeader("content-length");
+      res.setHeader("content-length", Buffer.byteLength(newBody, "utf8"));
+      origEnd(newBody, "utf8", cb);
+    } catch {
+      // Manifest wasn't JSON (shouldn't happen) — pass through unchanged.
+      origEnd(body, "utf8", cb);
+    }
+  };
+
+  return base(req, res, next);
+}
+
 const defaultEnhance = config.server.enhanceMiddleware;
 
 config.server.enhanceMiddleware = (metroMiddleware, server) => {
@@ -155,7 +214,8 @@ config.server.enhanceMiddleware = (metroMiddleware, server) => {
       proxyToApi(req, res);
       return;
     }
-    return base(req, res, next);
+    // Rewrite hostUri in Expo manifests before passing to Metro.
+    return withManifestHostRewrite(req, res, next, base);
   };
 };
 
