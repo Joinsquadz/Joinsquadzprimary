@@ -54,22 +54,53 @@ function proxyToApi(req, res) {
 
 // ── /expo-go-qr  ─────────────────────────────────────────────────────────────
 // Serves a scannable QR-code page so users can open the app in Expo Go without
-// needing to read the Metro terminal QR output.  The tunnel URL is injected by
-// start.js via EXPO_TUNNEL_URL before Expo/Metro is spawned.
+// needing to read the Metro terminal QR output.
+//
+// The tunnel URL is read from /tmp/expo-tunnel-url on EVERY request (not from
+// EXPO_TUNNEL_URL which is frozen at startup). This means refreshing the page
+// always gives a live QR code, even after the tunnel reconnects with a new URL.
+
+const TUNNEL_URL_FILE = "/tmp/expo-tunnel-url";
+
+function readTunnelUrl() {
+  try { return require("fs").readFileSync(TUNNEL_URL_FILE, "utf8").trim(); } catch { return ""; }
+}
 
 function serveExpoGoQr(res) {
-  const tunnelUrl = process.env.EXPO_TUNNEL_URL || "";
+  const tunnelUrl = readTunnelUrl();
+
   if (!tunnelUrl) {
-    res.writeHead(503, { "content-type": "text/plain" });
-    res.end("Tunnel not configured yet — restart the Expo workflow and wait for the ✅ banner.");
+    // Tunnel is connecting/reconnecting — show a waiting page that auto-refreshes.
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    res.end(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="refresh" content="4">
+  <title>Expo Go — Tunnel connecting…</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:system-ui,sans-serif;background:#0a0a0a;color:#fff;min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;gap:16px;text-align:center}
+    h1{font-size:20px;font-weight:700}
+    p{color:#aaa;font-size:14px;max-width:300px}
+    .dot{animation:blink 1s infinite alternate}
+    @keyframes blink{to{opacity:.2}}
+  </style>
+</head>
+<body>
+  <h1>⏳ Tunnel connecting<span class="dot">…</span></h1>
+  <p>This page refreshes automatically every 4 seconds.<br>Scan the QR code once it appears.</p>
+  <p style="color:#555;font-size:12px">If this persists more than 60 s, restart the Expo workflow.</p>
+</body>
+</html>`);
     return;
   }
+
   let hostname;
-  try {
-    hostname = new URL(tunnelUrl).hostname;
-  } catch {
-    hostname = tunnelUrl.replace(/^https?:\/\//, "").split("/")[0];
-  }
+  try { hostname = new URL(tunnelUrl).hostname; }
+  catch { hostname = tunnelUrl.replace(/^https?:\/\//, "").split("/")[0]; }
+
   const expUrl = `exp://${hostname}`;
   const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(expUrl)}&size=280x280&margin=2&color=000000&bgcolor=FFFFFF`;
 
@@ -90,6 +121,7 @@ function serveExpoGoQr(res) {
     code{color:#ff6b2c;font-size:12px;word-break:break-all;max-width:340px;display:block;margin-top:4px}
     .step{background:#1a1a1a;border:1px solid #333;border-radius:10px;padding:14px 18px;max-width:340px;text-align:left;font-size:13px;line-height:1.6}
     .step b{color:#ff6b2c}
+    .hint{color:#555;font-size:11px;max-width:340px}
   </style>
 </head>
 <body>
@@ -103,6 +135,7 @@ function serveExpoGoQr(res) {
     <b>Step 3.</b> Tap the banner → <b>Expo Go</b> opens &amp; loads Squadz
   </div>
   <p class="sub">Or open this URL manually in Expo Go:<br><code>${expUrl}</code></p>
+  <p class="hint">If you get "no tunnel here", refresh this page — the tunnel URL changes on reconnect.</p>
 </body>
 </html>`);
 }
