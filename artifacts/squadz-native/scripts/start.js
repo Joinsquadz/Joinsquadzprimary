@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * Expo startup wrapper:
- *  1. Opens a serveo.net SSH tunnel (public HTTPS URL for Expo Go on device).
+ *  1. Opens an SSH tunnel (localhost.run primary, serveo.net fallback) to give
+ *     Expo Go a reachable public HTTPS URL for the Metro dev server.
  *  2. Starts Expo Metro with that tunnel URL as the packager proxy.
  *  3. Pre-warms BOTH the iOS bundle (Expo Go) and web bundle (Replit preview)
  *     in parallel, then prints a ✅ banner when it's safe to scan.
@@ -31,7 +32,62 @@ function httpGet(opts) {
   });
 }
 
-// ── Serveo tunnel ─────────────────────────────────────────────────────────────
+// ── SSH tunnel helpers ────────────────────────────────────────────────────────
+
+/**
+ * Try localhost.run first (no interstitial warning page, stable for large
+ * payloads). Fall back to serveo.net if it doesn't respond within 25 s.
+ */
+function startTunnel() {
+  return new Promise((resolve) => {
+    process.stderr.write("[Squadz] Starting SSH tunnel (localhost.run)…\n");
+    let resolved = false;
+
+    // localhost.run: output format is "https://<hash>.lhr.life"
+    const lhr = spawn(
+      "ssh",
+      [
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "ServerAliveInterval=30",
+        "-o", "ServerAliveCountMax=3",
+        "-o", "ConnectTimeout=20",
+        "-R", `80:localhost:${port}`,
+        "nokey@localhost.run",
+      ],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+
+    function tryParseLhr(text) {
+      const m = text.match(/https:\/\/[a-z0-9-]+\.lhr\.life/);
+      if (m && !resolved) {
+        resolved = true;
+        process.stderr.write(`[Squadz] ✓ localhost.run tunnel ready: ${m[0]}\n`);
+        resolve({ url: m[0], proc: lhr, provider: "localhost.run" });
+      }
+    }
+
+    lhr.stdout.on("data", (c) => tryParseLhr(c.toString()));
+    lhr.stderr.on("data", (c) => tryParseLhr(c.toString()));
+
+    lhr.on("exit", () => {
+      if (!resolved) {
+        resolved = true;
+        resolve({ url: null, proc: null, provider: null });
+      } else {
+        process.stderr.write("[Squadz] ⚠  localhost.run tunnel disconnected. Restart the workflow to reconnect.\n");
+      }
+    });
+
+    // After 25 s without a URL, fall back to serveo
+    setTimeout(() => {
+      if (!resolved) {
+        process.stderr.write("[Squadz] localhost.run timed out — trying serveo.net as fallback…\n");
+        lhr.kill();
+        startServeoTunnel().then(resolve);
+      }
+    }, 25_000);
+  });
+}
 
 function startServeoTunnel() {
   return new Promise((resolve) => {
@@ -55,7 +111,8 @@ function startServeoTunnel() {
       const m = text.match(/Forwarding HTTP traffic from (https:\/\/[^\s]+)/);
       if (m && !resolved) {
         resolved = true;
-        resolve({ url: m[1], proc: ssh });
+        process.stderr.write(`[Squadz] ✓ serveo.net tunnel ready: ${m[1]}\n`);
+        resolve({ url: m[1], proc: ssh, provider: "serveo" });
       }
     }
 
@@ -65,7 +122,7 @@ function startServeoTunnel() {
     ssh.on("exit", () => {
       if (!resolved) {
         resolved = true;
-        resolve({ url: null, proc: null });
+        resolve({ url: null, proc: null, provider: null });
       } else {
         process.stderr.write("[Squadz] ⚠  Serveo tunnel disconnected — Expo Go may stop working. Restart the workflow to reconnect.\n");
       }
@@ -75,7 +132,7 @@ function startServeoTunnel() {
     setTimeout(() => {
       if (!resolved) {
         resolved = true;
-        resolve({ url: null, proc: ssh });
+        resolve({ url: null, proc: ssh, provider: null });
       }
     }, 30_000);
   });
@@ -148,12 +205,12 @@ function downloadBundle(label, bundleUrl) {
 
 (async () => {
   // 1. Start tunnel first so Expo gets the right EXPO_PACKAGER_PROXY_URL.
-  const { url: tunnelUrl, proc: tunnelProc } = await startServeoTunnel();
+  const { url: tunnelUrl, proc: tunnelProc, provider: tunnelProvider } = await startTunnel();
 
   const packagerUrl = tunnelUrl || `https://${process.env.REPLIT_EXPO_DEV_DOMAIN}`;
 
   if (tunnelUrl) {
-    process.stderr.write(`[Squadz] ✓ Tunnel ready: ${tunnelUrl}\n`);
+    process.stderr.write(`[Squadz] ✓ Tunnel (${tunnelProvider}) ready: ${tunnelUrl}\n`);
     process.stderr.write(`[Squadz]   Expo Go will use this URL — scan AFTER the ✅ banner below.\n`);
   } else {
     process.stderr.write(`[Squadz] ⚠  Tunnel unavailable — falling back to Replit dev domain.\n`);
