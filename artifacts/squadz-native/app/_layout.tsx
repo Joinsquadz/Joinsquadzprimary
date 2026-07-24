@@ -14,7 +14,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { router, Stack, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Platform } from "react-native";
+import { Platform, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -382,12 +382,26 @@ function MutedSquadsConnector({ children }: { children: React.ReactNode }) {
 }
 
 function RootLayoutNav() {
+  const { isAuthRestoring, isLoggedIn } = useAuth();
+
+  // Block the Stack from mounting until we know whether the user has a stored
+  // session.  Without this, the first render (isLoggedIn=false, before the
+  // AsyncStorage check finishes) always renders (tabs)/index — the home screen
+  // — before AuthGuard's useEffect can redirect to /login.  The dark background
+  // matches the app's background colour so there is no visible flash.
+  if (isAuthRestoring) {
+    return <View style={{ flex: 1, backgroundColor: "#0D0D0D" }} />;
+  }
+
   return (
     <>
       <AuthGuard />
       <RevenueCatConnector />
       <PushNotificationHandler />
-      <Stack screenOptions={{ headerShown: false, animation: "slide_from_right" }}>
+      <Stack
+        initialRouteName={isLoggedIn ? "(tabs)" : "login"}
+        screenOptions={{ headerShown: false, animation: "slide_from_right" }}
+      >
         <Stack.Screen name="login" />
         <Stack.Screen name="signup" />
         <Stack.Screen name="onboarding" />
