@@ -52,6 +52,61 @@ function proxyToApi(req, res) {
   req.pipe(upstream);
 }
 
+// ── /expo-go-qr  ─────────────────────────────────────────────────────────────
+// Serves a scannable QR-code page so users can open the app in Expo Go without
+// needing to read the Metro terminal QR output.  The tunnel URL is injected by
+// start.js via EXPO_TUNNEL_URL before Expo/Metro is spawned.
+
+function serveExpoGoQr(res) {
+  const tunnelUrl = process.env.EXPO_TUNNEL_URL || "";
+  if (!tunnelUrl) {
+    res.writeHead(503, { "content-type": "text/plain" });
+    res.end("Tunnel not configured yet — restart the Expo workflow and wait for the ✅ banner.");
+    return;
+  }
+  let hostname;
+  try {
+    hostname = new URL(tunnelUrl).hostname;
+  } catch {
+    hostname = tunnelUrl.replace(/^https?:\/\//, "").split("/")[0];
+  }
+  const expUrl = `exp://${hostname}`;
+  const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(expUrl)}&size=280x280&margin=2&color=000000&bgcolor=FFFFFF`;
+
+  res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+  res.end(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Open Squadz in Expo Go</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:system-ui,sans-serif;background:#0a0a0a;color:#fff;min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;gap:20px;text-align:center}
+    h1{font-size:22px;font-weight:700}
+    .sub{color:#aaa;font-size:14px;max-width:300px}
+    .qr{background:#fff;border-radius:16px;padding:16px;display:inline-block}
+    .qr img{display:block}
+    code{color:#ff6b2c;font-size:12px;word-break:break-all;max-width:340px;display:block;margin-top:4px}
+    .step{background:#1a1a1a;border:1px solid #333;border-radius:10px;padding:14px 18px;max-width:340px;text-align:left;font-size:13px;line-height:1.6}
+    .step b{color:#ff6b2c}
+  </style>
+</head>
+<body>
+  <h1>Open Squadz in Expo Go</h1>
+  <div class="qr">
+    <img src="${qrApiUrl}" width="280" height="280" alt="Expo Go QR code">
+  </div>
+  <div class="step">
+    <b>Step 1.</b> On your iPhone, open the <b>Camera app</b><br>
+    <b>Step 2.</b> Point at the QR code above — a banner appears<br>
+    <b>Step 3.</b> Tap the banner → <b>Expo Go</b> opens &amp; loads Squadz
+  </div>
+  <p class="sub">Or open this URL manually in Expo Go:<br><code>${expUrl}</code></p>
+</body>
+</html>`);
+}
+
 const defaultEnhance = config.server.enhanceMiddleware;
 
 config.server.enhanceMiddleware = (metroMiddleware, server) => {
@@ -59,6 +114,10 @@ config.server.enhanceMiddleware = (metroMiddleware, server) => {
     ? defaultEnhance(metroMiddleware, server)
     : metroMiddleware;
   return (req, res, next) => {
+    if (req.url === "/expo-go-qr" || req.url === "/expo-go-qr/") {
+      serveExpoGoQr(res);
+      return;
+    }
     if (shouldProxy(req.url)) {
       proxyToApi(req, res);
       return;

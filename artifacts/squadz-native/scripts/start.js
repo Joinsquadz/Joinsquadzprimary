@@ -86,13 +86,17 @@ function startServeoTunnel() {
 async function waitForMetro(maxAttempts = 50) {
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise((r) => setTimeout(r, 3000));
+    // Use a plain GET (no Expo-* headers) so we don't trigger the
+    // "Log in / Proceed anonymously" prompt for every poll attempt.
     const { status } = await httpGet({
       hostname: "localhost",
       port,
-      path: "/",
-      headers: { "Expo-Platform": "ios", "Expo-API": "expo" },
+      path: "/status",
     });
     if (status === 200) return true;
+    // Also accept 404 — Metro is up even if /status isn't recognised.
+    const { status: s2 } = await httpGet({ hostname: "localhost", port, path: "/" });
+    if (s2 === 200 || s2 === 404) return true;
   }
   return false;
 }
@@ -159,10 +163,14 @@ function downloadBundle(label, bundleUrl) {
   const env = {
     ...process.env,
     EXPO_PACKAGER_PROXY_URL: packagerUrl,
+    // Passed into metro.config.js so the /expo-go-qr page can embed the URL.
+    EXPO_TUNNEL_URL: tunnelUrl || "",
     EXPO_PUBLIC_DOMAIN: process.env.REPLIT_DEV_DOMAIN,
     EXPO_PUBLIC_REPL_ID: process.env.REPL_ID,
     REACT_NATIVE_PACKAGER_HOSTNAME: process.env.REPLIT_DEV_DOMAIN,
     EXPO_NO_TELEMETRY: "1",
+    // Prevent Expo from prompting for account login during CI-like workflows.
+    EXPO_OFFLINE: "1",
   };
 
   // 2. Start Expo (stdio inherited so it keeps isTTY=true).
@@ -213,14 +221,31 @@ function downloadBundle(label, bundleUrl) {
     downloadBundle("Web (Replit preview)", webUrl),
   ]);
 
-  const urlLine = tunnelUrl
-    ? `║  📱 Expo Go URL: ${tunnelUrl.padEnd(42)}║`
-    : "║  📱 Expo Go: scan the QR code in the Metro terminal        ║";
+  const expoDevDomain = process.env.REPLIT_EXPO_DEV_DOMAIN || "";
+  const qrPageUrl = expoDevDomain ? `https://${expoDevDomain}/expo-go-qr` : "";
 
-  process.stderr.write(
-    "\n╔══════════════════════════════════════════════════════════════╗\n" +
-    "║  ✅  All bundles ready — SCAN THE QR CODE NOW!             ║\n" +
-    `${urlLine}\n` +
-    "╚══════════════════════════════════════════════════════════════╝\n\n",
+  const lines = [
+    "\n╔══════════════════════════════════════════════════════════════════╗",
+    "║  ✅  All bundles ready!                                        ║",
+    "║                                                                ║",
+    "║  STEP 1: On your desktop, open this URL:                       ║",
+  ];
+
+  if (qrPageUrl) {
+    // Split long URL across two lines if needed
+    const u = qrPageUrl.padEnd(58);
+    lines.push(`║  ${u.slice(0, 58)}  ║`);
+    if (u.length > 58) lines.push(`║  ${u.slice(58).padEnd(58)}  ║`);
+  } else {
+    lines.push("║  (EXPO_DEV_DOMAIN not set — see QR code in Metro terminal)    ║");
+  }
+
+  lines.push(
+    "║                                                                ║",
+    "║  STEP 2: Scan the QR code shown there with your iPhone        ║",
+    "║          Camera app → Expo Go opens automatically.            ║",
+    "╚══════════════════════════════════════════════════════════════════╝\n",
   );
+
+  process.stderr.write(lines.join("\n") + "\n");
 })();
