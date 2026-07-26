@@ -1,0 +1,36 @@
+expo-doctor identified the launch crash cause: two SDK 57-era packages are installed in this SDK 54 project, causing a duplicate native module (expo-image-loader) and a Hermes segfault at startup. Fix all of the following in one pass, then verify. Do not change any other dependencies.
+
+1. Align the mismatched packages to SDK 54
+
+Use npx expo install (NOT plain npm/pnpm add) so the SDK-54-correct versions are chosen automatically:
+
+cd artifacts/squadz-native
+npx expo install expo-image-manipulator expo-secure-store expo
+
+Expected: expo-image-manipulator → SDK 54 version (~14.0.x) down from 57.0.2; expo-secure-store → SDK 54 version (~15.0.x) down from 57.0.0; expo → ~54.0.36.
+
+2. Confirm the duplicate native module is gone
+
+pnpm --filter @workspace/squadz-native list expo-image-loader
+
+There must be exactly ONE resolved version now, not both 57.0.0 and 6.0.0. If two remain, dedupe until only the SDK-54 version is present.
+
+3. Re-run the doctor to confirm the checks pass
+
+npx expo-doctor
+npx expo install --check
+
+The "package versions vs SDK 54" check and the "duplicate expo-image-loader" check must both now pass. The app.json/app.config.js note and the react-native-compressor New-Architecture note can remain — flag but do not fix in this pass.
+
+4. CRITICAL — verify expo-secure-store still works after the downgrade
+
+expo-secure-store is used in the auth token migration (secure token storage, forced re-auth for stale tokens). Downgrading from 57 to 15 must not break it. Confirm setItemAsync / getItemAsync / deleteItemAsync and any options passed still exist and behave the same in the SDK 54 version. If any method signature or option differs between v57 and v15, report it — do not silently leave broken calls.
+
+5. Re-run the test suites
+
+cd artifacts/squadz-native && pnpm test
+cd ~/workspace && pnpm --filter @workspace/api-server run test
+
+Both must stay green (240 mobile / 787 API). Report counts.
+
+Output: Report the final resolved versions of the three packages, confirmation that only one expo-image-loader remains, the expo-doctor result, any secure-store API differences found, and the test counts. Do NOT rebuild yet — I want to review before spending a build.
