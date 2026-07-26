@@ -75,8 +75,16 @@ function AuthGuard() {
       // The account exists but onboarding was never finished (registered, then
       // closed the app). Keep the user in onboarding so they resume where they
       // left off — but don't yank them out of an in-progress invite/public-join
-      // deep link or the auth screens themselves.
-      if (!isOnAuthScreen && !isOnPublicSquad && !isOnInviteJoin) {
+      // deep link, or out of onboarding/signup themselves. login IS redirected:
+      // with Stack.Protected, a cold start at "/" falls back to login (the
+      // first unguarded screen), so a pending-onboarding user would otherwise
+      // be stranded there instead of resuming onboarding.
+      const isResumableHere =
+        (segments[0] as string) === "onboarding" ||
+        (segments[0] as string) === "signup" ||
+        (segments[0] as string) === "invite" ||
+        (segments[0] as string) === "add";
+      if (!isResumableHere && !isOnPublicSquad && !isOnInviteJoin) {
         router.replace("/onboarding" as never);
       }
     } else if (!isLoggedIn && !isOnAuthScreen && !isOnPublicSquad && !isOnInviteJoin) {
@@ -382,14 +390,27 @@ function MutedSquadsConnector({ children }: { children: React.ReactNode }) {
 }
 
 function RootLayoutNav() {
-  const { isAuthRestoring, isLoggedIn } = useAuth();
+  const { isAuthRestoring, isSessionValidated, isLoggedIn } = useAuth();
 
-  // Block the Stack from mounting until we know whether the user has a stored
-  // session.  Without this, the first render (isLoggedIn=false, before the
-  // AsyncStorage check finishes) would momentarily treat the user as logged
-  // out.  The dark background matches the app's background colour so there is
-  // no visible flash.
-  if (isAuthRestoring) {
+  // Safety valve: never hold the boot screen longer than this even if the
+  // session-validation request is stuck on a pathologically slow network.
+  // (fetchApiUser's offline catch normally settles far sooner than this.)
+  const [validationTimedOut, setValidationTimedOut] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setValidationTimedOut(true), 6000);
+    return () => clearTimeout(t);
+  }, []);
+
+  // Block the Stack from mounting until (1) the stored-token check has settled
+  // AND (2) any restored session has been confirmed by the server. Without
+  // (2), a dead token from an old install mounts the home screen "logged in"
+  // with placeholder profile data and a stuck Reconnecting banner, then kicks
+  // the user to login once the server rejects it — exactly the broken cold
+  // start seen on TestFlight. The dark background matches the app's
+  // background colour so there is no visible flash.
+  const waitingForValidation =
+    isAuthRestoring || (isLoggedIn && !isSessionValidated && !validationTimedOut);
+  if (waitingForValidation) {
     return <View style={{ flex: 1, backgroundColor: "#0D0D0D" }} />;
   }
 

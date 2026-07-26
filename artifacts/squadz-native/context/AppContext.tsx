@@ -207,6 +207,12 @@ type AppContextType = {
    *  not redirect until this is false — otherwise the login screen flashes
    *  briefly on every cold start even for users who are already logged in. */
   isAuthRestoring: boolean;
+  /** True once the stored session has been checked against the server (or
+   *  there was no stored session / the check hit a network error, in which
+   *  case the cached session is trusted). The root layout holds the boot
+   *  screen while a restored session is still unvalidated so a dead token
+   *  never mounts the home screen — it goes straight to login instead. */
+  isSessionValidated: boolean;
   pendingOnboarding: boolean;
   currentUser: typeof ME;
   inviteCtx: InviteCtx | null;
@@ -321,6 +327,7 @@ const INITIAL_FRIENDS: string[] = [];
 const AppContext = createContext<AppContextType>({
   isLoggedIn: false,
   isAuthRestoring: true,
+  isSessionValidated: false,
   pendingOnboarding: false,
   currentUser: ME,
   inviteCtx: null,
@@ -461,6 +468,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   // True until the startup AsyncStorage token check has settled (found or not).
   const [isAuthRestoring, setIsAuthRestoring] = useState(true);
+  // True once the restored session has been confirmed by the server (or there
+  // was nothing to confirm). See AppContextType.isSessionValidated.
+  const [isSessionValidated, setIsSessionValidated] = useState(false);
   // True when a token exists but onboarding was never finished (registered then
   // closed the app). AuthGuard routes these users back into onboarding.
   const [pendingOnboarding, setPendingOnboarding] = useState(false);
@@ -813,6 +823,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // Network unavailable — keep the session so an offline relaunch isn't
       // kicked out. A genuine 401 (handled above) is the only logout trigger.
+    } finally {
+      // Every exit path is a settled verdict: confirmed, cleared, or offline
+      // (trust the cache). The root layout may now mount the right screen.
+      setIsSessionValidated(true);
     }
   }, [clearLocalSession]);
 
@@ -1047,6 +1061,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             signal: controller.signal,
           });
 
+          if (response.status === 401 || response.status === 403) {
+            // The token was rejected outright — retrying with the same token
+            // can never succeed and would just spin the "Reconnecting…"
+            // banner. Surface the actionable "error" state (tap-to-retry)
+            // instead of leaving a permanent non-actionable "reconnecting".
+            // fetchApiUser / apiFetch own the refresh-or-logout decision; when
+            // the token rotates (or the session clears) this effect re-runs
+            // and reconnects with the new credentials, and a transient 401 on
+            // a healthy session recovers via tap-to-retry or app foreground.
+            setSquadStreamStatus("error");
+            return;
+          }
+
           if (!response.ok || !response.body) {
             scheduleRetry();
             return;
@@ -1144,6 +1171,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         void getSecureToken(REFRESH_TOKEN_KEY).then(rt => {
           if (rt) refreshTokenRef.current = rt;
         });
+      } else {
+        // No stored session — nothing to validate.
+        setIsSessionValidated(true);
       }
     }).catch(() => {}).finally(() => {
       // Signal AuthGuard that it is now safe to make routing decisions. Until
@@ -1193,6 +1223,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setEmailVerified(Boolean(payload.emailVerified));
       setPhone(payload.phone ?? null);
       currentUserIdRef.current = payload.user.id;
+      // A fresh server-issued session is validated by definition.
+      setIsSessionValidated(true);
       if (markLoggedIn) {
         AsyncStorage.removeItem(ONBOARDING_PENDING_KEY).catch(() => {});
         setPendingOnboarding(false);
@@ -2633,6 +2665,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     () => ({
       isLoggedIn,
       isAuthRestoring,
+      isSessionValidated,
       pendingOnboarding,
       currentUser,
       inviteCtx,
@@ -2718,6 +2751,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [
       isLoggedIn,
       isAuthRestoring,
+      isSessionValidated,
       pendingOnboarding,
       currentUser,
       inviteCtx,
