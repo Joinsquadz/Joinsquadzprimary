@@ -34,7 +34,8 @@
         "autoIncrement": true
       },
       "env": {
-        "EXPO_PUBLIC_ENV": "production"
+        "EXPO_PUBLIC_ENV": "production",
+        "EXPO_PUBLIC_API_URL": "https://joinsquadz.com"
       }
     }
   },
