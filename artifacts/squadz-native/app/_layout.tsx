@@ -386,9 +386,9 @@ function RootLayoutNav() {
 
   // Block the Stack from mounting until we know whether the user has a stored
   // session.  Without this, the first render (isLoggedIn=false, before the
-  // AsyncStorage check finishes) always renders (tabs)/index — the home screen
-  // — before AuthGuard's useEffect can redirect to /login.  The dark background
-  // matches the app's background colour so there is no visible flash.
+  // AsyncStorage check finishes) would momentarily treat the user as logged
+  // out.  The dark background matches the app's background colour so there is
+  // no visible flash.
   if (isAuthRestoring) {
     return <View style={{ flex: 1, backgroundColor: "#0D0D0D" }} />;
   }
@@ -398,36 +398,44 @@ function RootLayoutNav() {
       <AuthGuard />
       <RevenueCatConnector />
       <PushNotificationHandler />
-      <Stack
-        initialRouteName={isLoggedIn ? "(tabs)" : "login"}
-        screenOptions={{ headerShown: false, animation: "slide_from_right" }}
-      >
+      <Stack screenOptions={{ headerShown: false, animation: "slide_from_right" }}>
+        {/* Always-reachable screens: auth flow + shared deep-link entry points
+            that logged-out friends must be able to open (they bounce to login
+            themselves, carrying the invite context). `login` is listed first so
+            it is the fallback route when the requested screen is unavailable
+            while logged out (e.g. a cold start at "/" → (tabs) is guarded off
+            → the router lands on login with no home-screen flash). */}
         <Stack.Screen name="login" />
         <Stack.Screen name="signup" />
         <Stack.Screen name="onboarding" />
         <Stack.Screen name="invite" />
-        <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="profile" />
-        <Stack.Screen name="activity" />
-        <Stack.Screen name="create" />
-        <Stack.Screen name="event/[id]" />
-        <Stack.Screen name="trip/[id]" />
-        <Stack.Screen name="trip/start" />
-        <Stack.Screen name="squad/[id]" />
         <Stack.Screen name="squad/join" />
         <Stack.Screen name="squad/join-public" />
         <Stack.Screen name="join/[inviteCode]" />
-        <Stack.Screen name="squad/create" />
-        <Stack.Screen name="conversation/[id]" />
-        <Stack.Screen name="moment/compose" />
-        <Stack.Screen name="friends" />
-        <Stack.Screen name="vault" />
-        <Stack.Screen name="availability" />
-        <Stack.Screen name="settings/edit-profile" />
-        <Stack.Screen name="settings/notifications" />
-        <Stack.Screen name="settings/privacy" />
         <Stack.Screen name="add/friend/[code]" />
-        <Stack.Screen name="user/[id]" />
+        {/* App screens: only exist in the navigator while logged in. A cold
+            start without a stored session can never mount the home screen —
+            not even for one frame — because the route itself is absent. */}
+        <Stack.Protected guard={isLoggedIn}>
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="profile" />
+          <Stack.Screen name="activity" />
+          <Stack.Screen name="create" />
+          <Stack.Screen name="event/[id]" />
+          <Stack.Screen name="trip/[id]" />
+          <Stack.Screen name="trip/start" />
+          <Stack.Screen name="squad/[id]" />
+          <Stack.Screen name="squad/create" />
+          <Stack.Screen name="conversation/[id]" />
+          <Stack.Screen name="moment/compose" />
+          <Stack.Screen name="friends" />
+          <Stack.Screen name="vault" />
+          <Stack.Screen name="availability" />
+          <Stack.Screen name="settings/edit-profile" />
+          <Stack.Screen name="settings/notifications" />
+          <Stack.Screen name="settings/privacy" />
+          <Stack.Screen name="user/[id]" />
+        </Stack.Protected>
       </Stack>
       <TipCoachMark />
     </>
