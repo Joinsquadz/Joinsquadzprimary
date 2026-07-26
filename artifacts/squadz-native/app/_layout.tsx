@@ -420,43 +420,32 @@ function RootLayoutNav() {
       <RevenueCatConnector />
       <PushNotificationHandler />
       <Stack screenOptions={{ headerShown: false, animation: "slide_from_right" }}>
-        {/* Always-reachable screens: auth flow + shared deep-link entry points
-            that logged-out friends must be able to open (they bounce to login
-            themselves, carrying the invite context). `login` is listed first so
-            it is the fallback route when the requested screen is unavailable
-            while logged out (e.g. a cold start at "/" → (tabs) is guarded off
-            → the router lands on login with no home-screen flash). */}
         <Stack.Screen name="login" />
         <Stack.Screen name="signup" />
         <Stack.Screen name="onboarding" />
         <Stack.Screen name="invite" />
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="profile" />
+        <Stack.Screen name="activity" />
+        <Stack.Screen name="create" />
+        <Stack.Screen name="event/[id]" />
+        <Stack.Screen name="trip/[id]" />
+        <Stack.Screen name="trip/start" />
+        <Stack.Screen name="squad/[id]" />
         <Stack.Screen name="squad/join" />
         <Stack.Screen name="squad/join-public" />
         <Stack.Screen name="join/[inviteCode]" />
+        <Stack.Screen name="squad/create" />
+        <Stack.Screen name="conversation/[id]" />
+        <Stack.Screen name="moment/compose" />
+        <Stack.Screen name="friends" />
+        <Stack.Screen name="vault" />
+        <Stack.Screen name="availability" />
+        <Stack.Screen name="settings/edit-profile" />
+        <Stack.Screen name="settings/notifications" />
+        <Stack.Screen name="settings/privacy" />
         <Stack.Screen name="add/friend/[code]" />
-        {/* App screens: only exist in the navigator while logged in. A cold
-            start without a stored session can never mount the home screen —
-            not even for one frame — because the route itself is absent. */}
-        <Stack.Protected guard={isLoggedIn}>
-          <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="profile" />
-          <Stack.Screen name="activity" />
-          <Stack.Screen name="create" />
-          <Stack.Screen name="event/[id]" />
-          <Stack.Screen name="trip/[id]" />
-          <Stack.Screen name="trip/start" />
-          <Stack.Screen name="squad/[id]" />
-          <Stack.Screen name="squad/create" />
-          <Stack.Screen name="conversation/[id]" />
-          <Stack.Screen name="moment/compose" />
-          <Stack.Screen name="friends" />
-          <Stack.Screen name="vault" />
-          <Stack.Screen name="availability" />
-          <Stack.Screen name="settings/edit-profile" />
-          <Stack.Screen name="settings/notifications" />
-          <Stack.Screen name="settings/privacy" />
-          <Stack.Screen name="user/[id]" />
-        </Stack.Protected>
+        <Stack.Screen name="user/[id]" />
       </Stack>
       <TipCoachMark />
     </>
