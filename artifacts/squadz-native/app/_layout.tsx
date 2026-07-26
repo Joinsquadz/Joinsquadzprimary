@@ -401,17 +401,29 @@ function RootLayoutNav() {
     return () => clearTimeout(t);
   }, []);
 
-  // Block the Stack from mounting until (1) the stored-token check has settled
-  // AND (2) any restored session has been confirmed by the server. Without
-  // (2), a dead token from an old install mounts the home screen "logged in"
-  // with placeholder profile data and a stuck Reconnecting banner, then kicks
-  // the user to login once the server rejects it — exactly the broken cold
-  // start seen on TestFlight. The dark background matches the app's
-  // background colour so there is no visible flash.
+  // True while we cannot yet make a routing decision:
+  //   (1) AsyncStorage token restore still running, OR
+  //   (2) a restored token hasn't been confirmed by the server yet.
+  // Without (2), a dead token mounts the home screen "logged in" then kicks
+  // the user to login — the broken cold-start seen on TestFlight.
   const waitingForValidation =
     isAuthRestoring || (isLoggedIn && !isSessionValidated && !validationTimedOut);
+
+  // While waiting, keep the native splash visible by returning null (we
+  // haven't called hideAsync yet). On web there is no native splash, so show
+  // the dark background instead so the screen isn't blank. The moment the
+  // gate lifts, dismiss the splash and let the real UI render.
+  useEffect(() => {
+    if (!waitingForValidation) {
+      SplashScreen.hideAsync().catch(() => {});
+    }
+  }, [waitingForValidation]);
+
   if (waitingForValidation) {
-    return <View style={{ flex: 1, backgroundColor: "#0D0D0D" }} />;
+    // null → native splash stays visible; dark view → web fallback.
+    return Platform.OS === "web"
+      ? <View style={{ flex: 1, backgroundColor: "#0D0D0D" }} />
+      : null;
   }
 
   return (
@@ -463,11 +475,9 @@ export default function RootLayout() {
     Syne_800ExtraBold,
   });
 
-  useEffect(() => {
-    if (fontsLoaded || fontError) {
-      SplashScreen.hideAsync();
-    }
-  }, [fontsLoaded, fontError]);
+  // Do NOT call SplashScreen.hideAsync() here — that is now done by
+  // RootLayoutNav once auth validation has also settled, so the native splash
+  // covers the full boot period (font load + token check) with no flash.
 
   if (!fontsLoaded && !fontError) return null;
 
