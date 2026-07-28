@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useToast } from "@/context/ToastContext";
-import { AppState } from "react-native";
+import { AppState, Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
 import { API_BASE } from "@/lib/api";
@@ -34,16 +34,23 @@ const REFRESH_TOKEN_KEY = "squadz.refreshToken";
 
 // ---------------------------------------------------------------------------
 // Secure token helpers
-// Auth tokens are stored in expo-secure-store (AES-256 encrypted on device)
-// instead of plain AsyncStorage. Design invariants:
-//   • Tokens are ONLY ever written to / read from SecureStore.
-//   • No AsyncStorage fallback — a fallback to plaintext defeats the purpose.
-//   • Legacy migration path: if a token is found ONLY in AsyncStorage (written
-//     before SecureStore adoption), it is treated as potentially compromised
-//     and DELETED — the user is forced to re-authenticate rather than silently
-//     carrying the old token forward into SecureStore.
+// Auth tokens are stored in expo-secure-store (AES-256 encrypted on device).
+// On web, expo-secure-store is a stub ({}) and throws on every call, so we
+// fall back to AsyncStorage (backed by localStorage on web). This is
+// acceptable on web — the browser's localStorage is no less secure than what
+// any web-only storage solution would offer, and it lets the session survive
+// page refreshes. On native, SecureStore is always used; AsyncStorage is only
+// consulted to purge tokens written before SecureStore adoption (legacy path).
+//
+// Design invariants:
+//   • On web:    AsyncStorage is the primary (and only) store.
+//   • On native: SecureStore is the primary store; AsyncStorage legacy tokens
+//                are treated as compromised and deleted on read.
 // ---------------------------------------------------------------------------
 async function getSecureToken(key: string): Promise<string | null> {
+  if (Platform.OS === "web") {
+    return AsyncStorage.getItem(key).catch(() => null);
+  }
   try {
     const val = await SecureStore.getItemAsync(key);
     if (val !== null) return val;
@@ -64,17 +71,19 @@ async function getSecureToken(key: string): Promise<string | null> {
 }
 
 async function setSecureToken(key: string, value: string): Promise<void> {
-  // Write only to SecureStore. No AsyncStorage fallback — storing auth tokens
-  // in plaintext is a security regression, not a graceful degradation.
-  // Try-catch: on web, expo-secure-store is a no-op (ExpoSecureStore is {}).
-  // Tokens won't persist on web, but we fail silently rather than surfacing a
-  // dev-mode error overlay on every login.
+  if (Platform.OS === "web") {
+    // SecureStore is a no-op on web. Use AsyncStorage (localStorage) so the
+    // session survives page refreshes. This is NOT a security regression —
+    // web sessions are already bounded to the browser's storage model.
+    await AsyncStorage.setItem(key, value).catch(() => {});
+    return;
+  }
   try {
     await SecureStore.setItemAsync(key, value);
+    await AsyncStorage.removeItem(key).catch(() => {}); // purge any legacy copy
   } catch {
-    // SecureStore unavailable (web, or OS-level fault) — session is in-memory only.
+    // OS-level encryption fault — session is in-memory only.
   }
-  await AsyncStorage.removeItem(key).catch(() => {}); // purge any legacy copy
 }
 
 async function removeSecureToken(key: string): Promise<void> {

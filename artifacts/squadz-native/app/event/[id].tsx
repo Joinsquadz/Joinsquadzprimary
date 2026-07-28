@@ -32,7 +32,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useEventStream } from "@/hooks/useEventStream";
-import { useData, useAuth } from "@/context/AppContext";
+import { useData, useAuth, dbEventToEvent } from "@/context/AppContext";
 import { useMessages } from "@/context/MessagesContext";
 import { FindTimeChooser } from "@/components/FindTimeChooser";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
@@ -53,7 +53,14 @@ import { EventVaultPanel } from "@/components/EventVaultPanel";
 // a cold start (deep link / push tap) can 401 before the token restores and
 // AppContext hasn't loaded the event yet; keep it loading + retry instead of
 // flashing "Event not found".
-import { vaultRenderMode } from "@/lib/vaultAuthRace";
+import {
+  vaultRenderMode,
+  INITIAL_AUTH_RACE_STATE,
+  applyVaultFetchOutcome,
+  nextRetryDecision,
+  resetAuthRaceState,
+  type AuthRaceState,
+} from "@/lib/vaultAuthRace";
 
 type EventTab = "overview" | "guests" | "tasks" | "food" | "costs" | "chat" | "photos" | "admin";
 
@@ -136,7 +143,67 @@ export default function EventDetailScreen() {
     retryEvents,
   } = useData();
 
-  const event = getEvent(id ?? "");
+  // Past events are NOT in the upcoming-only AppContext.events list. When
+  // getEvent returns undefined (past event, deep-link cold-start, etc.),
+  // fetch /api/events/:id directly — mirroring the pattern in trip/[id].tsx.
+  // Declared early — needed by fetchFallbackEvent below.
+  const { authToken } = useAuth();
+
+  // Past events are NOT in the upcoming-only AppContext.events list. When
+  // getEvent returns undefined (past event, deep-link cold-start, etc.),
+  // fetch /api/events/:id directly — mirroring the pattern in trip/[id].tsx.
+  const ctxEvent = getEvent(id ?? "");
+  const [fallbackEvent, setFallbackEvent] = useState<import("@/types").Event | null>(null);
+  const [fallbackAuthRace, setFallbackAuthRace] = useState<AuthRaceState>(INITIAL_AUTH_RACE_STATE);
+  const event = ctxEvent ?? fallbackEvent;
+
+  const fetchFallbackEvent = useCallback(async (track = false) => {
+    if (!id) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/events/${id}`, {
+        headers: buildAuthHeaders(authToken),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as Record<string, unknown>;
+        setFallbackEvent(dbEventToEvent(data));
+        if (track) setFallbackAuthRace((prev) => applyVaultFetchOutcome(prev, { kind: "ok" }));
+        return;
+      }
+      if (track) {
+        setFallbackAuthRace((prev) =>
+          applyVaultFetchOutcome(prev, { kind: res.status === 401 ? "unauthorized" : "failure" }),
+        );
+      }
+    } catch {
+      if (track) setFallbackAuthRace((prev) => applyVaultFetchOutcome(prev, { kind: "failure" }));
+    }
+  }, [id, authToken]);
+
+  // On mount / when context misses (past event), hydrate the fallback.
+  useEffect(() => {
+    if (!ctxEvent && id && authToken) void fetchFallbackEvent(true);
+  }, [ctxEvent, id, authToken, fetchFallbackEvent]);
+
+  // Retry driver: re-run on a short cadence while auth-pending (cold-start 401
+  // before token restores), then give up into a retryable error state.
+  useEffect(() => {
+    if (ctxEvent) return;
+    const decision = nextRetryDecision(fallbackAuthRace);
+    if (decision.action === "give-up") {
+      setFallbackAuthRace(decision.next);
+      return;
+    }
+    if (decision.action === "retry") {
+      const t = setTimeout(() => { void fetchFallbackEvent(true); }, decision.delayMs);
+      return () => clearTimeout(t);
+    }
+  }, [fallbackAuthRace, ctxEvent, fetchFallbackEvent]);
+
+  const retryFallbackEvent = useCallback(() => {
+    setFallbackAuthRace(resetAuthRaceState());
+    void fetchFallbackEvent(true);
+  }, [fetchFallbackEvent]);
+
   const initialTab: EventTab =
     tabParam === "costs" ? "costs"
     : tabParam === "guests" ? "guests"
@@ -225,7 +292,6 @@ export default function EventDetailScreen() {
   const [newResponseCount, setNewResponseCount] = useState(0);
   const [firstRsvpCelebration, setFirstRsvpCelebration] = useState(false);
   const [findTimeOpen, setFindTimeOpen] = useState(false);
-  const { authToken } = useAuth();
 
   // B6: the host's first "going" RSVP (from anyone but themselves) is a moment —
   // celebrate it full-screen once per event.
@@ -433,15 +499,34 @@ export default function EventDetailScreen() {
   const goBack = () => (router.canGoBack() ? router.back() : router.replace("/(tabs)" as never));
 
   if (!event) {
-    // AppContext owns the events fetch + auth-race retry loop. While a cold-start
-    // 401 is still racing the token restore, stay on a spinner; only show the
-    // genuine "Event not found" once an authenticated fetch resolved without it.
-    const notFoundMode = vaultRenderMode({
-      loading: eventsLoading,
-      authPending: eventsAuthPending,
-      authError: eventsAuthError,
-      photoCount: 0,
-    });
+    // Two sources of loading/error truth:
+    //  • Global (eventsLoading/eventsAuthPending/eventsAuthError): cold-start 401
+    //    before context has loaded at all — applies to upcoming events.
+    //  • Fallback (fallbackAuthRace): past events that aren't in the upcoming list
+    //    and must be fetched individually. A freshly-mounted past-event screen will
+    //    be spinning here while fetchFallbackEvent runs, even when global events
+    //    have already settled — use the fallback race state in that case.
+    const usingFallbackPath = !eventsLoading && !eventsAuthPending && !eventsAuthError;
+    // For the fallback path, "loading" = waiting for the first fetch OR pending a
+    // retry; INITIAL_AUTH_RACE_STATE has both flags false and tick 0, which means
+    // the fetch hasn't landed yet — treat that as loading too.
+    const fallbackLoading =
+      fallbackAuthRace.authPending ||
+      (!fallbackAuthRace.authError && fallbackAuthRace.tick === 0);
+    const notFoundMode = usingFallbackPath
+      ? vaultRenderMode({
+          loading: fallbackLoading,
+          authPending: fallbackAuthRace.authPending,
+          authError: fallbackAuthRace.authError,
+          photoCount: 0,
+        })
+      : vaultRenderMode({
+          loading: eventsLoading,
+          authPending: eventsAuthPending,
+          authError: eventsAuthError,
+          photoCount: 0,
+        });
+    const onRetry = usingFallbackPath ? retryFallbackEvent : retryEvents;
     return (
       <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: topPad }]}>
         <TouchableOpacity onPress={goBack} style={styles.backBtn}>
@@ -459,7 +544,7 @@ export default function EventDetailScreen() {
               Check your connection and try again.
             </Text>
             <TouchableOpacity
-              onPress={retryEvents}
+              onPress={onRetry}
               style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: colors.primary, borderRadius: 22, paddingHorizontal: 18, paddingVertical: 10, marginTop: 4 }}
             >
               <Ionicons name="refresh-outline" size={18} color="#fff" />
