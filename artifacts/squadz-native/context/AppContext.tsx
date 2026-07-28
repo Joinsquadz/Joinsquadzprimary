@@ -546,10 +546,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const authTokenRef = useRef<string | null>(null);
   const refreshTokenRef = useRef<string | null>(null);
   const isRefreshingRef = useRef(false);
+  // Mirrors isSessionValidated state so apiFetch (empty-dep useCallback) can
+  // distinguish a mid-session 401 (sign out + toast) from a cold-start auth-race
+  // 401 (just retry). Only fires the global sign-out path once validated=true.
+  const isSessionValidatedRef = useRef(false);
+  // Stable ref holding the latest sign-out + toast helper. Updated on every
+  // render so apiFetch and the SSE handler always call the current version
+  // without being listed as deps (which would invalidate the stable callbacks).
+  const handleSessionExpiryRef = useRef<() => void>(() => {});
 
   // apiFetch uses refs (not state) so it is stable across renders and all
   // callbacks that depend on it are created once. On 401 it attempts a single
-  // token refresh and retries the original request.
+  // token refresh and retries the original request. If the refresh is also
+  // rejected (or there is no refresh token) AND the session was already
+  // validated (i.e. this is a mid-session expiry, not a cold-start race),
+  // it triggers a global sign-out with a brief toast.
   const apiFetch = useCallback(
     async (path: string, options?: RequestInit): Promise<Response> => {
       const headers: Record<string, string> = {
@@ -559,40 +570,59 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (authTokenRef.current) headers.Authorization = `Bearer ${authTokenRef.current}`;
       const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
 
-      if (res.status === 401 && refreshTokenRef.current && !isRefreshingRef.current) {
-        isRefreshingRef.current = true;
-        try {
-          const refreshRes = await fetch(`${API_BASE}/api/auth/refresh`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ refreshToken: refreshTokenRef.current }),
-          });
-          if (refreshRes.ok) {
-            const refreshData = (await refreshRes.json()) as { token?: string; refreshToken?: string };
-            if (refreshData.token) {
-              authTokenRef.current = refreshData.token;
-              setAuthToken(refreshData.token);
-              void setSecureToken(AUTH_TOKEN_KEY, refreshData.token);
-              if (refreshData.refreshToken) {
-                refreshTokenRef.current = refreshData.refreshToken;
-                void setSecureToken(REFRESH_TOKEN_KEY, refreshData.refreshToken);
+      if (res.status === 401) {
+        // Auth routes (login, register, refresh, …) legitimately return 401 —
+        // never treat those as a mid-session expiry.
+        const isAuthRoute = path.startsWith("/api/auth/");
+
+        if (!isAuthRoute && refreshTokenRef.current && !isRefreshingRef.current) {
+          isRefreshingRef.current = true;
+          try {
+            const refreshRes = await fetch(`${API_BASE}/api/auth/refresh`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ refreshToken: refreshTokenRef.current }),
+            });
+            if (refreshRes.ok) {
+              const refreshData = (await refreshRes.json()) as { token?: string; refreshToken?: string };
+              if (refreshData.token) {
+                authTokenRef.current = refreshData.token;
+                setAuthToken(refreshData.token);
+                void setSecureToken(AUTH_TOKEN_KEY, refreshData.token);
+                if (refreshData.refreshToken) {
+                  refreshTokenRef.current = refreshData.refreshToken;
+                  void setSecureToken(REFRESH_TOKEN_KEY, refreshData.refreshToken);
+                }
+                const retryHeaders = { ...headers, Authorization: `Bearer ${refreshData.token}` };
+                return fetch(`${API_BASE}${path}`, { ...options, headers: retryHeaders });
               }
-              const retryHeaders = { ...headers, Authorization: `Bearer ${refreshData.token}` };
-              return fetch(`${API_BASE}${path}`, { ...options, headers: retryHeaders });
             }
+            // Refresh rejected — session is definitively dead.
+            // If the session had already been validated (mid-session expiry),
+            // clear state and show an explanatory toast. Cold-start auth-race
+            // 401s (isSessionValidated still false) are handled by the retry
+            // loops in fetchEvents / fetchSquads / fetchFriends instead.
+            if (isSessionValidatedRef.current) {
+              handleSessionExpiryRef.current();
+            } else {
+              // Partial cleanup only — session never established.
+              authTokenRef.current = null;
+              refreshTokenRef.current = null;
+              setAuthToken(null);
+              setIsLoggedIn(false);
+              setApiUser(null);
+              void removeSecureToken(AUTH_TOKEN_KEY);
+              void removeSecureToken(REFRESH_TOKEN_KEY);
+            }
+          } catch {
+            // Network error during refresh — leave state intact, caller handles
+          } finally {
+            isRefreshingRef.current = false;
           }
-          // Refresh rejected — force logout
-          authTokenRef.current = null;
-          refreshTokenRef.current = null;
-          setAuthToken(null);
-          setIsLoggedIn(false);
-          setApiUser(null);
-          void removeSecureToken(AUTH_TOKEN_KEY);
-          void removeSecureToken(REFRESH_TOKEN_KEY);
-        } catch {
-          // Network error during refresh — leave state intact, caller handles
-        } finally {
-          isRefreshingRef.current = false;
+        } else if (!isAuthRoute && !refreshTokenRef.current && isSessionValidatedRef.current) {
+          // No refresh token available and a mid-session 401 — the token is
+          // simply expired with no recovery path. Sign the user out.
+          handleSessionExpiryRef.current();
         }
       }
       return res;
@@ -606,6 +636,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     authTokenRef.current = authToken;
   }, [authToken]);
+
+  // Keep isSessionValidatedRef in sync so apiFetch (stable empty-dep callback)
+  // can distinguish a mid-session 401 from a cold-start auth-race 401.
+  useEffect(() => {
+    isSessionValidatedRef.current = isSessionValidated;
+  }, [isSessionValidated]);
 
   // Friends are persisted server-side. fetchFriends is the single source of
   // truth: it refuses to commit if the auth session changed while the request
@@ -774,6 +810,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setIsPro(null);
     currentUserIdRef.current = ME.id;
   }, []);
+
+  // Keep handleSessionExpiryRef updated each render so apiFetch and the SSE
+  // handler (both created once, empty deps) always call the latest version.
+  // Clears local state and shows a brief explanatory toast so the user
+  // understands why they've been returned to the login screen.
+  useEffect(() => {
+    handleSessionExpiryRef.current = () => {
+      clearLocalSession();
+      showToast("You've been signed out. Please log in again.");
+    };
+  });
 
   /** Re-fetch subscription status using the current auth token. */
   const fetchProStatus = useCallback(async () => {
@@ -1115,13 +1162,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           if (response.status === 401 || response.status === 403) {
             // The token was rejected outright — retrying with the same token
             // can never succeed and would just spin the "Reconnecting…"
-            // banner. Surface the actionable "error" state (tap-to-retry)
-            // instead of leaving a permanent non-actionable "reconnecting".
-            // fetchApiUser / apiFetch own the refresh-or-logout decision; when
-            // the token rotates (or the session clears) this effect re-runs
-            // and reconnects with the new credentials, and a transient 401 on
-            // a healthy session recovers via tap-to-retry or app foreground.
+            // banner. Surface the "error" state so the user can tap to retry.
+            // Additionally, a 401 on a validated session (mid-session expiry,
+            // not a cold-start race) triggers a global sign-out so the user is
+            // taken to login with an explanatory toast rather than left in a
+            // broken signed-in-but-all-calls-failing state.
             setSquadStreamStatus("error");
+            if (response.status === 401 && isSessionValidatedRef.current) {
+              handleSessionExpiryRef.current();
+            }
             return;
           }
 
