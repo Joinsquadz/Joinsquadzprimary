@@ -1,0 +1,114 @@
+# Prompt: Full-App Screenshot Walkthrough
+
+## Goal
+Walk through every flow below as a real user would, capturing a screenshot at every step. Save all screenshots to a single folder (e.g. `/audit-screenshots/`), organized into subfolders by flow number, with clear sequential filenames so they can be reviewed in order. Do not just describe what you see — an actual saved image file is required for every numbered step below.
+
+Use App Testing / simulator preview to execute these by tapping through the UI as a real user would, not by inspecting code. Where a flow requires two accounts (e.g. inviting, DMs, RSVPs), use two test accounts and screenshot both sides of the interaction where relevant.
+
+## Setup
+- Use a fresh free-tier test account (Account A) with 0 squads, 0 plans.
+- Create a second test account (Account B) for multi-user flows.
+- Confirm and note each account's starting state before Flow 1 begins.
+
+## Flow 0: Auth & Onboarding
+1. Screenshot sign-up screen
+2. Complete OAuth or email auth → screenshot each step of the flow
+3. Screenshot each onboarding screen in sequence (including any free-vs-paid messaging)
+4. Screenshot the completed onboarding → landing screen
+
+## Flow 1: Squad creation & management
+1. Screenshot squad list with 0 squads (empty state)
+2. Create a squad → screenshot each step of the creation form (name, photo, settings)
+3. Screenshot the new squad's home screen
+4. Invite Account B to the squad via public link → screenshot the invite-generation screen and the link/code shown
+5. Invite Account B via invite code → screenshot that flow separately if distinct from the link flow
+6. As Account B, accept the invite → screenshot the accept flow and the resulting squad membership view
+7. Screenshot squad settings/member list, including any admin/co-admin permission controls
+8. Test removing/leaving a squad → screenshot the confirmation and resulting state
+9. Screenshot the report/block flow from within a squad (select a reason, confirm submission)
+10. As Account B, block Account A → screenshot resulting mutual-block state on both accounts
+
+## Flow 2: Trip creation (full)
+1. Screenshot the trip-creation entry point
+2. Screenshot each step of the trip creation form (dates, location, description, cover photo, invitees)
+3. Screenshot the created trip's detail view
+4. Screenshot editing an existing trip (change a date/detail) → confirm updated view
+5. Screenshot the trip's poll feature if applicable (create a poll, vote as Account B, screenshot debounce/update behavior)
+6. Screenshot exporting/viewing the trip's .ics calendar file if supported
+7. Screenshot deleting a trip → confirm resulting state
+
+## Flow 3: Event creation (full)
+1. Screenshot the event-creation entry point
+2. Screenshot each step of the event creation form (date/time, location, description, cover photo, invitees)
+3. Screenshot the created event's detail view
+4. As Account B, RSVP to the event (each RSVP state: yes/no/maybe) → screenshot each
+5. Screenshot organizer view showing RSVP status of all invitees
+6. Screenshot organizer using "Remind Everyone" → confirm cooldown state screenshot after use
+7. Screenshot organizer using "Remind to RSVP" → confirm it hides once all attendees have responded (screenshot both states: visible and hidden)
+8. Screenshot editing an existing event → confirm updated view and any change-notification shown to attendees
+9. Screenshot deleting an event → confirm resulting state
+
+## Flow 4: Photo & video upload
+1. Screenshot uploading a photo to a trip/event (from camera roll and from camera if both supported)
+2. Screenshot uploading a video, if supported
+3. Screenshot the resulting Moments/gallery view showing the uploaded media
+4. Screenshot deleting an uploaded photo/video → confirm resulting state
+5. Note: confirm no visible location/EXIF data appears anywhere in the UI post-upload (screenshot the media detail view to confirm)
+
+## Flow 5: Social features
+1. Screenshot starting a DM with Account B → send a message → screenshot both sides
+2. Screenshot the Vibe Feed with at least one post from each account
+3. Screenshot creating a Vibe Feed post (each step: text, photo attach, submit)
+4. Screenshot notification received on Account B's device for a DM, RSVP, or feed activity (if push/in-app notification preview is testable in simulator)
+
+## Flow 6: Account & settings
+1. Screenshot profile screen for both a free and upgraded account (defer upgraded screenshots to Flow 9 if upgrade hasn't happened yet)
+2. Screenshot notification preferences screen and toggling a preference
+3. Screenshot account settings (email, password/auth management, logout)
+4. Screenshot logout → confirm return to sign-in screen and that re-login restores correct state
+
+## Flow 7: Squad limit (free)
+1. Screenshot: squad list with 0 squads
+2. Create squad #1 → screenshot confirmation/success state
+3. Create squad #2 → screenshot confirmation/success state
+4. Screenshot: squad list showing 2/2 squads, including any counter/badge UI
+5. Attempt to create squad #3 → screenshot the paywall trigger and full upgrade sheet
+6. Attempt to join a squad via public link → screenshot the paywall trigger
+7. Attempt to join a squad via invite code → screenshot the paywall trigger
+8. Attempt to accept a squad invite → screenshot the paywall trigger
+9. Screenshot: exact copy shown on each of the four triggers above, for side-by-side comparison
+
+## Flow 8: Plan limit (free)
+1. Create plans (trips/events, mixed) one at a time up to 4 total → screenshot after each creation showing any running counter
+2. Screenshot: state at 4/5 plans, including any usage indicator
+3. Create the 5th plan → screenshot confirmation
+4. Attempt to create a 6th plan → screenshot the paywall trigger and its exact copy
+5. Screenshot: the same trigger reached via both "create event" and "create trip" entry points, if they're separate flows
+
+## Flow 9: Vault & Favorites gates (free)
+1. Navigate to Personal Vault as free user → screenshot the gate/paywall shown
+2. Navigate to Favorites tab as free user → screenshot the gate/paywall shown
+
+## Flow 10: Onboarding gate (free)
+1. Screenshot the onboarding squad-limit gate if reachable during first-run onboarding (per the recent fix replacing the dead-end alert with the upgrade modal)
+
+## Flow 11: Purchase flow
+1. Screenshot the full upgrade sheet exactly as shown (all copy, pricing, founding-price badge)
+2. Trigger the purchase → screenshot any RevenueCat/StoreKit error state if one appears
+3. If purchase succeeds: screenshot the immediate post-purchase confirmation/success screen
+
+## Flow 12: Post-upgrade state (as Squadz+ user)
+1. Screenshot squad list — confirm no "2 squad" messaging remains and a 3rd squad can be created without a trigger
+2. Screenshot plan creation past 5 — confirm no paywall trigger fires
+3. Screenshot Vault — confirm full access, no gate
+4. Screenshot Favorites — confirm full access, no gate
+5. Screenshot profile/account screen — confirm it reflects Squadz+ status (gold ring indicator, plan name, etc.) and that no "Upgrade" button/banner appears anywhere in the app for this account
+6. Screenshot settings/subscription management screen
+7. Re-screenshot squad member list, trip/event creation, and Vibe Feed posting as the upgraded account to confirm no regressions were introduced to core flows by the upgrade
+
+## Flow 13: Cross-account regression check
+1. As Account B (still free), confirm Account A's upgrade did not affect Account B's own limits — screenshot Account B still seeing its correct free-tier state
+2. Screenshot a shared squad containing both a free and paid account, confirming feature access differs correctly per-account within the same squad
+
+## Output
+Provide the full folder of screenshots plus a short index mapping each filename to the step it corresponds to, in the order listed above, so they can be reviewed sequentially against the copy and CTA-gating audit already completed.

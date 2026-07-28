@@ -20,8 +20,10 @@
     "typescript": "~5.9.3"
   },
   "dependencies": {
+    "@playwright/test": "^1.62.0",
     "@replit/connectors-sdk": "^0.4.1",
     "@replit/revenuecat-sdk": "^5.0.0",
+    "playwright": "^1.62.0",
     "stripe": "^22.2.0",
     "stripe-replit-sync": "^1.0.0"
   }

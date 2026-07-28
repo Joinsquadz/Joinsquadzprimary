@@ -83,7 +83,7 @@ async function removeSecureToken(key: string): Promise<void> {
   await AsyncStorage.removeItem(key).catch(() => {});
 }
 
-const AUTH_TOKEN_KEY = "@squadz/authToken";
+const AUTH_TOKEN_KEY = "squadz.authToken";
 
 beforeEach(() => {
   secureStoreData = {};

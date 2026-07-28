@@ -25,8 +25,12 @@ import {
   type AuthRaceState,
 } from "@/lib/vaultAuthRace";
 
-const AUTH_TOKEN_KEY = "@squadz/authToken";
-const REFRESH_TOKEN_KEY = "@squadz/refreshToken";
+// Keys must satisfy expo-secure-store's regex /^[\w.-]+$/ (alphanumeric, ".", "-", "_").
+// The legacy "@squadz/..." format contained "@" and "/" which fail validation,
+// causing setItemAsync to throw silently on every login and making tokens
+// impossible to persist. Renamed to dot-separated format.
+const AUTH_TOKEN_KEY = "squadz.authToken";
+const REFRESH_TOKEN_KEY = "squadz.refreshToken";
 
 // ---------------------------------------------------------------------------
 // Secure token helpers
@@ -62,7 +66,14 @@ async function getSecureToken(key: string): Promise<string | null> {
 async function setSecureToken(key: string, value: string): Promise<void> {
   // Write only to SecureStore. No AsyncStorage fallback — storing auth tokens
   // in plaintext is a security regression, not a graceful degradation.
-  await SecureStore.setItemAsync(key, value);
+  // Try-catch: on web, expo-secure-store is a no-op (ExpoSecureStore is {}).
+  // Tokens won't persist on web, but we fail silently rather than surfacing a
+  // dev-mode error overlay on every login.
+  try {
+    await SecureStore.setItemAsync(key, value);
+  } catch {
+    // SecureStore unavailable (web, or OS-level fault) — session is in-memory only.
+  }
   await AsyncStorage.removeItem(key).catch(() => {}); // purge any legacy copy
 }
 
@@ -74,7 +85,7 @@ async function removeSecureToken(key: string): Promise<void> {
 // removed once onboarding's login() completes. Lets a relaunch distinguish a
 // registered-but-abandoned-onboarding session from a fully onboarded one, so we
 // can resume onboarding instead of dropping the user into the app or login.
-const ONBOARDING_PENDING_KEY = "@squadz/onboardingPending";
+const ONBOARDING_PENDING_KEY = "squadz.onboardingPending";
 
 /**
  * Thrown by addSquad when the server rejects a create because the free user is

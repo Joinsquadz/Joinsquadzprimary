@@ -23,3 +23,45 @@ id = "fDCLMV1TPELYphaSUcMVt"
 uri = "file://docs/ux-craft-sweep-phase1.md"
 type = "text"
 title = "UX Craft Sweep — Phase 1 Flow-by-Flow Report"
+
+[[outputs]]
+id = "fxD4BT5t-O2alxj3rrq9O"
+uri = "file://audit-screenshots/flow-0/01-landing.png"
+type = "image"
+title = "flow-0/01-landing.png"
+
+[[outputs]]
+id = "rXp-ppWRhxTf_OOFc9jdW"
+uri = "file://audit-screenshots/flow-0/02-auth-buttons.png"
+type = "image"
+title = "flow-0/02-auth-buttons.png"
+
+[[outputs]]
+id = "LlGqKoy9FYSdY6ZU-J3Vv"
+uri = "file://audit-screenshots/flow-0/02-login-screen.png"
+type = "image"
+title = "flow-0/02-login-screen.png"
+
+[[outputs]]
+id = "M0KKOUoSrAIdnad5L_jnW"
+uri = "file://audit-screenshots/flow-0/02-signup-screen.png"
+type = "image"
+title = "flow-0/02-signup-screen.png"
+
+[[outputs]]
+id = "tGplEd8NJ1Ry_WW78_WVU"
+uri = "file://audit-screenshots/flow-0/04-signup-filled.png"
+type = "image"
+title = "flow-0/04-signup-filled.png"
+
+[[outputs]]
+id = "Fdq3IE0iYo3h-i6IHbFfg"
+uri = "file://audit-screenshots/flow-0/05-signup-result.png"
+type = "image"
+title = "flow-0/05-signup-result.png"
+
+[[outputs]]
+id = "XHBi7zV4qOm21jaN0bZ0G"
+uri = "file://audit-screenshots/flow-1/01-home-logged-in.png"
+type = "image"
+title = "flow-1/01-home-logged-in.png"
