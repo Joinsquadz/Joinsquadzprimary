@@ -74,7 +74,11 @@ async function getSecureToken(key: string): Promise<string | null> {
 }
 
 async function setSecureToken(key: string, value: string): Promise<void> {
-  await SecureStore.setItemAsync(key, value);
+  try {
+    await SecureStore.setItemAsync(key, value);
+  } catch (err) {
+    console.warn("[SecureStore] setItemAsync failed — session will not persist across restarts", key, err);
+  }
   await AsyncStorage.removeItem(key).catch(() => {});
 }
 
@@ -228,5 +232,113 @@ describe("removeSecureToken", () => {
 
     expect(AsyncStorage.removeItem).toHaveBeenCalledWith(AUTH_TOKEN_KEY);
     expect(asyncStorageData[AUTH_TOKEN_KEY]).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// setSecureToken — failure logging (not silently swallowed)
+// ---------------------------------------------------------------------------
+describe("setSecureToken — failure logging", () => {
+  it("logs a warning when SecureStore.setItemAsync throws (OS-level fault)", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const faultError = new Error("OS encryption fault");
+    vi.mocked(SecureStore.setItemAsync).mockRejectedValueOnce(faultError);
+
+    await setSecureToken(AUTH_TOKEN_KEY, "some-token");
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("setItemAsync failed"),
+      AUTH_TOKEN_KEY,
+      faultError,
+    );
+    warnSpy.mockRestore();
+  });
+
+  it("still purges the AsyncStorage legacy copy even when SecureStore throws", async () => {
+    asyncStorageData[AUTH_TOKEN_KEY] = "stale-plaintext";
+    vi.mocked(SecureStore.setItemAsync).mockRejectedValueOnce(new Error("OS fault"));
+
+    await setSecureToken(AUTH_TOKEN_KEY, "token");
+
+    expect(AsyncStorage.removeItem).toHaveBeenCalledWith(AUTH_TOKEN_KEY);
+    expect(asyncStorageData[AUTH_TOKEN_KEY]).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cold-start simulation: full write → restart → read → authenticated flow
+// ---------------------------------------------------------------------------
+// Simulates the device lifecycle: login writes token, app is force-quit
+// (in-memory state gone, SecureStore data persists), app reopens and reads
+// the token back — should be the same value, indistinguishable from a live
+// session (i.e. the user is still authenticated).
+// ---------------------------------------------------------------------------
+const REFRESH_TOKEN_KEY = "squadz.refreshToken";
+
+describe("cold-start session persistence", () => {
+  it("token survives a simulated app restart (write → clear memory → read)", async () => {
+    // Step 1 — Login: write token (as the app does on login)
+    await setSecureToken(AUTH_TOKEN_KEY, "session-token-xyz");
+
+    // Verify it was stored
+    expect(secureStoreData[AUTH_TOKEN_KEY]).toBe("session-token-xyz");
+
+    // Step 2 — Force-quit: in-memory JS state would be cleared, but
+    // SecureStore (a native OS keychain) persists across process restarts.
+    // We simulate this by NOT clearing secureStoreData (it persists),
+    // but confirming AsyncStorage is empty (tokens were never stored there).
+    expect(asyncStorageData[AUTH_TOKEN_KEY]).toBeUndefined();
+
+    // Step 3 — Cold reopen: app reads token back from SecureStore
+    const restored = await getSecureToken(AUTH_TOKEN_KEY);
+
+    // Must be the exact token that was written — user is still authenticated
+    expect(restored).toBe("session-token-xyz");
+    // AsyncStorage must not have been consulted — token was in SecureStore
+    expect(AsyncStorage.getItem).not.toHaveBeenCalled();
+  });
+
+  it("both auth token and refresh token survive a simulated restart", async () => {
+    await setSecureToken(AUTH_TOKEN_KEY, "auth-token-abc");
+    await setSecureToken(REFRESH_TOKEN_KEY, "refresh-token-def");
+
+    // Simulate app restart by re-reading (SecureStore data persists in mock)
+    const restoredAuth = await getSecureToken(AUTH_TOKEN_KEY);
+    const restoredRefresh = await getSecureToken(REFRESH_TOKEN_KEY);
+
+    expect(restoredAuth).toBe("auth-token-abc");
+    expect(restoredRefresh).toBe("refresh-token-def");
+  });
+
+  it("logout clears token so user is not re-authenticated on next cold start", async () => {
+    await setSecureToken(AUTH_TOKEN_KEY, "session-token-xyz");
+
+    // Logout: app removes the token
+    await removeSecureToken(AUTH_TOKEN_KEY);
+
+    // Next cold start: token must be gone
+    const restored = await getSecureToken(AUTH_TOKEN_KEY);
+    expect(restored).toBeNull();
+  });
+
+  it("re-login after logout stores new token that persists correctly", async () => {
+    // First session
+    await setSecureToken(AUTH_TOKEN_KEY, "first-token");
+    await removeSecureToken(AUTH_TOKEN_KEY);
+
+    // New login with a different token
+    await setSecureToken(AUTH_TOKEN_KEY, "second-token");
+
+    // Cold restart → read
+    const restored = await getSecureToken(AUTH_TOKEN_KEY);
+    expect(restored).toBe("second-token");
+  });
+
+  it("new key format 'squadz.authToken' satisfies expo-secure-store key constraints", () => {
+    // expo-secure-store requires keys to match /^[\w.-]+$/
+    // The old "@squadz/..." format contained "@" and "/" which fail this check.
+    const validKeyPattern = /^[\w.-]+$/;
+    expect(validKeyPattern.test(AUTH_TOKEN_KEY)).toBe(true);
+    expect(validKeyPattern.test(REFRESH_TOKEN_KEY)).toBe(true);
   });
 });

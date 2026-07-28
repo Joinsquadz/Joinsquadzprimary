@@ -81,8 +81,10 @@ async function setSecureToken(key: string, value: string): Promise<void> {
   try {
     await SecureStore.setItemAsync(key, value);
     await AsyncStorage.removeItem(key).catch(() => {}); // purge any legacy copy
-  } catch {
-    // OS-level encryption fault — session is in-memory only.
+  } catch (err) {
+    // OS-level encryption fault — session is in-memory only and will be lost
+    // on force-quit. Log so the failure is visible in device logs / Sentry.
+    console.warn("[SecureStore] setItemAsync failed — session will not persist across restarts", key, err);
   }
 }
 
