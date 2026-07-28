@@ -60,7 +60,7 @@ router.get("/discover", requireAuth, async (req: Request, res: Response): Promis
         and(
           eq(squadsTable.isPublic, true),
           sql`NOT (${squadsTable.memberIds} @> ${JSON.stringify([userId])}::jsonb)`,
-          sql`${squadsTable.memberIds} && ${JSON.stringify(friendIds)}::jsonb`,
+          sql`${squadsTable.memberIds} ?| ${friendIds}::text[]`,
         ),
       )
       .orderBy(squadsTable.createdAt)
