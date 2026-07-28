@@ -22,6 +22,7 @@ import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollV
 import { IconPicker } from "@/components/IconPicker";
 import { CelebrationOverlay } from "@/components/CelebrationOverlay";
 import { claimOnce } from "@/lib/seenFlags";
+import { UpgradeModal } from "@/components/UpgradeModal";
 import { EMOJI_CHOICES } from "@/constants/emojis";
 import { readPendingInviteCode } from "@/lib/pendingInvite";
 
@@ -44,6 +45,7 @@ export default function OnboardingScreen() {
   const { friendCode, currentUser, addSquad, squads } = useData();
   const { armTour } = useTips();
   const params = useLocalSearchParams<{ inviteEventId?: string; inviteTitle?: string; publicSquadId?: string; joinEventCode?: string; squadCode?: string; squadName?: string; squadEmoji?: string; inviteCode?: string }>();
+  const [upgradeModalVisible, setUpgradeModalVisible] = useState(false);
 
   // Users arriving from a shared invite link should NOT be asked to build their
   // own squad — fast-track them straight into the squad/event they were invited
@@ -145,11 +147,7 @@ export default function OnboardingScreen() {
     } catch (err) {
       setCreating(false);
       if (err instanceof SquadLimitError) {
-        Alert.alert(
-          "Squad limit reached",
-          "You've hit the free-plan squad limit. Upgrade to Squadz+ for unlimited squads.",
-          [{ text: "OK" }],
-        );
+        setUpgradeModalVisible(true);
       } else {
         Alert.alert("Something went wrong", "Couldn't create your squad. Please try again.", [{ text: "OK" }]);
       }
@@ -372,6 +370,13 @@ export default function OnboardingScreen() {
           setShowFirstSquadCelebration(false);
           setStep(1);
         }}
+      />
+
+      <UpgradeModal
+        visible={upgradeModalVisible}
+        trigger="squad_limit"
+        onClose={() => setUpgradeModalVisible(false)}
+        onUpgradeSuccess={() => setUpgradeModalVisible(false)}
       />
     </View>
   );

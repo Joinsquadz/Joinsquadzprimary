@@ -1,0 +1,55 @@
+# Prompt: Free vs. Paid Presentation Audit + Upgrade CTA Cleanup
+
+## Context
+SquadZ has a free tier (2 active squads, 5 plans/rolling 12mo, no personal vault, no favorites) and Squadz+ ($19.99/yr founding, $29.99/yr standard). We need two things:
+
+1. A full audit of every place the app tells a user what's free vs. what's paid, to confirm the copy is accurate and internally consistent.
+2. A guarantee that once a user is entitled to Squadz+, every upgrade CTA in the app disappears — no dead-end paywall buttons for paying subscribers.
+
+## Part 1: Free vs. Paid Copy Audit
+
+Find every surface in the app that states or implies a free-tier limit or a Squadz+ benefit. This includes but is not limited to:
+- The main upgrade/paywall sheet
+- Any inline trigger copy that opens the paywall (squad-limit trigger, plan/event-limit trigger, vault trigger, favorites trigger, or any other gated-feature trigger)
+- Settings or account screens that display current plan/usage
+- Onboarding screens that mention free vs. paid
+- Any tooltip, banner, or toast referencing limits
+
+For each surface found, report:
+- The exact copy shown
+- The actual server-side rule it's supposed to represent
+- Whether the copy accurately reflects that rule (numbers, scope, and behavior — e.g. "per rolling 12-month window" vs. implying a resettable count)
+
+Specifically verify these known rules are represented accurately everywhere they're referenced:
+- **Squads**: 2 active squads free, gate fires on attempting a 3rd (>= FREE_SQUAD_LIMIT check), applies at all four entry points (create, join-via-public-link, join-via-code, invite-accept)
+- **Plans**: 5 plans (trips + events combined) per rolling 12-month window, account-wide, does NOT reset on leave/delete
+- **Personal vault**: Squadz+ only
+- **Favorites tab**: Squadz+ only
+- **DMs, Vibe Feed, Moments**: free for everyone (confirm no copy anywhere implies these are gated)
+
+Flag any copy that:
+- States a vague quantity ("a few") where a specific number should be shown
+- Implies a feature is free-gated when it's actually unrestricted, or vice versa
+- Implies a count resets when it doesn't (or doesn't specify it's a rolling window)
+- Is inconsistent with the same limit as described elsewhere in the app
+
+Produce a table: Surface | Current Copy | Actual Rule | Accurate? | Suggested Fix.
+
+## Part 2: Upgrade CTA Removal for Entitled Users
+
+Audit every place an "Upgrade to Squadz+" button, banner, badge, or trigger appears, and confirm each one is conditioned on the user's current entitlement status (via RevenueCat), not just static UI.
+
+For each CTA found, report:
+- Where it lives (screen/component)
+- What currently gates its visibility (entitlement check, feature flag, nothing?)
+- Whether it currently has any check at all, or is unconditionally rendered
+
+Then fix every CTA that is not already correctly gated so that:
+- It is hidden entirely for users with an active Squadz+ entitlement
+- The check uses the live RevenueCat entitlement status (not a cached/stale local flag) — confirm what the app currently uses as its source of truth for entitlement status app-wide, and flag if there are multiple inconsistent sources of truth
+- Any locked-feature UI (vault, favorites, gold ring indicator, squad/plan limit banners) also updates immediately to its unlocked state on successful purchase, without requiring an app restart
+
+Include a regression check: simulate a free user hitting each of the four squad-gate entry points, hitting the 5-plan cap, and opening vault/favorites — confirm upgrade sheet appears in each case. Then simulate the same user upgrading, and re-run the same five scenarios — confirm no upgrade CTA appears anywhere and all gated content is accessible.
+
+## Deliverable
+Single consolidated report with the two tables above, followed by all code fixes in one batch (per our usual pattern — no incremental fixes). Include before/after test results for the regression check.

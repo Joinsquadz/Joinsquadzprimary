@@ -129,7 +129,7 @@ export default function CreateEventScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { addEvent, squads, events, currentUser } = useData();
-  const { authToken } = useAuth();
+  const { authToken, isPro, setIsPro } = useAuth();
   const { resolveUser } = useUserCache();
   const prefill = useLocalSearchParams<{ prefillDate?: string; prefillEventAt?: string; prefillSquad?: string; prefillTitle?: string; prefillEmoji?: string; prefillPollId?: string; prefillTripStart?: string; mode?: string; templateId?: string }>();
   const [findTimeOpen, setFindTimeOpen] = useState(false);
@@ -168,7 +168,6 @@ export default function CreateEventScreen() {
   const [selectedEmoji, setSelectedEmoji] = useState("🔥");
 
   const [isPublic, setIsPublic] = useState(false);
-  const [isPro, setIsPro] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [myEventCount, setMyEventCount] = useState(0);
   const [eventLimit, setEventLimit] = useState<number | null>(null);
@@ -237,13 +236,6 @@ export default function CreateEventScreen() {
   const authHeaders = useCallback((): HeadersInit => {
     return buildAuthHeaders(authToken);
   }, [authToken]);
-
-  useEffect(() => {
-    fetch(`${API_BASE}/api/subscription`, { headers: authHeaders() })
-      .then(r => r.ok ? r.json() : { isPro: false })
-      .then((data: { isPro?: boolean }) => setIsPro(data.isPro ?? false))
-      .catch(() => setIsPro(false));
-  }, [authHeaders]);
 
   useEffect(() => {
     fetch(`${API_BASE}/api/events/count`, { headers: authHeaders() })
@@ -513,7 +505,7 @@ export default function CreateEventScreen() {
         <View style={[styles.limitBanner, { backgroundColor: colors.primary + "18", borderBottomColor: colors.primary + "40" }]}>
           <Ionicons name="flash" size={14} color={colors.primary} />
           <Text style={[styles.limitBannerText, { color: colors.primary }]}>
-            Free plan: {myEventCount}/{eventLimit} events used — upgrade for unlimited
+            Free plan: {myEventCount}/{eventLimit} events used in the last 12 months — upgrade for unlimited
           </Text>
           <TouchableOpacity onPress={() => setShowUpgradeModal(true)} style={[styles.limitBannerBtn, { borderColor: colors.primary + "60" }]}>
             <Text style={[styles.limitBannerBtnText, { color: colors.primary }]}>Upgrade</Text>
@@ -982,7 +974,7 @@ export default function CreateEventScreen() {
         )}
         {!isPro && eventLimit !== null && !atLimit && (
           <Text style={[styles.allowanceCaption, { color: colors.textDim }]}>
-            {myEventCount}/{eventLimit} free plans used
+            {myEventCount}/{eventLimit} events used this year
           </Text>
         )}
         <TouchableOpacity

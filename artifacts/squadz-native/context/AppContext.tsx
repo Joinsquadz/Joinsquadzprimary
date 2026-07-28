@@ -317,6 +317,11 @@ type AppContextType = {
   outstandingBalancesCount: number;
   squadStreamStatus: "connected" | "reconnecting" | "error";
   retrySquadStream: () => void;
+  /** null = not yet fetched; false = free; true = active Squadz+ subscriber. */
+  isPro: boolean | null;
+  setIsPro: (v: boolean) => void;
+  /** Re-fetch pro status from the server (e.g. after a restore-purchase flow). */
+  refreshIsPro: () => Promise<void>;
 };
 
 const noop = () => {};
@@ -409,6 +414,9 @@ const AppContext = createContext<AppContextType>({
   outstandingBalancesCount: 0,
   squadStreamStatus: "reconnecting",
   retrySquadStream: noop,
+  isPro: null,
+  setIsPro: noop,
+  refreshIsPro: async () => {},
 });
 
 export function dbEventToEvent(e: Record<string, unknown>): Event {
@@ -478,6 +486,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [apiUser, setApiUser] = useState<ApiUser | null>(null);
   const [emailVerified, setEmailVerified] = useState(false);
   const [phone, setPhone] = useState<string | null>(null);
+  // null = subscription status not yet fetched; false = free; true = Squadz+.
+  const [isPro, setIsPro] = useState<boolean | null>(null);
   const [inviteCtx, setInviteCtx] = useState<InviteCtx | null>(null);
   const [events, setEvents] = useState<Event[]>([]);
   const [squads, setSquads] = useState<Squad[]>([]);
@@ -739,7 +749,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setIsLoggedIn(false);
     setPendingOnboarding(false);
     setOwnPaymentHandles({ venmo: null, cashapp: null, zelle: null });
+    setIsPro(null);
     currentUserIdRef.current = ME.id;
+  }, []);
+
+  /** Re-fetch subscription status using the current auth token. */
+  const fetchProStatus = useCallback(async () => {
+    const token = authTokenRef.current;
+    if (!token) return;
+    try {
+      const r = await fetch(`${API_BASE}/api/subscription`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (r.ok) {
+        const d = (await r.json()) as { isPro?: boolean };
+        setIsPro(!!d.isPro);
+      }
+    } catch {
+      // Network error — leave isPro unchanged
+    }
   }, []);
 
   const fetchApiUser = useCallback(async (token: string) => {
@@ -820,6 +848,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       if (!res.ok) return;
       await applyMe(res);
+      void fetchProStatus();
     } catch {
       // Network unavailable — keep the session so an offline relaunch isn't
       // kicked out. A genuine 401 (handled above) is the only logout trigger.
@@ -2747,6 +2776,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       outstandingBalancesCount,
       squadStreamStatus,
       retrySquadStream,
+      isPro,
+      setIsPro,
+      refreshIsPro: fetchProStatus,
     }),
     [
       isLoggedIn,
@@ -2830,6 +2862,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       outstandingBalancesCount,
       squadStreamStatus,
       retrySquadStream,
+      isPro,
+      setIsPro,
+      fetchProStatus,
     ],
   );
 

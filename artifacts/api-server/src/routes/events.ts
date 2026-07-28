@@ -10,6 +10,7 @@ import { sendPushNotifications } from "../lib/pushNotifications";
 import { emitEventUpdate, onEventUpdate } from "../lib/eventUpdates";
 import { recordActivitySafe, removeActivity } from "../lib/activity";
 import { parseEventStart, calendarDaysUntil } from "../lib/eventDate";
+import { resolveProStatus } from "../lib/proStatus";
 
 const router: IRouter = Router();
 
@@ -487,17 +488,7 @@ router.post("/events", requireAuth, async (req: Request, res: Response): Promise
       user = await storage.upsertUser(authUser.id, authUser.email ?? "");
     }
 
-    const isPro = await (async () => {
-      if (user!.stripeSubscriptionId) {
-        const sub = await storage.getSubscription(user!.stripeSubscriptionId);
-        return sub?.status === "active" || sub?.status === "trialing";
-      }
-      if (user!.stripeCustomerId) {
-        const sub = await storage.getActiveSubscriptionByCustomerId(user!.stripeCustomerId);
-        return !!sub;
-      }
-      return false;
-    })();
+    const isPro = await resolveProStatus(user!);
 
     const {
       inviteCode,
@@ -576,7 +567,7 @@ router.post("/events", requireAuth, async (req: Request, res: Response): Promise
 
     if (!result.ok) {
       res.status(403).json({
-        error: `Free plan is limited to ${FREE_EVENT_LIMIT} events in a 12-month window. Upgrade to Pro to create unlimited events.`,
+        error: `Free plan is limited to ${FREE_EVENT_LIMIT} events in a 12-month window. Upgrade to Squadz+ to create unlimited events.`,
         requiresPro: true,
         count: result.count,
         limit: FREE_EVENT_LIMIT,

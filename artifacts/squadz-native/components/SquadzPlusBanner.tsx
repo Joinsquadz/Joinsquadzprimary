@@ -1,9 +1,8 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, type ViewStyle } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/context/AppContext";
-import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { UpgradeModal, type UpgradeTrigger } from "@/components/UpgradeModal";
 
 interface Props {
@@ -14,35 +13,15 @@ interface Props {
 }
 
 /**
- * Slim, self-contained ambient Squadz+ banner. Fetches the caller's pro status
- * and renders nothing for pro members, so it can be dropped onto any screen
- * without the parent tracking subscription state. Tapping opens the shared
- * UpgradeModal with the given trigger.
+ * Slim ambient Squadz+ banner. Reads pro status from AppContext (global, always
+ * in sync) and renders nothing for pro members, so it can be dropped on any
+ * screen without the parent tracking subscription state.
  */
 export function SquadzPlusBanner({ trigger, message, style }: Props) {
-  const { authToken } = useAuth();
-  const [isPro, setIsPro] = useState<boolean | null>(null);
+  const { isPro, setIsPro } = useAuth();
   const [showUpgrade, setShowUpgrade] = useState(false);
 
-  const refreshPro = useCallback(async () => {
-    try {
-      const r = await fetch(`${API_BASE}/api/subscription`, {
-        headers: buildAuthHeaders(authToken),
-        credentials: "include",
-      });
-      if (!r.ok) return;
-      const d = (await r.json()) as { isPro?: boolean };
-      setIsPro(!!d.isPro);
-    } catch {
-      // Leave unknown → keep banner hidden until we can confirm non-pro.
-    }
-  }, [authToken]);
-
-  useEffect(() => {
-    void refreshPro();
-  }, [refreshPro]);
-
-  // Hide until we positively know the user is NOT pro.
+  // Hide until we positively know the user is NOT pro (null = still loading).
   if (isPro !== false) return null;
 
   return (

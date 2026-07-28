@@ -60,7 +60,7 @@ const TRIGGER_COPY: Record<UpgradeTrigger, { headline: string; sub: string }> = 
   },
   events: {
     headline: "Plan without limits",
-    sub: "Free accounts can only plan a few events. Squadz+ unlocks unlimited events so you keep the momentum going.",
+    sub: "Free accounts can create up to 5 events per year. Squadz+ unlocks unlimited events so you keep the momentum going.",
   },
   general: {
     headline: "Upgrade to Squadz+",
@@ -71,7 +71,7 @@ const TRIGGER_COPY: Record<UpgradeTrigger, { headline: string; sub: string }> = 
 // What free accounts get (shown for comparison).
 const FREE_FEATURES = [
   "Up to 2 squads",
-  "Event RSVPs & basic planning",
+  "Up to 5 events per year",
   "Group chat, Vibe Feed & Moments",
 ];
 

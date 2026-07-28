@@ -48,10 +48,9 @@ function photoFilename(photo: LivePhoto): string {
 export default function PhotosTab() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { authToken } = useAuth();
+  const { authToken, isPro, setIsPro } = useAuth();
   const {
     photos,
-    isPro,
     loading: photosLoading,
     refetch: loadPhotos,
   } = useVaultPhotos<LivePhoto>({ authToken });
@@ -205,7 +204,7 @@ export default function PhotosTab() {
             visible={upgradeVisible}
             trigger="photos"
             onClose={() => setUpgradeVisible(false)}
-            onUpgradeSuccess={() => { void loadPhotos(); }}
+            onUpgradeSuccess={() => { setIsPro(true); void loadPhotos(); }}
           />
         </ScrollView>
       ) : viewablePhotos.length === 0 ? (

@@ -50,15 +50,13 @@ type SettingItem = {
 export default function ProfileScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { currentUser, logout, authToken, isAuthRestoring } = useAuth();
+  const { currentUser, logout, authToken, isAuthRestoring, isPro, setIsPro } = useAuth();
   const { events, squads, friendCode, updateOwnPaymentHandles } = useData();
   const params = useLocalSearchParams<{ checkout?: string }>();
 
   const didCheckoutSuccess = params.checkout === "success";
   const bannerOpacity = useRef(new Animated.Value(0)).current;
 
-  const [isPro, setIsPro] = useState(didCheckoutSuccess);
-  const [checkingPro, setCheckingPro] = useState(false);
   const [upgradeModalVisible, setUpgradeModalVisible] = useState(false);
   const [avatarViewerOpen, setAvatarViewerOpen] = useState(false);
   const [showSuccessBanner, setShowSuccessBanner] = useState(didCheckoutSuccess);
@@ -94,27 +92,6 @@ export default function ProfileScreen() {
   const authHeaders = useCallback((): HeadersInit => {
     return buildAuthHeaders(authToken);
   }, [authToken]);
-
-  const checkSubscription = useCallback(async () => {
-    setCheckingPro(true);
-    try {
-      const res = await fetch(`${API_BASE}/api/subscription`, {
-        headers: authHeaders(),
-      });
-      if (res.ok) {
-        const { isPro: pro } = await res.json() as { isPro: boolean };
-        setIsPro(!!pro);
-      }
-    } catch {
-      // Network unavailable or server down — silently leave isPro false
-    } finally {
-      setCheckingPro(false);
-    }
-  }, [authHeaders]);
-
-  useEffect(() => {
-    void checkSubscription();
-  }, [checkSubscription]);
 
   const fetchEventCount = useCallback(async () => {
     if (!authToken) {
@@ -602,7 +579,7 @@ export default function ProfileScreen() {
               <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12, marginBottom: 10 }}>
                 <Text style={styles.successEmoji}>🎉</Text>
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.successTitle, { color: colors.green }]}>Welcome to SquadZ Pro!</Text>
+                  <Text style={[styles.successTitle, { color: colors.green }]}>Welcome to Squadz+!</Text>
                   <Text style={[styles.successBody, { color: colors.mutedForeground }]}>
                     Your upgrade is confirmed. Tap a feature to explore what's unlocked.
                   </Text>
@@ -664,7 +641,7 @@ export default function ProfileScreen() {
           />
           <View style={styles.nameRow}>
             <Text style={[styles.name, { color: colors.foreground }]}>{currentUser.name}</Text>
-            {checkingPro ? (
+            {isPro === null ? (
               <ActivityIndicator size="small" color={colors.gold} style={{ marginLeft: 8 }} />
             ) : isPro ? (
               <View style={[styles.proBadge, { backgroundColor: colors.gold + "22", borderColor: colors.gold + "60" }]}>
@@ -710,7 +687,7 @@ export default function ProfileScreen() {
             <View style={[styles.eventUsageBar, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <View style={styles.eventUsageRow}>
                 <Text style={[styles.eventUsageLabel, { color: colors.mutedForeground }]}>
-                  {eventCount} / {eventLimit} free events used this year
+                  {eventCount} / {eventLimit} free events used in the last 12 months
                 </Text>
                 <Text style={[styles.eventUsageRemaining, { color: eventCount >= eventLimit ? colors.destructive : colors.mutedForeground }]}>
                   {eventCount >= eventLimit ? "Limit reached" : `${eventLimit - eventCount} left`}

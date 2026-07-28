@@ -167,10 +167,9 @@ function VaultImage({ uri, style, headers }: { uri: string; style: object; heade
 export default function VaultScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { authToken, currentUser } = useAuth();
+  const { authToken, currentUser, isPro, setIsPro } = useAuth();
   const currentUserId = currentUser?.id ?? null;
   const { events } = useData();
-  const [isPro, setIsPro] = useState<boolean | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [photos, setPhotos] = useState<VaultPhoto[]>([]);
   const [isUploading, setIsUploading] = useState(false);
@@ -386,24 +385,6 @@ export default function VaultScreen() {
       return next;
     });
   }, []);
-
-  const checkSubscription = useCallback(async (): Promise<boolean> => {
-    try {
-      const r = await fetch(`${API_BASE}/api/subscription`, { headers: authHeaders(), credentials: "include" });
-      if (!r.ok) { setIsPro(false); return false; }
-      const d = await r.json() as { isPro?: boolean };
-      const pro = !!d.isPro;
-      setIsPro(pro);
-      return pro;
-    } catch {
-      setIsPro(false);
-      return false;
-    }
-  }, [authHeaders]);
-
-  useEffect(() => {
-    void checkSubscription();
-  }, [checkSubscription]);
 
   const fetchPhotos = useCallback(async () => {
     const params = new URLSearchParams();
