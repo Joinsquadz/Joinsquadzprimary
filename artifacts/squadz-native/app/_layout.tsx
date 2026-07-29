@@ -401,13 +401,25 @@ function RootLayoutNav() {
     return () => clearTimeout(t);
   }, []);
 
+  // Minimum splash display time — keeps the splash visible for at least 1 s
+  // even when auth resolves instantly (e.g. no stored token on first launch),
+  // so the transition into the app feels intentional rather than a flash.
+  const [minTimeElapsed, setMinTimeElapsed] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setMinTimeElapsed(true), 1000);
+    return () => clearTimeout(t);
+  }, []);
+
   // True while we cannot yet make a routing decision:
   //   (1) AsyncStorage token restore still running, OR
-  //   (2) a restored token hasn't been confirmed by the server yet.
+  //   (2) a restored token hasn't been confirmed by the server yet, OR
+  //   (3) the minimum splash display time hasn't elapsed yet.
   // Without (2), a dead token mounts the home screen "logged in" then kicks
   // the user to login — the broken cold-start seen on TestFlight.
   const waitingForValidation =
-    isAuthRestoring || (isLoggedIn && !isSessionValidated && !validationTimedOut);
+    !minTimeElapsed ||
+    isAuthRestoring ||
+    (isLoggedIn && !isSessionValidated && !validationTimedOut);
 
   // While waiting, keep the native splash visible by returning null (we
   // haven't called hideAsync yet). On web there is no native splash, so show
