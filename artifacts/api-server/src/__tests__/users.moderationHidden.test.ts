@@ -92,9 +92,10 @@ describe("#520: GET /api/users/:id/profile — moderationHidden gate", () => {
     expect(res.body.underReview).toBeUndefined();
   });
 
-  it("returns 451 with underReview:true when user is flagged (moderationHidden:true)", async () => {
+  it("returns 451 with underReview:true when a THIRD PARTY views a flagged profile", async () => {
     mockSelectQueue.queue = [[baseUser({ moderationHidden: true })]];
 
+    // REQUESTER !== TARGET — third-party view should be restricted.
     const res = await request(makeApp({ id: REQUESTER }))
       .get(`/api/users/${TARGET}/profile`);
 
@@ -104,6 +105,21 @@ describe("#520: GET /api/users/:id/profile — moderationHidden gate", () => {
     // Sensitive profile fields must not be present in a restricted response.
     expect(res.body.bio).toBeUndefined();
     expect(res.body.firstName).toBeUndefined();
+  });
+
+  it("returns 200 when the OWNER views their own flagged profile (not blocked by the gate)", async () => {
+    // Account owner should always be able to see their own profile so they
+    // know it is under review — the 451 gate must exempt targetId === requesterId.
+    mockSelectQueue.queue = [[baseUser({ moderationHidden: true })], []];
+
+    // Make the requester the same user as the target.
+    const res = await request(makeApp({ id: TARGET }))
+      .get(`/api/users/${TARGET}/profile`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.id).toBe(TARGET);
+    // underReview flag should not appear on an owner-access response.
+    expect(res.body.underReview).toBeUndefined();
   });
 
   it("returns 404 when user does not exist (unaffected by BUG-02 fix)", async () => {

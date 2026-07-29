@@ -277,8 +277,9 @@ router.get("/users/:id/profile", requireAuth, async (req: Request, res: Response
       res.status(404).json({ error: "User not found" });
       return;
     }
-    // BUG-02: a profile flagged by 3+ distinct reporters is restricted from view.
-    if (target.moderationHidden) {
+    // BUG-02: a profile flagged by 3+ distinct reporters is restricted from third-party views.
+    // The account owner is exempted so they can see their own profile and learn it is under review.
+    if (target.moderationHidden && targetId !== requesterId) {
       res.status(451).json({ underReview: true, error: "This profile is currently under review." });
       return;
     }

@@ -1,0 +1,26 @@
+# SquadZ — Round 3 Depth Pass: Find What the Checklist Missed
+
+The prior audit pass produced findings, but read as checklist-confirmation rather than genuine investigation — verifying that expected patterns exist rather than trying to break them. This pass has a different mandate: act like someone trying to find real problems before real users do, not someone confirming a list of assumptions.
+
+## Ground rules for this pass
+
+1. **Don't report PASS based on reading code alone.** If you inspected a code path and it looks correct but you didn't actually exercise it (run a test, trigger the scenario, trace real data through it), say so explicitly: "inspected, not executed" is a valid and required distinction from "verified." A report full of confident PASSes that are actually untested inference is worse than an honest "couldn't verify this."
+2. **Go where the prompt didn't point.** The previous pass only examined what was explicitly listed. This time, spend real effort on code you weren't told to look at — recently changed files, anything with complex branching or state, anything that touches money, privacy boundaries, or irreversible actions (deletes, cancellations, downgrades). If something looks fragile or confusing while you're in there for an unrelated reason, follow it.
+3. **Think like an attacker and like a confused user, not like a QA checklist.** For every flow you touch, ask: "if I were trying to break this on purpose, what's the first weird thing I'd try?" and separately "if I were a real user who didn't read any docs, where would I get stuck or confused?" Both answers should show up in the report even if the answer is "nothing found."
+4. **Flag your own uncertainty.** If you're not confident in a finding, or only had time to spot-check rather than fully verify something, say that plainly rather than rounding up to a clean PASS/FAIL. A "probably fine, didn't fully verify" is more useful to us than a false-confidence PASS.
+5. **Surface things nobody asked about.** If, while working through this, you notice something structurally concerning that doesn't fit neatly into any category we gave you — a design decision that seems risky, a piece of state that seems easy to get into a bad configuration, a dependency between two features that isn't obvious — write it up anyway. We explicitly want the things we didn't think to ask about.
+
+## Where to focus this pass
+
+- Re-open Sections 2 (security/abuse) and 5 (media/vault) from the prior prompt specifically — these are the highest-consequence areas (privacy, irreversible data, payment-adjacent) and are exactly where "looks right on inspection" and "actually is right" are most likely to diverge.
+- Anything in Section 1's coverage gap table marked as having **no test and no audit exposure** — these were flagged as highest priority last time; confirm they actually got real attention this round, not just a restated flag.
+- Any code touched across Batches 1–3 that wasn't specifically re-tested by name in the Round 2 re-verification — the fixes were verified for the bug they were written to fix; they weren't necessarily stress-tested for anything adjacent.
+
+## Output required
+
+For each finding, structure it as:
+- **What I actually did** (executed a scenario / traced code / inspected only — be honest about which)
+- **What I found** (bug, uncertainty, or a "nothing found but here's why I'm not fully confident" note)
+- **Why it matters** (skip this for anything trivial — don't pad the report)
+
+Keep the severity-ranked bug format from prior rounds for confirmed issues, but this pass is explicitly allowed to end with open questions and flagged uncertainties rather than a clean PASS list. A shorter report with real uncertainty flagged honestly is a better outcome than a longer one that looks complete but isn't.
