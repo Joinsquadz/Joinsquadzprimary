@@ -1,0 +1,86 @@
+# SquadZ — 15-User End-to-End Multi-User Simulation & Bug Audit
+
+## Objective
+Simulate 15 distinct users concurrently using SquadZ across every core flow, then produce a single consolidated bug/issue report. This is a pre-launch bake-out pass — the goal is to surface everything that would embarrass us in a soft launch, not to fix issues inline. Do not fix anything during this pass. Log every issue found, then stop and present the report for review before any remediation work begins.
+
+## Setup
+
+1. Create 15 test user accounts (`squadz_test_01` through `squadz_test_15`) with distinct emails/auth identities. Vary auth method across the group if multiple are supported (email, OAuth) — do not assume every user signs up the same way.
+2. Assign realistic overlapping social structure, not 15 isolated users:
+   - 3–4 pre-existing squads with 4–7 members each, with deliberate overlap (some users in 2+ squads, some in only 1, at least 1 user in 0 squads at start)
+   - A mix of roles: organizers/hosts, co-admins, and regular members within each squad
+   - At least 2 users positioned near/at free-tier limits at the start (e.g., already at 2 active squads, or already at 4/5 plans used in the rolling 12-month window)
+3. Run flows concurrently where realistic (e.g., 5 users RSVPing to the same plan within the same minute, 2 users editing the same poll near-simultaneously) — this is explicitly to surface race conditions, not just sequential correctness.
+
+## Test Coverage
+
+### A. Onboarding & Invites
+- New user signup (each supported auth method)
+- Invite link generation, acceptance, and expiry/reuse behavior
+- Unauthenticated preview of an invite link (must show only generic branding — no squad name, member list, or content leak)
+- Declining an invite; re-inviting a user who previously declined
+- Joining a squad that's already at whatever member cap exists (if any)
+
+### B. Squad Lifecycle
+- Create/rename/delete a squad
+- Leave a squad (as regular member, as organizer, as the last remaining member)
+- Verify free-tier squad cap (2 active squads) is enforced account-wide, and that leaving/deleting a squad does **not** reset or free up the plan-count cap (per existing design)
+- Cross-squad privacy: confirm no data (members, plans, messages, photos) is visible across squad boundaries under any UI path
+
+### C. Plans (Trips + Events)
+- Create a trip and an event under squads at, near, and over the 5-plan/12-month rolling cap
+- Verify the free-tier cap display is accurate (previously fixed 3-vs-5 display bug — regression check)
+- Edit plan details after RSVPs exist; verify affected users are notified appropriately
+- Cancel a plan with confirmed attendees
+- Polls: concurrent voting from multiple users, poll edits mid-vote, debounce behavior under rapid repeated updates
+
+### D. RSVP & Reminder System
+- RSVP flows: yes/no/maybe, changing an RSVP after submitting, RSVPing after a reminder fires
+- Organizer-triggered manual reminders: "Remind Everyone" (confirmed attendees) and "Remind to RSVP" (non-responders only)
+  - Verify independent 1-hour cooldowns per button, per plan
+  - Verify host/co-admin permission gate blocks regular members from sending
+  - Verify "Remind to RSVP" disappears entirely once all invitees have responded
+- Automated day-of and 3-day reminders: verify timezone-aware copy is correct for users in at least 3 different timezones within the same squad/plan
+- Frequency capping across the social notification cluster — confirm a user isn't spammed when multiple triggers fire close together
+
+### E. Conflict Detection
+- Create overlapping plans for a user across different squads
+- Verify the conflict warning surfaces only to the affected user and is never visible to other squad members
+
+### F. DMs, Vibe Feed, Moments (free tier)
+- DM threads between users who share a squad and (if applicable) test whether DMs require a shared squad
+- Vibe Feed posting/visibility scoped correctly per squad
+- Moments creation, and photo/video upload EXIF/GPS stripping verification (inspect uploaded file metadata directly, don't just trust UI)
+
+### G. Monetization / Squadz+ Gating
+- Personal vault access attempt on free tier (must be gated)
+- Favorites tab access attempt on free tier (must be gated)
+- Simulate a user crossing the 5-plan or 2-squad cap mid-session — verify the upgrade prompt fires for **any** group member hitting the gate, not just organizers
+- Verify gating logic doesn't falsely trigger for users under the caps
+
+### H. Report/Block
+- Report a piece of content/user with each reason enum
+- Verify 3-distinct-reporter auto-hide threshold
+- Block a user and verify mutual blocking behavior (both directions lose visibility of each other) across squads, DMs, and Vibe Feed
+
+### I. Auth & Session
+- Force a stale/expired token scenario and verify forced re-auth behavior (expo-secure-store migration regression check)
+- Session behavior across app backgrounding/foregrounding with multiple concurrent logged-in test accounts
+
+### J. Concurrency & Race Conditions (explicit focus, not incidental)
+- Two co-admins sending "Remind Everyone" within the cooldown window simultaneously
+- Multiple users joining a squad at the exact moment it would cross a cap boundary
+- Simultaneous RSVP changes from 5+ users on one plan
+- Simultaneous poll votes/edits
+
+## Output Required
+
+Produce a single consolidated report with:
+
+1. **Bug list** — each bug with: reproduction steps, expected vs. actual behavior, which of the 15 test users/roles it involves, and severity (Blocker / High / Medium / Low)
+2. **Workflow/process issues** — anything that technically "works" but is confusing, inconsistent, or creates a bad multi-user experience (e.g., unclear permission errors, silent failures, inconsistent copy)
+3. **Regression check results** — explicit pass/fail on the previously-fixed items called out above (free-tier cap display, EXIF stripping, secure-store auth, reminder ladder, report/block)
+4. **Test coverage summary** — pass/fail count per section (A–J) above
+5. **Anything explicitly out of scope for automated coverage** — flag it rather than skipping silently (e.g., true device-level push notification delivery, real IAP purchase flow)
+
+Do not batch fixes into this same prompt. Stop after the report. Fixes will be scoped and prompted separately once the report is reviewed.
