@@ -1,0 +1,43 @@
+# SquadZ — Post-Fix Re-Verification: 15-User Simulation (Round 2)
+
+Batch 1 (10 bugs) and Batch 2 (4 workflow fixes, W-05 confirmed via BUG-06) are merged, with 827/827 tests passing. This is a live re-verification pass, not a new audit — confirm the fixes hold under the same multi-user conditions that originally surfaced them, and sanity-check the two product decisions (W-01, W-02) in practice rather than just against their unit tests.
+
+Reuse the same 15-user setup from the original audit (overlapping squads, mixed roles, users near/at free-tier limits, concurrent action scenarios) so results are comparable to the original report.
+
+## Targeted re-checks (map to each fix)
+
+**BUG-01 (logout/token revocation)** — log out, immediately replay the prior access token against a protected endpoint. Must reject within the same session, not after TTL expiry.
+
+**BUG-02 (auto-hide for messages/profiles)** — 3 distinct users report the same DM message; separately, 3 distinct users report the same profile. Both must auto-hide.
+
+**BUG-03 (reminder cooldown race)** — two co-admins fire "Remind Everyone" on the same plan within the same second. Exactly one succeeds.
+
+**BUG-04 (persistent rate limiter)** — hit the registration/login rate limit, restart the process, confirm the limit is still enforced (not reset).
+
+**BUG-05 (invite expiry)** — redeem an invite older than 7 days → rejected. Regenerate a link → old one invalid.
+
+**BUG-06 (zero-audience reminder no-op)** / **W-05** — with all attendees responded, confirm "Remind to RSVP" is a true no-op with no cooldown side effect, and that the host isn't locked out afterward.
+
+**BUG-07 (report enum)** — profile report flow end-to-end using the corrected `"profile"` contentType.
+
+**BUG-08 (squad list lag)** — create a squad, immediately fetch the creator's squad list in the same request cycle. Repeat 20x in a tight loop to catch intermittent lag.
+
+**BUG-09 (invite preview leak)** — fetch an invite preview while logged out; confirm no creator name or member data present.
+
+**BUG-10 (host in RSVP reminder audience)** — host has no RSVP row; confirm host is excluded from "Remind to RSVP" send list.
+
+**W-03 (version bump on join)** — 5 concurrent joins on one squad; confirm version increments and a stale-version client gets a 409 on its next PATCH.
+
+**W-04 (invite permission visibility)** — non-creator member with `membersCanInvite: false` should never see a live invite affordance in the UI; confirm the field is present on the squad detail response and the UI actually reads it (not just that the API returns it).
+
+## Product-decision sanity checks (not pass/fail, judgment calls)
+
+**W-01 (DM shared-squad gate)** — walk through it as a user would: two users with no shared squad history attempting a DM should get a clear, non-cryptic explanation, not just a bare 403. Two users who *used to* share a squad but don't anymore should still be able to open a new thread — confirm this feels right and isn't confusing in the UI. Flag if the error messaging needs softening for a real user (not just correctness).
+
+**W-02 (plan cap exclusion + next-slot date)** — create and cancel a few events within and outside the 1-hour window, hit the cap, and check that the `nextSlotAvailableAt` date is actually surfaced somewhere a user would see it (not just present in the API response). Flag if the cap error message needs updating to reference the new date field.
+
+## Output required
+- Pass/fail per item above, same format as the original audit report
+- Any new issues surfaced during this pass (should be rare — flag anything unexpected rather than assuming it's a re-test artifact)
+- Explicit note on whether W-01 and W-02 UX feel right in practice, separate from technical pass/fail
+- Do not fix anything found in this pass — report only, same as the original audit
