@@ -3,6 +3,7 @@ import { getStripeSync, getStripeDbConfig } from './stripeClient';
 import app from './app';
 import { logger } from './lib/logger';
 import { getSmtpStatus } from './emailService';
+import { ensureEmailDedupTable } from './lib/emailDedup';
 import { checkPushReceipts, initPushTickets } from './lib/pushNotifications';
 import { storage } from './storage';
 import {
@@ -68,6 +69,10 @@ async function initStripe() {
 }
 
 await initStripe();
+
+// UNC-02: ensure the webhook email dedup table exists before any Stripe webhook
+// could fire and attempt to send a duplicate transactional email.
+await ensureEmailDedupTable();
 
 initPushTickets().catch((err) =>
   logger.error({ err }, "initPushTickets failed at startup"),

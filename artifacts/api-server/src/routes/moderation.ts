@@ -14,6 +14,7 @@ import {
 import { requireAuth } from "../middleware/currentUser";
 import { logger } from "../lib/logger";
 import { sendEmail } from "../services/email";
+import { storage } from "../storage";
 
 const router: IRouter = Router();
 
@@ -103,6 +104,15 @@ router.post("/reports", requireAuth, async (req: Request, res: Response): Promis
 
   if (targetUserId === userId) {
     res.status(400).json({ error: "Cannot report yourself" });
+    return;
+  }
+
+  // SEC-01: verify the reporter can currently see the content they are reporting.
+  // Without this check, 3 coordinated accounts who know a UUID could auto-hide
+  // content they have never legitimately viewed.
+  const canView = await storage.canUserViewReportedContent(contentType, contentId, userId);
+  if (!canView) {
+    res.status(403).json({ error: "Content not found or not visible to you" });
     return;
   }
 

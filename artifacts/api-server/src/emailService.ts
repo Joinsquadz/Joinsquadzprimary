@@ -23,6 +23,7 @@ import { sendEmail } from './services/email';
 import { db } from '@workspace/db';
 import { sql } from 'drizzle-orm';
 import { getBaseUrl } from './lib/urls';
+import { markEmailSent } from './lib/emailDedup';
 
 export interface ProWelcomeEmailData {
   toEmail: string;
@@ -486,6 +487,13 @@ export function getSmtpStatus(): { configured: boolean; host: string | undefined
 
 export class EmailService {
   async sendProWelcome(subscriptionId: string, customerId: string): Promise<void> {
+    // UNC-02: deduplicate against Stripe webhook retries (same subscriptionId,
+    // different delivery attempt). First delivery wins; subsequent ones are suppressed.
+    const isNew = await markEmailSent(`welcome:${subscriptionId}`);
+    if (!isNew) {
+      logger.warn({ subscriptionId }, 'sendProWelcome: duplicate suppressed');
+      return;
+    }
     try {
       const data = await this.buildEmailData(subscriptionId, customerId);
       if (!data) {
@@ -507,6 +515,13 @@ export class EmailService {
   }
 
   async sendRenewalReceipt(invoiceId: string, customerId: string): Promise<void> {
+    // UNC-02: renewal receipts are financial documents; a duplicate is confusing
+    // and could cause unwarranted alarm. Deduplicate by invoiceId.
+    const isNew = await markEmailSent(`renewal:${invoiceId}`);
+    if (!isNew) {
+      logger.warn({ invoiceId }, 'sendRenewalReceipt: duplicate suppressed');
+      return;
+    }
     try {
       const data = await this.buildRenewalReceiptData(invoiceId, customerId);
       if (!data) {
@@ -528,6 +543,13 @@ export class EmailService {
   }
 
   async sendPaymentFailed(invoiceId: string, customerId: string): Promise<void> {
+    // UNC-02: duplicate payment-failure notices cause undue alarm. Deduplicate
+    // by invoiceId so a Stripe webhook retry does not fire a second warning.
+    const isNew = await markEmailSent(`payment_failed:${invoiceId}`);
+    if (!isNew) {
+      logger.warn({ invoiceId }, 'sendPaymentFailed: duplicate suppressed');
+      return;
+    }
     try {
       const data = await this.buildPaymentFailedData(invoiceId, customerId);
       if (!data) {

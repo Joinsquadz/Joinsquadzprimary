@@ -1625,6 +1625,89 @@ export class Storage {
     return false;
   }
 
+  /**
+   * Returns whether `userId` is currently permitted to see the reported content.
+   * Used by POST /reports to prevent coordinated harassment: 3 accounts who have
+   * never legitimately viewed an item cannot trigger auto-hide via reports.
+   * - profile: any authenticated user can view any profile
+   * - photo: delegates to canUserViewPhotoById
+   * - post/moment: author, friend (audience="friends"), or current squad member
+   * - message: must be a current member of the conversation (live membership check)
+   */
+  async canUserViewReportedContent(
+    contentType: "post" | "moment" | "message" | "photo" | "profile",
+    contentId: string,
+    userId: string,
+  ): Promise<boolean> {
+    switch (contentType) {
+      case "profile":
+        return true;
+
+      case "photo": {
+        const numId = Number(contentId);
+        if (Number.isNaN(numId)) return false;
+        return this.canUserViewPhotoById(numId, userId);
+      }
+
+      case "post": {
+        const [post] = await db
+          .select({ authorId: feedPostsTable.authorId, audience: feedPostsTable.audience })
+          .from(feedPostsTable)
+          .where(and(eq(feedPostsTable.id, contentId), isNull(feedPostsTable.deletedAt)));
+        if (!post) return false;
+        if (post.authorId === userId) return true;
+        if (post.audience === "friends") {
+          const [row] = await db
+            .select({ ownerId: friendshipsTable.ownerId })
+            .from(friendshipsTable)
+            .where(
+              and(
+                eq(friendshipsTable.ownerId, post.authorId),
+                eq(friendshipsTable.friendId, userId),
+              ),
+            );
+          return !!row;
+        }
+        return this.isSquadMember(post.audience, userId);
+      }
+
+      case "moment": {
+        const [moment] = await db
+          .select({ authorId: momentsTable.authorId, audience: momentsTable.audience })
+          .from(momentsTable)
+          .where(and(eq(momentsTable.id, contentId), isNull(momentsTable.deletedAt)));
+        if (!moment) return false;
+        if (moment.authorId === userId) return true;
+        if (moment.audience === "friends") {
+          const [row] = await db
+            .select({ ownerId: friendshipsTable.ownerId })
+            .from(friendshipsTable)
+            .where(
+              and(
+                eq(friendshipsTable.ownerId, moment.authorId),
+                eq(friendshipsTable.friendId, userId),
+              ),
+            );
+          return !!row;
+        }
+        return this.isSquadMember(moment.audience, userId);
+      }
+
+      case "message": {
+        const [msg] = await db
+          .select({ conversationId: conversationMessagesTable.conversationId })
+          .from(conversationMessagesTable)
+          .where(eq(conversationMessagesTable.id, contentId));
+        if (!msg) return false;
+        const convo = await this.getConversationForMember(msg.conversationId, userId);
+        return convo !== null;
+      }
+
+      default:
+        return false;
+    }
+  }
+
   // ---- Per-squad notification mutes ----
 
   /**

@@ -42,6 +42,9 @@ export default function PrivacyScreen() {
   // B5: iOS App Store subscriptions can't be cancelled server-side, so if this
   // user has Squadz+ we must warn them and link to the native manage screen.
   const [hasPlus, setHasPlus] = useState(false);
+  // BUS-01: explicit acknowledgment required before deleting when an Apple IAP
+  // subscription is active (Apple provides no server-side cancel API).
+  const [iosSubAcknowledged, setIosSubAcknowledged] = useState(false);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
 
@@ -223,13 +226,28 @@ export default function PrivacyScreen() {
             {Platform.OS === "ios" && hasPlus ? (
               <>
                 <Text style={[styles.modalBody, { color: colors.mutedForeground, marginTop: 8 }]}>
-                  Deleting your account does not cancel your App Store subscription. Manage it in your Apple ID settings.
+                  Deleting your account does not cancel your App Store subscription — you will keep being billed until you cancel it separately.
                 </Text>
                 <TouchableOpacity
                   onPress={() => { void Linking.openURL("https://apps.apple.com/account/subscriptions"); }}
                   style={[styles.manageSubBtn, { borderColor: colors.border }]}
                 >
                   <Text style={[styles.manageSubText, { color: colors.foreground }]}>Manage Subscription</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setIosSubAcknowledged((v) => !v)}
+                  style={styles.ackRow}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: iosSubAcknowledged }}
+                >
+                  <Ionicons
+                    name={iosSubAcknowledged ? "checkbox" : "square-outline"}
+                    size={22}
+                    color={iosSubAcknowledged ? "#E5484D" : colors.mutedForeground}
+                  />
+                  <Text style={[styles.ackText, { color: colors.mutedForeground }]}>
+                    I understand I must cancel my App Store subscription separately
+                  </Text>
                 </TouchableOpacity>
               </>
             ) : null}
@@ -240,8 +258,8 @@ export default function PrivacyScreen() {
 
             <TouchableOpacity
               onPress={() => void handleDelete()}
-              disabled={deleting}
-              style={[styles.deleteBtn, deleting && { opacity: 0.7 }]}
+              disabled={deleting || (Platform.OS === "ios" && hasPlus && !iosSubAcknowledged)}
+              style={[styles.deleteBtn, (deleting || (Platform.OS === "ios" && hasPlus && !iosSubAcknowledged)) && { opacity: 0.45 }]}
             >
               {deleting ? (
                 <ActivityIndicator color="#fff" />
@@ -288,4 +306,6 @@ const styles = StyleSheet.create({
   deleteBtnText: { color: "#fff", fontSize: 16, fontWeight: "700" },
   cancelBtn: { width: "100%", paddingVertical: 14, alignItems: "center", marginTop: 4 },
   cancelBtnText: { fontSize: 15, fontWeight: "600" },
+  ackRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, width: "100%", marginTop: 14, marginBottom: 4 },
+  ackText: { flex: 1, fontSize: 13, lineHeight: 18 },
 });

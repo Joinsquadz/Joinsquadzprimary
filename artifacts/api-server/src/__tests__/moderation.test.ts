@@ -76,6 +76,8 @@ vi.mock("@workspace/db", () => ({
 vi.mock("../storage", () => ({
   storage: {
     upsertUser: vi.fn().mockResolvedValue({ id: "u1" }),
+    // SEC-01: default to visible so existing tests are unaffected.
+    canUserViewReportedContent: vi.fn().mockResolvedValue(true),
   },
 }));
 

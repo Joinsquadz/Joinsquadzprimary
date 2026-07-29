@@ -1,0 +1,36 @@
+# SquadZ — Consolidated Fix Prompt: Batch 4 (Round 3 Depth Pass Findings)
+
+Source: Round 3 Depth Pass report. One bug (owner-locked-out-of-own-profile) was already found and fixed in that session — leave it alone. This batch covers the remaining open items: one config check that must happen first, one real security gap, one business/support risk, and one verification-then-fix item.
+
+## Step 1 — First: report the actual runtime value (UNC-01)
+
+`GET /storage/public-objects/*` has no auth and no ACL check; it relies entirely on `PUBLIC_OBJECT_SEARCH_PATHS` being scoped narrowly. Read the actual current value of this env var from the environment (not from code inference) and report it back verbatim before doing anything else in this prompt.
+- If it's scoped narrowly (e.g. limited to app assets/icons, nothing that overlaps with vault, message attachments, or any user-uploaded private content): confirm this explicitly and move on — no fix needed.
+- If it's scoped broadly or overlaps with any private-content directory: stop and flag this back immediately as a live exposure, do not proceed to Step 2 until this is resolved, since it may need immediate remediation outside the normal batch-and-review flow.
+
+## Step 2 — [SEC-01] Report endpoint doesn't verify reporter can view the content
+
+- Root cause: `POST /reports` only checks `targetUserId !== reporterId`; it never confirms the reporter can currently see the content being reported. 3 coordinated accounts who know or guess a `contentId` UUID could trigger `maybeAutoHide` on content they've never legitimately viewed.
+- Fix: before inserting a report, run the content through the same `canUserView*` check already used by the storage layer for that content type (photo, message, moment, post, profile). Reject the report (not silently, with a clear error) if the reporter cannot currently view the content.
+- Test: an account with no access to a piece of content attempts to report it → rejected. An account with legitimate access reports normally → unaffected. 3 coordinated accounts with no access attempt to report the same item → none of the reports land, auto-hide never triggers.
+
+## Step 3 — [BUS-01] Apple IAP not cancelled on account deletion
+
+- Root cause: Apple provides no server-side subscription cancellation API. Google Play and Stripe subscriptions are cancelled correctly on account deletion; Apple subscriptions are not, and the existing "Manage Subscription" link is easy to miss during an emotional/rushed account deletion.
+- Decision: this is a client-side fix only, no API change needed. On the account deletion confirmation screen (mobile), if the user has an active Apple IAP subscription, insert a mandatory interstitial step before the final delete confirmation: "You have an active Squadz+ subscription through the App Store. Deleting your account won't cancel this — you'll keep being billed. Tap Manage Subscriptions to cancel first, or continue if you understand." Require an explicit acknowledgment (not just a dismissible banner) before allowing the delete to proceed.
+- Test: a user with an active Apple subscription attempting account deletion sees the interstitial and must acknowledge before deletion proceeds. A user with no active Apple subscription (or on Android/Stripe) is unaffected and deletes normally.
+
+## Step 4 — [UNC-02] Verify webhook email dedup outside the founding-spot path
+
+- The founding-spot redemption path is confirmed idempotent (`rc:${originalTransactionId}` PK with `onConflictDoNothing`). Not yet verified: whether other webhook-triggered emails (report notifications, moderation alerts, or any other email fired from a webhook handler) have their own dedup, given Stripe retries webhooks on non-2xx responses.
+- Trace every email-sending code path reachable from a webhook handler. For each one: confirm it either has its own idempotency key/dedup check, or confirm the operation is naturally safe to fire twice (e.g. purely informational with no user-facing harm from a duplicate).
+- If any path is found that could send duplicate user-facing emails on a webhook retry with real consequence (e.g. duplicate moderation-action notices, duplicate billing emails), add the same dedup pattern used for founding spots. If everything traces clean or naturally idempotent, report that explicitly — no speculative fixes.
+
+## Not in scope for this batch
+- [UNC-03] (subscription downgrade leaving over-limit resources) is confirmed intentional graceful-degradation behavior, not a bug. Optional low-priority polish: add a brief explanatory UI note for a downgraded user who's over their new limit ("You have 5 squads on the free plan — you can't create more until you're under the limit or upgrade"). Only do this if it's a small, contained change; do not let it expand scope. Skip entirely if it would touch anything beyond a UI string/state.
+
+## Required for this pass
+- Step 1 must be resolved (or explicitly escalated) before Steps 2–4 proceed.
+- Regression tests for SEC-01, BUS-01, and UNC-02 (if a fix was needed there).
+- Do not touch anything from Batches 1–3 or the owner-exemption fix already made this session.
+- Stop after fixes + tests are green.
