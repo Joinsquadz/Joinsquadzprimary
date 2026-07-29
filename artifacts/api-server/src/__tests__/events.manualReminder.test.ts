@@ -33,6 +33,7 @@ const storageMock = vi.hoisted(() => ({
   filterUnmutedForSquad: vi.fn(),
   getPushTokensForUsers: vi.fn(),
   markManualReminderSent: vi.fn(),
+  markManualReminderSentAtomic: vi.fn(),
   clearPushToken: vi.fn(),
 }));
 
@@ -87,6 +88,8 @@ beforeEach(() => {
   storageMock.filterUnmutedForSquad.mockImplementation(async (ids: string[]) => ids);
   storageMock.getPushTokensForUsers.mockResolvedValue([]);
   storageMock.markManualReminderSent.mockResolvedValue(undefined);
+  // BUG-03: default to "won the race" so happy-path tests proceed normally.
+  storageMock.markManualReminderSentAtomic.mockResolvedValue({ won: true });
   storageMock.clearPushToken.mockResolvedValue(undefined);
   sendPushNotificationsMock.mockResolvedValue({ okCount: 1, hadSendError: false, staleTokens: [] });
 });
@@ -163,13 +166,18 @@ describe("POST /api/events/:id/remind", () => {
       expect(recipientIds).toContain(BOB);
     });
 
-    it("stamps general cooldown immediately and returns 200", async () => {
+    it("stamps general cooldown atomically and returns 200", async () => {
       dbState.selectRows = [makeEvent()];
       const app = await makeApp({ id: HOST });
       const res = await request(app).post("/api/events/evt-1/remind").send({ type: "general" });
       expect(res.status).toBe(200);
       expect(res.body.ok).toBe(true);
-      expect(storageMock.markManualReminderSent).toHaveBeenCalledWith("evt-1", "general");
+      // BUG-03: uses atomic check-and-set, not separate read + write.
+      expect(storageMock.markManualReminderSentAtomic).toHaveBeenCalledWith(
+        "evt-1",
+        "general",
+        expect.any(Number),
+      );
     });
 
     it("applies squad mute filter to general audience", async () => {
@@ -245,8 +253,17 @@ describe("POST /api/events/:id/remind", () => {
       dbState.selectRows = [makeEvent()];
       const app = await makeApp({ id: HOST });
       await request(app).post("/api/events/evt-1/remind").send({ type: "rsvp" });
-      expect(storageMock.markManualReminderSent).toHaveBeenCalledWith("evt-1", "rsvp");
-      expect(storageMock.markManualReminderSent).not.toHaveBeenCalledWith("evt-1", "general");
+      // BUG-03: uses atomic stamp.
+      expect(storageMock.markManualReminderSentAtomic).toHaveBeenCalledWith(
+        "evt-1",
+        "rsvp",
+        expect.any(Number),
+      );
+      expect(storageMock.markManualReminderSentAtomic).not.toHaveBeenCalledWith(
+        "evt-1",
+        "general",
+        expect.any(Number),
+      );
     });
 
     it("returns 429 with retryAfterMs when rsvp cooldown is active", async () => {
@@ -265,6 +282,57 @@ describe("POST /api/events/:id/remind", () => {
       const res = await request(app).post("/api/events/evt-1/remind").send({ type: "rsvp" });
       expect(res.status).toBe(200);
     });
+  });
+
+  // ── BUG-03: atomic cooldown ────────────────────────────────────────────────
+  it("BUG-03: returns 429 when concurrent call already stamped the cooldown", async () => {
+    dbState.selectRows = [makeEvent({ rsvps: { [ALICE]: "going" } })];
+    // Simulate: another caller's atomic stamp already won the race.
+    storageMock.markManualReminderSentAtomic.mockResolvedValue({ won: false, retryAfterMs: 2_400_000 });
+    const app = await makeApp({ id: HOST });
+    const res = await request(app).post("/api/events/evt-1/remind").send({ type: "general" });
+    expect(res.status).toBe(429);
+    expect(res.body.retryAfterMs).toBe(2_400_000);
+  });
+
+  // ── BUG-06: no cooldown stamp on zero audience ─────────────────────────────
+  it("BUG-06: returns {ok,allResponded} without stamping when everyone already responded", async () => {
+    // All squad members have RSVPs → rsvp audience is empty.
+    dbState.selectRows = [makeEvent({ rsvps: { [ALICE]: "going", [BOB]: "going", [CAROL]: "going" }, invitedUserIds: [] })];
+    storageMock.getSquad.mockResolvedValue({ id: "squad-1", memberIds: [HOST, ALICE, BOB, CAROL] });
+    const app = await makeApp({ id: HOST });
+    const res = await request(app).post("/api/events/evt-1/remind").send({ type: "rsvp" });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.allResponded).toBe(true);
+    // Cooldown timer must NOT be consumed on a zero-audience call.
+    expect(storageMock.markManualReminderSentAtomic).not.toHaveBeenCalled();
+  });
+
+  // ── BUG-10: host and co-admins excluded from rsvp audience ────────────────
+  it("BUG-10: rsvp type excludes host AND co-admins even if they have no RSVP row", async () => {
+    const CO_ADMIN = "co-admin-id";
+    // HOST is acting as a co-admin; "some-host" is the actual host.
+    dbState.selectRows = [makeEvent({
+      hostId: "some-host",
+      coAdminIds: [HOST, CO_ADMIN],
+      rsvps: {},           // nobody has responded yet
+      invitedUserIds: [],
+    })];
+    storageMock.getSquad.mockResolvedValue({
+      id: "squad-1",
+      memberIds: ["some-host", HOST, CO_ADMIN, ALICE, BOB],
+    });
+    storageMock.getPushTokensForUsers.mockResolvedValue(["ExponentPushToken[a]"]);
+    const app = await makeApp({ id: HOST });
+    await request(app).post("/api/events/evt-1/remind").send({ type: "rsvp" });
+    await vi.waitFor(() => expect(storageMock.markManualReminderSentAtomic).toHaveBeenCalled());
+    const [recipientIds] = storageMock.getPushTokensForUsers.mock.calls[0] as [string[]];
+    expect(recipientIds).not.toContain("some-host"); // host excluded
+    expect(recipientIds).not.toContain(HOST);        // sender+co-admin excluded
+    expect(recipientIds).not.toContain(CO_ADMIN);    // co-admin excluded
+    expect(recipientIds).toContain(ALICE);           // regular member included
+    expect(recipientIds).toContain(BOB);             // regular member included
   });
 
   it("push body includes a relative date label (tomorrow, in N days, etc.)", async () => {

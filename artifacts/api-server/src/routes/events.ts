@@ -2422,22 +2422,28 @@ router.post("/events/:id/remind", requireAuth, async (req: Request, res: Respons
         .filter(([uid, status]) => uid !== userId && (status === "going" || status === "maybe"))
         .map(([uid]) => uid);
     } else {
-      // rsvp: anyone who could respond but hasn't yet (squad members ∪ invitedUserIds).
+      // BUG-10: "Remind to RSVP" is only meaningful for guests — exclude the
+      // host AND all co-admins unconditionally, regardless of whether they have
+      // an RSVP row.  Organizers are not expected to RSVP to their own event.
+      const organizerIds = new Set<string>([event.hostId, ...((event.coAdminIds ?? []) as string[])]);
       const respondedIds = new Set(Object.keys(rsvps));
-      const potentialIds = new Set<string>([event.hostId]);
+      const potentialIds = new Set<string>();
       if (event.squadId) {
         const squad = await storage.getSquad(event.squadId);
         if (squad) for (const mid of squad.memberIds) potentialIds.add(mid);
       }
       for (const uid of ((event.invitedUserIds ?? []) as string[])) potentialIds.add(uid);
-      audienceIds = [...potentialIds].filter((uid) => uid !== userId && !respondedIds.has(uid));
+      // Exclude sender, organizers, and anyone who already responded.
+      audienceIds = [...potentialIds].filter(
+        (uid) => uid !== userId && !organizerIds.has(uid) && !respondedIds.has(uid),
+      );
     }
 
+    // BUG-06: when the audience is empty (everyone has already responded, or
+    // the event has no guests yet), return immediately WITHOUT stamping the
+    // cooldown — the host should not lose their next reminder slot for a no-op.
     if (audienceIds.length === 0) {
-      // Stamp the cooldown even when there's nobody to notify so repeated
-      // presses on an empty audience don't bypass the gate.
-      await storage.markManualReminderSent(event.id, type);
-      res.json({ ok: true, sent: 0 });
+      res.json({ ok: true, sent: 0, allResponded: true });
       return;
     }
 
@@ -2446,9 +2452,18 @@ router.post("/events/:id/remind", requireAuth, async (req: Request, res: Respons
       ? await storage.filterUnmutedForSquad(audienceIds, event.squadId)
       : audienceIds;
 
-    // Stamp the cooldown before the fire-and-forget push so the UI can unblock
-    // immediately without waiting for APNs delivery.
-    await storage.markManualReminderSent(event.id, type);
+    // BUG-03: atomic check-and-set so two concurrent co-admin "Remind Everyone"
+    // taps can't both pass the cooldown gate.  The UPDATE WHERE clause makes the
+    // check and the stamp a single atomic DB operation — only the first caller
+    // wins; the second gets { won: false }.
+    const stampResult = await storage.markManualReminderSentAtomic(event.id, type, MANUAL_REMINDER_COOLDOWN_MS);
+    if (!stampResult.won) {
+      res.status(429).json({
+        error: "Reminder sent recently — please wait before sending another.",
+        retryAfterMs: stampResult.retryAfterMs ?? MANUAL_REMINDER_COOLDOWN_MS,
+      });
+      return;
+    }
 
     res.json({ ok: true });
 

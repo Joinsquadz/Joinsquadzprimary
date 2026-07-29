@@ -1389,7 +1389,11 @@ export class Storage {
     opts?: { before?: string; limit?: number },
   ): Promise<{ messages: DbConversationMessage[]; hasMore: boolean }> {
     const limit = Math.min(Math.max(opts?.limit ?? 50, 1), 100);
-    const conditions = [eq(conversationMessagesTable.conversationId, conversationId)];
+    // BUG-02: exclude messages that have been auto-hidden by the moderation threshold.
+    const conditions = [
+      eq(conversationMessagesTable.conversationId, conversationId),
+      ne(conversationMessagesTable.status, 'hidden'),
+    ];
     if (opts?.before) {
       const [cursorMsg] = await db
         .select()
@@ -1791,6 +1795,57 @@ export class Storage {
         ? { manualReminderGeneralSentAt: new Date() }
         : { manualReminderRsvpSentAt: new Date() };
     await db.update(eventsTable).set(field).where(eq(eventsTable.id, eventId));
+  }
+
+  /**
+   * BUG-03: atomic cooldown check-and-set.  Instead of the caller reading
+   * `sentAt`, checking the elapsed time, then updating in a separate statement
+   * (a classic TOCTOU race that two concurrent co-admin calls can both pass),
+   * we push the whole check into the WHERE clause of a single UPDATE.
+   *
+   * Only one concurrent caller can win — the second UPDATE finds no eligible
+   * row (because the winner has already written a `sentAt` within the cooldown
+   * window) and gets back an empty RETURNING set.
+   *
+   * Returns `{ won: true }` for the winner and
+   * `{ won: false, retryAfterMs }` for the loser.
+   */
+  async markManualReminderSentAtomic(
+    eventId: string,
+    type: 'general' | 'rsvp',
+    cooldownMs: number,
+  ): Promise<{ won: boolean; retryAfterMs?: number }> {
+    const now = new Date();
+    const threshold = new Date(now.getTime() - cooldownMs);
+    const field =
+      type === 'general'
+        ? { manualReminderGeneralSentAt: now }
+        : { manualReminderRsvpSentAt: now };
+    const sentAtCol =
+      type === 'general' ? eventsTable.manualReminderGeneralSentAt : eventsTable.manualReminderRsvpSentAt;
+
+    const [updated] = await db
+      .update(eventsTable)
+      .set(field)
+      .where(
+        and(
+          eq(eventsTable.id, eventId),
+          or(isNull(sentAtCol), lt(sentAtCol, threshold)),
+        ),
+      )
+      .returning({ sentAt: sentAtCol });
+
+    if (updated) return { won: true };
+
+    // Lost the race — compute how long the caller should wait.
+    const [current] = await db
+      .select({ sentAt: sentAtCol })
+      .from(eventsTable)
+      .where(eq(eventsTable.id, eventId));
+    const retryAfterMs = current?.sentAt
+      ? Math.max(0, cooldownMs - (Date.now() - new Date(current.sentAt as Date).getTime()))
+      : 0;
+    return { won: false, retryAfterMs };
   }
 
   /** Stamp the current time as the last poll-update notification timestamp.

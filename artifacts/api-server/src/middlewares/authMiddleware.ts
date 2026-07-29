@@ -8,6 +8,7 @@ import {
   getBearerToken,
   getSession,
   getUserFromAccessToken,
+  isTokenRevoked,
   updateSession,
   type SessionData,
 } from "../lib/auth";
@@ -71,19 +72,26 @@ export async function authMiddleware(
   if (bearerToken != null && bearerToken.split(".").length === 3 && supabaseAdmin) {
     const { data: { user } } = await supabaseAdmin.auth.getUser(bearerToken);
     if (user) {
-      req.user = {
-        // Account linking: if this Supabase identity was linked to an existing
-        // account created via another provider (same email), app_metadata
-        // carries the canonical user id — resolve to it so both sign-in
-        // methods land on the same data.
-        id: (user.app_metadata?.linkedUserId as string | undefined) ?? user.id,
-        email: user.email ?? null,
-        firstName:
-          (user.user_metadata?.firstName ?? user.user_metadata?.first_name ?? null) as string | null,
-        lastName:
-          (user.user_metadata?.lastName ?? user.user_metadata?.last_name ?? null) as string | null,
-        profileImageUrl: (user.user_metadata?.avatar_url ?? null) as string | null,
-      };
+      // BUG-01: reject tokens that have been explicitly server-side revoked
+      // (e.g. the user already called POST /auth/logout with this token).
+      // Supabase's own TTL can leave a valid JWT reusable for up to ~1 hour
+      // after logout; the revocation table closes that window.
+      const revoked = await isTokenRevoked(bearerToken);
+      if (!revoked) {
+        req.user = {
+          // Account linking: if this Supabase identity was linked to an existing
+          // account created via another provider (same email), app_metadata
+          // carries the canonical user id — resolve to it so both sign-in
+          // methods land on the same data.
+          id: (user.app_metadata?.linkedUserId as string | undefined) ?? user.id,
+          email: user.email ?? null,
+          firstName:
+            (user.user_metadata?.firstName ?? user.user_metadata?.first_name ?? null) as string | null,
+          lastName:
+            (user.user_metadata?.lastName ?? user.user_metadata?.last_name ?? null) as string | null,
+          profileImageUrl: (user.user_metadata?.avatar_url ?? null) as string | null,
+        };
+      }
     }
     next();
     return;

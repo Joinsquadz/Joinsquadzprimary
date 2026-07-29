@@ -14,9 +14,11 @@ import {
   clearSession,
   getOidcConfig,
   getSessionId,
+  getBearerToken,
   getSession,
   createSession,
   deleteSession,
+  revokeSupabaseToken,
   hashPassword,
   verifyPassword,
   SESSION_COOKIE,
@@ -654,21 +656,42 @@ async function syncSupabaseUser(
   return user;
 }
 
-// ── Tiny in-memory rate limiter (per IP + bucket) ──────────────────────────
+// ── Persistent DB-backed rate limiter (per IP + bucket) ──────────────────────
+// BUG-04: replacing the in-memory Map with a single-statement Postgres upsert
+// so rate-limit state survives server restarts and works correctly across
+// multiple server instances.  A single INSERT … ON CONFLICT … RETURNING makes
+// the increment atomic — no separate SELECT + UPDATE race condition.
 const RL_WINDOW_MS = 15 * 60 * 1000;
-const rlMap = new Map<string, { count: number; resetAt: number }>();
 
-function rateLimited(req: Request, bucket: string, max: number): boolean {
+async function rateLimited(req: Request, bucket: string, max: number): Promise<boolean> {
   const ip = req.ip ?? req.socket.remoteAddress ?? "unknown";
   const key = `${bucket}:${ip}`;
-  const now = Date.now();
-  const entry = rlMap.get(key);
-  if (!entry || now > entry.resetAt) {
-    rlMap.set(key, { count: 1, resetAt: now + RL_WINDOW_MS });
+  const windowSec = RL_WINDOW_MS / 1000;
+  try {
+    const rows = await db.execute(sql`
+      INSERT INTO rate_limits (key, count, window_start)
+      VALUES (${key}, 1, NOW())
+      ON CONFLICT (key) DO UPDATE SET
+        count = CASE
+          WHEN EXTRACT(EPOCH FROM (NOW() - rate_limits.window_start)) > ${windowSec}
+          THEN 1
+          ELSE rate_limits.count + 1
+        END,
+        window_start = CASE
+          WHEN EXTRACT(EPOCH FROM (NOW() - rate_limits.window_start)) > ${windowSec}
+          THEN NOW()
+          ELSE rate_limits.window_start
+        END
+      RETURNING count
+    `);
+    const count = (rows.rows[0] as { count: number } | undefined)?.count ?? 1;
+    return count > max;
+  } catch (err) {
+    // Degrade gracefully — allow the request if the rate-limit table is
+    // temporarily unavailable rather than blocking all auth operations.
+    logger.warn({ err }, "Rate-limit DB upsert failed; skipping check");
     return false;
   }
-  entry.count += 1;
-  return entry.count > max;
 }
 
 async function sendVerification(req: Request, user: typeof usersTable.$inferSelect) {
@@ -683,7 +706,7 @@ async function sendVerification(req: Request, user: typeof usersTable.$inferSele
 }
 
 router.post("/auth/register", async (req: Request, res: Response) => {
-  if (rateLimited(req, "register", 10)) {
+  if (await rateLimited(req, "register", 10)) {
     res.status(429).json({ error: "Too many attempts. Please try again later." });
     return;
   }
@@ -764,7 +787,7 @@ router.post("/auth/register", async (req: Request, res: Response) => {
 });
 
 router.post("/auth/login", async (req: Request, res: Response) => {
-  if (rateLimited(req, "login", 20)) {
+  if (await rateLimited(req, "login", 20)) {
     res.status(429).json({ error: "Too many attempts. Please try again later." });
     return;
   }
@@ -823,10 +846,23 @@ router.post("/auth/login", async (req: Request, res: Response) => {
 
 router.post("/auth/logout", async (req: Request, res: Response) => {
   const sid = getSessionId(req);
+  const bearer = getBearerToken(req);
+
   if (sid) {
     await clearPushTokenForSession(sid);
     await deleteSession(sid);
   }
+
+  // BUG-01: if the caller used a Supabase JWT bearer token, revoke it so the
+  // remaining TTL (up to ~1 hour) can't be exploited to re-authenticate.
+  if (bearer && bearer.split(".").length === 3) {
+    try {
+      await revokeSupabaseToken(bearer);
+    } catch (err) {
+      logger.warn({ err }, "Failed to revoke Supabase token on logout");
+    }
+  }
+
   res.json({ ok: true });
 });
 
@@ -890,7 +926,7 @@ router.post("/auth/resend-verification", async (req: Request, res: Response) => 
     res.status(401).json({ error: "Not authenticated" });
     return;
   }
-  if (rateLimited(req, "resend", 5)) {
+  if (await rateLimited(req, "resend", 5)) {
     res.status(429).json({ error: "Too many requests. Please try again later." });
     return;
   }
@@ -952,7 +988,7 @@ router.get("/auth/verify-email", async (req: Request, res: Response) => {
 });
 
 router.post("/auth/forgot-password", async (req: Request, res: Response) => {
-  if (rateLimited(req, "forgot", 5)) {
+  if (await rateLimited(req, "forgot", 5)) {
     res.status(429).json({ error: "Too many requests. Please try again later." });
     return;
   }
@@ -1064,7 +1100,7 @@ router.get("/auth/reset-supabase", (req: Request, res: Response) => {
 });
 
 router.post("/auth/reset-supabase", async (req: Request, res: Response) => {
-  if (rateLimited(req, "reset-supabase", 10)) {
+  if (await rateLimited(req, "reset-supabase", 10)) {
     res.status(429).json({ error: "Too many attempts. Please try again later." });
     return;
   }
@@ -1121,7 +1157,7 @@ router.get("/auth/reset-password", (req: Request, res: Response) => {
 });
 
 router.post("/auth/reset-password", async (req: Request, res: Response) => {
-  if (rateLimited(req, "reset", 10)) {
+  if (await rateLimited(req, "reset", 10)) {
     res.status(429).json({ error: "Too many attempts. Please try again later." });
     return;
   }

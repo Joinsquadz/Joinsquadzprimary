@@ -242,6 +242,11 @@ router.post("/squads/join-via-code", requireAuth, async (req: Request, res: Resp
     res.status(404).json({ error: "Invite link is invalid or has expired." });
     return;
   }
+  // BUG-05: reject expired invite codes.
+  if (squad.inviteCodeExpiresAt && new Date() > new Date(squad.inviteCodeExpiresAt)) {
+    res.status(410).json({ error: "This invite link has expired. Ask the squad organizer to generate a new one." });
+    return;
+  }
   // Snapshot pre-join members for notification targeting (before the update).
   const memberIds = (squad.memberIds ?? []) as string[];
 
@@ -303,11 +308,13 @@ router.post("/squads/join-via-code", requireAuth, async (req: Request, res: Resp
   }
 });
 
+// BUG-05: invite links expire after this many milliseconds.
+const INVITE_CODE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
 // Read-only preview for a private invite link. Intentionally unauthenticated:
 // possessing the invite code IS the capability (same trust model as the join
 // itself), and the preview must render BEFORE signup so invitees see what
-// they're joining. Exposes only coarse, non-sensitive fields — never the
-// member list or member identities beyond the squad creator's first name.
+// they're joining. Exposes only coarse, non-sensitive squad-level fields.
 router.get("/squads/preview", async (req: Request, res: Response): Promise<void> => {
   const raw = req.query.code;
   const code = typeof raw === "string" ? raw.trim().toUpperCase() : "";
@@ -322,7 +329,7 @@ router.get("/squads/preview", async (req: Request, res: Response): Promise<void>
         name: squadsTable.name,
         emoji: squadsTable.emoji,
         memberIds: squadsTable.memberIds,
-        creatorId: squadsTable.creatorId,
+        inviteCodeExpiresAt: squadsTable.inviteCodeExpiresAt,
       })
       .from(squadsTable)
       .where(eq(squadsTable.inviteCode, code));
@@ -330,12 +337,18 @@ router.get("/squads/preview", async (req: Request, res: Response): Promise<void>
       res.status(404).json({ error: "Invite link is invalid or has expired." });
       return;
     }
-    const creator = squad.creatorId ? await storage.getUser(squad.creatorId) : undefined;
+    // BUG-05: reject expired invite codes at the preview stage so the user
+    // sees the error before they attempt to sign up.
+    if (squad.inviteCodeExpiresAt && new Date() > new Date(squad.inviteCodeExpiresAt)) {
+      res.status(410).json({ error: "This invite link has expired. Ask the squad organizer to generate a new one." });
+      return;
+    }
+    // BUG-09: strip creator identity — only generic squad branding exposed to
+    // unauthenticated callers.
     res.json({
       name: squad.name,
       emoji: squad.emoji,
       memberCount: ((squad.memberIds ?? []) as string[]).length,
-      creatorFirstName: creator?.firstName ?? null,
     });
   } catch (err) {
     logger.error({ err }, "Error fetching squad invite preview");
@@ -376,10 +389,25 @@ router.post("/squads", requireAuth, async (req: Request, res: Response): Promise
   const memberIds = [userId];
   const invitedIds = Array.from(new Set(parsed.data.memberIds)).filter((id) => id !== userId);
   const inviteCode = generateInviteCode();
+  // BUG-08: explicit field list avoids any ambiguity from spreading parsed.data
+  // (which has its own memberIds: [] default) then overriding — the override won
+  // correctly in JS but was a source of confusion. Explicit beats implicit.
+  // BUG-05: stamp expiry on every new code.
+  const inviteCodeExpiresAt = new Date(Date.now() + INVITE_CODE_TTL_MS);
   const outcome = await withSquadLimit(userId, true, (tx) =>
     tx
       .insert(squadsTable)
-      .values({ ...parsed.data, memberIds, creatorId: userId, inviteCode })
+      .values({
+        name: parsed.data.name,
+        description: parsed.data.description ?? null,
+        emoji: parsed.data.emoji,
+        color: parsed.data.color,
+        isPublic: parsed.data.isPublic,
+        memberIds,
+        creatorId: userId,
+        inviteCode,
+        inviteCodeExpiresAt,
+      })
       .returning(),
   );
   if (!outcome.ok) {
@@ -1314,9 +1342,10 @@ router.post("/squads/:id/invite/regenerate", requireAuth, async (req: Request, r
     return;
   }
   const newCode = generateInviteCode();
+  // BUG-05: regenerating the code resets the 7-day expiry window.
   const [updated] = await db
     .update(squadsTable)
-    .set({ inviteCode: newCode })
+    .set({ inviteCode: newCode, inviteCodeExpiresAt: new Date(Date.now() + INVITE_CODE_TTL_MS) })
     .where(eq(squadsTable.id, id))
     .returning();
   res.json(updated);

@@ -8,6 +8,8 @@ import {
   feedPostsTable,
   momentsTable,
   photosTable,
+  conversationMessagesTable,
+  usersTable,
 } from "@workspace/db";
 import { requireAuth } from "../middleware/currentUser";
 import { logger } from "../lib/logger";
@@ -35,12 +37,11 @@ const AUTO_HIDE_THRESHOLD = 3;
 type ReportContentType = "post" | "moment" | "message" | "photo" | "profile";
 
 /**
- * Applies auto-hide to a piece of content when it reaches the report threshold.
- * Only operates on content types that have a status column.
+ * Applies auto-hide to a piece of content when it reaches the 3-distinct-reporter
+ * threshold. BUG-02: extended to cover "message" and "profile" in addition to
+ * the original "post", "moment", "photo" content types.
  */
 async function maybeAutoHide(contentType: ReportContentType, contentId: string): Promise<void> {
-  if (contentType !== "post" && contentType !== "moment" && contentType !== "photo") return;
-
   const rows = await db
     .select({ reporterId: reportsTable.reporterId })
     .from(reportsTable)
@@ -68,6 +69,19 @@ async function maybeAutoHide(contentType: ReportContentType, contentId: string):
         .set({ status: "hidden" })
         .where(eq(photosTable.id, numId));
     }
+  } else if (contentType === "message") {
+    // BUG-02: hide DM/chat messages from all participants' views.
+    await db
+      .update(conversationMessagesTable)
+      .set({ status: "hidden" } as Record<string, unknown>)
+      .where(eq(conversationMessagesTable.id, contentId));
+  } else if (contentType === "profile") {
+    // BUG-02: flag the user profile for moderation review. The user's content
+    // remains in place but their profile endpoint returns a "under review" state.
+    await db
+      .update(usersTable)
+      .set({ moderationHidden: true } as Record<string, unknown>)
+      .where(eq(usersTable.id, contentId));
   }
 }
 

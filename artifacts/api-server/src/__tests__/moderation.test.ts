@@ -62,6 +62,15 @@ vi.mock("@workspace/db", () => ({
     id: "id",
     status: "status",
   },
+  // BUG-02: new hideable content types
+  conversationMessagesTable: {
+    id: "id",
+    status: "status",
+  },
+  usersTable: {
+    id: "id",
+    moderationHidden: "moderation_hidden",
+  },
 }));
 
 vi.mock("../storage", () => ({
@@ -220,7 +229,8 @@ describe("POST /api/reports", () => {
     expect(mockUpdate).toHaveBeenCalled();
   });
 
-  it("does NOT auto-hide non-hideable types (message, profile)", async () => {
+  // BUG-02: message and profile types are now auto-hidden at the 3-reporter threshold.
+  it("BUG-02: auto-hides a message when 3 distinct reporters flag it", async () => {
     mockSelectRows.value = [
       { reporterId: "u1" },
       { reporterId: "u2" },
@@ -233,8 +243,34 @@ describe("POST /api/reports", () => {
       reason: "harassment",
     });
     await new Promise((r) => setTimeout(r, 20));
-    // message type is not in AUTO_HIDEABLE_TYPES
-    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockUpdate).toHaveBeenCalled();
+  });
+
+  it("BUG-02: auto-hides a user profile when 3 distinct reporters flag it", async () => {
+    mockSelectRows.value = [
+      { reporterId: "u1" },
+      { reporterId: "u2" },
+      { reporterId: "u3" },
+    ];
+    await request(authedApp).post("/api/reports").send({
+      contentType: "profile",
+      contentId: TARGET_ID,
+      targetUserId: TARGET_ID,
+      reason: "spam",
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(mockUpdate).toHaveBeenCalled();
+  });
+
+  it("BUG-07: accepts 'profile' as a valid contentType (enum check)", async () => {
+    const res = await request(authedApp).post("/api/reports").send({
+      contentType: "profile",
+      contentId: TARGET_ID,
+      targetUserId: TARGET_ID,
+      reason: "spam",
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
   });
 });
 

@@ -1,0 +1,66 @@
+# SquadZ — Consolidated Fix Prompt: Multi-User Audit Bugs (Batch 1)
+
+Source: `audit-screenshots/MULTI-USER-AUDIT-REPORT.md`. This batch covers the 10 filed bugs only. Workflow/process issues are a separate batch (pending). Fix all of the below in one pass, with regression tests added per fix. Do not touch unrelated code paths.
+
+## Priority order
+
+### P0 — Critical/High
+
+**BUG-01 — Logout does not invalidate bearer token**
+- Root cause: `POST /api/auth/logout` deletes the local session only; the Supabase JWT stays valid for its full TTL (~1hr) after logout.
+- Fix:
+  1. Reduce access token TTL to 15 minutes.
+  2. On logout, call Supabase's global sign-out (invalidate refresh token) so no new access token can be minted for that session.
+  3. Add server-side middleware that checks a revoked-session table/flag on every authenticated request, keyed by session ID, so an already-issued access token is rejected immediately post-logout rather than waiting out its TTL.
+- Accept: with the revocation check in place, a token must be rejected within the same request cycle as logout, not just at next-refresh.
+- Test: log out, immediately replay the prior access token against a protected endpoint — must 401.
+
+**BUG-02 — Auto-hide never fires for messages or profiles**
+- Root cause: `maybeAutoHide()` only handles `contentType` of `post`, `moment`, `photo`; `message`/DM and `profile` reports are silently no-op'd server-side.
+- Fix: extend `maybeAutoHide()` to cover `message` and `profile` content types with the same 3-distinct-reporter threshold and hide behavior appropriate to each (e.g., hide a message from the thread for all but the reporter/reported; suspend profile visibility pending moderation review — match whatever the existing `post`/`moment` hide semantics are as closely as possible).
+- Test: 3 distinct users report the same DM message → message hidden. 3 distinct users report the same profile → profile hidden/flagged. Re-run BUG-07 enum fix first since this depends on correct `contentType` values reaching this function.
+
+### P1 — Medium
+
+**BUG-03 — Concurrent "Remind Everyone" bypasses cooldown**
+- Root cause: read-then-write race, no atomic lock on the cooldown check.
+- Fix: make the cooldown check-and-set atomic — either a DB row lock (`SELECT ... FOR UPDATE`) inside a transaction, or a unique constraint / upsert pattern that fails the second concurrent write instead of allowing both through.
+- Test: fire two concurrent "Remind Everyone" calls from two co-admins on the same plan within the same second — exactly one must succeed, the other must be rejected with the cooldown-active response.
+
+**BUG-04 — In-memory rate limiter resets on restart / ineffective in multi-instance**
+- Fix: move registration/login rate limiting to a persistent, shared store (a Supabase-backed rate-limit table keyed by IP/user with a sliding window, since no Redis is in the current stack). Keep the same limit thresholds already in place; only change the storage layer.
+- Test: hit the limit, restart the process (or simulate a second instance via a second connection), confirm the limit is still enforced.
+
+**BUG-05 — Invite codes never expire**
+- Decision: invite links expire 7 days after creation. Organizer/co-admin can regenerate a fresh link at any time from the squad settings, which invalidates the prior link.
+- Fix: add `expires_at` to invite records, enforce on redemption, surface an "This invite has expired — ask for a new one" state in the unauthenticated preview.
+- Test: redeem an invite older than 7 days → rejected with expiry message. Regenerate → old link invalid, new link works.
+
+**BUG-06 — Zero-audience "Remind to RSVP" stamps cooldown on a no-op send**
+- Fix: if the computed audience (non-responders) is empty, do not send and do not stamp the cooldown timer. Return the same "everyone has responded" state the UI already uses to hide the button, rather than silently eating the cooldown.
+- Test: with all attendees responded, confirm the endpoint is a true no-op with no cooldown side effect (button is already hidden client-side per existing behavior, but the API must independently guard against a stale client calling it anyway).
+
+**BUG-08 — Squad missing from creator's list immediately after creation (201 + valid ID)**
+- Treat as investigate-then-fix, not a blind patch. Likely causes to check first: read replica lag on the list query, a cache layer serving stale results, or the list query filtering on a field not yet committed/indexed at read time.
+- Fix: once root cause is confirmed, either read the creator's own squad list from the primary/write path immediately after creation, or invalidate the relevant cache synchronously on creation.
+- Test: create a squad, immediately (same request cycle, no delay) fetch the squad list — new squad must be present. Repeat 20x in a tight loop to catch intermittent lag.
+
+### P2 — Low / DX
+
+**BUG-07 — Report endpoint enum mismatch**
+- Fix: standardize on `"profile"` as the valid `contentType` value (not `"user"`); update all callers (including DM/message reporting added under BUG-02) to use the corrected enum. Audit the `reason` enum values for clarity and document them.
+- Test: existing report flows for post/moment/photo unaffected; profile reports now use `"profile"` consistently end-to-end.
+
+**BUG-09 — Unauthenticated invite preview exposes `creatorFirstName`**
+- Fix: per existing privacy principle (unauthenticated invite previews show only generic branding), strip `creatorFirstName` and any other creator/member-identifying field from the unauthenticated preview response.
+- Test: fetch an invite preview while logged out — response contains no creator name, member list, or squad content beyond generic app branding.
+
+**BUG-10 — Co-admin "Remind to RSVP" includes host if host has no RSVP row**
+- Fix: exclude the host (and co-admins, if they're also organizers-by-role) from the "Remind to RSVP" audience unconditionally, regardless of whether an RSVP row exists for them — audience should be "invited non-organizer members with no response," not derived solely from RSVP row absence.
+- Test: host has no RSVP row → host is not in the "Remind to RSVP" send list.
+
+## Required for this pass
+- Regression tests for all 10 fixes above, added to the existing suite (currently 670 API / 204 mobile tests) — do not just fix and move on.
+- Re-run the full multi-user simulation from the original audit prompt after fixes land, and confirm all 10 bugs now pass.
+- Do not touch the 6 confirmed-working items or the 5 regression-check items already marked PASS — leave those code paths alone.
+- Stop after fixes + tests are green. Do not start on workflow/process issues in this same pass.

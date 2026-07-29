@@ -17,6 +17,8 @@ export const squadsTable = pgTable("squads", {
   coAdminIds: jsonb("co_admin_ids").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   membersCanInvite: boolean("members_can_invite").notNull().default(false),
   inviteCode: text("invite_code").unique(),
+  // BUG-05: invite links expire 7 days after creation/regeneration.
+  inviteCodeExpiresAt: timestamp("invite_code_expires_at", { withTimezone: true }),
   version: integer("version").notNull().default(1),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });

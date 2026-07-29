@@ -1,4 +1,4 @@
-import { pgTable, text, boolean, timestamp, varchar, jsonb, index } from "drizzle-orm/pg-core";
+import { pgTable, text, boolean, timestamp, varchar, jsonb, index, integer } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -48,6 +48,8 @@ export const usersTable = pgTable("users", {
   pushToken: text("push_token"),
   friendCode: text("friend_code").unique(),
   activityLastReadAt: timestamp("activity_last_read_at", { withTimezone: true }),
+  // BUG-02: profile auto-hide flag set when 3 distinct reporters flag this user.
+  moderationHidden: boolean("moderation_hidden").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().$onUpdate(() => new Date()),
 });
@@ -79,3 +81,37 @@ export const authTokensTable = pgTable(
 );
 
 export type AuthToken = typeof authTokensTable.$inferSelect;
+
+/**
+ * BUG-01: server-side token revocation table.
+ * When a user logs out, a SHA-256 hash of their bearer token is inserted here
+ * (with an expiry matching the token's own exp). authMiddleware rejects any
+ * Supabase JWT whose hash appears in this table, even if Supabase still considers
+ * the token valid (within its ~1-hour TTL). Entries are pruned lazily on insert.
+ */
+export const revokedTokensTable = pgTable(
+  "revoked_tokens",
+  {
+    tokenHash: text("token_hash").primaryKey(),
+    userId: text("user_id").notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [index("IDX_revoked_tokens_expires_at").on(table.expiresAt)],
+);
+
+export type RevokedToken = typeof revokedTokensTable.$inferSelect;
+
+/**
+ * BUG-04: persistent, shared rate-limit counters for authentication endpoints.
+ * Replaces the in-process in-memory Map so limits survive restarts and work
+ * correctly across multiple server instances.
+ * Key format: "<bucket>:<ip>", e.g. "register:1.2.3.4".
+ */
+export const rateLimitsTable = pgTable("rate_limits", {
+  key: text("key").primaryKey(),
+  count: integer("count").notNull().default(1),
+  windowStart: timestamp("window_start", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type RateLimit = typeof rateLimitsTable.$inferSelect;

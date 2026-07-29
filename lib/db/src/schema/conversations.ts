@@ -80,6 +80,9 @@ export const conversationMessagesTable = pgTable(
     senderId: text("sender_id").notNull(),
     text: text("text").notNull().default(""),
     attachments: jsonb("attachments").$type<MessageAttachment[]>().notNull().default(sql`'[]'::jsonb`),
+    // BUG-02: moderation status. 'visible' (default) | 'hidden' (auto-hidden by
+    // 3-distinct-reporter threshold). Hidden messages are filtered from all reads.
+    status: text("status").notNull().default("visible").$type<"visible" | "hidden">(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("conversation_messages_convo_idx").on(t.conversationId, t.createdAt)],

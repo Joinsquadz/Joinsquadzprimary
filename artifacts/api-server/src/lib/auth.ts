@@ -1,8 +1,8 @@
 import * as client from "openid-client";
 import crypto from "crypto";
 import { type Request, type Response } from "express";
-import { db, sessionsTable, usersTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { db, sessionsTable, usersTable, revokedTokensTable } from "@workspace/db";
+import { eq, lt, gt, and } from "drizzle-orm";
 import type { AuthUser } from "@workspace/api-zod";
 
 export const ISSUER_URL = process.env.ISSUER_URL ?? "https://replit.com/oidc";
@@ -123,6 +123,57 @@ export function getBearerToken(req: Request): string | undefined {
     return authHeader.slice(7);
   }
   return undefined;
+}
+
+/**
+ * BUG-01: Revoke a Supabase JWT so it cannot be reused after logout, even
+ * within its remaining ~1-hour TTL.  We hash the raw token (never store it
+ * plaintext) and insert the hash with an expiry matching the token's own `exp`
+ * claim.  A lazy purge of already-expired rows runs on each revocation so the
+ * table stays bounded.
+ */
+export async function revokeSupabaseToken(bearerToken: string): Promise<void> {
+  let expiresAt: Date;
+  let userId = "unknown";
+  try {
+    const payload = JSON.parse(
+      Buffer.from(bearerToken.split(".")[1], "base64url").toString(),
+    ) as Record<string, unknown>;
+    expiresAt = typeof payload.exp === "number"
+      ? new Date(payload.exp * 1000)
+      : new Date(Date.now() + SESSION_TTL);
+    if (typeof payload.sub === "string") userId = payload.sub;
+  } catch {
+    expiresAt = new Date(Date.now() + SESSION_TTL);
+  }
+
+  const tokenHash = crypto.createHash("sha256").update(bearerToken).digest("hex");
+
+  // Lazy pruning — keep the table from growing unboundedly.
+  await db.delete(revokedTokensTable).where(lt(revokedTokensTable.expiresAt, new Date()));
+
+  await db
+    .insert(revokedTokensTable)
+    .values({ tokenHash, userId, expiresAt })
+    .onConflictDoNothing();
+}
+
+/**
+ * BUG-01: Returns true if the supplied Supabase JWT has been explicitly
+ * revoked (i.e. the user already called POST /auth/logout with this token).
+ */
+export async function isTokenRevoked(bearerToken: string): Promise<boolean> {
+  const tokenHash = crypto.createHash("sha256").update(bearerToken).digest("hex");
+  const [row] = await db
+    .select({ tokenHash: revokedTokensTable.tokenHash })
+    .from(revokedTokensTable)
+    .where(
+      and(
+        eq(revokedTokensTable.tokenHash, tokenHash),
+        gt(revokedTokensTable.expiresAt, new Date()),
+      ),
+    );
+  return row != null;
 }
 
 export async function getUserFromAccessToken(

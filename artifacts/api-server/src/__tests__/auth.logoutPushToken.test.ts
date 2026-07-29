@@ -34,6 +34,10 @@ vi.mock("../lib/auth", () => ({
   hashPassword: vi.fn((_pw: string) => "hashed"),
   verifyPassword: vi.fn(async () => true),
   generateFriendCode: vi.fn(() => "ABC123"),
+  // BUG-01: ensure the revocation helpers are present so logout doesn't throw
+  // even if a Supabase JWT is somehow presented in tests.
+  revokeSupabaseToken: vi.fn(async () => {}),
+  isTokenRevoked: vi.fn(async () => false),
 }));
 
 vi.mock("../storage", () => ({
