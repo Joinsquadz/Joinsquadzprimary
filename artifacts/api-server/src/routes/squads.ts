@@ -9,6 +9,7 @@ import {
   squadMutesTable,
   squadRemovalNoticesTable,
   squadInvitesTable,
+  squadMemberHistoryTable,
   activityTable,
   eventsTable,
   eventInvitesTable,
@@ -146,7 +147,10 @@ router.post("/squads/:id/join", requireAuth, async (req: Request, res: Response)
   const outcome = await withSquadLimit(userId, !alreadyMember, (tx) =>
     tx
       .update(squadsTable)
-      .set({ memberIds: sql`${squadsTable.memberIds} || ${JSON.stringify([userId])}::jsonb` })
+      .set({
+        memberIds: sql`${squadsTable.memberIds} || ${JSON.stringify([userId])}::jsonb`,
+        version: sql`${squadsTable.version} + 1`, // W-03: atomic version bump prevents stale PATCH conflicts
+      })
       .where(
         and(
           eq(squadsTable.id, id),
@@ -169,6 +173,11 @@ router.post("/squads/:id/join", requireAuth, async (req: Request, res: Response)
     res.json({ squad, alreadyMember: true });
     return;
   }
+  // W-01: Record membership history for DM eligibility (non-fatal).
+  void (async () => {
+    try { await db.insert(squadMemberHistoryTable).values({ squadId: id, userId }).onConflictDoNothing(); }
+    catch { /* non-fatal */ }
+  })();
   res.status(201).json({ squad: updated, alreadyMember: false });
   emitSquadUpdate(id);
   if (squad.creatorId) {
@@ -257,7 +266,10 @@ router.post("/squads/join-via-code", requireAuth, async (req: Request, res: Resp
   const outcome = await withSquadLimit(userId, !alreadyMember, (tx) =>
     tx
       .update(squadsTable)
-      .set({ memberIds: sql`${squadsTable.memberIds} || ${JSON.stringify([userId])}::jsonb` })
+      .set({
+        memberIds: sql`${squadsTable.memberIds} || ${JSON.stringify([userId])}::jsonb`,
+        version: sql`${squadsTable.version} + 1`, // W-03: atomic version bump prevents stale PATCH conflicts
+      })
       .where(
         and(
           eq(squadsTable.id, squad.id),
@@ -280,6 +292,11 @@ router.post("/squads/join-via-code", requireAuth, async (req: Request, res: Resp
     res.json({ squad, alreadyMember: true });
     return;
   }
+  // W-01: Record membership history for DM eligibility (non-fatal).
+  void (async () => {
+    try { await db.insert(squadMemberHistoryTable).values({ squadId: squad.id, userId }).onConflictDoNothing(); }
+    catch { /* non-fatal */ }
+  })();
   res.status(201).json({ squad: updated, alreadyMember: false });
   emitSquadUpdate(squad.id);
 
@@ -419,6 +436,11 @@ router.post("/squads", requireAuth, async (req: Request, res: Response): Promise
     return;
   }
   const [squad] = outcome.value;
+  // W-01: Record creator's membership history for DM eligibility (non-fatal).
+  void (async () => {
+    try { await db.insert(squadMemberHistoryTable).values({ squadId: squad.id, userId }).onConflictDoNothing(); }
+    catch { /* non-fatal */ }
+  })();
 
   // Create pending invites for the picked friends (only for users that exist).
   let invitedUserIds: string[] = [];

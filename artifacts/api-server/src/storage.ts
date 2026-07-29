@@ -5,6 +5,7 @@ import {
   photosTable,
   squadsTable,
   squadMutesTable,
+  squadMemberHistoryTable,
   availabilityPollsTable,
   availabilityResponsesTable,
   availabilityNudgesTable,
@@ -1093,6 +1094,36 @@ export class Storage {
 
   async isSquadMemberPublic(squadId: string, userId: string): Promise<boolean> {
     return this.isSquadMember(squadId, userId);
+  }
+
+  /**
+   * W-01: Returns true if two users have ever shared a squad. Uses the
+   * append-only squad_member_history table which survives member removal,
+   * letting former squadmates keep their existing DM thread.
+   */
+  async doUsersShareSquadHistory(userA: string, userB: string): Promise<boolean> {
+    const result = await db.execute(sql`
+      SELECT 1 FROM squad_member_history h1
+      INNER JOIN squad_member_history h2 ON h1.squad_id = h2.squad_id
+      WHERE h1.user_id = ${userA} AND h2.user_id = ${userB}
+      LIMIT 1
+    `);
+    return (result.rows?.length ?? 0) > 0;
+  }
+
+  /**
+   * W-01: Returns true if userId may initiate a DM with otherUserId.
+   * Allows: (a) an existing DM thread (always resumable), or (b) a shared
+   * squad history entry (current OR former squadmates).
+   */
+  async canInitiateDm(userId: string, otherUserId: string): Promise<boolean> {
+    const key = this.directKey(userId, otherUserId);
+    const [existing] = await db
+      .select({ id: conversationsTable.id })
+      .from(conversationsTable)
+      .where(eq(conversationsTable.directKey, key));
+    if (existing) return true;
+    return this.doUsersShareSquadHistory(userId, otherUserId);
   }
 
   // Get-or-create the 1:1 DM between two users. Both become participants.

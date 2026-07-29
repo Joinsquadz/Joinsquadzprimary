@@ -1,4 +1,4 @@
-import { pgTable, text, jsonb, boolean, timestamp, primaryKey, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, jsonb, boolean, timestamp, primaryKey, integer, index } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -42,3 +42,25 @@ export const squadMutesTable = pgTable(
 );
 
 export type DbSquadMute = typeof squadMutesTable.$inferSelect;
+
+/**
+ * Append-only membership history for DM eligibility (W-01). One row per
+ * (squad, user) pair written at the moment a user first joins the squad.
+ * Rows are NEVER deleted — a user who leaves and rejoins does not get a new
+ * row (ON CONFLICT DO NOTHING). This allows the DM gate to verify two users
+ * have ever shared a squad without querying live memberIds.
+ */
+export const squadMemberHistoryTable = pgTable(
+  "squad_member_history",
+  {
+    squadId: text("squad_id").notNull(),
+    userId: text("user_id").notNull(),
+    firstJoinedAt: timestamp("first_joined_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.squadId, t.userId] }),
+    index("squad_member_history_user_idx").on(t.userId),
+  ],
+);
+
+export type DbSquadMemberHistory = typeof squadMemberHistoryTable.$inferSelect;

@@ -8,6 +8,7 @@ import {
   eventsTable,
   usersTable,
   activityTable,
+  squadMemberHistoryTable,
 } from "@workspace/db";
 import { requireAuth } from "../middleware/currentUser";
 import { FREE_SQUAD_LIMIT, withSquadLimit } from "../lib/squadLimit";
@@ -85,6 +86,11 @@ router.post("/squads/invites/:id/accept", requireAuth, async (req: Request, res:
       }
     }
     await db.update(squadInvitesTable).set({ status: "accepted" }).where(eq(squadInvitesTable.id, inviteId));
+    // W-01: Record membership history for DM eligibility (non-fatal).
+    void (async () => {
+      try { await db.insert(squadMemberHistoryTable).values({ squadId: invite.squadId, userId }).onConflictDoNothing(); }
+      catch { /* non-fatal */ }
+    })();
     await db.delete(activityTable).where(and(eq(activityTable.type, "squad_invite"), eq(activityTable.subjectId, inviteId)));
     res.json({ ok: true, squadId: invite.squadId });
     emitSquadUpdate(invite.squadId);

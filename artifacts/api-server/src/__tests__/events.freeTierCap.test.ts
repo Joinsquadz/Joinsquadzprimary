@@ -28,18 +28,30 @@ const dbState = vi.hoisted(() => ({
 // DB mock — transaction executor exposes execute + select + insert
 // ---------------------------------------------------------------------------
 vi.mock("@workspace/db", () => {
-  const makeTx = () => ({
-    execute: vi.fn().mockResolvedValue(undefined),
-    select: () => ({
-      from: () => ({
-        where: () => Promise.resolve(dbState.selectRows),
-        orderBy: () => Promise.resolve(dbState.selectRows),
+  // W-02: select chain must now support leftJoin (orphaned-cancel exclusion query)
+  // and limit (oldest-row query for nextSlotAvailableAt). The chain is thenable
+  // at any point so both the count query (.where().then) and the oldest query
+  // (.where().orderBy().limit()) resolve to dbState.selectRows.
+  const makeTx = () => {
+    function chain(): Record<string, unknown> {
+      const obj: Record<string, unknown> = {
+        from: () => obj,
+        leftJoin: () => obj,
+        where: () => obj,
+        orderBy: () => obj,
+        limit: () => Promise.resolve(dbState.selectRows),
+        then: (r: (v: unknown) => unknown) => Promise.resolve(dbState.selectRows).then(r),
+      };
+      return obj;
+    }
+    return {
+      execute: vi.fn().mockResolvedValue(undefined),
+      select: () => chain(),
+      insert: () => ({
+        values: () => ({ returning: () => Promise.resolve(dbState.insertRows) }),
       }),
-    }),
-    insert: () => ({
-      values: () => ({ returning: () => Promise.resolve(dbState.insertRows) }),
-    }),
-  });
+    };
+  };
 
   return {
     db: {

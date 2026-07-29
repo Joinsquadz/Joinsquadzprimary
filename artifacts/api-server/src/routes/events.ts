@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { eq, count, or, sql, and, gte, isNull, inArray } from "drizzle-orm";
+import { eq, count, or, sql, and, gte, isNull, inArray, asc } from "drizzle-orm";
 import { z } from "zod";
 import { db, eventsTable, eventCreationsTable, usersTable, eventInvitesTable, activityTable } from "@workspace/db";
 import type { ItineraryStop, PackingItem } from "@workspace/db";
@@ -536,22 +536,43 @@ router.post("/events", requireAuth, async (req: Request, res: Response): Promise
       inTransaction: boolean,
     ): Promise<
       | { ok: true; event: typeof eventsTable.$inferSelect }
-      | { ok: false; count: number }
+      | { ok: false; count: number; nextSlotAvailableAt: string | null }
     > => {
       if (!isPro && inTransaction) {
         await executor.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${hostId}))`);
         const windowStart = new Date(Date.now() - EVENT_WINDOW_MS);
+        // W-02: Exclude "orphaned quick-cancels" from the cap. An event is
+        // orphaned when it was cancelled within 1 hour of its ledger entry AND
+        // had no invites and no RSVPs — a pure mis-tap with zero impact on
+        // other users. NULL from the LEFT JOIN (deleted event) stays counted.
+        const quickCancelCutoff = new Date(Date.now() - 60 * 60 * 1000);
+        const orphanFilter = sql`NOT (
+          ${eventsTable.cancelled} IS TRUE
+          AND ${eventCreationsTable.createdAt} >= ${quickCancelCutoff}
+          AND ${eventsTable.invitedUserIds} = '[]'::jsonb
+          AND ${eventsTable.rsvps} = '{}'::jsonb
+        )`;
         const [row] = await executor
           .select({ count: sql<number>`count(*)::int` })
           .from(eventCreationsTable)
-          .where(
-            and(
-              eq(eventCreationsTable.userId, hostId),
-              gte(eventCreationsTable.createdAt, windowStart),
-            ),
-          );
+          .leftJoin(eventsTable, eq(eventCreationsTable.eventId, eventsTable.id))
+          .where(and(eq(eventCreationsTable.userId, hostId), gte(eventCreationsTable.createdAt, windowStart), orphanFilter));
         const used = row?.count ?? 0;
-        if (used >= FREE_EVENT_LIMIT) return { ok: false, count: used };
+        if (used >= FREE_EVENT_LIMIT) {
+          // W-02: Surface when the oldest counted slot frees up so the client
+          // can show "try again after <date>" without an extra API call.
+          const [oldest] = await executor
+            .select({ createdAt: eventCreationsTable.createdAt })
+            .from(eventCreationsTable)
+            .leftJoin(eventsTable, eq(eventCreationsTable.eventId, eventsTable.id))
+            .where(and(eq(eventCreationsTable.userId, hostId), gte(eventCreationsTable.createdAt, windowStart), orphanFilter))
+            .orderBy(asc(eventCreationsTable.createdAt))
+            .limit(1);
+          const nextSlotAvailableAt = oldest?.createdAt
+            ? new Date(new Date(oldest.createdAt).getTime() + EVENT_WINDOW_MS).toISOString()
+            : null;
+          return { ok: false, count: used, nextSlotAvailableAt };
+        }
       }
       const [created] = await executor.insert(eventsTable).values(insertValues).returning();
       await executor
@@ -571,6 +592,7 @@ router.post("/events", requireAuth, async (req: Request, res: Response): Promise
         requiresPro: true,
         count: result.count,
         limit: FREE_EVENT_LIMIT,
+        nextSlotAvailableAt: result.nextSlotAvailableAt, // W-02: when the oldest slot expires
       });
       return;
     }

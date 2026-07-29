@@ -1,0 +1,36 @@
+# SquadZ — Consolidated Fix Prompt: Workflow/Process Issues (Batch 2)
+
+Source: `audit-screenshots/MULTI-USER-AUDIT-REPORT.md`, §2 (workflow/process issues, W-01 through W-05). No severity was assigned in the report — priority order below is mine, locked, do not re-litigate during implementation. Fix all 5 in one pass with regression tests. Do not touch the 10 bugs from Batch 1 or anything already passing.
+
+## W-05 — Confirm already resolved, no new work expected
+
+W-05 (cooldown stamps on zero-audience "Remind to RSVP" sends) is the same root cause as BUG-06 from Batch 1, which is already fixed and tested (zero-audience sends no longer stamp the cooldown). Before doing anything else: re-run the zero-audience "Remind to RSVP" scenario live and confirm the host is no longer locked out. If confirmed, close W-05 with no additional changes. If the host-facing UX trap somehow persists despite the server fix, flag it back rather than patching blind.
+
+## P0 — Fix now
+
+**W-04 — Invite permission gate is invisible until it fails**
+- Decision: add a field to the squad-detail response (e.g. `membersCanInvite: boolean`) so the client can check invite permission *before* rendering the "add member" affordance for non-creators.
+- Fix: (1) expose `membersCanInvite` on the existing squad GET endpoint, (2) update the member picker UI to hide or disable the invite action for non-creators when `membersCanInvite` is false, with a brief explanatory state instead of a dead-end tap, (3) leave the 403 server-side check in place as defense-in-depth — the UI fix prevents the failed attempt, the server check remains the source of truth.
+- Test: non-creator member with `membersCanInvite: false` never sees a live invite affordance; server 403 still fires if hit directly via API.
+
+**W-03 — Concurrent squad joins don't increment the version column**
+- Fix: bump `version` on every successful join, same as any other mutating squad update, so optimistic-locking clients correctly detect a join as a conflict-triggering change on subsequent PATCH attempts.
+- Test: 5 concurrent joins on one squad → final `version` reflects the join count (or is otherwise strictly greater than pre-join value); a client holding the pre-join version gets a conflict on its next PATCH.
+
+## P1 — Fix, product decision locked below
+
+**W-02 — Plan cap counts cancelled/orphaned events with no recovery path**
+- Decision: events cancelled within 1 hour of creation, before any invite was sent or RSVP collected, do not count against the 5-plan/12-month cap. Events cancelled after invites went out or RSVPs exist still count — this preserves the cap's intent (limiting real organizing volume) while fixing the test/mis-click lockout case.
+- Also: the cap-hit error response must include the date the next slot frees up (computed from the ledger), not just the static limit message.
+- Fix: (1) add the cancellation-window exclusion to the cap-counting query, (2) add `nextSlotAvailableAt` (or equivalent) to the 429/error response when the cap is hit.
+- Test: create + cancel 5 events within 1 hour each with no invites sent → user is not capped. Create 5 events, send invites on at least one, cancel it → that one still counts. Hit the cap → error response includes a valid next-availability date.
+
+**W-01 — DMs don't require a shared squad**
+- Decision: require that two users currently share at least one squad (or have shared one in the past — do not un-authorize an existing thread if they later leave a common squad) to *initiate* a new DM thread. This matches the existing privacy-first, friend-group-only positioning — SquadZ is not a general messaging surface, and a stranger DM with no shared-squad context is inconsistent with that. Existing DM threads that predate this fix should not be retroactively broken; enforce the check on thread creation going forward.
+- Fix: add the shared-squad (current or past) check to the DM thread creation path; return a clear error if the two users have never shared a squad.
+- Test: two users with no shared squad history cannot create a new DM thread. Two users who currently share a squad can. Two users who shared a squad in the past but no longer do can still open a new thread with each other (relationship history, not live membership, is the gate).
+
+## Required for this pass
+- Regression tests for W-01 through W-04 (W-05 is a verification-only check, not a new fix).
+- Do not modify anything related to the 10 Batch 1 bugs or the confirmed-working/regression-pass items from the original audit.
+- Stop after fixes + tests are green — do not start a new simulation pass in this same prompt.

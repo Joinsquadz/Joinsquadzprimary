@@ -98,6 +98,16 @@ router.post(
         res.status(403).json({ error: "Cannot message this user" });
         return;
       }
+      // W-01: New DM threads require shared-squad history. Resuming an existing
+      // thread is always allowed (canInitiateDm handles the idempotent case).
+      const allowed = await storage.canInitiateDm(userId, otherUserId);
+      if (!allowed) {
+        res.status(403).json({
+          error: "You can only message people you share or have shared a squad with.",
+          code: "NO_SHARED_SQUAD",
+        });
+        return;
+      }
       const convo = await storage.getOrCreateDirectConversation(userId, otherUserId);
       res.status(201).json({ id: convo.id });
     } catch (err) {

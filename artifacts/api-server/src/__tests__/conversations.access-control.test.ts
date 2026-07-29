@@ -12,6 +12,8 @@ vi.mock("../storage", () => ({
   storage: {
     listConversationsForUser: () => Promise.resolve([]),
     getTotalUnreadCount: () => Promise.resolve(0),
+    // W-01: canInitiateDm always allows in this test suite (access-control focus is elsewhere).
+    canInitiateDm: () => Promise.resolve(true),
     getOrCreateDirectConversation: (a: string, b: string) =>
       Promise.resolve({ id: `direct-${[a, b].sort().join("-")}` }),
     getOrCreateSquadConversation: (squadId: string, _userId: string) =>
