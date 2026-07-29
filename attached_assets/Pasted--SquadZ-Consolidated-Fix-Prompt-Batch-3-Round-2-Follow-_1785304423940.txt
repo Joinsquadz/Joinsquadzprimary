@@ -1,0 +1,31 @@
+# SquadZ — Consolidated Fix Prompt: Batch 3 (Round 2 Follow-Ups)
+
+Source: Round 2 re-verification report. Three items: one verification gap (#520) that must be resolved first since it determines whether BUG-02 is actually closed, and two UX fixes (#518, #519) where a correct backend response never reaches the user.
+
+## Step 1 — Resolve first: Task #520 (BUG-02 verification gap)
+
+This is not a confirmed bug — it's an open question. `moderationHidden` is confirmed written on the user row after 3 distinct profile reports, but the re-verification pass did not confirm anything downstream actually reads that flag.
+
+- Audit every path that surfaces a user profile to other users (profile view endpoint, member lists, search/discovery if any, DM thread participant info, squad member cards) and check whether each one filters on or checks `moderationHidden`.
+- If a read path exists and correctly hides/restricts a flagged profile: report which path(s) do this, confirm BUG-02 is fully closed, and stop here for #520 — no fix needed.
+- If no read path checks the flag: this means BUG-02 is only half-fixed (the write side works, the read side doesn't). In that case, implement the missing check on whichever profile-surfacing endpoints need it, matching the same restriction pattern already used for hidden `post`/`moment`/`photo`/`message` content. Add a regression test: flag a profile via 3 reports, then confirm it no longer appears/is restricted via the relevant read path(s).
+- Report back explicitly which case this was (already-covered vs. needed-a-fix) before moving to Step 2.
+
+## Step 2 — Task #518: W-01 silent DM block
+
+- Root cause: `MessagesContext.startDirectConversation` returns `null` on any non-OK response without reading the response body, so a 403 `NO_SHARED_SQUAD` is indistinguishable from any other failure to the caller — the user gets zero feedback.
+- Fix: have `startDirectConversation` read the response body on non-OK responses and surface the `code`/`error` field to the caller instead of collapsing everything to `null`. In the `friends.tsx` caller (and any other caller of this function), handle the `NO_SHARED_SQUAD` code specifically with a toast: "You and [name] need to be in the same squad to start a conversation." Other failure codes can fall back to a generic error toast rather than silent failure.
+- Test: attempt a DM between two users with no shared squad history — confirm a toast fires with the specific messaging above, not a silent no-op. Confirm existing successful-DM flows are unaffected.
+
+## Step 3 — Task #519: W-02 orphaned nextSlotAvailableAt
+
+- Root cause: `create.tsx` checks `atLimit` client-side and fires `UpgradeModal` before ever calling the create API, so the server's `nextSlotAvailableAt` (returned only in the 403 body) never reaches the client in the normal flow.
+- Decision: thread the date through the client-side check rather than relying on the 403 body, since the 403 path is effectively dead code given the pre-check. Add `nextSlotAvailableAt` to whatever endpoint already backs the client-side `atLimit` check (e.g. `GET /events/count` or equivalent) so it's available before the create attempt, not just after a failed one.
+- Fix: (1) add `nextSlotAvailableAt` to the count/limit-check response, (2) pass it into `UpgradeModal` as a prop, (3) render a secondary line in the modal: "Your oldest slot frees up [date] if you'd rather wait." (4) Keep the existing 403-body field as-is for any direct API callers (e.g. web) that don't go through the pre-check — no need to remove it, just stop relying on it being the only source for native.
+- Test: a free-tier user at the cap sees the upgrade modal with the correct next-availability date. Format the date in a way that reads naturally (not raw ISO).
+
+## Required for this pass
+- Resolve #520 first — its outcome (already-covered vs. fix-needed) should be stated plainly at the top of your summary.
+- Regression tests for whichever of the three items involved a code change.
+- Do not touch anything from Batch 1 or Batch 2 that's already passing.
+- Stop after fixes + tests are green.

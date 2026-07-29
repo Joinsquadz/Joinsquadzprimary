@@ -32,6 +32,24 @@ interface Props {
   onUpgradeSuccess?: () => void;
   /** Optional context-specific headline (e.g. "Upgrade to join 🎿 Ski Crew"). */
   headline?: string;
+  /**
+   * ISO date string — when the user's oldest free event slot expires and
+   * opens up again. When provided (and trigger === "events"), the modal
+   * shows a secondary hint so users know they can wait instead of upgrading.
+   */
+  nextSlotAvailableAt?: string | null;
+}
+
+function formatSlotDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString(undefined, {
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+    });
+  } catch {
+    return iso;
+  }
 }
 
 // Display-only fallback price labels, used only when RevenueCat can't supply the
@@ -87,7 +105,7 @@ type Phase = "idle" | "checkout" | "confirming" | "failed" | "celebrate";
 
 const welcomeSeenKey = (userId: string) => `hasSeenUpgradeWelcome_${userId}`;
 
-export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess, headline }: Props) {
+export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess, headline, nextSlotAvailableAt }: Props) {
   const colors = useColors();
   const { authToken, currentUser } = useAuth();
   const { refreshUsers } = useUserCache();
@@ -410,6 +428,14 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess, head
 
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
+          {/* #519: show next-available date for event-cap dismissals so users */}
+          {/* know they can wait instead of upgrading.                          */}
+          {trigger === "events" && nextSlotAvailableAt ? (
+            <Text style={[styles.slotHint, { color: colors.mutedForeground }]}>
+              Prefer to wait? Your oldest slot frees up {formatSlotDate(nextSlotAvailableAt)}.
+            </Text>
+          ) : null}
+
           <TouchableOpacity
             style={styles.ctaWrap}
             onPress={phase === "failed" ? handleRestore : handleUpgrade}
@@ -609,6 +635,13 @@ const styles = StyleSheet.create({
   },
   notNow: { paddingVertical: 8 },
   notNowLabel: { fontSize: 14, fontWeight: "500" },
+  slotHint: {
+    fontSize: 12.5,
+    textAlign: "center",
+    lineHeight: 18,
+    marginBottom: 8,
+    paddingHorizontal: 8,
+  },
   errorText: {
     color: "#FF6B6B",
     fontSize: 13,

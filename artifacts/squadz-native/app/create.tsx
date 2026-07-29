@@ -171,6 +171,8 @@ export default function CreateEventScreen() {
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [myEventCount, setMyEventCount] = useState(0);
   const [eventLimit, setEventLimit] = useState<number | null>(null);
+  // #519: next-available date from GET /events/count, shown in UpgradeModal.
+  const [nextSlotAvailableAt, setNextSlotAvailableAt] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [invitedUserIds, setInvitedUserIds] = useState<string[]>([]);
@@ -240,10 +242,11 @@ export default function CreateEventScreen() {
   useEffect(() => {
     fetch(`${API_BASE}/api/events/count`, { headers: authHeaders() })
       .then(r => r.ok ? r.json() : null)
-      .then((data: { count: number; limit?: number } | null) => {
+      .then((data: { count: number; limit?: number; nextSlotAvailableAt?: string | null } | null) => {
         if (data) {
           setMyEventCount(data.count);
           if (typeof data.limit === "number") setEventLimit(data.limit);
+          if ("nextSlotAvailableAt" in data) setNextSlotAvailableAt(data.nextSlotAvailableAt ?? null);
         }
       })
       .catch(() => {});
@@ -345,10 +348,11 @@ export default function CreateEventScreen() {
       }
       fetch(`${API_BASE}/api/events/count`, { headers: authHeaders() })
         .then(r => r.ok ? r.json() : null)
-        .then((data: { count: number; limit?: number } | null) => {
+        .then((data: { count: number; limit?: number; nextSlotAvailableAt?: string | null } | null) => {
           if (data) {
             setMyEventCount(data.count);
             if (typeof data.limit === "number") setEventLimit(data.limit);
+            if ("nextSlotAvailableAt" in data) setNextSlotAvailableAt(data.nextSlotAvailableAt ?? null);
           }
         })
         .catch(() => {});
@@ -1131,6 +1135,7 @@ export default function CreateEventScreen() {
         trigger="events"
         onClose={() => setShowUpgradeModal(false)}
         onUpgradeSuccess={() => setIsPro(true)}
+        nextSlotAvailableAt={nextSlotAvailableAt}
       />
     </View>
   );

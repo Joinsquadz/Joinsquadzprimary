@@ -287,10 +287,23 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
           method: "POST",
           body: JSON.stringify({ userId }),
         });
-        if (!res.ok) return null;
+        if (!res.ok) {
+          // Read the error body so callers can handle specific codes.
+          let body: { code?: string; error?: string } = {};
+          try { body = (await res.json()) as typeof body; } catch { /* ignore parse errors */ }
+          // Attach the server code to the Error so the caller can branch on it.
+          throw Object.assign(
+            new Error(body.error ?? "Failed to start conversation"),
+            { code: body.code },
+          );
+        }
         const { id } = (await res.json()) as { id: string };
         return id;
-      } catch {
+      } catch (err: unknown) {
+        // Re-throw errors that carry a server-side code (e.g. NO_SHARED_SQUAD)
+        // so callers can show a specific message.  Swallow network / parse
+        // errors and return null for a generic fallback.
+        if (err instanceof Error && (err as Error & { code?: string }).code) throw err;
         return null;
       }
     },

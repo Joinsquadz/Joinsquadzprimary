@@ -36,7 +36,8 @@ router.get("/users/by-friend-code/:code", requireAuth, async (req: Request, res:
         friendCode: usersTable.friendCode,
       })
       .from(usersTable)
-      .where(eq(usersTable.friendCode, code));
+      // BUG-02: exclude profiles currently under moderation review.
+      .where(and(eq(usersTable.friendCode, code), eq(usersTable.moderationHidden, false)));
     if (!user) {
       res.status(404).json({ error: "No user found with that friend code." });
       return;
@@ -77,7 +78,8 @@ router.get("/users", requireAuth, async (req, res) => {
       stripeCustomerId: usersTable.stripeCustomerId,
     })
     .from(usersTable)
-    .where(inArray(usersTable.id, ids));
+    // BUG-02: exclude profiles under moderation review from bulk lookups.
+    .where(and(inArray(usersTable.id, ids), eq(usersTable.moderationHidden, false)));
 
   // Resolve Pro status for the gold-ring badge. Free users (no Stripe linkage)
   // short-circuit to false without any subscription lookup, so the common case
@@ -113,12 +115,16 @@ router.get("/users/search", requireAuth, async (req: Request, res: Response): Pr
         friendCode: usersTable.friendCode,
       })
       .from(usersTable)
+      // BUG-02: exclude the caller and any profiles under moderation review.
       .where(
-        sql`${usersTable.id} != ${currentUserId} AND (
-          ${usersTable.firstName} ILIKE ${pattern} OR
-          ${usersTable.lastName} ILIKE ${pattern} OR
-          COALESCE(${usersTable.firstName}, '') || ' ' || COALESCE(${usersTable.lastName}, '') ILIKE ${pattern}
-        )`
+        and(
+          sql`${usersTable.id} != ${currentUserId}`,
+          eq(usersTable.moderationHidden, false),
+          sql`(${usersTable.firstName} ILIKE ${pattern} OR
+            ${usersTable.lastName} ILIKE ${pattern} OR
+            COALESCE(${usersTable.firstName}, '') || ' ' || COALESCE(${usersTable.lastName}, '') ILIKE ${pattern}
+          )`,
+        )
       )
       .limit(SEARCH_LIMIT);
     res.json(rows);
@@ -263,11 +269,17 @@ router.get("/users/:id/profile", requireAuth, async (req: Request, res: Response
         friendCode: usersTable.friendCode,
         bio: usersTable.bio,
         hometown: usersTable.hometown,
+        moderationHidden: usersTable.moderationHidden,
       })
       .from(usersTable)
       .where(eq(usersTable.id, targetId));
     if (!target) {
       res.status(404).json({ error: "User not found" });
+      return;
+    }
+    // BUG-02: a profile flagged by 3+ distinct reporters is restricted from view.
+    if (target.moderationHidden) {
+      res.status(451).json({ underReview: true, error: "This profile is currently under review." });
       return;
     }
     // Squads where both the requester and the target are members.

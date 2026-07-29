@@ -100,6 +100,8 @@ const storageMock = vi.hoisted(() => ({
   getActiveSubscriptionByCustomerId: vi.fn(),
   countUserEventsThisYear: vi.fn(),
   countUserEventCreationsInWindow: vi.fn(),
+  // #519: also queried by GET /events/count.
+  getOldestEventCreationAt: vi.fn(),
   getSquad: vi.fn(),
   filterUnmutedForSquad: vi.fn(),
   getPushTokensForUsers: vi.fn(),
@@ -145,6 +147,7 @@ beforeEach(() => {
   storageMock.getActiveSubscriptionByCustomerId.mockResolvedValue(null);
   storageMock.countUserEventsThisYear.mockResolvedValue(0);
   storageMock.countUserEventCreationsInWindow.mockResolvedValue(0);
+  storageMock.getOldestEventCreationAt.mockResolvedValue(null);
   storageMock.getSquad.mockResolvedValue(null);
   storageMock.filterUnmutedForSquad.mockImplementation(async (ids: string[]) => ids);
   storageMock.getPushTokensForUsers.mockResolvedValue([]);

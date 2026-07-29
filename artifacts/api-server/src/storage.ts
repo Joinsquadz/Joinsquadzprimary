@@ -247,6 +247,30 @@ export class Storage {
     return row?.total ?? 0;
   }
 
+  /**
+   * Returns the ISO timestamp when the user's oldest event-creation ledger
+   * slot in the trailing 12-month window will expire, or null if there are
+   * no slots yet.  Used by GET /events/count so the UpgradeModal can show
+   * "Your oldest slot frees up [date]" before a create attempt is made.
+   */
+  async getOldestEventCreationAt(userId: string): Promise<string | null> {
+    const windowStart = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+    const windowMs = 365 * 24 * 60 * 60 * 1000;
+    const [oldest] = await db
+      .select({ createdAt: eventCreationsTable.createdAt })
+      .from(eventCreationsTable)
+      .where(
+        and(
+          eq(eventCreationsTable.userId, userId),
+          gte(eventCreationsTable.createdAt, windowStart),
+        ),
+      )
+      .orderBy(asc(eventCreationsTable.createdAt))
+      .limit(1);
+    if (!oldest?.createdAt) return null;
+    return new Date(new Date(oldest.createdAt).getTime() + windowMs).toISOString();
+  }
+
   async createEvent(hostId: string, title: string, date: string, location: string, inviteCode: string) {
     const [event] = await db
       .insert(eventsTable)

@@ -96,6 +96,8 @@ const storageMock = vi.hoisted(() => ({
   getActiveSubscriptionByCustomerId: vi.fn(),
   countUserEventsThisYear: vi.fn(),
   countUserEventCreationsInWindow: vi.fn(),
+  // #519: also queried by GET /events/count for UpgradeModal slot-hint date.
+  getOldestEventCreationAt: vi.fn(),
   getSquad: vi.fn(),
   filterUnmutedForSquad: vi.fn(),
   getPushTokensForUsers: vi.fn(),
@@ -133,6 +135,7 @@ beforeEach(() => {
   storageMock.getActiveSubscriptionByCustomerId.mockResolvedValue(null);
   storageMock.countUserEventsThisYear.mockResolvedValue(0);
   storageMock.countUserEventCreationsInWindow.mockResolvedValue(0);
+  storageMock.getOldestEventCreationAt.mockResolvedValue(null);
   storageMock.getSquad.mockResolvedValue(null);
   storageMock.filterUnmutedForSquad.mockImplementation(async (ids: string[]) => ids);
   storageMock.getPushTokensForUsers.mockResolvedValue([]);
@@ -155,13 +158,14 @@ describe("GET /api/events/count — returns server-enforced limit", () => {
     expect(res.body.count).toBe(2);
   });
 
-  it("returns { count: 0, limit: 5 } for a brand-new user", async () => {
+  it("returns { count: 0, limit: 5, nextSlotAvailableAt: null } for a brand-new user", async () => {
     storageMock.countUserEventCreationsInWindow.mockResolvedValue(0);
+    storageMock.getOldestEventCreationAt.mockResolvedValue(null);
 
     const res = await request(makeApp(FREE_USER)).get("/api/events/count");
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ count: 0, limit: FREE_EVENT_LIMIT });
+    expect(res.body).toEqual({ count: 0, limit: FREE_EVENT_LIMIT, nextSlotAvailableAt: null });
   });
 
   it("returns { count: 5, limit: 5 } when the user is at the cap", async () => {
@@ -170,7 +174,30 @@ describe("GET /api/events/count — returns server-enforced limit", () => {
     const res = await request(makeApp(FREE_USER)).get("/api/events/count");
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ count: FREE_EVENT_LIMIT, limit: FREE_EVENT_LIMIT });
+    expect(res.body.count).toBe(FREE_EVENT_LIMIT);
+    expect(res.body.limit).toBe(FREE_EVENT_LIMIT);
+  });
+
+  // #519: nextSlotAvailableAt thread-through tests.
+  it("includes nextSlotAvailableAt when the user has event creations", async () => {
+    storageMock.countUserEventCreationsInWindow.mockResolvedValue(3);
+    storageMock.getOldestEventCreationAt.mockResolvedValue("2027-01-15T10:00:00.000Z");
+
+    const res = await request(makeApp(FREE_USER)).get("/api/events/count");
+
+    expect(res.status).toBe(200);
+    expect(res.body.nextSlotAvailableAt).toBe("2027-01-15T10:00:00.000Z");
+    expect(res.body.count).toBe(3);
+  });
+
+  it("returns nextSlotAvailableAt: null when the user has no event creations", async () => {
+    storageMock.countUserEventCreationsInWindow.mockResolvedValue(0);
+    storageMock.getOldestEventCreationAt.mockResolvedValue(null);
+
+    const res = await request(makeApp(FREE_USER)).get("/api/events/count");
+
+    expect(res.status).toBe(200);
+    expect(res.body.nextSlotAvailableAt).toBeNull();
   });
 
   it("limit is always 5, never 3 — regression for the UI display bug", async () => {

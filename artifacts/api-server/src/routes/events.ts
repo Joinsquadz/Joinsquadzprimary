@@ -421,12 +421,17 @@ router.get("/events/preview", async (req: Request, res: Response): Promise<void>
   }
 });
 
-// GET /events/count — requires auth, returns user's event count vs free limit
+// GET /events/count — requires auth, returns user's event count vs free limit.
+// Also returns nextSlotAvailableAt so the client can show "your oldest slot
+// frees up [date]" in the UpgradeModal without needing a failed create attempt.
 router.get("/events/count", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = (req.user as { id: string }).id;
-    const total = await storage.countUserEventCreationsInWindow(userId);
-    res.json({ count: total, limit: FREE_EVENT_LIMIT });
+    const [total, nextSlotAvailableAt] = await Promise.all([
+      storage.countUserEventCreationsInWindow(userId),
+      storage.getOldestEventCreationAt(userId),
+    ]);
+    res.json({ count: total, limit: FREE_EVENT_LIMIT, nextSlotAvailableAt });
   } catch (err) {
     logger.error({ err }, "Error fetching event count");
     res.status(500).json({ error: "Failed to fetch event count" });

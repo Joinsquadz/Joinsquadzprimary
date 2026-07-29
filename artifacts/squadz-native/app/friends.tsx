@@ -51,12 +51,26 @@ export default function FriendsScreen() {
     if (messagingId) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setMessagingId(userId);
-    const convoId = await startDirectConversation(userId);
-    setMessagingId(null);
-    if (convoId) {
-      router.push(`/conversation/${convoId}` as never);
-    } else {
-      Alert.alert("Couldn't open chat", "Please try again in a moment.");
+    try {
+      const convoId = await startDirectConversation(userId);
+      setMessagingId(null);
+      if (convoId) {
+        router.push(`/conversation/${convoId}` as never);
+      } else {
+        Alert.alert("Couldn't open chat", "Please try again in a moment.");
+      }
+    } catch (err: unknown) {
+      setMessagingId(null);
+      const code = err instanceof Error ? (err as Error & { code?: string }).code : undefined;
+      if (code === "NO_SHARED_SQUAD") {
+        // W-01: give users a clear, actionable explanation rather than silent no-op.
+        Alert.alert(
+          "Can't send a message",
+          "You and this person need to be in the same squad before you can message each other.",
+        );
+      } else {
+        Alert.alert("Couldn't open chat", "Please try again in a moment.");
+      }
     }
   }
 
