@@ -4,9 +4,10 @@ const MONTHS: Record<string, number> = {
 };
 
 export function parseEventStart(
-  dateStr: string,
+  dateStr: string | null | undefined,
   year = new Date().getFullYear(),
 ): Date | null {
+  if (!dateStr) return null;
   const dm = dateStr.match(/([A-Z][a-z]{2})\s+(\d{1,2})/);
   if (!dm || !(dm[1] in MONTHS)) return null;
   const month = MONTHS[dm[1]];

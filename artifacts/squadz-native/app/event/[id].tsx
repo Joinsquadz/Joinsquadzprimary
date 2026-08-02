@@ -1061,7 +1061,7 @@ export default function EventDetailScreen() {
         </Animated.View>
 
         {(() => {
-          const start = parseEventStart(event.date);
+          const start = parseEventStart(event.date ?? "");
           const cd = start ? formatCountdown(start, nowTick) : null;
           if (!cd) return null;
           return (
