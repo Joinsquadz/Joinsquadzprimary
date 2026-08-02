@@ -245,7 +245,7 @@ export default function FriendsScreen() {
       {/* Header */}
       <View style={[styles.header, { paddingTop: topPad + 8, borderBottomColor: colors.border }]}>
         <TouchableOpacity
-          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.back(); }}
+          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); if (router.canGoBack()) { router.back(); } else { router.replace("/(tabs)" as never); } }}
           style={[styles.backBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
         >
           <Ionicons name="arrow-back" size={20} color={colors.foreground} />

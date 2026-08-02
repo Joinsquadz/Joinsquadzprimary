@@ -1,14 +1,13 @@
 ---
-name: Friends feature IS server-backed
-description: The mobile "friends" list is persisted server-side via /api/users/friends (GET/POST/DELETE). Prior "no backend" note was outdated.
+name: Friends are request/accept, server-backed
+description: How the friends model actually works — request/accept flow, not instant-mutual; which routes the client really uses.
 ---
 
-The Squadz mobile "friends" feature **is** persisted on the server (this corrects an earlier note that said it was client-only).
+Friends use a **request/accept model by design**, fully server-backed.
 
-- `GET /api/users/friends`, `POST /api/users/friends`, `DELETE /api/users/friends/:id` exist.
-- `AppContext` holds `friends: string[]` plus `addFriend`/`removeFriend`/`fetchFriends`. `fetchFriends` is the single source of truth and runs on auth; `addFriend`/`removeFriend` call the API and reconcile via `fetchFriends` on failure.
-- Derive "is this person a friend?" from `friends.includes(userId)` — there is no `isFriend` helper.
+- Client `addFriend` (AppContext) POSTs `/api/users/friend-requests`; the recipient accepts from the Activity screen. "Request sent!" toasts are correct behavior, not a stub.
+- An older instant-mutual `POST /api/users/friends` route still exists server-side but the client does NOT use it. Don't "fix" the client to call it.
+- `friends[]` + `fetchFriends` live in AppContext; derive `isFriend` via `friends.includes(id)`.
 
-**Why:** A past session wrongly assumed friends were in-memory; the backend was added later. Don't reintroduce fake seed ids or rebuild the backend.
-
-**How to apply:** Add-friend UI (e.g. `components/ContactSheet.tsx`) just calls `addFriend(id)`/`removeFriend(id)` and reads `friends`. Hide the toggle for self (`id === currentUser.id`).
+**Why:** an earlier memory wrongly claimed friends had no backend / were instant-mutual; that led to re-flagging correct request/accept UX as a bug during E2E testing.
+**How to apply:** when testing or changing friend flows, expect request → accept via Activity; never treat "Request sent!" as a failure.

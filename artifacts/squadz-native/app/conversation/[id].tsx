@@ -549,7 +549,7 @@ export default function ConversationScreen() {
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: topPad, borderBottomColor: colors.border }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} hitSlop={10}>
+        <TouchableOpacity onPress={() => { if (router.canGoBack()) { router.back(); } else { router.replace("/(tabs)/messages" as never); } }} style={styles.backBtn} hitSlop={10}>
           <Ionicons name="chevron-back" size={26} color={colors.foreground} />
         </TouchableOpacity>
         {listItem?.type === "squad" && (

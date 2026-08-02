@@ -14,7 +14,8 @@
 - [api-server test mock patterns](api-server-test-mock-patterns.md) — chainable thenable db mock; moderation mock path; conversationUpdates required; supabase null for DB path; account.ts tx.execute + table mocks.
 - [api-server test cold-import](api-server-test-cold-import.md) — hoist router/middleware import to a static import below vi.mock; never load the real dep graph inside a timed hook.
 - [Squad photo roll-up](squad-photo-rollup.md) — curated per-squad vault via photos.squadId+sharedToSquad; member-only routes, share only your OWN photos; web SquadDetail is mock, mobile is functional.
-- [Friends IS server-backed](friends-no-backend.md) — /api/users/friends GET/POST/DELETE exist; AppContext friends[]+addFriend/removeFriend/fetchFriends; derive isFriend via friends.includes(id), no helper.
+- [Friends are request/accept](friends-no-backend.md) — client POSTs /api/users/friend-requests, accept via Activity screen; "Request sent!" is correct; legacy instant-mutual route unused.
+- [Rate-limit & pool caps](rate-limit-and-pool-caps.md) — API limiter keys per-user (IP-keying throttles NAT'd friend groups); Supabase pooler ~15 clients TOTAL across dev+prod → keep pool max small.
 - [RN modal overflow trap](rn-modal-overflow-trap.md) — iOS transparent slide modals have no swipe-dismiss; data-length content needs maxHeight+ScrollView+persistent absolute close (X), else Close pushed off-screen traps user. Reuse components/ContactSheet.tsx.
 - [RN stacked Modals freeze iOS](rn-stacked-modals-freeze.md) — a 2nd Modal opened while a sheet Modal is up freezes iOS (nothing opens, UI deadlocks); render secondary pickers as in-sheet absolute overlays, not sibling Modals.
 - [Object storage read ACL + media provenance](object-storage-acl-gap.md) — any new media feature: add canUserView<X>Media to /storage/objects/* OR-chain (else 403→black screen/video error) AND gate create route on getUploadOwner.
@@ -74,3 +75,6 @@
 - [Push notif scanner window constraints](push-scanner-window.md) — day-of scanner window is REMINDER_LEAD_MS(2h)–DAY_OF_LEAD_MS(14h); tests using exactly 2h hit the ≤ boundary and mark-without-send; "2+ calendar days" unreachable within 14h → test calendarDaysUntil in isolation, not via scanner.
 - [Webhook email dedup](webhook-email-dedup.md) — any new webhook email must call markEmailSent(key) first; webhook_email_sends table is raw SQL (not in Drizzle schema), created at startup.
 - [Report visibility gate](report-visibility-gate.md) — POST /reports gates on canUserViewReportedContent before inserting; prevents 3 coordinated accounts from auto-hiding content they've never seen.
+- [Account deletion tombstones](account-deletion-tombstones.md) — login upsert resurrects "deleted" accounts; tombstone auth SUBJECT ids in the purge tx + check in syncSupabaseUser; linkedUserId subjects differ from user id.
+- [Squadz web E2E quirks](squadz-web-e2e-quirks.md) — tester nav drops ".expo." from the dev host (fake 502s) → JS-forced nav + atomic host check; Screenshot tool lands inside the 1s splash gate; adjudicate ambiguous reports server-side.
+- [Router back fallback](router-back-fallback.md) — router.back() no-ops without history (reload/deep-link); every custom back button uses canGoBack() ? back() : replace(fallback), app-wide.

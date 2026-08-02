@@ -644,6 +644,10 @@ export default function AvailabilityScreen() {
       setMySet(new Set(payload.myCells));
       setNeedsSetup(false);
       setDirty(false);
+      // Swap the create-flow URL (…?eventId=…&from=create) for the canonical
+      // poll URL so a web refresh reopens the created poll instead of dropping
+      // the user back onto the empty setup form.
+      router.replace({ pathname: "/availability", params: { pollId: payload.poll.id } } as never);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch {
       Alert.alert("Couldn't create poll", "Network error. Please try again.");

@@ -28,6 +28,7 @@ import {
 } from "../lib/auth";
 import { sendVerificationEmail, sendPasswordResetEmail } from "../emailService";
 import { supabaseAdmin, supabaseAuth } from "../services/supabase";
+import { isAnyTombstoned, AccountDeletedError } from "../lib/accountTombstones";
 import { trackEvent, identifyUser } from "../services/analytics";
 import { logger } from "../lib/logger";
 import { storage } from "../storage";
@@ -583,9 +584,30 @@ function toAuthUser(u: typeof usersTable.$inferSelect) {
  * that would violate the unique constraint, the upsert is skipped.
  */
 async function syncSupabaseUser(
-  supabaseUser: { id: string; email?: string; user_metadata?: Record<string, unknown> },
+  supabaseUser: {
+    id: string;
+    email?: string;
+    user_metadata?: Record<string, unknown>;
+    app_metadata?: Record<string, unknown>;
+  },
   extras: { firstName?: string | null; lastName?: string | null; phone?: string | null } = {},
 ): Promise<typeof usersTable.$inferSelect> {
+  // Deleted-account backstop: if this auth subject (or the canonical account
+  // it was linked to) was tombstoned by account deletion, never re-provision
+  // a users row for it. Delete the straggler Supabase subject when possible
+  // so the credentials die for good.
+  const linkedUserId = supabaseUser.app_metadata?.linkedUserId as string | undefined;
+  if (await isAnyTombstoned([supabaseUser.id, ...(linkedUserId ? [linkedUserId] : [])])) {
+    if (supabaseAdmin) {
+      try {
+        await supabaseAdmin.auth.admin.deleteUser(supabaseUser.id);
+      } catch (err) {
+        logger.error({ err, subjectId: supabaseUser.id }, "Failed to delete tombstoned Supabase auth subject at login");
+      }
+    }
+    throw new AccountDeletedError();
+  }
+
   const email = normalizeEmail(supabaseUser.email ?? "");
   const firstName = (
     extras.firstName ??
@@ -741,7 +763,18 @@ router.post("/auth/register", async (req: Request, res: Response) => {
       return;
     }
     const { data: signIn } = await supabaseAuth.auth.signInWithPassword({ email, password });
-    const dbUser = await syncSupabaseUser(created.user, { firstName, lastName, phone });
+    let dbUser: Awaited<ReturnType<typeof syncSupabaseUser>>;
+    try {
+      dbUser = await syncSupabaseUser(created.user, { firstName, lastName, phone });
+    } catch (err) {
+      if (err instanceof AccountDeletedError) {
+        // Defensive: a brand-new signup gets a fresh subject id, so this only
+        // fires if a tombstoned subject somehow reached the sync path.
+        res.status(409).json({ error: "An account with this email already exists." });
+        return;
+      }
+      throw err;
+    }
     identifyUser(dbUser.id, { email, firstName: dbUser.firstName ?? undefined, lastName: dbUser.lastName ?? undefined });
     trackEvent(dbUser.id, "signup", { method: "email" });
     res.json({
@@ -808,7 +841,18 @@ router.post("/auth/login", async (req: Request, res: Response) => {
       res.status(401).json({ error: "Incorrect email or password." });
       return;
     }
-    const dbUser = await syncSupabaseUser(data.user);
+    let dbUser: Awaited<ReturnType<typeof syncSupabaseUser>>;
+    try {
+      dbUser = await syncSupabaseUser(data.user);
+    } catch (err) {
+      if (err instanceof AccountDeletedError) {
+        // Deleted account whose auth subject survived — present as a normal
+        // credential failure; the subject was re-deleted above best-effort.
+        res.status(401).json({ error: "Incorrect email or password." });
+        return;
+      }
+      throw err;
+    }
     identifyUser(dbUser.id, { email, firstName: dbUser.firstName ?? undefined, lastName: dbUser.lastName ?? undefined });
     trackEvent(dbUser.id, "login", { method: "email" });
     res.json({

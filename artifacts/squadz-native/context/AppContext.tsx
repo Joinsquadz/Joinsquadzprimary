@@ -840,6 +840,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     handleSessionExpiryRef.current = () => {
       if (sessionExpiryFiredRef.current) return;
+      // Never fire the "signed out" teardown for a visitor with no session:
+      // on a fresh logged-out boot the mount-time list fetches 401 AFTER
+      // isSessionValidated flipped true (nothing to validate), which would
+      // otherwise toast "You've been signed out" at someone who never
+      // signed in. A real mid-session expiry always has isLoggedIn=true
+      // or a token in flight.
+      if (!isLoggedIn && !authTokenRef.current) return;
       sessionExpiryFiredRef.current = true;
       clearLocalSession();
       showToast("You've been signed out. Please log in again.");

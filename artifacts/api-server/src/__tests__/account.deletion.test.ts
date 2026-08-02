@@ -20,6 +20,22 @@ vi.mock("../lib/playBilling", () => ({
   cancelPlaySubscriptionBestEffort: cancelPlayMock,
 }));
 
+// Tombstone + Supabase-auth-deletion seams: deletion must kill the auth
+// credentials (deleteUser) AND write a tombstone inside the purge tx so a
+// failed external deletion can never re-provision the account at login.
+const supabaseDeleteUserMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue({ data: null, error: null }),
+);
+const insertTombstonesMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+
+vi.mock("../services/supabase", () => ({
+  supabaseAdmin: { auth: { admin: { deleteUser: supabaseDeleteUserMock } } },
+  supabaseAuth: null,
+}));
+vi.mock("../lib/accountTombstones", () => ({
+  insertTombstones: insertTombstonesMock,
+}));
+
 vi.mock("../lib/logger");
 
 vi.mock("@workspace/db", () => {
@@ -193,6 +209,24 @@ describe("B7 — DELETE /api/account — auth required", () => {
   it("returns 401 when unauthenticated", async () => {
     const res = await request(makeTestApp(accountRouter)).delete("/api/account");
     expect(res.status).toBe(401);
+  });
+});
+
+// ── Credentials must die with the account ────────────────────────────────────
+
+describe("DELETE /api/account — auth subject deletion + tombstone", () => {
+  it("tombstones the auth subject inside the tx and deletes the Supabase auth user", async () => {
+    const res = await request(makeApp()).delete("/api/account");
+    expect(res.status).toBe(200);
+    expect(insertTombstonesMock).toHaveBeenCalledWith(expect.anything(), [USER_ID], USER_ID);
+    expect(supabaseDeleteUserMock).toHaveBeenCalledWith(USER_ID);
+  });
+
+  it("still reports success when Supabase auth deletion fails — the tombstone is the backstop", async () => {
+    supabaseDeleteUserMock.mockRejectedValueOnce(new Error("supabase unreachable"));
+    const res = await request(makeApp()).delete("/api/account");
+    expect(res.status).toBe(200);
+    expect(insertTombstonesMock).toHaveBeenCalled();
   });
 });
 

@@ -89,6 +89,7 @@ EXPO_PUBLIC_REVENUECAT_ANDROID_KEY = "goog_GpcusvPHJLilCDywiobzwUUtolK"
 
 [userenv.development]
 ENABLE_EMAIL_PREVIEW_TEST = "true"
+API_RATE_LIMIT_MAX = "5000"
 
 [objectStorage]
 defaultBucketID = "replit-objstore-bd05c8f7-1da6-4f29-911a-7d60d1dfe0bd"

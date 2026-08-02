@@ -131,7 +131,7 @@ export default function MomentComposeScreen() {
       }
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       snapRef.current?.snap("Shared!");
-      setTimeout(() => router.back(), 850);
+      setTimeout(() => { if (router.canGoBack()) { router.back(); } else { router.replace("/(tabs)/feed" as never); } }, 850);
     } catch {
       Alert.alert("Couldn't share", "Please check your connection and try again.");
     } finally {
@@ -143,7 +143,7 @@ export default function MomentComposeScreen() {
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <SnapConfirm ref={snapRef} />
       <View style={[styles.header, { paddingTop: topPad + 8, borderBottomColor: colors.border }]}>
-        <TouchableOpacity onPress={() => router.back()} hitSlop={8} style={styles.headerBtn}>
+        <TouchableOpacity onPress={() => { if (router.canGoBack()) { router.back(); } else { router.replace("/(tabs)/feed" as never); } }} hitSlop={8} style={styles.headerBtn}>
           <Ionicons name="chevron-back" size={24} color={colors.foreground} />
         </TouchableOpacity>
         <Text style={[styles.title, { color: colors.foreground }]}>New Moment</Text>

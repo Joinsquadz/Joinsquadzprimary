@@ -110,23 +110,26 @@ export default function OnboardingScreen() {
     } else if (params.publicSquadId) {
       armTour();
       router.replace({ pathname: "/squad/join-public", params: { id: params.publicSquadId } } as never);
-    } else if (createdSquadId) {
-      armTour();
-      router.replace({ pathname: "/squad/[id]", params: { id: createdSquadId } } as never);
     } else {
-      // B6: no route params (e.g. cold-start resume of onboarding) — fall back
-      // to a stored pending invite code (<24h old) so the invite still lands.
+      // B6: no invite route params (dropped in a login→signup hop, or a
+      // cold-start resume of onboarding) — fall back to a stored pending
+      // invite code (<24h old) so the invite still lands. This must win
+      // over the created-squad route: if the user arrived via an invite
+      // link, landing on the invite is the whole point of their signup.
       void readPendingInviteCode().then(async (stored) => {
         if (stored) {
           armTour();
           router.replace({ pathname: "/squad/join", params: { code: stored, auto: "1" } } as never);
+          return;
+        }
+        const storedEvent = await readPendingEventCode();
+        if (storedEvent) {
+          router.replace({ pathname: "/join/[inviteCode]", params: { inviteCode: storedEvent } } as never);
+        } else if (createdSquadId) {
+          armTour();
+          router.replace({ pathname: "/squad/[id]", params: { id: createdSquadId } } as never);
         } else {
-          const storedEvent = await readPendingEventCode();
-          if (storedEvent) {
-            router.replace({ pathname: "/join/[inviteCode]", params: { inviteCode: storedEvent } } as never);
-          } else {
-            router.replace("/(tabs)" as never);
-          }
+          router.replace("/(tabs)" as never);
         }
       });
     }
@@ -217,7 +220,7 @@ export default function OnboardingScreen() {
         <TouchableOpacity
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            step > 0 ? setStep(step - 1) : router.back();
+            step > 0 ? setStep(step - 1) : (router.canGoBack() ? router.back() : router.replace("/login" as never));
           }}
           style={[styles.backBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
         >

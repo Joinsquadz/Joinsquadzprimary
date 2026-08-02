@@ -24,6 +24,9 @@ import {
   objectUploadsTable,
 } from "@workspace/db";
 import { requireAuth } from "../middleware/currentUser";
+import { supabaseAdmin, supabaseAuth } from "../services/supabase";
+import { getBearerToken, revokeSupabaseToken } from "../lib/auth";
+import { insertTombstones } from "../lib/accountTombstones";
 import { logger } from "../lib/logger";
 import { getUncachableStripeClient } from "../stripeClient";
 import { cancelPlaySubscriptionBestEffort } from "../lib/playBilling";
@@ -59,6 +62,22 @@ router.delete("/account", requireAuth, async (req: Request, res: Response): Prom
     if (!user) {
       res.status(404).json({ error: "Account not found." });
       return;
+    }
+
+    // 0. Resolve every Supabase auth subject we know for this account. The
+    // canonical user id IS the subject id for direct signups, but a linked
+    // identity (app_metadata.linkedUserId) signs in with a DIFFERENT subject
+    // id — the bearer token tells us the one currently in use.
+    const authSubjectIds = [userId];
+    const bearer = getBearerToken(req);
+    if (bearer && supabaseAuth && bearer.split(".").length === 3) {
+      try {
+        const { data } = await supabaseAuth.auth.getUser(bearer);
+        const subjectId = data?.user?.id;
+        if (subjectId && !authSubjectIds.includes(subjectId)) authSubjectIds.push(subjectId);
+      } catch (err) {
+        logger.warn({ err, userId }, "Could not resolve bearer auth subject during account deletion");
+      }
     }
 
     // 1a. Best-effort cancel an active Google Play subscription (external;
@@ -266,9 +285,42 @@ router.delete("/account", requireAuth, async (req: Request, res: Response): Prom
 
       // --- Finally the user row (cascades auth_tokens via FK).
       await tx.delete(usersTable).where(eq(usersTable.id, userId));
+
+      // --- Tombstone every known auth subject atomically with the purge, so
+      // even if the external Supabase deletion below fails, the login sync
+      // path refuses to re-provision an account for these credentials.
+      await insertTombstones(tx, authSubjectIds, userId);
     });
 
-    logger.info({ userId }, "Account permanently deleted");
+    // 3. Delete the Supabase auth subject(s) so the same credentials can't
+    // sign in again. Best-effort AFTER the tx commits: a failure here is
+    // logged loudly but cannot resurrect the account — the tombstones written
+    // above block the login upsert as a durable backstop.
+    if (supabaseAdmin) {
+      for (const subjectId of authSubjectIds) {
+        try {
+          const { error } = await supabaseAdmin.auth.admin.deleteUser(subjectId);
+          if (error && !/not.?found/i.test(error.message)) throw error;
+        } catch (err) {
+          logger.error(
+            { err, userId, subjectId },
+            "Failed to delete Supabase auth subject during account deletion; tombstone will block re-provisioning",
+          );
+        }
+      }
+    }
+
+    // 4. Revoke the caller's current bearer token so its remaining TTL can't
+    // be used to keep acting as the deleted account.
+    if (bearer && bearer.split(".").length === 3) {
+      try {
+        await revokeSupabaseToken(bearer);
+      } catch (err) {
+        logger.warn({ err, userId }, "Failed to revoke bearer token after account deletion");
+      }
+    }
+
+    logger.info({ userId, authSubjectIds }, "Account permanently deleted");
     res.json({ ok: true });
   } catch (err) {
     logger.error({ err, userId }, "Error deleting account");

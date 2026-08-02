@@ -270,11 +270,10 @@ export default function LoginScreen() {
           <View style={{ alignItems: "center", marginTop: 20, paddingHorizontal: 24 }}>
             <TouchableOpacity
               onPress={() =>
-                router.push(
-                  hasInvite
-                    ? ({ pathname: "/signup", params } as never)
-                    : ("/signup" as never),
-                )
+                // Always forward params — invite context (joinEventCode,
+                // squadCode, …) must survive the hop to signup or the new
+                // user loses their invite destination after onboarding.
+                router.push({ pathname: "/signup", params } as never)
               }
             >
               <Text style={{ fontSize: 13, color: colors.mutedForeground }}>
@@ -327,7 +326,7 @@ export default function LoginScreen() {
         <View style={styles.ctaSection}>
           <GradientButton
             label="Get Started — It's Free ✨"
-            onPress={() => router.push("/signup")}
+            onPress={() => router.push({ pathname: "/signup", params } as never)}
           />
           <TouchableOpacity
             onPress={() => setScreen("signin")}

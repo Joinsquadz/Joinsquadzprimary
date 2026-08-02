@@ -19,6 +19,7 @@ import {
 } from "react-native";
 import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { SettleUp } from "@/components/SettleUp";
+import type { Event as SquadzEvent } from "@/types";
 import { parseEventStart } from "@/lib/calendar";
 import { buildPlanIcs } from "@/lib/ics";
 import { shareIcsFile } from "@/lib/shareIcs";
@@ -119,6 +120,8 @@ export default function EventDetailScreen() {
     claimTask,
     addTask,
     addCost,
+    updateCost,
+    deleteCost,
     markSharePaid,
     confirmShare,
     ownPaymentHandles,
@@ -390,6 +393,7 @@ export default function EventDetailScreen() {
   const [newFoodItem, setNewFoodItem] = useState("");
 
   const [costModal, setCostModal] = useState(false);
+  const [editingCostId, setEditingCostId] = useState<string | null>(null);
   const [costDesc, setCostDesc] = useState("");
   const [costTotal, setCostTotal] = useState("");
   const [costShares, setCostShares] = useState<Record<string, string>>({});
@@ -497,6 +501,26 @@ export default function EventDetailScreen() {
   const btnTop = topPad + 8;
 
   const goBack = () => (router.canGoBack() ? router.back() : router.replace("/(tabs)" as never));
+
+  // Private cross-squad conflict check: computed only from this user's own
+  // plans list, shown only to them, and never blocks the RSVP.
+  // MUST be declared before the `if (!event)` early return below — a hook after
+  // a conditional return violates the Rules of Hooks and crashes the screen
+  // with a hook-order error the moment the event finishes loading.
+  const myRsvpForConflicts = event ? (event.rsvps[currentUser.id] ?? null) : null;
+  const myConflicts = useMemo(
+    () =>
+      event && (myRsvpForConflicts === "going" || myRsvpForConflicts === "maybe")
+        ? findMyConflicts({
+            candidate: getPlanSpan(event),
+            plans: events,
+            userId: currentUser.id,
+            squads,
+            excludeId: event.id,
+          })
+        : [],
+    [myRsvpForConflicts, event, events, currentUser.id, squads],
+  );
 
   if (!event) {
     // Two sources of loading/error truth:
@@ -625,22 +649,6 @@ export default function EventDetailScreen() {
   const squadName = squad?.name ?? event.squadName;
   const myRsvp = event.rsvps[currentUser.id] ?? null;
 
-  // Private cross-squad conflict check: computed only from this user's own
-  // plans list, shown only to them, and never blocks the RSVP.
-  const myConflicts = useMemo(
-    () =>
-      myRsvp === "going" || myRsvp === "maybe"
-        ? findMyConflicts({
-            candidate: getPlanSpan(event),
-            plans: events,
-            userId: currentUser.id,
-            squads,
-            excludeId: event.id,
-          })
-        : [],
-    [myRsvp, event, events, currentUser.id, squads],
-  );
-
   // All RSVP'd users (includes invite-link joiners who aren't squad members)
   const costParticipants = Object.keys(event.rsvps).map((uid) => resolveUser(uid));
 
@@ -744,6 +752,7 @@ export default function EventDetailScreen() {
 
   // ---- Cost modal helpers ----
   const openCostModal = () => {
+    setEditingCostId(null);
     setCostDesc("");
     setCostTotal("");
     setCostShares({});
@@ -751,6 +760,47 @@ export default function EventDetailScreen() {
     setSelectedParticipantIds(new Set(Object.keys(event.rsvps)));
     setCostModal(true);
   };
+
+  // Edit an existing expense (payer or host only — mirrors the trip screen's
+  // shared costs panel). Prefills the modal in manual mode with the cost's
+  // current shares; departed users drop out of the editable selection.
+  const openEditCostModal = (cost: SquadzEvent["costs"][number]) => {
+    setEditingCostId(cost.id);
+    setCostDesc(cost.description);
+    setCostTotal(String(cost.amount));
+    const shareMap: Record<string, string> = {};
+    cost.shares.forEach((s) => { shareMap[s.userId] = String(s.amount); });
+    setCostShares(shareMap);
+    setSplitMode("manual");
+    const editableIds = new Set(costParticipants.map((p) => p.id));
+    setSelectedParticipantIds(
+      new Set(cost.shares.map((s) => s.userId).filter((uid) => editableIds.has(uid))),
+    );
+    setCostModal(true);
+  };
+
+  const confirmDeleteCost = (cost: SquadzEvent["costs"][number]) => {
+    Alert.alert(
+      "Delete this cost? Balances for everyone in this split will update.",
+      undefined,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            const result = await deleteCost(event.id, cost.id, event.version);
+            if (result.error) {
+              Alert.alert(result.conflict ? "Cost changed" : "Couldn't delete expense", result.error);
+              return;
+            }
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          },
+        },
+      ],
+    );
+  };
+
   const totalNum = parseFloat(costTotal) || 0;
 
   // Only include participants that the user has selected for this split
@@ -823,9 +873,15 @@ export default function EventDetailScreen() {
       .filter((s) => s.amount > 0);
     setCostSaving(true);
     try {
-      const result = await addCost(event.id, { description: costDesc.trim(), amount: totalNum, shares });
+      const payload = { description: costDesc.trim(), amount: totalNum, shares };
+      const result = editingCostId
+        ? await updateCost(event.id, editingCostId, payload, event.version)
+        : await addCost(event.id, payload);
       if (result.error) {
-        Alert.alert("Couldn't save expense", result.error);
+        Alert.alert(
+          "conflict" in result && result.conflict ? "Cost changed" : "Couldn't save expense",
+          result.error,
+        );
         return;
       }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -1801,6 +1857,24 @@ export default function EventDetailScreen() {
                           you owe ${myShare.toFixed(2)}
                         </Text>
                       </View>
+                      {(cost.paidById === currentUser.id || isHost) && (
+                        <View style={styles.costActions}>
+                          <TouchableOpacity
+                            onPress={() => { Haptics.selectionAsync(); openEditCostModal(cost); }}
+                            hitSlop={8}
+                            style={styles.costActionBtn}
+                          >
+                            <Ionicons name="pencil" size={17} color={colors.mutedForeground} />
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => { Haptics.selectionAsync(); confirmDeleteCost(cost); }}
+                            hitSlop={8}
+                            style={styles.costActionBtn}
+                          >
+                            <Ionicons name="trash-outline" size={17} color={colors.destructive} />
+                          </TouchableOpacity>
+                        </View>
+                      )}
                     </View>
                   );
                 })}
@@ -2087,7 +2161,7 @@ export default function EventDetailScreen() {
       <Modal visible={costModal} transparent animationType="slide" onRequestClose={() => setCostModal(false)}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalCardLarge, { backgroundColor: colors.surface, borderColor: colors.border, paddingBottom: botPad + 16 }]}>
-            <Text style={[styles.modalTitle, { color: colors.foreground }]}>Add expense</Text>
+            <Text style={[styles.modalTitle, { color: colors.foreground }]}>{editingCostId ? "Edit expense" : "Add expense"}</Text>
             <Text style={[styles.modalHint, { color: colors.mutedForeground }]}>
               You paid. Choose how to split the bill.
             </Text>
@@ -2222,7 +2296,7 @@ export default function EventDetailScreen() {
                 {costSaving ? (
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (
-                  <Text style={[styles.modalBtnText, { color: covered ? "#fff" : colors.textDim }]}>Save expense</Text>
+                  <Text style={[styles.modalBtnText, { color: covered ? "#fff" : colors.textDim }]}>{editingCostId ? "Save changes" : "Save expense"}</Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -2568,6 +2642,8 @@ const styles = StyleSheet.create({
   totalsValue: { fontSize: 22, fontWeight: "900", marginTop: 2 },
   costRow: { flexDirection: "row", alignItems: "center", borderRadius: 12, borderWidth: 1, padding: 14 },
   costDesc: { fontSize: 14, fontWeight: "700" },
+  costActions: { flexDirection: "row", alignItems: "center", gap: 4, marginLeft: 8 },
+  costActionBtn: { padding: 6 },
   costPayer: { fontSize: 12, marginTop: 2 },
   costRight: { alignItems: "flex-end" },
   costTotal: { fontSize: 16, fontWeight: "800" },

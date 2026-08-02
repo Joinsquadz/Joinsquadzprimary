@@ -4,6 +4,7 @@ import app from './app';
 import { logger } from './lib/logger';
 import { getSmtpStatus } from './emailService';
 import { ensureEmailDedupTable } from './lib/emailDedup';
+import { ensureTombstoneTable } from './lib/accountTombstones';
 import { ensureSchema } from './lib/schemaSync';
 import { checkPushReceipts, initPushTickets } from './lib/pushNotifications';
 import { storage } from './storage';
@@ -79,6 +80,10 @@ await initStripe();
 // UNC-02: ensure the webhook email dedup table exists before any Stripe webhook
 // could fire and attempt to send a duplicate transactional email.
 await ensureEmailDedupTable();
+
+// Account-deletion tombstones: must exist before any DELETE /account or login
+// so deleted credentials can never re-provision an account.
+await ensureTombstoneTable();
 
 initPushTickets().catch((err) =>
   logger.error({ err }, "initPushTickets failed at startup"),

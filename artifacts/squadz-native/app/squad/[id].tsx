@@ -160,7 +160,10 @@ export default function SquadDetailScreen() {
   };
 
   const handleConfirmAddSelected = async () => {
-    const toAdd = searchResults.filter((u) => selectedToAdd.has(u.id));
+    // Select from the merged display list (friends + search results) — the
+    // default list shows friends before any search runs, so filtering only
+    // searchResults silently dropped friend selections (button did nothing).
+    const toAdd = addMemberDisplayList.filter((u) => selectedToAdd.has(u.id));
     if (toAdd.length === 0) return;
     setConfirmingAdd(true);
     setSearchError(null);
@@ -171,7 +174,14 @@ export default function SquadDetailScreen() {
     }
     setConfirmingAdd(false);
     setSelectedToAdd(new Set());
-    if (firstError) setSearchError(firstError);
+    if (firstError) {
+      setSearchError(firstError);
+    } else {
+      // All invites sent — close the sheet so the "Invited · waiting" rows
+      // (refreshed on focus) are visible instead of a silently-open modal.
+      setAddMemberOpen(false);
+      resetAddMemberModal();
+    }
   };
 
   const handleSearch = async () => {

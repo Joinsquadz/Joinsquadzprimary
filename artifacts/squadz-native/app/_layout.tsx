@@ -32,12 +32,14 @@ import { ToastBannerProvider } from "@/context/ToastBannerContext";
 import { ActivityBannerSurfacer } from "@/components/ActivityBannerSurfacer";
 import { TipCoachMark } from "@/components/TipCoachMark";
 import { installWebAlert } from "@/lib/webAlert";
+import { installWebShare } from "@/lib/webShare";
 import { configureRevenueCat, logOutRevenueCat, getLocalEntitlementActive } from "@/lib/revenuecat";
 import { API_BASE, buildAuthHeaders, syncIapEntitlement } from "@/lib/api";
 import { initMonitoring } from "@/lib/monitoring";
 import { initAnalytics } from "@/lib/analytics";
 
 installWebAlert();
+installWebShare();
 initMonitoring();
 initAnalytics();
 

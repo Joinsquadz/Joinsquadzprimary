@@ -491,18 +491,27 @@ export default function VaultScreen() {
             headers: { ...authHeaders(), "Content-Type": "application/json" },
             body: JSON.stringify({ photoId }),
           });
-      if (!res.ok) throw new Error("favorite failed");
+      if (!res.ok) {
+        // Favorites are a Squadz+ feature: surface the upgrade sheet instead of
+        // a generic failure toast when the server says the gate applies.
+        const body = (await res.json().catch(() => ({}))) as { requiresPro?: boolean };
+        throw Object.assign(new Error("favorite failed"), { requiresPro: !!body.requiresPro });
+      }
       // When un-favoriting from the Favorites tab, drop it from that collection
       // so the grid reflects the change without a refetch.
       if (wasFav) setFavoritePhotos(prev => prev.filter(p => p.id !== photoId));
-    } catch {
+    } catch (err) {
       setFavoriteIds(prev => {
         const next = new Set(prev);
         if (wasFav) next.add(photoId);
         else next.delete(photoId);
         return next;
       });
-      showToast("Couldn't update favorite. Please try again.", { durationMs: 2500 });
+      if ((err as { requiresPro?: boolean }).requiresPro) {
+        setUpgradeModalVisible(true);
+      } else {
+        showToast("Couldn't update favorite. Please try again.", { durationMs: 2500 });
+      }
     }
   }, [favoriteIds, authHeaders, showToast]);
 
@@ -1105,7 +1114,7 @@ export default function VaultScreen() {
         <TouchableOpacity
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            router.back();
+            if (router.canGoBack()) { router.back(); } else { router.replace("/(tabs)" as never); }
           }}
           style={styles.backBtn}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}

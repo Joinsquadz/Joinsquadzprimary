@@ -7,6 +7,7 @@ const Privacy = lazy(() => import("@/pages/Privacy"));
 const Terms = lazy(() => import("@/pages/Terms"));
 const Support = lazy(() => import("@/pages/Support"));
 const NotFound = lazy(() => import("@/pages/NotFound"));
+const OpenInApp = lazy(() => import("@/pages/OpenInApp"));
 
 function Router() {
   return (
@@ -16,6 +17,14 @@ function Router() {
         <Route path="/privacy" component={Privacy} />
         <Route path="/terms" component={Terms} />
         <Route path="/support" component={Support} />
+        {/* App deep-link web fallbacks — the app shares joinsquadz.com/...
+            links; anyone without the app installed lands here, never a 404. */}
+        <Route path="/squad/join">{() => <OpenInApp kind="squad" />}</Route>
+        <Route path="/squad/join-public">{() => <OpenInApp kind="publicSquad" />}</Route>
+        <Route path="/squad/:id">{() => <OpenInApp kind="publicSquad" />}</Route>
+        <Route path="/join/:code">{() => <OpenInApp kind="event" />}</Route>
+        <Route path="/add/friend/:code">{() => <OpenInApp kind="friend" />}</Route>
+        <Route path="/availability">{() => <OpenInApp kind="poll" />}</Route>
         <Route component={NotFound} />
       </Switch>
     </Suspense>

@@ -137,7 +137,7 @@ export default function SignupScreen() {
       <KeyboardAwareScrollViewCompat
         contentContainerStyle={{ flexGrow: 1, paddingTop: topPad, paddingBottom: botPad + 16 }}
       >
-        <TouchableOpacity onPress={() => router.back()} style={styles.back}>
+        <TouchableOpacity onPress={() => { if (router.canGoBack()) { router.back(); } else { router.replace("/login" as never); } }} style={styles.back}>
           <Text style={[styles.backArrow, { color: colors.mutedForeground }]}>←</Text>
         </TouchableOpacity>
 

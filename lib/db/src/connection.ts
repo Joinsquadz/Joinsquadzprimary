@@ -50,9 +50,16 @@ export function resolveDbConfig(): PoolConfig {
     database,
     ...(ssl !== undefined ? { ssl } : {}),
     // Pool tuning — override via env vars for different deployment sizes.
-    // With Supabase's Session pooler, max=20 per process is a safe default
-    // that leaves headroom for multiple processes on the Pro plan.
-    max: Number(process.env.DB_POOL_MAX ?? "20"),
+    // CAUTION: Supabase's Session pooler caps concurrent clients at
+    // pool_size (15 on the current plan) SHARED across every process —
+    // production, development, and scripts all draw from the same budget.
+    // A 20-per-process default exhausted it (EMAXCONNSESSION in prod logs),
+    // so default production to 9 and everything else to 4, keeping the sum
+    // of a prod server + a dev server + a script under the cap.
+    max: Number(
+      process.env.DB_POOL_MAX ??
+        (process.env.NODE_ENV === "production" ? "9" : "4"),
+    ),
     idleTimeoutMillis: Number(process.env.DB_POOL_IDLE_TIMEOUT_MS ?? "30000"),
     connectionTimeoutMillis: Number(process.env.DB_POOL_CONNECTION_TIMEOUT_MS ?? "5000"),
   };
