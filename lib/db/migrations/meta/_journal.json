@@ -36,6 +36,13 @@
       "when": 1781033520001,
       "tag": "0004_goofy_sauron",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1785646575068,
+      "tag": "0005_add_missing_tables",
+      "breakpoints": true
     }
   ]
 }

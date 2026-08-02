@@ -1270,8 +1270,10 @@ export default function SquadDetailScreen() {
         }}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border, paddingBottom: botPad + 16 }]}>
+          <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border, paddingBottom: botPad + 16, maxHeight: "92%" }]}>
             <Text style={[styles.modalTitle, { color: colors.foreground }]}>Squad settings</Text>
+
+            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" style={{ flexShrink: 1 }}>
 
             <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>Name</Text>
             <TextInput
@@ -1502,6 +1504,8 @@ export default function SquadDetailScreen() {
               <Ionicons name="exit-outline" size={20} color={colors.destructive} />
               <Text style={[styles.actionText, { color: colors.destructive }]}>Leave squad</Text>
             </TouchableOpacity>
+
+            </ScrollView>
 
             <View style={styles.modalActions}>
               <TouchableOpacity onPress={() => setSettingsOpen(false)} style={[styles.modalBtn, { backgroundColor: colors.card }]}>

@@ -4,6 +4,7 @@ import app from './app';
 import { logger } from './lib/logger';
 import { getSmtpStatus } from './emailService';
 import { ensureEmailDedupTable } from './lib/emailDedup';
+import { ensureSchema } from './lib/schemaSync';
 import { checkPushReceipts, initPushTickets } from './lib/pushNotifications';
 import { storage } from './storage';
 import {
@@ -67,6 +68,11 @@ async function initStripe() {
     logger.warn({ err }, 'Stripe initialization skipped — connect Stripe via the Integrations tab to enable payments');
   }
 }
+
+// Idempotent startup schema sync — creates any tables/columns that exist in
+// the Drizzle schema but were not yet migrated to the live DB.  Runs before
+// everything else so routes never hit a "relation does not exist" 500.
+await ensureSchema();
 
 await initStripe();
 

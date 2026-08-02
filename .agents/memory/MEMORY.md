@@ -1,3 +1,4 @@
+- [Schema sync gap](schema-sync-gap.md) — new tables/columns MUST go in schemaSync.ts (IF NOT EXISTS); drizzle-kit push not re-run after bootstrap; missing favorites table broke squad vault.
 - [SecureStore + EXIF + Report/Block](securestore-exif-moderation.md) — auth tokens in SecureStore (not AsyncStorage); EXIF strip before upload; Drizzle eq() needs parseId() for req.params; or() type errors → two queries.
 - [Expo Go tunnel via serveo.net](expo-go-tunnel.md) — Expo Go on iPhone times out on the Replit dev domain; fix = serveo SSH tunnel + pre-warm both iOS and web bundles.
 - [Sentry + OTel + esbuild](sentry-otel-esbuild.md) — @sentry/node v8 needs @opentelemetry/* at runtime; externalize both "@opentelemetry/*" + "@sentry/node" in build.mjs or server crashes.
