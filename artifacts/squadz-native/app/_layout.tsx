@@ -33,8 +33,9 @@ import { ActivityBannerSurfacer } from "@/components/ActivityBannerSurfacer";
 import { TipCoachMark } from "@/components/TipCoachMark";
 import { installWebAlert } from "@/lib/webAlert";
 import { installWebShare } from "@/lib/webShare";
-import { configureRevenueCat, logOutRevenueCat, getLocalEntitlementActive } from "@/lib/revenuecat";
+import { configureRevenueCat, logOutRevenueCat, getLocalEntitlementActive, restoreSquadzPlus } from "@/lib/revenuecat";
 import { API_BASE, buildAuthHeaders, syncIapEntitlement } from "@/lib/api";
+import { useUserCache } from "@/context/UserCacheContext";
 import { initMonitoring } from "@/lib/monitoring";
 import { initAnalytics } from "@/lib/analytics";
 
@@ -359,22 +360,43 @@ function PushNotificationHandler() {
 // No-op on web / without SDK keys.
 function RevenueCatConnector() {
   const { isLoggedIn, currentUser, authToken } = useAuth();
+  const { refreshUsers } = useUserCache();
   useEffect(() => {
     if (isLoggedIn && currentUser.id) {
+      const userId = currentUser.id;
       void (async () => {
-        await configureRevenueCat(currentUser.id);
-        // B4: on launch, if the on-device RC entitlement disagrees with the
-        // server-gated state, ask the server to re-sync from RevenueCat.
+        await configureRevenueCat(userId);
+        // On launch, reconcile the on-device RC entitlement with the server.
+        //
+        // Case 1 — RC active, server false (reinstall / new device):
+        //   Call restorePurchases() first so the store re-validates the receipt,
+        //   then POST /api/iap/sync so the server flips is_squadz_plus. Finally
+        //   refresh the user cache so the gold ring appears immediately.
+        //
+        // Case 2 — RC inactive, server true (lapsed / refunded):
+        //   Skip restore (nothing to restore), just sync to let the server
+        //   clear the stale Pro flag.
         try {
           const local = await getLocalEntitlementActive();
-          if (local === null) return;
+          if (local === null) return; // web or SDK unavailable — nothing to do
           const r = await fetch(`${API_BASE}/api/subscription`, {
             headers: buildAuthHeaders(authToken),
             credentials: "include",
           });
           if (!r.ok) return;
           const d = (await r.json()) as { isPro?: boolean };
-          if (!!d.isPro !== local) void syncIapEntitlement(authToken);
+          const serverPro = !!d.isPro;
+          if (local && !serverPro) {
+            // RC says entitled but server doesn't know — restore purchases
+            // (re-validates receipt with the store) then sync the server.
+            await restoreSquadzPlus();
+            await syncIapEntitlement(authToken);
+            // Bust the user cache so the Pro ring shows without a manual refresh.
+            refreshUsers([userId]);
+          } else if (!local && serverPro) {
+            // Server thinks Pro but RC doesn't — sync to let the server correct.
+            void syncIapEntitlement(authToken);
+          }
         } catch {
           // Best-effort reconciliation only — never block launch on billing.
         }

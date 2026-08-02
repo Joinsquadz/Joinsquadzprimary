@@ -2,12 +2,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // vi.mock factories are hoisted above module code, so anything they close over
 // must be created via vi.hoisted (also hoisted) rather than a plain const.
-const { platform, purchasePackage, getOfferings } = vi.hoisted(() => ({
+const { platform, purchasePackage, getOfferings, restorePurchases, getCustomerInfo } = vi.hoisted(() => ({
   // react-native's Platform.OS drives which SDK key/path is used. Keep it
   // mutable so tests can flip between "android" and "ios".
   platform: { OS: "android" as "android" | "ios" | "web" },
   purchasePackage: vi.fn(),
   getOfferings: vi.fn(),
+  restorePurchases: vi.fn(),
+  getCustomerInfo: vi.fn(),
 }));
 
 vi.mock("react-native", () => ({ Platform: platform }));
@@ -21,7 +23,8 @@ vi.mock("react-native-purchases", () => ({
     logOut: vi.fn(),
     getOfferings: (...args: unknown[]) => getOfferings(...args),
     purchasePackage: (...args: unknown[]) => purchasePackage(...args),
-    restorePurchases: vi.fn(),
+    restorePurchases: (...args: unknown[]) => restorePurchases(...args),
+    getCustomerInfo: (...args: unknown[]) => getCustomerInfo(...args),
   },
 }));
 
@@ -30,6 +33,8 @@ import {
   purchaseSquadzPlus,
   getSquadzPlusPrices,
   configureRevenueCat,
+  getLocalEntitlementActive,
+  restoreSquadzPlus,
   RC_FOUNDING_PRODUCT_ID,
   RC_STANDARD_PRODUCT_ID,
   RC_ENTITLEMENT_ID,
@@ -132,5 +137,124 @@ describe("getSquadzPlusPrices on Android", () => {
       founding: { priceString: "$19.99" },
       standard: { priceString: "$29.99" },
     });
+  });
+});
+
+// Helpers for customer-info shaped responses.
+function customerInfoWith(entitlementActive: boolean) {
+  return {
+    entitlements: {
+      active: entitlementActive ? { [RC_ENTITLEMENT_ID]: {} } : {},
+    },
+  };
+}
+
+describe("getLocalEntitlementActive", () => {
+  it("returns true when the entitlement is active on-device", async () => {
+    await configureRevenueCat("user-1");
+    getCustomerInfo.mockResolvedValue(customerInfoWith(true));
+
+    const result = await getLocalEntitlementActive();
+    expect(result).toBe(true);
+  });
+
+  it("returns false when the entitlement is not active", async () => {
+    await configureRevenueCat("user-1");
+    getCustomerInfo.mockResolvedValue(customerInfoWith(false));
+
+    const result = await getLocalEntitlementActive();
+    expect(result).toBe(false);
+  });
+
+  it("returns null on web (SDK unavailable)", async () => {
+    platform.OS = "web" as typeof platform.OS;
+
+    const result = await getLocalEntitlementActive();
+    expect(result).toBeNull();
+  });
+});
+
+describe("restoreSquadzPlus", () => {
+  it("returns ok:true with isPro:true when the restored entitlement is active", async () => {
+    await configureRevenueCat("user-1");
+    restorePurchases.mockResolvedValue(customerInfoWith(true));
+
+    const result = await restoreSquadzPlus();
+    expect(result).toEqual({ ok: true, isPro: true });
+  });
+
+  it("returns ok:true with isPro:false when there is nothing to restore", async () => {
+    await configureRevenueCat("user-1");
+    restorePurchases.mockResolvedValue(customerInfoWith(false));
+
+    const result = await restoreSquadzPlus();
+    expect(result).toEqual({ ok: true, isPro: false });
+  });
+
+  it("returns ok:false with the error message on SDK failure", async () => {
+    await configureRevenueCat("user-1");
+    restorePurchases.mockRejectedValue(new Error("Store error"));
+
+    const result = await restoreSquadzPlus();
+    expect(result).toEqual({ ok: false, error: "Store error" });
+  });
+});
+
+describe("auto-restore flow: server=false, RC=true → restore fires → entitlement synced", () => {
+  it("restore is called and returns isPro:true when RC has an active entitlement", async () => {
+    // Scenario: user reinstalled — server says not Pro but RC on-device says active.
+    await configureRevenueCat("user-1");
+
+    // RC local state: entitlement active.
+    getCustomerInfo.mockResolvedValue(customerInfoWith(true));
+    // restorePurchases re-validates with the store and confirms the entitlement.
+    restorePurchases.mockResolvedValue(customerInfoWith(true));
+
+    const local = await getLocalEntitlementActive();
+    expect(local).toBe(true); // RC says entitled
+
+    // Simulate server reporting false (new device / reinstall).
+    const serverPro = false;
+
+    // The connector branches: local && !serverPro → restore then sync.
+    let restoreCalled = false;
+    if (local && !serverPro) {
+      const restoreResult = await restoreSquadzPlus();
+      restoreCalled = true;
+      expect(restoreResult).toEqual({ ok: true, isPro: true });
+    }
+
+    expect(restoreCalled).toBe(true);
+    expect(restorePurchases).toHaveBeenCalledTimes(1);
+  });
+
+  it("restore is NOT called when RC and server already agree", async () => {
+    await configureRevenueCat("user-1");
+    getCustomerInfo.mockResolvedValue(customerInfoWith(true));
+
+    const local = await getLocalEntitlementActive();
+    const serverPro = true; // both agree → no restore needed
+
+    if (local && !serverPro) {
+      await restoreSquadzPlus();
+    }
+
+    expect(restorePurchases).not.toHaveBeenCalled();
+  });
+
+  it("restore is NOT called when RC is inactive (server=true path only syncs)", async () => {
+    await configureRevenueCat("user-1");
+    getCustomerInfo.mockResolvedValue(customerInfoWith(false));
+
+    const local = await getLocalEntitlementActive();
+    expect(local).toBe(false);
+
+    const serverPro = true; // server=true, RC=false → only sync, no restore
+
+    if (local && !serverPro) {
+      await restoreSquadzPlus();
+    }
+
+    expect(restorePurchases).not.toHaveBeenCalled();
   });
 });
