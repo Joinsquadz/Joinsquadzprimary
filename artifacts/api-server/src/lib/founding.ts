@@ -121,3 +121,99 @@ export async function redeemFoundingSpot(subscriptionId: string): Promise<boolea
 
   return typeof db.transaction === 'function' ? db.transaction((tx) => run(tx)) : run(db);
 }
+
+/**
+ * Reconcile the founding_member_counter with the actual number of rows in
+ * founding_member_redemptions. Called once at server startup to:
+ *
+ *   1. Back-fill the redemptions ledger from stripe.checkout_sessions for any
+ *      founding subscriptions that paid while the founding tables were absent
+ *      (those webhook calls threw 500 and the tables were never written to).
+ *   2. Set the counter to exactly the ledger count so the gate is accurate.
+ *
+ * The entire reconciliation runs inside a transaction that holds the same
+ * advisory lock used by redeemFoundingSpot, so a concurrent webhook cannot
+ * observe an intermediate state or have its increment overwritten.
+ *
+ * Idempotent: safe to call on every boot. If counter == ledger == real
+ * redemptions this completes in <1 ms (two SELECTs, no writes).
+ */
+export async function reconcileFoundingCounter(): Promise<void> {
+  const { logger } = await import('./logger');
+
+  const run = async (tx: Executor): Promise<void> => {
+    // Hold the same advisory lock as redeemFoundingSpot to serialise with
+    // any concurrent webhook delivery that arrives during a rolling restart.
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(${FOUNDING_LOCK_KEY})`);
+
+    // --- Step 1: Back-fill the ledger from the Stripe-synced payment record.
+    //
+    // stripe.checkout_sessions is synced by stripe-replit-sync and carries the
+    // tier stamp we wrote into session metadata at checkout creation time.
+    // Any session with tier='founding' that completed before these tables
+    // existed will have a subscription_id but no redemption row; we insert it
+    // now. ON CONFLICT DO NOTHING makes this idempotent on every subsequent
+    // boot — rows already in the ledger from normal webhook delivery are
+    // untouched.
+    //
+    // The try/catch ensures graceful degradation: if stripe-replit-sync has
+    // not yet seeded the schema (fresh deploy, test environment), we skip the
+    // back-fill and reconcile against whatever the ledger already holds.
+    try {
+      await tx.execute(sql`
+        INSERT INTO founding_member_redemptions (subscription_id)
+        SELECT cs.subscription
+        FROM stripe.checkout_sessions cs
+        WHERE cs.metadata->>'tier' = 'founding'
+          AND cs.subscription IS NOT NULL
+        ON CONFLICT (subscription_id) DO NOTHING
+      `);
+    } catch (backfillErr) {
+      logger.warn(
+        { err: backfillErr },
+        '[founding] Back-fill from stripe.checkout_sessions failed — ' +
+          'reconciling counter against existing ledger only',
+      );
+    }
+
+    // --- Step 2: Recount and fix the counter from the (now complete) ledger.
+    const [countRow] = await tx
+      .select({ total: sql<number>`COUNT(*)::integer` })
+      .from(foundingMemberRedemptionsTable);
+    const actualCount = countRow?.total ?? 0;
+
+    const [counterRow] = await tx
+      .select()
+      .from(foundingMemberCounterTable)
+      .where(eq(foundingMemberCounterTable.id, 1));
+    const storedCount = counterRow?.redeemed ?? 0;
+
+    if (actualCount === storedCount) {
+      logger.info(
+        { redeemed: storedCount },
+        '[founding] Counter is accurate — no reconciliation needed',
+      );
+      return;
+    }
+
+    logger.warn(
+      { storedCount, actualCount },
+      '[founding] Counter drift detected — reconciling founding_member_counter',
+    );
+
+    await tx
+      .insert(foundingMemberCounterTable)
+      .values({ id: 1, redeemed: actualCount })
+      .onConflictDoUpdate({
+        target: foundingMemberCounterTable.id,
+        set: { redeemed: actualCount },
+      });
+
+    logger.info(
+      { previous: storedCount, corrected: actualCount },
+      '[founding] founding_member_counter reconciled',
+    );
+  };
+
+  return typeof db.transaction === 'function' ? db.transaction((tx) => run(tx)) : run(db);
+}

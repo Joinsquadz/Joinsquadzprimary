@@ -14,6 +14,7 @@
 import { sql } from 'drizzle-orm';
 import { db } from '@workspace/db';
 import { logger } from './logger';
+import { reconcileFoundingCounter } from './founding';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -467,6 +468,9 @@ export async function ensureSchema(): Promise<void> {
     await createIndexes();
     await createForeignKeys();
     logger.info('[schemaSync] Schema sync complete');
+    // Heal any counter drift caused by webhooks that fired before the
+    // founding_member_counter / founding_member_redemptions tables existed.
+    await reconcileFoundingCounter();
   } catch (err) {
     // A schema sync failure is serious but should not prevent the server from
     // starting — routes that depend on missing tables will 500, but the rest
