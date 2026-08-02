@@ -1781,7 +1781,7 @@ export default function EventDetailScreen() {
                         .map((uid) => {
                           if (uid === currentUser.id) return "you";
                           const u = resolveForDisplay(uid);
-                          return u.name.split(" ")[0];
+                          return (u.name ?? "").split(" ")[0] || "Someone";
                         })
                         .join(", ");
                   return (
@@ -1838,7 +1838,7 @@ export default function EventDetailScreen() {
                   <View key={m.id} style={[styles.msgRow, mine && { flexDirection: "row-reverse" }]}>
                     <UserAvatar initials={sender.initials} color={sender.color} imageUrl={sender.profileImageUrl} size={32} fontSize={11} />
                     <View style={[styles.msgBubble, { backgroundColor: mine ? colors.primary : colors.card, borderColor: colors.border }]}>
-                      {!mine && <Text style={[styles.msgSender, { color: colors.mutedForeground }]}>{sender.name.split(" ")[0]}</Text>}
+                      {!mine && <Text style={[styles.msgSender, { color: colors.mutedForeground }]}>{(sender.name ?? "").split(" ")[0] || "Someone"}</Text>}
                       <Text style={[styles.msgText, { color: mine ? "#fff" : colors.foreground }]}>{m.text}</Text>
                       <Text style={[styles.msgTime, { color: mine ? "rgba(255,255,255,0.7)" : colors.textDim }]}>{m.time}</Text>
                     </View>
@@ -2129,7 +2129,7 @@ export default function EventDetailScreen() {
                       >
                         <UserAvatar initials={m.initials} color={m.color} imageUrl={m.profileImageUrl} size={32} fontSize={11} />
                         <Text style={[styles.assignName, { color: colors.foreground, flex: 1 }]}>
-                          {m.name.split(" ")[0]}{m.id === currentUser.id ? " (You)" : ""}
+                          {(m.name ?? "").split(" ")[0] || "Someone"}{m.id === currentUser.id ? " (You)" : ""}
                         </Text>
                         <View style={[
                           styles.participantCheckbox,
@@ -2174,7 +2174,7 @@ export default function EventDetailScreen() {
                   {splitParticipants.map((m) => (
                     <View key={m.id} style={[styles.assignRow, { borderColor: colors.border }]}>
                       <UserAvatar initials={m.initials} color={m.color} imageUrl={m.profileImageUrl} size={32} fontSize={11} />
-                      <Text style={[styles.assignName, { color: colors.foreground }]}>{m.name.split(" ")[0]}{m.id === currentUser.id ? " (You)" : ""}</Text>
+                      <Text style={[styles.assignName, { color: colors.foreground }]}>{(m.name ?? "").split(" ")[0] || "Someone"}{m.id === currentUser.id ? " (You)" : ""}</Text>
                       {splitMode === "even" ? (
                         <View style={[styles.assignInputWrap, { backgroundColor: colors.primary + "12", borderColor: colors.primary + "30" }]}>
                           <Text style={[styles.dollar, { color: colors.primary }]}>$</Text>

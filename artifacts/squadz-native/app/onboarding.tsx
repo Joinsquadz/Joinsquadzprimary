@@ -24,7 +24,7 @@ import { CelebrationOverlay } from "@/components/CelebrationOverlay";
 import { claimOnce } from "@/lib/seenFlags";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { EMOJI_CHOICES } from "@/constants/emojis";
-import { readPendingInviteCode } from "@/lib/pendingInvite";
+import { readPendingInviteCode, readPendingEventCode } from "@/lib/pendingInvite";
 
 const SQUAD_COLORS = ["#FF6B2C", "#A855F7", "#2ECC8A", "#4A9EFF", "#FFB23E", "#FF6B2C"];
 const SQUAD_CHIPS = ["Friend Group", "Coworkers", "Family", "College", "Roommates", "Sports"];
@@ -116,12 +116,17 @@ export default function OnboardingScreen() {
     } else {
       // B6: no route params (e.g. cold-start resume of onboarding) — fall back
       // to a stored pending invite code (<24h old) so the invite still lands.
-      void readPendingInviteCode().then((stored) => {
+      void readPendingInviteCode().then(async (stored) => {
         if (stored) {
           armTour();
           router.replace({ pathname: "/squad/join", params: { code: stored, auto: "1" } } as never);
         } else {
-          router.replace("/(tabs)" as never);
+          const storedEvent = await readPendingEventCode();
+          if (storedEvent) {
+            router.replace({ pathname: "/join/[inviteCode]", params: { inviteCode: storedEvent } } as never);
+          } else {
+            router.replace("/(tabs)" as never);
+          }
         }
       });
     }

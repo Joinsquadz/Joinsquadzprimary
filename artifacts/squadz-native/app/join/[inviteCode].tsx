@@ -14,6 +14,7 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useData, useAuth } from "@/context/AppContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
+import { savePendingEventCode, clearPendingEventCode } from "@/lib/pendingInvite";
 
 type EventPreview = {
   emoji: string;
@@ -83,8 +84,11 @@ export default function EventJoinScreen() {
   }, [fetchPreview]);
 
   // Logged-out friends sign in / up first, then bounce back to this screen.
+  // Persist the code first so it survives a cold start mid-signup (router
+  // params are lost if the app restarts during the auth flow).
   useEffect(() => {
     if (!loggedIn && code) {
+      void savePendingEventCode(code);
       router.replace({ pathname: "/login", params: { joinEventCode: code } } as never);
     }
   }, [loggedIn, code]);
@@ -101,7 +105,9 @@ export default function EventJoinScreen() {
         body: JSON.stringify({ inviteCode: code }),
       });
       if (res.status === 409) {
-        // Already going — just open the event.
+        // Already going — just open the event. Terminal success: clear the
+        // persisted code so later logins don't bounce back to this screen.
+        void clearPendingEventCode();
         const body = (await res.json().catch(() => ({}))) as { id?: string };
         await refreshEvents();
         if (body.id) router.replace(`/event/${body.id}` as never);
@@ -109,11 +115,13 @@ export default function EventJoinScreen() {
         return;
       }
       if (res.status === 404) {
+        void clearPendingEventCode();
         setError("Code not found. Double-check the link and try again.");
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         return;
       }
       if (res.status === 410) {
+        void clearPendingEventCode();
         setError("This event has been cancelled.");
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         return;
@@ -124,6 +132,7 @@ export default function EventJoinScreen() {
         return;
       }
       const event = (await res.json()) as { id?: string };
+      void clearPendingEventCode();
       await refreshEvents();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       if (event.id) router.replace(`/event/${event.id}` as never);

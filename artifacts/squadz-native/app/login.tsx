@@ -19,7 +19,7 @@ import { SquadzIcon } from "@/components/SquadzIcon";
 import { GradientButton } from "@/components/GradientButton";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { fonts } from "@/constants/fonts";
-import { readPendingInviteCode } from "@/lib/pendingInvite";
+import { readPendingInviteCode, readPendingEventCode } from "@/lib/pendingInvite";
 
 type Screen = "splash" | "signin";
 
@@ -101,7 +101,12 @@ export default function LoginScreen() {
       if (stored) {
         router.replace({ pathname: "/squad/join", params: { code: stored, auto: "1" } } as never);
       } else {
-        router.replace("/(tabs)" as never);
+        const storedEvent = await readPendingEventCode();
+        if (storedEvent) {
+          router.replace({ pathname: "/join/[inviteCode]", params: { inviteCode: storedEvent } } as never);
+        } else {
+          router.replace("/(tabs)" as never);
+        }
       }
     }
   };

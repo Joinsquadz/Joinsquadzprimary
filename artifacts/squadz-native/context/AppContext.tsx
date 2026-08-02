@@ -116,6 +116,11 @@ export class SquadLimitError extends Error {
 // Explicit removeSecureToken calls in logout / deleteAccount handle them.
 const ALL_APP_STORAGE_KEYS: string[] = [
   ONBOARDING_PENDING_KEY,
+  // Vault UI restore state (app/vault.tsx) — NOT userId-scoped, so it must be
+  // cleared on logout or the next account restores the previous user's
+  // selected photo / scroll position.
+  "vault:selectedPhoto",
+  "vault:scrollY",
 ];
 
 type ApiUser = {
@@ -554,6 +559,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // render so apiFetch and the SSE handler always call the current version
   // without being listed as deps (which would invalidate the stable callbacks).
   const handleSessionExpiryRef = useRef<() => void>(() => {});
+  // True once the session-expiry teardown has fired; prevents concurrent 401s
+  // from triggering duplicate teardowns/toasts. Reset on new auth session.
+  const sessionExpiryFiredRef = useRef(false);
 
   // apiFetch uses refs (not state) so it is stable across renders and all
   // callbacks that depend on it are created once. On 401 it attempts a single
@@ -568,7 +576,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ...(options?.headers as Record<string, string>),
       };
       if (authTokenRef.current) headers.Authorization = `Bearer ${authTokenRef.current}`;
-      const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+      // 30s safety timeout: on flaky cellular networks fetch can otherwise hang
+      // indefinitely, leaving screens stuck on spinners. Callers that pass their
+      // own AbortSignal keep full control (no extra timeout is layered on).
+      const timedFetch = (url: string, init: RequestInit): Promise<Response> => {
+        if (init.signal) return fetch(url, init);
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 30_000);
+        return fetch(url, { ...init, signal: controller.signal }).finally(() =>
+          clearTimeout(timer),
+        );
+      };
+      const res = await timedFetch(`${API_BASE}${path}`, { ...options, headers });
 
       if (res.status === 401) {
         // Auth routes (login, register, refresh, …) legitimately return 401 —
@@ -578,7 +597,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (!isAuthRoute && refreshTokenRef.current && !isRefreshingRef.current) {
           isRefreshingRef.current = true;
           try {
-            const refreshRes = await fetch(`${API_BASE}/api/auth/refresh`, {
+            const refreshRes = await timedFetch(`${API_BASE}/api/auth/refresh`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ refreshToken: refreshTokenRef.current }),
@@ -594,7 +613,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                   void setSecureToken(REFRESH_TOKEN_KEY, refreshData.refreshToken);
                 }
                 const retryHeaders = { ...headers, Authorization: `Bearer ${refreshData.token}` };
-                return fetch(`${API_BASE}${path}`, { ...options, headers: retryHeaders });
+                return timedFetch(`${API_BASE}${path}`, { ...options, headers: retryHeaders });
               }
             }
             // Refresh rejected — session is definitively dead.
@@ -815,8 +834,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // handler (both created once, empty deps) always call the latest version.
   // Clears local state and shows a brief explanatory toast so the user
   // understands why they've been returned to the login screen.
+  // sessionExpiryFiredRef dedupes concurrent 401s: several in-flight requests
+  // failing at once must produce ONE teardown + toast, not a stack of toasts.
+  // Re-armed when a fresh session is applied (applyAuthSession).
   useEffect(() => {
     handleSessionExpiryRef.current = () => {
+      if (sessionExpiryFiredRef.current) return;
+      sessionExpiryFiredRef.current = true;
       clearLocalSession();
       showToast("You've been signed out. Please log in again.");
     };
@@ -1314,6 +1338,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     ) => {
       void setSecureToken(AUTH_TOKEN_KEY, token);
       authTokenRef.current = token;
+      sessionExpiryFiredRef.current = false;
       if (refreshToken) {
         void setSecureToken(REFRESH_TOKEN_KEY, refreshToken);
         refreshTokenRef.current = refreshToken;
@@ -1450,6 +1475,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const token = authToken;
     track("logout");
     analyticsReset();
+    // Intentional sign-out: suppress the "session expired" toast that in-flight
+    // requests would otherwise trigger when they 401 after tokens are cleared.
+    sessionExpiryFiredRef.current = true;
     if (token) {
       // Fire-and-forget server-side session teardown.
       fetch(`${API_BASE}/api/auth/logout`, {
@@ -1472,6 +1500,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setIsLoggedIn(false);
     setPendingOnboarding(false);
     setOwnPaymentHandles({ venmo: null, cashapp: null, zelle: null });
+    setIsPro(null);
     currentUserIdRef.current = ME.id;
   }, [authToken]);
 
@@ -1495,6 +1524,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
     track("account_deleted");
     analyticsReset();
+    // Intentional teardown: suppress the "session expired" toast from any
+    // in-flight requests that 401 after the account is gone.
+    sessionExpiryFiredRef.current = true;
     AsyncStorage.multiRemove(ALL_APP_STORAGE_KEYS).catch(() => {});
     void removeSecureToken(AUTH_TOKEN_KEY);
     void removeSecureToken(REFRESH_TOKEN_KEY);
@@ -1510,6 +1542,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setIsLoggedIn(false);
     setPendingOnboarding(false);
     setOwnPaymentHandles({ venmo: null, cashapp: null, zelle: null });
+    setIsPro(null);
     currentUserIdRef.current = ME.id;
     return { ok: true };
   }, [authToken]);

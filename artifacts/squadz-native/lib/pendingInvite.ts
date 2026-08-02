@@ -45,3 +45,46 @@ export async function clearPendingInviteCode(): Promise<void> {
     // Ignore.
   }
 }
+
+// Same persistence pattern for EVENT invite codes (joinsquadz.com/join/<code>).
+// Without this, a cold start during signup/onboarding loses the router params
+// and the invited friend lands on an empty home screen instead of the event.
+const PENDING_EVENT_INVITE_KEY = "@squadz/pendingEventInviteCode";
+
+export async function savePendingEventCode(code: string): Promise<void> {
+  if (!code) return;
+  try {
+    const payload: Stored = { code: code.trim(), savedAt: Date.now() };
+    await AsyncStorage.setItem(PENDING_EVENT_INVITE_KEY, JSON.stringify(payload));
+  } catch {
+    // Best-effort — the param-based flow still covers the warm path.
+  }
+}
+
+/** Returns the stored event invite code if present and less than 24h old. */
+export async function readPendingEventCode(): Promise<string | null> {
+  try {
+    const raw = await AsyncStorage.getItem(PENDING_EVENT_INVITE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<Stored>;
+    if (
+      typeof parsed.code !== "string" ||
+      typeof parsed.savedAt !== "number" ||
+      Date.now() - parsed.savedAt > EXPIRY_MS
+    ) {
+      await AsyncStorage.removeItem(PENDING_EVENT_INVITE_KEY);
+      return null;
+    }
+    return parsed.code;
+  } catch {
+    return null;
+  }
+}
+
+export async function clearPendingEventCode(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(PENDING_EVENT_INVITE_KEY);
+  } catch {
+    // Ignore.
+  }
+}

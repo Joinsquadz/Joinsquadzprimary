@@ -560,13 +560,14 @@ export default function VaultScreen() {
     const sub = AppState.addEventListener("change", (state) => {
       if (state !== "active") return;
       void (async () => {
-        await checkSubscription();
+        // fetchPhotos also refreshes isPro from the response payload, so no
+        // separate subscription check is needed here.
         await fetchPhotos();
         if (!isSquadVault && personalTab === "favorites") await fetchFavorites();
       })();
     });
     return () => sub.remove();
-  }, [checkSubscription, fetchPhotos, fetchFavorites, isSquadVault, personalTab]);
+  }, [fetchPhotos, fetchFavorites, isSquadVault, personalTab]);
 
   const imageUrl = (objectPath: string) => `${API_BASE}/api/storage${objectPath}`;
 
