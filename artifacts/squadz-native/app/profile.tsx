@@ -75,6 +75,7 @@ export default function ProfileScreen() {
   const [draftHandle, setDraftHandle] = useState("");
   const [savingHandle, setSavingHandle] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
+  const [squadLinkCopied, setSquadLinkCopied] = useState(false);
   const [devPushToken, setDevPushToken] = useState<string | null>(null);
   const [tokenCopied, setTokenCopied] = useState(false);
   const [sendingTestPush, setSendingTestPush] = useState(false);
@@ -372,17 +373,36 @@ export default function ProfileScreen() {
     return `${API_BASE}/api/add/friend/${code}`;
   }
 
+  /** Copy text on web: modern clipboard API → execCommand fallback for iframes. */
+  function webCopy(text: string): boolean {
+    try {
+      const el = document.createElement("textarea");
+      el.value = text;
+      el.style.cssText = "position:fixed;opacity:0;pointer-events:none";
+      document.body.appendChild(el);
+      el.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(el);
+      return ok;
+    } catch { return false; }
+  }
+
   async function handleShareFriendCode() {
     if (!friendCode) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const inviteUrl = buildInviteUrl(friendCode);
     if (Platform.OS === "web") {
+      const text = `${friendCode} — ${inviteUrl}`;
+      let copied = false;
       try {
-        await navigator.clipboard.writeText(`${friendCode} — ${inviteUrl}`);
+        await navigator.clipboard.writeText(text);
+        copied = true;
+      } catch {
+        copied = webCopy(text);
+      }
+      if (copied) {
         setCodeCopied(true);
         setTimeout(() => setCodeCopied(false), 2000);
-      } catch {
-        Alert.alert("Your Friend Code", `${friendCode}\n\n${inviteUrl}`);
       }
     } else {
       try {
@@ -407,11 +427,16 @@ export default function ProfileScreen() {
       : `https://joinsquadz.com/squad/${firstSquad.id}`;
     const msg = `Join "${firstSquad.emoji} ${firstSquad.name}" on SquadZ — we use it to find when we're all free and plan hangouts 📅\n\n${link}`;
     if (Platform.OS === "web") {
+      let copied = false;
       try {
         await navigator.clipboard.writeText(link);
-        Alert.alert("Link copied!", "Share it with your crew.");
+        copied = true;
       } catch {
-        Alert.alert("Squad Invite Link", link);
+        copied = webCopy(link);
+      }
+      if (copied) {
+        setSquadLinkCopied(true);
+        setTimeout(() => setSquadLinkCopied(false), 2000);
       }
     } else {
       try {
@@ -741,18 +766,27 @@ export default function ProfileScreen() {
           <TouchableOpacity
             onPress={() => { void handleShareSquadInvite(); }}
             activeOpacity={0.8}
-            style={[styles.inviteCrewCard, { backgroundColor: colors.primary + "12", borderColor: colors.primary + "30" }]}
+            style={[styles.inviteCrewCard, {
+              backgroundColor: squadLinkCopied ? colors.green + "12" : colors.primary + "12",
+              borderColor: squadLinkCopied ? colors.green + "30" : colors.primary + "30",
+            }]}
           >
-            <View style={[styles.inviteCrewIcon, { backgroundColor: colors.primary + "22" }]}>
-              <Ionicons name="person-add-outline" size={22} color={colors.primary} />
+            <View style={[styles.inviteCrewIcon, { backgroundColor: squadLinkCopied ? colors.green + "22" : colors.primary + "22" }]}>
+              <Ionicons name={squadLinkCopied ? "checkmark" : "person-add-outline"} size={22} color={squadLinkCopied ? colors.green : colors.primary} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={[styles.inviteCrewTitle, { color: colors.foreground }]}>Invite your crew</Text>
+              <Text style={[styles.inviteCrewTitle, { color: colors.foreground }]}>
+                {squadLinkCopied ? "Link copied!" : "Invite your crew"}
+              </Text>
               <Text style={[styles.inviteCrewSub, { color: colors.mutedForeground }]}>
-                Share a link to {mySquads[0]?.emoji} {mySquads[0]?.name}
+                {squadLinkCopied ? "Paste it and share with your crew" : `Share a link to ${mySquads[0]?.emoji} ${mySquads[0]?.name}`}
               </Text>
             </View>
-            <Ionicons name="share-outline" size={20} color={colors.primary} />
+            <Ionicons
+              name={squadLinkCopied ? "checkmark-circle" : (Platform.OS === "web" ? "copy-outline" : "share-outline")}
+              size={20}
+              color={squadLinkCopied ? colors.green : colors.primary}
+            />
           </TouchableOpacity>
         )}
 

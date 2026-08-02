@@ -65,6 +65,7 @@ export default function LoginScreen() {
   const cardBg = { backgroundColor: colors.card, borderColor: colors.border };
 
   const handleSignIn = async () => {
+    if (loading) return; // prevent double-submit via keyboard "Done" tap
     setErrorMsg(null);
     setSuccessMsg(null);
     const trimmedEmail = email.trim();

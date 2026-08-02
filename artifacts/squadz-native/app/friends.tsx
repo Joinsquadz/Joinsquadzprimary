@@ -39,7 +39,30 @@ export default function FriendsScreen() {
   const [messagingId, setMessagingId] = useState<string | null>(null);
   const [addingFriend, setAddingFriend] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
+  const [feedbackMsg, setFeedbackMsg] = useState<{ text: string; isError: boolean } | null>(null);
+  const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<TextInput>(null);
+
+  /** Copy text to clipboard with execCommand fallback for cross-origin iframes. */
+  function webCopy(text: string): boolean {
+    try {
+      const el = document.createElement("textarea");
+      el.value = text;
+      el.style.cssText = "position:fixed;opacity:0;pointer-events:none";
+      document.body.appendChild(el);
+      el.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(el);
+      return ok;
+    } catch { return false; }
+  }
+
+  /** Show a brief inline feedback banner (web-only substitute for Alert.alert). */
+  function showFeedback(text: string, isError = false) {
+    if (feedbackTimer.current) clearTimeout(feedbackTimer.current);
+    setFeedbackMsg({ text, isError });
+    feedbackTimer.current = setTimeout(() => setFeedbackMsg(null), 3500);
+  }
 
   // Pre-load friend profiles
   useEffect(() => {
@@ -111,12 +134,20 @@ export default function FriendsScreen() {
     if (!friendCode) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (Platform.OS === "web") {
+      // Try modern clipboard API first; fall back to execCommand for
+      // cross-origin iframes (e.g. Replit preview) where clipboard is blocked.
+      let copied = false;
       try {
         await navigator.clipboard.writeText(friendCode);
+        copied = true;
+      } catch {
+        copied = webCopy(friendCode);
+      }
+      if (copied) {
         setCodeCopied(true);
         setTimeout(() => setCodeCopied(false), 2000);
-      } catch {
-        Alert.alert("Your Friend Code", friendCode);
+      } else {
+        showFeedback(`Your code: ${friendCode}`, false);
       }
     } else {
       try {
@@ -150,11 +181,19 @@ export default function FriendsScreen() {
     Share.share({ message: msg, title: "Add me on SquadZ" });
   }
 
+  function notify(title: string, message: string, isError = false) {
+    if (Platform.OS === "web") {
+      showFeedback(message, isError);
+    } else {
+      Alert.alert(title, message);
+    }
+  }
+
   async function handleAddFriend() {
     const code = codeInput.trim().toUpperCase();
     if (!code || addingFriend) return;
     if (!code.startsWith("SQ-")) {
-      Alert.alert("Invalid Code", "Friend codes look like SQ-XXXX. Check the code and try again.");
+      notify("Invalid Code", "Friend codes look like SQ-XXXX. Check the code and try again.", true);
       return;
     }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -164,26 +203,26 @@ export default function FriendsScreen() {
         headers: buildAuthHeaders(authToken),
       });
       if (res.status === 404) {
-        Alert.alert("Code Not Found", "No SquadZ user has that friend code. Double-check it and try again.");
+        notify("Code Not Found", "No SquadZ user has that friend code. Double-check it and try again.", true);
         return;
       }
       if (!res.ok) {
-        Alert.alert("Something went wrong", "Couldn't look up that code. Please try again.");
+        notify("Something went wrong", "Couldn't look up that code. Please try again.", true);
         return;
       }
       const found = await res.json() as { id: string; firstName?: string; lastName?: string };
       const name = [found.firstName, found.lastName].filter(Boolean).join(" ") || "your new friend";
       if (friends.includes(found.id)) {
-        Alert.alert("Already Friends!", `You and ${name} are already connected on SquadZ.`);
+        notify("Already Friends!", `You and ${name} are already connected on SquadZ.`);
         return;
       }
       addFriend(found.id);
       setCodeInput("");
       inputRef.current?.blur();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert("Friend Added! 🎉", `You and ${name} are now friends on SquadZ.`);
+      notify("Friend Added! 🎉", `You and ${name} are now friends on SquadZ.`);
     } catch {
-      Alert.alert("Network Error", "Couldn't connect. Please check your connection and try again.");
+      notify("Network Error", "Couldn't connect. Please check your connection and try again.", true);
     } finally {
       setAddingFriend(false);
     }
@@ -214,6 +253,21 @@ export default function FriendsScreen() {
         <Text style={[styles.headerTitle, { color: colors.foreground }]}>Friends</Text>
         <View style={{ width: 40 }} />
       </View>
+
+      {/* Inline feedback banner — replaces Alert.alert (no-op on web) */}
+      {feedbackMsg && (
+        <View style={{
+          marginHorizontal: 16, marginTop: 8,
+          borderRadius: 12, paddingHorizontal: 16, paddingVertical: 10,
+          backgroundColor: feedbackMsg.isError ? "#ff444420" : "#22c55e20",
+          borderWidth: 1,
+          borderColor: feedbackMsg.isError ? "#ff444450" : "#22c55e50",
+        }}>
+          <Text style={{ fontSize: 14, fontWeight: "600", color: feedbackMsg.isError ? "#ef4444" : "#16a34a" }}>
+            {feedbackMsg.text}
+          </Text>
+        </View>
+      )}
 
       <KeyboardAwareScrollViewCompat
         contentContainerStyle={{ paddingBottom: botPad + 24, paddingHorizontal: 20, paddingTop: 20 }}
