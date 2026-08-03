@@ -36,6 +36,7 @@ import { installWebAlert } from "@/lib/webAlert";
 import { installWebShare } from "@/lib/webShare";
 import { logOutRevenueCat } from "@/lib/revenuecat";
 import { reconcileRcEntitlement } from "@/lib/rcReconcile";
+import { routeFromNotificationData } from "@/lib/routeFromNotificationData";
 import { useUserCache } from "@/context/UserCacheContext";
 import { initMonitoring } from "@/lib/monitoring";
 import { initAnalytics } from "@/lib/analytics";
@@ -204,75 +205,8 @@ function PushNotificationHandler() {
     };
   }, [isLoggedIn, authToken]);
 
-  // Shared deep-link routing for notification taps, used by both the live
-  // response listener and the cold-start launch handler.
-  const routeFromNotificationData = useCallback((data?: Record<string, string>) => {
-    if (!data?.screen) return;
-
-    switch (data.screen) {
-      case "availability":
-        if (data.squadId) {
-          router.push({ pathname: "/availability", params: { squadId: data.squadId } } as never);
-        } else if (data.eventId) {
-          router.push({ pathname: "/availability", params: { eventId: data.eventId } } as never);
-        }
-        break;
-      case "conversation":
-        if (data.conversationId) {
-          router.push({ pathname: "/conversation/[id]", params: { id: data.conversationId } } as never);
-        }
-        break;
-      case "event":
-        if (data.eventId) {
-          router.push({
-            pathname: "/event/[id]",
-            params: { id: data.eventId, ...(data.tab ? { tab: data.tab } : {}) },
-          } as never);
-        }
-        break;
-      case "trip":
-        // Idea digests/nudges land on the Ideas tab; confirmations land on the
-        // itinerary. The trip screen validates the tab param and falls back to
-        // itinerary for anything unknown.
-        if (data.eventId) {
-          router.push({
-            pathname: "/trip/[id]",
-            params: { id: data.eventId, ...(data.tab ? { tab: data.tab } : {}) },
-          } as never);
-        }
-        break;
-      case "squad":
-        if (data.squadId) {
-          router.push({ pathname: "/squad/[id]", params: { id: data.squadId } } as never);
-        }
-        break;
-      case "vault":
-        // Vault comment notifications carry a photoId so the tap opens the
-        // specific photo (VaultMediaDetail) rather than the generic vault.
-        if (data.photoId) {
-          router.push({
-            pathname: "/vault",
-            params: {
-              ...(data.squadId ? { squadId: data.squadId } : {}),
-              ...(data.eventId ? { eventId: data.eventId } : {}),
-              photoId: data.photoId,
-            },
-          } as never);
-        } else if (data.squadId) {
-          router.push({ pathname: "/vault", params: { squadId: data.squadId } } as never);
-        }
-        break;
-      case "friends":
-        router.push("/friends" as never);
-        break;
-      case "feed":
-        router.navigate("/(tabs)/feed" as never);
-        break;
-      case "activity":
-        router.push("/activity" as never);
-        break;
-    }
-  }, []);
+  // routeFromNotificationData is imported from @/lib/routeFromNotificationData
+  // so it can be unit-tested independently of this component.
 
   // Notification responses can be delivered to both the live listener and the
   // cold-start getLastNotificationResponseAsync() path; dedupe by identifier so
@@ -289,7 +223,9 @@ function PushNotificationHandler() {
         | undefined;
       routeFromNotificationData(data);
     },
-    [routeFromNotificationData],
+    // routeFromNotificationData is a stable imported function — no dep needed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
   );
 
   // Deep-link listener for notification taps. Handles taps while the app is

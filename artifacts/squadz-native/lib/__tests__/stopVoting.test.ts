@@ -81,7 +81,7 @@ describe("stop vote affordance when STOP_VOTING_ENABLED = false", () => {
 
   it("confirmed stops are also unaffected regardless of the flag", () => {
     const confirmed = makeStop({ status: "confirmed", votes: [] });
-    const flags = stopVotingUIFlags(confirmed, false);
+    const flags = stopVotingUIFlags(confirmed, true /* hypothetically re-enabled */);
     expect(flags.showProposedBadge).toBe(false);
     expect(flags.showVoteHeart).toBe(false);
     expect(flags.showConfirmButton).toBe(false);
