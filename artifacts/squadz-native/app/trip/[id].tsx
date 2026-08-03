@@ -100,6 +100,7 @@ import {
   voteStop,
   confirmStop,
   addPacking,
+  STOP_VOTING_ENABLED,
   patchPacking,
   deletePacking,
   type NewStopInput,
@@ -1011,14 +1012,16 @@ export default function TripDetailScreen() {
                 {stop.endTime ? `${stop.time} – ${stop.endTime}` : stop.time}
               </Text>
             ) : null}
-            {proposed ? (
+            {/* "Proposed" badge — hidden while stop voting is soft-deprecated.
+                Ideas is the replacement surface. Re-enable via STOP_VOTING_ENABLED. */}
+            {STOP_VOTING_ENABLED && proposed ? (
               <View style={[styles.proposedPill, { backgroundColor: colors.gold + "22" }]}>
                 <Text style={[styles.proposedPillText, { color: colors.gold }]}>Proposed</Text>
               </View>
             ) : null}
           </View>
           <Text style={[styles.stopTitle, { color: colors.foreground }]}>{stop.title}</Text>
-          {proposed && stop.createdBy ? (
+          {STOP_VOTING_ENABLED && proposed && stop.createdBy ? (
             <Text style={[styles.stopSuggestedBy, { color: colors.textDim }]}>
               Suggested by {mine ? "you" : resolveUser(stop.createdBy).name.split(" ")[0]}
             </Text>
@@ -1046,7 +1049,9 @@ export default function TripDetailScreen() {
             {typeof stop.cost === "number" && stop.cost > 0 ? (
               <Text style={[styles.stopCost, { color: colors.green }]}>${stop.cost.toFixed(0)}/person</Text>
             ) : null}
-            {proposed ? (
+            {/* Vote heart + voter stack — hidden while stop voting is soft-deprecated.
+                Ideas is the replacement surface. Re-enable via STOP_VOTING_ENABLED. */}
+            {STOP_VOTING_ENABLED && proposed ? (
               <VoteHeart
                 voted={voted}
                 count={displayVotes.length}
@@ -1056,7 +1061,7 @@ export default function TripDetailScreen() {
                 onPress={() => handleVote(stop)}
               />
             ) : null}
-            {proposed && displayVotes.length > 0 ? (
+            {STOP_VOTING_ENABLED && proposed && displayVotes.length > 0 ? (
               <View style={styles.voterStack}>
                 {displayVotes.slice(0, 3).map((uid, i) => {
                   const u = resolveUser(uid);

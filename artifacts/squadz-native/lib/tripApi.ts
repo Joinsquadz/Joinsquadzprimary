@@ -111,6 +111,15 @@ export function deleteStop(
   return request(`/api/events/${eventId}/itinerary/${stopId}`, "DELETE", token, { version });
 }
 
+// Re-exported from the zero-dep flags file so screens that already import from
+// tripApi don't need a separate import statement.
+export { STOP_VOTING_ENABLED } from "@/lib/featureFlags";
+
+/**
+ * @deprecated UI removed 2026-08-03 — proposed-stop voting is soft-deprecated
+ * in favour of Ideas. Kept so the server route stays reachable from the API layer.
+ * Re-enable via STOP_VOTING_ENABLED in lib/featureFlags.ts if the decision is reversed.
+ */
 export function voteStop(
   eventId: string,
   stopId: string,

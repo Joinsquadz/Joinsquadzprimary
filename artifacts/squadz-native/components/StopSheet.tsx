@@ -18,6 +18,7 @@ import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/dat
 import { useColors } from "@/hooks/useColors";
 import type { ItineraryStop, StopCategory } from "@/types";
 import { STOP_CATEGORIES, STOP_CATEGORY_META, formatDayHeading } from "@/lib/tripUtils";
+import { STOP_VOTING_ENABLED } from "@/lib/tripApi";
 import type { NewStopInput, StopPatch } from "@/lib/tripApi";
 
 /** A Date → "7:00 PM" wall-clock label (how stop times are stored). */
@@ -142,7 +143,9 @@ export function StopSheet({
         assigneeId: editing.assigneeId ?? null,
       });
     } else {
-      setDraft(emptyDraft(defaultDay, canConfirm ? "confirmed" : "proposed"));
+      // When stop voting is disabled, all new stops are confirmed regardless of
+      // the canConfirm flag — "proposed" is no longer a valid creation path.
+      setDraft(emptyDraft(defaultDay, STOP_VOTING_ENABLED && !canConfirm ? "proposed" : "confirmed"));
     }
   }, [visible, editing, defaultDay, canConfirm]);
 
@@ -365,28 +368,35 @@ export function StopSheet({
               style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground, height: 70, textAlignVertical: "top", paddingTop: 12 }]}
             />
 
-            <Text style={[styles.label, { color: colors.mutedForeground }]}>Status</Text>
-            <View style={styles.statusRow}>
-              {(["confirmed", "proposed"] as const).map((st) => {
-                const active = draft.status === st;
-                return (
-                  <TouchableOpacity
-                    key={st}
-                    onPress={() => setDraft((d) => ({ ...d, status: st }))}
-                    style={[styles.statusChip, { borderColor: active ? colors.primary : colors.border, backgroundColor: active ? colors.primary + "18" : colors.background }]}
-                  >
-                    <Ionicons
-                      name={st === "confirmed" ? "checkmark-circle" : "help-circle"}
-                      size={16}
-                      color={active ? colors.primary : colors.mutedForeground}
-                    />
-                    <Text style={[styles.statusText, { color: active ? colors.primary : colors.mutedForeground }]}>
-                      {st === "confirmed" ? "Confirmed" : "Proposed (let the squad vote)"}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+            {/* Status picker — hidden when stop voting is soft-deprecated.
+                Ideas is the replacement suggest-and-vote surface. Re-enable
+                by setting STOP_VOTING_ENABLED = true in lib/tripApi.ts. */}
+            {STOP_VOTING_ENABLED ? (
+              <>
+                <Text style={[styles.label, { color: colors.mutedForeground }]}>Status</Text>
+                <View style={styles.statusRow}>
+                  {(["confirmed", "proposed"] as const).map((st) => {
+                    const active = draft.status === st;
+                    return (
+                      <TouchableOpacity
+                        key={st}
+                        onPress={() => setDraft((d) => ({ ...d, status: st }))}
+                        style={[styles.statusChip, { borderColor: active ? colors.primary : colors.border, backgroundColor: active ? colors.primary + "18" : colors.background }]}
+                      >
+                        <Ionicons
+                          name={st === "confirmed" ? "checkmark-circle" : "help-circle"}
+                          size={16}
+                          color={active ? colors.primary : colors.mutedForeground}
+                        />
+                        <Text style={[styles.statusText, { color: active ? colors.primary : colors.mutedForeground }]}>
+                          {st === "confirmed" ? "Confirmed" : "Proposed (let the squad vote)"}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </>
+            ) : null}
             </>
             ) : null}
           </ScrollView>
@@ -398,7 +408,7 @@ export function StopSheet({
               style={[styles.saveBtn, { backgroundColor: colors.primary, opacity: !draft.title.trim() || saving ? 0.5 : 1 }]}
             >
               <Text style={styles.saveBtnText}>
-                {saving ? "Saving…" : editing ? "Save changes" : draft.status === "proposed" ? "Suggest to the squad" : "Add to plan"}
+                {saving ? "Saving…" : editing ? "Save changes" : (STOP_VOTING_ENABLED && draft.status === "proposed") ? "Suggest to the squad" : "Add to plan"}
               </Text>
             </TouchableOpacity>
           </View>

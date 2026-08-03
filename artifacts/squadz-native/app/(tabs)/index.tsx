@@ -35,6 +35,7 @@ import { LiveStatusBanner } from "@/components/LiveStatusBanner";
 import { CelebrationOverlay } from "@/components/CelebrationOverlay";
 import { claimOnce } from "@/lib/seenFlags";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
+import { STOP_VOTING_ENABLED } from "@/lib/tripApi";
 import { useToast } from "@/context/ToastContext";
 import { todayKey } from "@/lib/tripUtils";
 
@@ -480,7 +481,9 @@ export default function HomeScreen() {
           route: `/event/${e.id}`,
         });
       }
-      if (e.type === "trip") {
+      // Stop-vote "needs you" nudge — hidden while stop voting is soft-deprecated.
+      // Ideas is the replacement suggest-and-vote surface. Re-enable via STOP_VOTING_ENABLED.
+      if (STOP_VOTING_ENABLED && e.type === "trip") {
         const openVotes = e.itinerary.filter((s) => s.status === "proposed" && s.createdBy !== me && !s.votes.includes(me));
         if (openVotes.length > 0) {
           items.push({
