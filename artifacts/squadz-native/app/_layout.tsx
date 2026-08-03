@@ -265,6 +265,12 @@ function PushNotificationHandler() {
       case "friends":
         router.push("/friends" as never);
         break;
+      case "feed":
+        router.navigate("/(tabs)/feed" as never);
+        break;
+      case "activity":
+        router.push("/activity" as never);
+        break;
     }
   }, []);
 
