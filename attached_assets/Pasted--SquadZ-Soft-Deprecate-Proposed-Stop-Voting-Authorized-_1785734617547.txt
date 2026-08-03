@@ -1,0 +1,49 @@
+# SquadZ — Soft-Deprecate Proposed-Stop Voting
+
+**Authorized by production data:** 12 trips with itineraries; only 3 ever used proposed-stop
+voting or stop votes, all past, **zero upcoming**. No migration, no backfill, no live-trip cleanup
+required.
+
+**Scope:** UI-only removal of the proposed-stop voting path for NEW usage. Server route and stored
+data stay intact. Do not touch the Ideas feature. Do not modify `events.itinerary[].votes` data.
+Baseline: 916 API / 284 mobile — must still pass.
+
+---
+
+## 1. What Changes
+
+- **Hide the "proposed" status option** wherever an organizer creates or edits an itinerary stop.
+  New stops can no longer be created in `proposed` status. Existing stops keep their status.
+- **Hide the stop vote affordance** (`renderStop`'s vote button / tap-to-vote) in the trip
+  itinerary. Stop vote counts are no longer displayed or tappable.
+- **Legacy stops still render.** A past trip with a `proposed` stop must still display that stop
+  correctly — just without the voting UI and without a "proposed" badge implying an open decision.
+  Render it as a normal stop. Nothing disappears from any historical trip.
+- **Ideas becomes the single suggest-and-vote surface** on trips. No new UI is added in this batch.
+
+## 2. What Does NOT Change
+
+- `POST /events/:id/itinerary/:stopId/vote` stays live and functional server-side (do not delete,
+  do not 410). Hard removal is a separate future decision once we're confident nothing calls it.
+- `events.itinerary[].votes` data stays exactly as stored. No migration, no nulling, no cleanup.
+- `voteStop()` in `lib/tripApi.ts` stays exported but becomes unreferenced by screens — leave it
+  in place with a deprecation comment noting the UI was removed and the date.
+- All 7 existing `events.trips.test.ts` stop-vote tests must continue to pass unchanged. If any
+  fail, you've changed server behavior — revert that part.
+
+## 3. Implementation Notes
+
+- Prefer a single well-named constant/flag (e.g. `STOP_VOTING_ENABLED = false`) gating the UI
+  rather than deleting the render code outright, so re-enabling is trivial if this proves wrong.
+- Add a short comment at each gated site pointing to Ideas as the replacement.
+- `ensureTripEvent` and all other stop logic: untouched.
+
+## 4. Testing
+
+- Confirm the 7 stop-vote API tests still pass unchanged (proof the server is untouched).
+- Add a mobile test asserting the stop vote affordance does not render when
+  `STOP_VOTING_ENABLED` is false, including for a stop that has existing votes.
+- Add a mobile test asserting a legacy `proposed` stop still renders (title, time, day placement)
+  with voting UI absent.
+- Confirm no Ideas tests changed and no Ideas source files were modified in this batch's diff.
+- Report final counts against the 916 / 284 baseline.
