@@ -1,0 +1,242 @@
+# SquadZ — "Ideas" Feature (Suggest & Vote on Plan Activities)
+
+**Scope:** New feature. Do not touch any confirmed-passing code outside what's listed below.
+Baseline test counts before starting: 787 API / 240 mobile — both must still pass after this batch,
+plus new tests for this feature (see Testing section).
+
+---
+
+## 1. Product Summary
+
+Add a way for squad members to suggest ideas for a Plan (trip or event) and vote on them, so a
+group can crowdsource an itinerary instead of one person guessing what everyone wants. Lives in
+a new **"Ideas"** tab on the Plan Detail screen, alongside existing tabs (Details / Polls / Vault / etc.).
+
+This is **not** a replacement for Polls. Polls = closed-ended single decision ("Saturday or Sunday?").
+Ideas = open-ended, ongoing list of suggestions that gets upvoted and gradually confirmed into the
+plan. **A "create poll from top ideas" escalation flow is explicitly OUT OF SCOPE for v1** — do not
+build any Ideas↔Polls integration, linkage, or UI. Organizers who want a final vote can manually
+create a standard Poll. Keep the two data models fully separate.
+
+**Resolution model (v1):** votes never auto-confirm anything. Votes rank ideas and trigger the
+one-time organizer nudge at threshold; only an explicit organizer/co-admin confirm action moves an
+idea into the itinerary. Do not implement any automatic status change based on vote count.
+
+### Locked product decisions
+- **Free tier:** Ideas is free for all users (same tier as DMs / Vibe Feed / Moments). No Squadz+
+  gate. Submitting/voting on ideas does **not** count against the 5-plans-per-12-months cap.
+- **Applies to both Trips and Events.** For Events, ideas are just a flat list. For Trips, an idea
+  can optionally be tagged to a specific date within the trip's date range; untagged ideas show
+  under "General."
+  - ⚠️ Assumption: trips do not currently have a structured day-by-day/time-blocked itinerary in
+    the data model. If that assumption is wrong (i.e., trips already have day/time blocks), stop
+    and flag it — the `suggested_date` field below should become a reference to that existing
+    structure instead of a raw date.
+- **Voting:** simple toggleable upvote (heart/thumbs), one vote per user per idea. No ranked
+  choice, no downvotes.
+- **Permissions:**
+  - Any squad member who is part of the plan (any RSVP status, not just "going") can submit and vote.
+  - Submitter can edit/delete their own idea's content (title/description/link/cost/date/category)
+    only while it's `pending`. Once confirmed or archived, the submitter can no longer edit content
+    (they'd need to ask an organizer, or organizer un-confirms it back to pending first).
+  - Organizer + co-admins can edit any idea's content regardless of status (typo fixes, adjusting
+    date/cost after confirming, etc.) — same field validation rules as creation apply to edits.
+  - Organizer + co-admins can confirm, archive, un-confirm (revert to pending), pin, and **delete
+    any idea regardless of its status** (pending, confirmed, or archived). Deleting a confirmed
+    idea removes it from the itinerary view.
+  - If a submitter or voter is later removed from the squad/plan, their existing idea and votes
+    remain (historical record, still attributed to them) but they can no longer edit, vote, or
+    submit further — enforced by the existing membership check on every endpoint.
+- **Confirming an idea** moves it to a "Confirmed" section of the plan, grouped by date for trips
+  (unscheduled confirmed ideas under "General"). This is the itinerary view.
+- **Notifications** (reuse the existing debounce/cooldown infra from the notification system,
+  don't build a parallel mechanism):
+  - New idea(s) added → debounced/digest notification to plan members (same pattern as
+    vault/feed/moment debounce — don't fire one notification per idea if several are added in a
+    short window).
+  - An idea crosses a vote threshold (majority of "going" RSVPs) → single one-time nudge to
+    organizer/co-admins to review. Do not re-fire on every subsequent vote.
+  - Idea confirmed → notify plan members once.
+  - No notification on individual votes.
+- **Privacy:** ideas and votes never cross squad boundaries. Cascade-delete all ideas/votes when
+  the parent plan is deleted. Non-members of the plan cannot read or query ideas via any
+  endpoint — verify this server-side, not just client-side (same server-side enforcement
+  discipline as the free-tier squad cap).
+
+---
+
+## 2. Data Model
+
+### `plan_ideas`
+| field | type | notes |
+|---|---|---|
+| id | uuid pk | |
+| plan_id | fk → plans | required |
+| submitted_by_user_id | fk → users | required |
+| title | string(100) | required |
+| description | string(500) | optional |
+| category | enum | `activity`, `food`, `lodging`, `transport`, `other` — for events, default `activity` and hide the category picker in UI |
+| link_url | string | optional, validate as URL |
+| estimated_cost | decimal | optional |
+| suggested_date | date | optional, trips only, must fall within plan's start/end date range (validate server-side) |
+| status | enum | `pending`, `confirmed`, `archived` |
+| pinned_at | timestamp nullable | organizer/co-admin only; pinned ideas sort to top of the pending list regardless of vote count |
+| sort_order | integer nullable | position within the itinerary; only meaningful once `status = confirmed`. Assigned on confirm (append to end of its date group / General group). Confirmed items sort by `sort_order` within their group, not by votes. |
+| created_at / updated_at | timestamp | |
+
+### `idea_votes`
+| field | type | notes |
+|---|---|---|
+| id | uuid pk | |
+| idea_id | fk → plan_ideas | |
+| user_id | fk → users | |
+| created_at | timestamp | |
+| — unique constraint on (idea_id, user_id) | | enforces one vote per user |
+| — `ON DELETE CASCADE` from idea_votes.idea_id → plan_ideas.id | | deleting an idea must delete its votes, independent of the plan-level cascade already noted below |
+
+No comments/threads in v1 — explicitly out of scope, don't build it.
+
+**Input handling:** `title`, `description`, and `link_url` must go through the same text
+sanitization/validation utilities already used elsewhere in the app for user-submitted content
+(don't build a new sanitizer). Validate `link_url` is a well-formed URL before saving; reject
+silently-broken values with a clear client-side error rather than a 500.
+
+---
+
+## 3. API Endpoints
+
+- `POST /api/plans/:planId/ideas` — create idea. Server-side: verify caller is a plan member;
+  verify `suggested_date` (if present) falls within plan date range and plan is a trip.
+- `GET /api/plans/:planId/ideas` — list, filterable by `status`/`category`, sortable by vote count
+  (default) or created_at. Server-side: verify caller is a plan member before returning anything.
+- `PATCH /api/plans/:planId/ideas/:id` — edit content. Submitter can edit only their own idea and
+  only while `status = pending`. Organizer/co-admin can edit any idea's content at any status.
+  Re-run the same field validation as create (title length, date-in-range, URL format, etc.).
+- `DELETE /api/plans/:planId/ideas/:id` — submitter (own idea, pending only) or organizer/co-admin
+  (any idea, any status — including confirmed/archived).
+- `POST /api/plans/:planId/ideas/:id/vote` — toggle vote for caller. Idempotent — calling twice
+  should toggle on/off, not error or double-count.
+- `PATCH /api/plans/:planId/ideas/:id/status` — organizer/co-admin only. Transitions:
+  `pending → confirmed`, `pending → archived`, `confirmed → pending` (un-confirm),
+  `archived → pending` (reactivate).
+- `POST /api/plans/:planId/ideas/:id/pin` — organizer/co-admin only, toggles `pinned_at`.
+  Pinning fires no notification.
+- `PATCH /api/plans/:planId/ideas/reorder` — organizer/co-admin only. Body: ordered array of
+  confirmed idea IDs for a given date group (or General group). Server reassigns `sort_order`
+  atomically in one transaction. Reject if any ID in the payload is not a confirmed idea of this
+  plan. Fires no notification.
+- **Moving an item to a different day** = organizer edit of `suggested_date` via the existing
+  content PATCH — no delete/recreate. On a date change, the item is appended to the end of the
+  target day's group (fresh `sort_order`); the source day's remaining items keep their relative
+  order. Clearing the date moves it to the General group, same append behavior.
+
+All endpoints must 403 for non-plan-members and 403 for permission-gated actions performed by
+the wrong role — write explicit tests for both, don't rely on client-side hiding.
+
+---
+
+## 4. Client Screens
+
+- New **"Ideas"** tab on Plan Detail, positioned after Details/Polls.
+- Idea card: title, description, category badge (trips only), cost if present, link preview if
+  present, vote count + heart toggle, submitter avatar/name, status badge if confirmed/archived.
+- "Add idea" button opens a form modal (title required, rest optional; date picker only shown
+  for trips, constrained to the trip's date range).
+- Confirmed ideas surface in a separate "Itinerary" section within the plan's Details tab, grouped
+  by `suggested_date` for trips (with a "General" group for unscheduled confirmed ideas), flat
+  list for events.
+  - **Confirming must not copy or duplicate data.** The itinerary renders the same `plan_ideas`
+    record — the itinerary card shows the full detail set inline or one tap away: title,
+    description, category, estimated cost, link (tappable, opens in-app browser/external), final
+    vote count, and submitter attribution. Members should never need to switch back to the Ideas
+    tab to see what a confirmed item involves.
+  - Because it's one record, organizer/co-admin edits to a confirmed idea (e.g., adjusting the
+    date or cost) update the itinerary view immediately — no sync logic needed.
+  - `estimated_cost` on confirmed ideas is **display-only in v1** — do not wire it into the
+    cost-splitting system. (Future batch may add "add to cost split" from a confirmed idea; do
+    not build it now.)
+  - **Reordering (organizer/co-admin only):** long-press drag-and-drop to reorder confirmed items
+    within a day group (and within General), using the existing RN gesture/haptics patterns already
+    in the app — optimistic UI with rollback on API failure. To move an item to a different day,
+    the organizer uses the edit sheet's date field (drag-across-day-groups is out of scope for v1
+    — don't build cross-group dragging). Regular members see the ordered list but get no drag
+    affordance. Un-confirming an item clears its `sort_order`; re-confirming appends it to the end
+    of its group again.
+- Organizer/co-admin view: confirm/archive/un-confirm actions on each card (hidden for regular
+  members).
+- Empty state: "No ideas yet — be the first to suggest something."
+
+---
+
+## 5. Integration With Existing Systems (Do Not Skip)
+
+- **Report/block mutual-visibility filtering:** Ideas is a new content surface. The existing
+  report/block system applies mutual-visibility filtering "across all content surfaces" — extend
+  that same filtering to idea lists, vote counts shown, and the itinerary view. A user must not
+  see ideas submitted by someone they've blocked (or who blocked them), and blocked users' votes
+  should be excluded from the counts that user sees. Reuse the existing filtering utility/middleware
+  — do not write a parallel implementation. Ideas must also be reportable through the existing
+  report flow (auto-hide at 3 distinct reporters, owner email notification — same rules as other
+  content).
+- **Notification system:** the three new notification types (idea digest, vote-threshold nudge,
+  idea confirmed) must be registered in the same notification infrastructure as the existing 34
+  audited notifications — same delivery pipeline, same debounce/cooldown utilities, same
+  timezone-safe date handling (`calendarDaysUntil` where applicable). Do not modify any of the
+  existing 34 notifications while adding these.
+- **Vote-threshold nudge edge case:** threshold = majority of "going" RSVPs, with a floor of 3
+  votes. If a plan has 0–2 "going" RSVPs, the nudge never fires (prevents a single early vote
+  from triggering it). Threshold is evaluated at vote time against current RSVP counts; once
+  fired for an idea, never fires again for that idea even if RSVPs later change.
+- **Plan lifecycle:** once a plan's end date/time has passed (or the plan is cancelled), the Ideas
+  tab becomes read-only — existing ideas and the confirmed itinerary remain viewable, but submit,
+  edit, vote, and status-change actions are rejected server-side (403 with a clear message) and
+  hidden client-side.
+- **PostHog analytics:** instrument `idea_created`, `idea_voted` (with on/off toggle direction),
+  `idea_confirmed`, `idea_deleted` using the existing analytics wrapper and naming conventions.
+- **Sentry:** no special handling needed beyond existing error boundaries — just make sure the
+  new tab and modal are inside the existing error boundary structure.
+
+---
+
+## 6. Testing Requirements
+
+Add tests covering, at minimum:
+- CRUD permission checks: submitter-only edit of own pending idea (403 once confirmed/archived),
+  organizer/co-admin can edit any idea's content at any status, organizer/co-admin-only status
+  transitions, 403s for non-members.
+- Delete: submitter can delete own pending idea; submitter cannot delete a confirmed/archived idea
+  they authored; organizer/co-admin can delete any idea at any status, including confirmed ones,
+  and it disappears from the itinerary view immediately.
+- Deleting an idea cascades and removes its votes (verify no orphaned vote rows).
+- Removed squad/plan member: their prior ideas/votes persist and stay attributed, but they get a
+  403 on any further edit/vote/submit attempt against that plan.
+- Edits re-validate the same rules as creation (e.g., an edited `suggested_date` outside the trip
+  range is rejected; malformed `link_url` is rejected with a client-facing error, not a 500).
+- Vote toggle idempotency and the unique-vote-per-user constraint.
+- `suggested_date` validation against plan date range; rejected for event-type plans.
+- Non-member cannot read ideas for a plan they're not on (server-side, not just UI).
+- Cascade delete: deleting a plan removes its ideas and votes.
+- Notification debounce: multiple ideas added in a short window produce one digest notification,
+  not one per idea.
+- Notification threshold: vote-threshold nudge to organizer fires exactly once per idea, not on
+  every subsequent vote.
+- Confirm/un-confirm/archive/reactivate status transitions all behave correctly and are reflected
+  in the itinerary grouping view.
+- Itinerary detail carry-over: a confirmed idea's description, cost, link, and attribution are all
+  present in the itinerary view without navigating back to the Ideas tab; an organizer edit to a
+  confirmed idea (date, cost) is reflected in the itinerary immediately (single-record, no copy).
+- Reordering: reorder endpoint reassigns `sort_order` atomically and the new order persists across
+  reloads; 403 for regular members; payload containing a non-confirmed or foreign-plan idea ID is
+  rejected whole (no partial reorder); date change appends to end of target group while source
+  group keeps relative order; un-confirm clears `sort_order` and re-confirm appends to end.
+- Free-tier user can fully use this feature with no gate and no plan-cap interaction.
+- Block filtering: user A blocks user B → A's idea list, vote counts, and itinerary view exclude
+  B's content and votes (and vice versa); an idea auto-hides at 3 distinct reporters.
+- Threshold floor: with 0–2 "going" RSVPs the nudge never fires; at 3+ it fires exactly once when
+  majority is crossed.
+- Read-only after plan end/cancellation: submit/edit/vote/status/pin all return 403; reads still work.
+- Pin: organizer/co-admin toggle works, pinned ideas sort above unpinned regardless of votes,
+  regular members get 403 on the pin endpoint.
+
+Confirm full existing suite (787 API / 240 mobile baseline) still passes, plus report the new test
+count added for this feature, before calling this batch done.
