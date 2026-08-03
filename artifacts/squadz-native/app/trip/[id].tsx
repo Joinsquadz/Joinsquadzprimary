@@ -468,6 +468,39 @@ export default function TripDetailScreen() {
     [busy, refresh],
   );
 
+  const stops = event?.itinerary ?? [];
+
+  // ── Lock-in moment (T203): flash a stop green when it flips proposed →
+  // confirmed. Detected by diffing statuses across refreshes, so viewers who
+  // see the change arrive via SSE get the same beat as the host who tapped it.
+  // These hooks MUST live above the early "not available" return below —
+  // otherwise a past trip hydrating via the fallback fetch changes the hook
+  // order between renders and crashes the screen (React hooks-order error).
+  const prevStopStatusRef = useRef<Record<string, string>>({});
+  const [confirmedFlashId, setConfirmedFlashId] = useState<string | null>(null);
+  const confirmFlash = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const prev = prevStopStatusRef.current;
+    const next: Record<string, string> = {};
+    let flipped: string | null = null;
+    for (const s of stops) {
+      next[s.id] = s.status;
+      if (prev[s.id] === "proposed" && s.status === "confirmed") flipped = s.id;
+    }
+    prevStopStatusRef.current = next;
+    if (flipped) {
+      setConfirmedFlashId(flipped);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      confirmFlash.setValue(0);
+      Animated.sequence([
+        Animated.timing(confirmFlash, { toValue: 1, duration: 250, useNativeDriver: false }),
+        Animated.delay(900),
+        Animated.timing(confirmFlash, { toValue: 0, duration: 450, useNativeDriver: false }),
+      ]).start(() => setConfirmedFlashId(null));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stops.map((s) => `${s.id}:${s.status}`).join(",")]);
+
   if (!event || event.type !== "trip") {
     // Only the missing-event case (no ctx + fallback not hydrated) is subject to
     // the cold-start auth race. A resolved-but-wrong-type event is a genuine
@@ -663,36 +696,7 @@ export default function TripDetailScreen() {
       },
     ]);
   };
-  const stops = event.itinerary ?? [];
   const packing = event.packing ?? [];
-
-  // ── Lock-in moment (T203): flash a stop green when it flips proposed →
-  // confirmed. Detected by diffing statuses across refreshes, so viewers who
-  // see the change arrive via SSE get the same beat as the host who tapped it.
-  const prevStopStatusRef = useRef<Record<string, string>>({});
-  const [confirmedFlashId, setConfirmedFlashId] = useState<string | null>(null);
-  const confirmFlash = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    const prev = prevStopStatusRef.current;
-    const next: Record<string, string> = {};
-    let flipped: string | null = null;
-    for (const s of stops) {
-      next[s.id] = s.status;
-      if (prev[s.id] === "proposed" && s.status === "confirmed") flipped = s.id;
-    }
-    prevStopStatusRef.current = next;
-    if (flipped) {
-      setConfirmedFlashId(flipped);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      confirmFlash.setValue(0);
-      Animated.sequence([
-        Animated.timing(confirmFlash, { toValue: 1, duration: 250, useNativeDriver: false }),
-        Animated.delay(900),
-        Animated.timing(confirmFlash, { toValue: 0, duration: 450, useNativeDriver: false }),
-      ]).start(() => setConfirmedFlashId(null));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stops.map((s) => `${s.id}:${s.status}`).join(",")]);
   const cover = coverFor(event.coverStyle);
   const nights = tripNights(event);
   const happening = isHappeningNow(event);

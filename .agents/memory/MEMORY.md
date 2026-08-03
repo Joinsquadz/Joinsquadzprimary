@@ -1,3 +1,4 @@
+// hint: Logic changed on both sides. Requires understanding intent of each change.
 - [Schema sync gap](schema-sync-gap.md) — new tables/columns MUST go in schemaSync.ts (IF NOT EXISTS); drizzle-kit push not re-run after bootstrap; missing favorites table broke squad vault.
 - [SecureStore + EXIF + Report/Block](securestore-exif-moderation.md) — auth tokens in SecureStore (not AsyncStorage); EXIF strip before upload; Drizzle eq() needs parseId() for req.params; or() type errors → two queries.
 - [Expo Go tunnel via serveo.net](expo-go-tunnel.md) — Expo Go on iPhone times out on the Replit dev domain; fix = serveo SSH tunnel + pre-warm both iOS and web bundles.
@@ -81,3 +82,4 @@
 - [Router back fallback](router-back-fallback.md) — router.back() no-ops without history (reload/deep-link); every custom back button uses canGoBack() ? back() : replace(fallback), app-wide.
 - [Plan Ideas feature](plan-ideas-feature.md) — ideas are separate tables (NO version checks); confirmed ideas merge into itinerary render-only (stops first); reorder needs the FULL group; readOnly flag gates idea UI only.
 - [New content-type checklist](new-content-type-checklist.md) — every new UGC type must touch reports enum, maybeAutoHide, canUserViewReportedContent, ActivityTypes, storage ACL, deletion purge, hidden→404.
+- [Hooks after early return](hooks-after-early-return.md) — plan detail screens hydrate via fallback fetch; ALL hooks must sit above the "not available" early return or past/deep-linked plans crash.
