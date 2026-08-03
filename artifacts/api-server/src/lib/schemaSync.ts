@@ -167,6 +167,16 @@ async function createMissingTables(): Promise<void> {
     )
   `);
 
+  // Query-aligned indexes for the ideas board: lists filter plan_ideas by
+  // plan (+status/date for confirmed-group ordering), and vote counts filter
+  // idea_votes by idea. Without these, hot reads become table scans as plans grow.
+  await exec(
+    `CREATE INDEX IF NOT EXISTS "plan_ideas_plan_status_date_idx" ON "plan_ideas" ("plan_id", "status", "suggested_date")`,
+  );
+  await exec(
+    `CREATE INDEX IF NOT EXISTS "idea_votes_idea_idx" ON "idea_votes" ("idea_id")`,
+  );
+
   await exec(`
     CREATE TABLE IF NOT EXISTS "vault_hearts" (
       "id" serial PRIMARY KEY NOT NULL,

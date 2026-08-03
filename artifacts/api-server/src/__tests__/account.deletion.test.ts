@@ -14,6 +14,8 @@ const dbMock = vi.hoisted(() => ({
   eventRows: [] as unknown[],
   friendRows: [] as unknown[],
   txUpdateRows: [] as unknown[],
+  deletedTables: [] as string[],
+  executedSql: [] as string[],
 }));
 
 vi.mock("../lib/playBilling", () => ({
@@ -61,15 +63,26 @@ vi.mock("@workspace/db", () => {
         }),
       }),
     }),
-    delete: () => ({ where: () => Promise.resolve() }),
+    delete: (table?: { __name?: string }) => {
+      if (table?.__name) dbMock.deletedTables.push(table.__name);
+      return { where: () => Promise.resolve() };
+    },
     insert: () => ({
       values: () => ({
         returning: () => Promise.resolve([]),
         onConflictDoNothing: () => ({ returning: () => Promise.resolve([]) }),
       }),
     }),
-    // Raw SQL used for session cleanup (DELETE FROM sessions WHERE …)
-    execute: vi.fn().mockResolvedValue(undefined),
+    // Raw SQL used for session cleanup and cross-user idea-vote cleanup.
+    execute: vi.fn().mockImplementation((q: unknown) => {
+      const chunks = (q as { queryChunks?: unknown[] })?.queryChunks ?? [];
+      dbMock.executedSql.push(
+        chunks
+          .map((c) => ((c as { value?: string[] })?.value ?? []).join(""))
+          .join(""),
+      );
+      return Promise.resolve(undefined);
+    }),
   });
 
   return {
@@ -122,6 +135,8 @@ vi.mock("@workspace/db", () => {
     squadInvitesTable: { invitedUserId: "invited_user_id", inviterUserId: "inviter_user_id" },
     eventInvitesTable: { invitedUserId: "invited_user_id", inviterUserId: "inviter_user_id" },
     foundingLedgerTable: { subscriptionId: "subscription_id" },
+    planIdeasTable: { id: "id", submittedByUserId: "submitted_by_user_id", __name: "plan_ideas" },
+    ideaVotesTable: { ideaId: "idea_id", userId: "user_id", __name: "idea_votes" },
   };
 });
 
@@ -164,6 +179,8 @@ beforeEach(() => {
   dbMock.eventRows = [];
   dbMock.friendRows = [];
   dbMock.txUpdateRows = [];
+  dbMock.deletedTables = [];
+  dbMock.executedSql = [];
 });
 
 // ── B5: Play subscription cancelled before data purge ────────────────────────
@@ -189,6 +206,25 @@ describe("B5 — DELETE /api/account — Play subscription cancelled best-effort
     const res = await request(makeApp()).delete("/api/account");
     // Purge must still succeed — best-effort means failure is not fatal.
     expect(res.status).toBe(200);
+  });
+});
+
+// ── Ideas/votes purged in surviving plans ─────────────────────────────────────
+
+describe("DELETE /api/account — plan ideas and votes purged", () => {
+  it("deletes the user's idea votes and submitted ideas (incl. others' votes on them)", async () => {
+    const res = await request(makeApp()).delete("/api/account");
+    expect(res.status).toBe(200);
+    // Own votes anywhere + own ideas in plans the user doesn't host.
+    expect(dbMock.deletedTables).toContain("idea_votes");
+    expect(dbMock.deletedTables).toContain("plan_ideas");
+    // Cross-user votes on the user's ideas are removed via raw SQL so the
+    // purge doesn't rely on the FK cascade existing in every environment.
+    expect(
+      dbMock.executedSql.some(
+        (q) => q.includes("DELETE FROM idea_votes") && q.includes("plan_ideas"),
+      ),
+    ).toBe(true);
   });
 });
 

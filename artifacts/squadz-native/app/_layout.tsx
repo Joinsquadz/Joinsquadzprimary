@@ -31,6 +31,7 @@ import { ActivityProvider } from "@/context/ActivityContext";
 import { ToastBannerProvider } from "@/context/ToastBannerContext";
 import { ActivityBannerSurfacer } from "@/components/ActivityBannerSurfacer";
 import { TipCoachMark } from "@/components/TipCoachMark";
+import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { installWebAlert } from "@/lib/webAlert";
 import { installWebShare } from "@/lib/webShare";
 import { logOutRevenueCat } from "@/lib/revenuecat";
@@ -223,7 +224,21 @@ function PushNotificationHandler() {
         break;
       case "event":
         if (data.eventId) {
-          router.push({ pathname: "/event/[id]", params: { id: data.eventId } } as never);
+          router.push({
+            pathname: "/event/[id]",
+            params: { id: data.eventId, ...(data.tab ? { tab: data.tab } : {}) },
+          } as never);
+        }
+        break;
+      case "trip":
+        // Idea digests/nudges land on the Ideas tab; confirmations land on the
+        // itinerary. The trip screen validates the tab param and falls back to
+        // itinerary for anything unknown.
+        if (data.eventId) {
+          router.push({
+            pathname: "/trip/[id]",
+            params: { id: data.eventId, ...(data.tab ? { tab: data.tab } : {}) },
+          } as never);
         }
         break;
       case "squad":

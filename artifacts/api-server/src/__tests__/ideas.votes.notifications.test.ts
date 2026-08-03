@@ -352,7 +352,12 @@ describe("vote-threshold nudge", () => {
     await flushAsync();
     expect(S.claimAttempts).toBe(1);
     expect(pushMock).toHaveBeenCalledTimes(1);
-    expect(pushMock.mock.calls[0][1].data.type).toBe("idea_threshold");
+    expect(pushMock.mock.calls[0][1].data).toMatchObject({
+      type: "idea_threshold",
+      screen: "trip",
+      eventId: "evt-1",
+      tab: "ideas",
+    });
   });
 
   it("never re-fires after the one-time claim (nudge_sent_at already set)", async () => {
@@ -393,7 +398,12 @@ describe("new-idea digest & confirm notifications", () => {
       expect.any(Number),
     );
     expect(pushMock).toHaveBeenCalledTimes(1);
-    expect(pushMock.mock.calls[0][1].data.type).toBe("idea_digest");
+    expect(pushMock.mock.calls[0][1].data).toMatchObject({
+      type: "idea_digest",
+      screen: "trip",
+      eventId: "evt-1",
+      tab: "ideas",
+    });
   });
 
   it("a second idea inside the debounce window produces no second push", async () => {
@@ -415,7 +425,13 @@ describe("new-idea digest & confirm notifications", () => {
       .send({ status: "confirmed" });
     await flushAsync();
     expect(pushMock).toHaveBeenCalledTimes(1);
-    expect(pushMock.mock.calls[0][1].data.type).toBe("idea_confirmed");
+    // Confirmations land on the trip itinerary (the confirmed idea now lives there).
+    expect(pushMock.mock.calls[0][1].data).toMatchObject({
+      type: "idea_confirmed",
+      screen: "trip",
+      eventId: "evt-1",
+      tab: "itinerary",
+    });
     expect(trackMock).toHaveBeenCalledWith(
       HOST_ID,
       "idea_confirmed",

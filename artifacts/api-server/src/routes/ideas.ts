@@ -220,7 +220,13 @@ async function notifyNewIdea(event: EventRow, actorId: string, ideaTitle: string
     await sendPushNotifications(tokens, {
       title: `💡 New idea for ${event.title}`,
       body: `${actorName} suggested "${ideaTitle}" — see what's brewing`,
-      data: { type: "idea_digest", eventId: event.id, eventType: event.type },
+      data: {
+        type: "idea_digest",
+        screen: event.type === "trip" ? "trip" : "event",
+        eventId: event.id,
+        eventType: event.type,
+        tab: "ideas",
+      },
     });
   } catch (err) {
     logger.error({ err, eventId: event.id }, "[ideas] new-idea digest notification failed");
@@ -259,7 +265,7 @@ async function maybeSendThresholdNudge(event: EventRow, idea: IdeaRow, actorId: 
         type: "idea_threshold",
         subjectType: "event",
         subjectId: event.id,
-        meta: { subjectName: event.title, subjectEmoji: event.emoji, ideaTitle: idea.title },
+        meta: { subjectName: event.title, subjectEmoji: event.emoji, ideaTitle: idea.title, planType: event.type },
         dedupe: true,
       });
     }
@@ -268,7 +274,14 @@ async function maybeSendThresholdNudge(event: EventRow, idea: IdeaRow, actorId: 
     await sendPushNotifications(tokens, {
       title: `🔥 An idea is taking off in ${event.title}`,
       body: `"${idea.title}" hit ${voteCount} votes — review it when you get a chance`,
-      data: { type: "idea_threshold", eventId: event.id, eventType: event.type, ideaId: idea.id },
+      data: {
+        type: "idea_threshold",
+        screen: event.type === "trip" ? "trip" : "event",
+        eventId: event.id,
+        eventType: event.type,
+        tab: "ideas",
+        ideaId: idea.id,
+      },
     });
   } catch (err) {
     logger.error({ err, ideaId: idea.id }, "[ideas] vote-threshold nudge failed");
@@ -290,7 +303,7 @@ async function notifyIdeaConfirmed(event: EventRow, idea: IdeaRow, actorId: stri
         type: "idea_confirmed",
         subjectType: "event",
         subjectId: event.id,
-        meta: { subjectName: event.title, subjectEmoji: event.emoji, ideaTitle: idea.title },
+        meta: { subjectName: event.title, subjectEmoji: event.emoji, ideaTitle: idea.title, planType: event.type },
         dedupe: true,
       });
     }
@@ -299,7 +312,16 @@ async function notifyIdeaConfirmed(event: EventRow, idea: IdeaRow, actorId: stri
     await sendPushNotifications(tokens, {
       title: `✅ It's happening — ${event.title}`,
       body: `"${idea.title}" made the plan`,
-      data: { type: "idea_confirmed", eventId: event.id, eventType: event.type, ideaId: idea.id },
+      data: {
+        type: "idea_confirmed",
+        screen: event.type === "trip" ? "trip" : "event",
+        eventId: event.id,
+        eventType: event.type,
+        // A confirmed idea now lives in the merged itinerary view on trips;
+        // events keep their default overview (no tab param).
+        ...(event.type === "trip" ? { tab: "itinerary" } : {}),
+        ideaId: idea.id,
+      },
     });
   } catch (err) {
     logger.error({ err, ideaId: idea.id }, "[ideas] confirmed notification failed");

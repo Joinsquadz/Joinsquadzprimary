@@ -22,6 +22,8 @@ import {
   momentViewsTable,
   momentReactionsTable,
   objectUploadsTable,
+  planIdeasTable,
+  ideaVotesTable,
 } from "@workspace/db";
 import { requireAuth } from "../middleware/currentUser";
 import { supabaseAdmin, supabaseAuth } from "../services/supabase";
@@ -270,6 +272,19 @@ router.delete("/account", requireAuth, async (req: Request, res: Response): Prom
       await tx.delete(momentsTable).where(eq(momentsTable.authorId, userId));
       await tx.delete(momentViewsTable).where(eq(momentViewsTable.viewerId, userId));
       await tx.delete(momentReactionsTable).where(eq(momentReactionsTable.userId, userId));
+
+      // --- Plan ideas: the user's votes anywhere, then their submitted ideas in
+      // plans they don't host (hosted plans were already deleted above; the
+      // plan-level FK cascade covers those). Other members' votes on the user's
+      // ideas are deleted explicitly first so the purge doesn't depend on the
+      // idea→vote cascade existing in every environment.
+      await tx.delete(ideaVotesTable).where(eq(ideaVotesTable.userId, userId));
+      await tx.execute(sql`
+        DELETE FROM idea_votes WHERE idea_id IN (
+          SELECT id FROM plan_ideas WHERE submitted_by_user_id = ${userId}
+        )
+      `);
+      await tx.delete(planIdeasTable).where(eq(planIdeasTable.submittedByUserId, userId));
 
       // --- Friendships (both directions).
       await tx

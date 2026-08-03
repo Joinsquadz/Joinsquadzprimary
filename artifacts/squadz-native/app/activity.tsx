@@ -31,6 +31,8 @@ type ActivityMeta = {
   eventId?: string;
   photoId?: number;
   thumbUrl?: string;
+  ideaTitle?: string;
+  planType?: string;
 };
 
 type ActivityItem = {
@@ -200,6 +202,21 @@ export default function ActivityScreen() {
       case "squad_join": {
         const sid = meta.squadId ?? item.subjectId;
         if (sid) router.push({ pathname: "/squad/[id]", params: { id: sid } } as never);
+        break;
+      }
+      case "idea_threshold":
+      case "idea_confirmed": {
+        // Threshold nudges land on the Ideas tab; a confirmed idea lives in the
+        // trip itinerary (events open on their default overview).
+        if (item.subjectId) {
+          const isTrip = meta.planType === "trip";
+          const tab =
+            item.type === "idea_threshold" ? "ideas" : isTrip ? "itinerary" : undefined;
+          router.push({
+            pathname: isTrip ? "/trip/[id]" : "/event/[id]",
+            params: { id: item.subjectId, ...(tab ? { tab } : {}) },
+          } as never);
+        }
         break;
       }
       case "squad_invite":
@@ -590,6 +607,12 @@ export default function ActivityScreen() {
         }
         case "squad_join":
           action = `joined ${meta.subjectEmoji ?? ""} ${meta.subjectName ?? "your squad"}`.trim();
+          break;
+        case "idea_threshold":
+          action = `pushed "${meta.ideaTitle ?? "an idea"}" past the vote threshold in ${meta.subjectEmoji ?? ""} ${meta.subjectName ?? "your plan"}`.trim();
+          break;
+        case "idea_confirmed":
+          action = `confirmed your idea "${meta.ideaTitle ?? ""}" for ${meta.subjectEmoji ?? ""} ${meta.subjectName ?? "the plan"}`.trim();
           break;
       }
 
