@@ -1,0 +1,66 @@
+# SquadZ — Ideas Batch Re-Verification (Required Before Batch Closure)
+
+**Scope:** Verification and reporting only. Do not write new features. Only fix issues surfaced by
+these checks, and only within the Ideas feature's footprint.
+
+---
+
+## 1. Test-Count Accounting (blocking)
+
+Baseline before this batch: 787 API / 240 mobile. Reported now: 916 API / 284 mobile, with "61 new
+for ideas." That leaves 68 API tests and the mobile delta unexplained.
+
+Produce an exact accounting:
+- List every test file added or modified in this batch, grouped by area (ideas API, itinerary
+  merge/render, reorder, notifications, moderation, other).
+- For any test added or modified **outside** the Ideas feature footprint, state why, and list the
+  corresponding source files that were changed.
+- Confirm zero source-code changes to confirmed-passing areas outside the stated scope (itinerary
+  stops rendering integration excepted, per the merged-view agreement). If any exist, list them
+  with justification.
+
+## 2. Re-Verify the Three Code-Review Fixes
+
+For each fix, show the failing scenario is now covered by a test (name the test):
+1. Idea deep links to the event Ideas tab.
+2. Date labels for ideas whose `suggested_date` falls outside the trip's current day range —
+   also explain how this state arises (e.g., organizer shortens the trip after ideas were dated)
+   and confirm the server now handles it defensively, not just the label.
+3. Double-tap voting race — confirm the fix is server-side idempotency (not just client
+   debouncing), and that the unique (idea_id, user_id) constraint test covers concurrent requests.
+
+## 3. "Proposed Stop" Voting — Investigation Report (no changes yet)
+
+You disclosed a pre-existing voting mechanism on itinerary stops. Report, without modifying it:
+- Where it lives (screens, endpoints, tables) and who can use it.
+- Whether it is reachable in the current production build and whether any real/test data exists.
+- Exactly how it appears relative to Ideas in the merged trip day-group view — can a user see two
+  voting affordances on the same screen? Include which components render each.
+- Whether any of this batch's changes altered its behavior in any way.
+- A one-paragraph consolidation recommendation (fold into Ideas / hide behind flag / leave as-is),
+  with migration implications. **Do not implement** — decision comes after the report.
+
+## 4. Merged-View Edge Confirmations
+
+Confirm with named tests (add any that are missing):
+- Undated confirmed ideas on trips render in a visible "General" group in the merged view — they
+  do not disappear.
+- Reorder (arrow-based) affects only ideas' sort_order; stop ordering bytes are untouched
+  (regression test asserting stop order before/after an idea reorder).
+- Block filtering applies inside the merged day-group view, not just the Ideas tab.
+- Read-only state (past/cancelled plan) disables the arrow reorder controls too, not just
+  submit/vote/confirm.
+
+## 5. Deviations — Confirm Containment
+
+- Arrow-based reorder (approved): confirm no drag/gesture native dependency was added to
+  package.json in this batch.
+- Confirm no Ideas↔Polls linkage and no idea→stop conversion exists anywhere in the diff.
+
+---
+
+## Output Format
+
+Single report: (1) test accounting table, (2) fix-by-fix verification with test names,
+(3) proposed-stop investigation report, (4) edge-confirmation checklist with pass/fail,
+(5) final test counts. Batch is not closed until every item is green or explicitly dispositioned.
