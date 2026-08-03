@@ -85,6 +85,41 @@ export type ItineraryStop = {
   sortOrder: number;
 };
 
+export type IdeaCategory = "activity" | "food" | "lodging" | "transport" | "other";
+export type IdeaStatus = "pending" | "confirmed" | "archived";
+
+/**
+ * A member-suggested activity for a plan (trip or event), voted on by the
+ * group. Separate from ItineraryStop — confirmed ideas render alongside stops
+ * in the trip itinerary but stay idea records (single-record rule).
+ */
+export type PlanIdea = {
+  id: string;
+  planId: string;
+  title: string;
+  description: string | null;
+  category: IdeaCategory;
+  linkUrl: string | null;
+  /** Per-person estimate in dollars. */
+  estimatedCost: number | null;
+  /** ISO calendar day, same keys as ItineraryStop.day; null = "General". */
+  suggestedDate: string | null;
+  status: IdeaStatus;
+  pinned: boolean;
+  /** Position among confirmed ideas of the same day group; null while pending. */
+  sortOrder: number | null;
+  createdAt: string;
+  updatedAt: string;
+  submittedBy: {
+    id: string;
+    firstName: string | null;
+    lastName: string | null;
+    profileImageUrl: string | null;
+  } | null;
+  voteCount: number;
+  votedByMe: boolean;
+};
+
 /** A shared packing-list item for a trip. */
 export type PackingItem = {
   id: string;

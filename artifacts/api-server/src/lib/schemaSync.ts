@@ -138,6 +138,36 @@ async function createMissingTables(): Promise<void> {
   `);
 
   await exec(`
+    CREATE TABLE IF NOT EXISTS "plan_ideas" (
+      "id" text PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+      "plan_id" text NOT NULL REFERENCES "events"("id") ON DELETE CASCADE,
+      "submitted_by_user_id" text NOT NULL,
+      "title" text NOT NULL,
+      "description" text,
+      "category" text DEFAULT 'activity' NOT NULL,
+      "link_url" text,
+      "estimated_cost" numeric,
+      "suggested_date" text,
+      "status" text DEFAULT 'pending' NOT NULL,
+      "pinned_at" timestamp with time zone,
+      "sort_order" integer,
+      "nudge_sent_at" timestamp with time zone,
+      "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+      "updated_at" timestamp with time zone DEFAULT now() NOT NULL
+    )
+  `);
+
+  await exec(`
+    CREATE TABLE IF NOT EXISTS "idea_votes" (
+      "id" text PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+      "idea_id" text NOT NULL REFERENCES "plan_ideas"("id") ON DELETE CASCADE,
+      "user_id" text NOT NULL,
+      "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+      CONSTRAINT "idea_votes_idea_user_unique" UNIQUE("idea_id","user_id")
+    )
+  `);
+
+  await exec(`
     CREATE TABLE IF NOT EXISTS "vault_hearts" (
       "id" serial PRIMARY KEY NOT NULL,
       "photo_id" integer NOT NULL,

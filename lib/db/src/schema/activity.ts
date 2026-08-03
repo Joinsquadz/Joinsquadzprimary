@@ -25,7 +25,11 @@ export type ActivityType =
   | "rsvp"
   | "squad_join"
   | "squad_invite"
-  | "event_invite";
+  | "event_invite"
+  // Plan ideas: one-time vote-threshold nudge to organizers, and a
+  // "your idea made the plan" note to the submitter on confirm.
+  | "idea_threshold"
+  | "idea_confirmed";
 
 export type ActivitySubjectType = "post" | "vault_photo" | "event" | "squad" | "user";
 
@@ -48,6 +52,8 @@ export type ActivityMeta = {
   photoId?: number;
   /** Optional small thumbnail url for the content (vibe/vault media). */
   thumbUrl?: string;
+  /** idea_threshold / idea_confirmed: the idea's title for action text. */
+  ideaTitle?: string;
 };
 
 export const activityTable = pgTable(

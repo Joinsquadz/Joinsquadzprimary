@@ -45,6 +45,22 @@ import FriendPickerSheet from "@/components/FriendPickerSheet";
 import { CelebrationOverlay } from "@/components/CelebrationOverlay";
 import { claimOnce } from "@/lib/seenFlags";
 import { goingCount } from "@/lib/eventUtils";
+import { IdeaSheet } from "@/components/IdeaSheet";
+import { IdeaCard } from "@/components/IdeaCard";
+import {
+  listIdeas,
+  createIdea,
+  patchIdea,
+  deleteIdea,
+  toggleIdeaVote,
+  setIdeaStatus,
+  toggleIdeaPin,
+  reorderIdeas,
+  type NewIdeaInput,
+  type IdeaPatch,
+} from "@/lib/ideas";
+import { sortPendingIdeas, applyVoteToggle, moveWithinGroup, type PendingSort } from "@/lib/ideaUtils";
+import type { PlanIdea } from "@/types";
 import type { RsvpStatus } from "@/types";
 import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
 import { useTips } from "@/context/TipsContext";
@@ -63,7 +79,7 @@ import {
   type AuthRaceState,
 } from "@/lib/vaultAuthRace";
 
-type EventTab = "overview" | "guests" | "tasks" | "food" | "costs" | "chat" | "photos" | "admin";
+type EventTab = "overview" | "ideas" | "guests" | "tasks" | "food" | "costs" | "chat" | "photos" | "admin";
 
 /** "Sat, Jun 7 · 8:00 PM" label for an event end time (ISO). */
 function formatEndLabel(iso: string): string {
@@ -187,6 +203,31 @@ export default function EventDetailScreen() {
     if (!ctxEvent && id && authToken) void fetchFallbackEvent(true);
   }, [ctxEvent, id, authToken, fetchFallbackEvent]);
 
+  // ── Ideas (suggest & vote) — separate table, so they refresh independently
+  // of event.version: on mount + a 30s poll + after every idea mutation.
+  const [ideas, setIdeas] = useState<PlanIdea[]>([]);
+  const [ideasReadOnly, setIdeasReadOnly] = useState(false);
+  const [ideaSheetOpen, setIdeaSheetOpen] = useState(false);
+  const [editingIdea, setEditingIdea] = useState<PlanIdea | null>(null);
+  const [ideaBusy, setIdeaBusy] = useState(false);
+  const [ideaSort, setIdeaSort] = useState<PendingSort>("votes");
+  const [showArchivedIdeas, setShowArchivedIdeas] = useState(false);
+  const [ideaReordering, setIdeaReordering] = useState(false);
+  const ideaVoteInFlight = useRef<Set<string>>(new Set());
+  const refreshIdeas = useCallback(async () => {
+    if (!id || !authToken) return;
+    const res = await listIdeas(id, authToken);
+    if (res.ideas) {
+      setIdeas(res.ideas);
+      setIdeasReadOnly(!!res.readOnly);
+    }
+  }, [id, authToken]);
+  useEffect(() => {
+    void refreshIdeas();
+    const interval = setInterval(() => { void refreshIdeas(); }, 30000);
+    return () => clearInterval(interval);
+  }, [refreshIdeas]);
+
   // Retry driver: re-run on a short cadence while auth-pending (cold-start 401
   // before token restores), then give up into a retryable error state.
   useEffect(() => {
@@ -213,6 +254,7 @@ export default function EventDetailScreen() {
     : tabParam === "tasks" ? "tasks"
     : tabParam === "chat" ? "chat"
     : tabParam === "photos" ? "photos"
+    : tabParam === "ideas" ? "ideas"
     : "overview";
   const [tab, setTab] = useState<EventTab>(initialTab);
   const { markEventChatRead } = useMessages();
@@ -589,6 +631,97 @@ export default function EventDetailScreen() {
   const canManage = isHost || eventCoAdminIds.includes(currentUser.id);
   const squad = getSquad(event.squadId);
 
+  // ── Ideas derived state + handlers (mirrors the trip screen; events have no
+  // day groups, so confirmed ideas are one flat sortOrder-ordered list).
+  const pendingIdeas = sortPendingIdeas(ideas.filter((i) => i.status === "pending"), ideaSort);
+  const archivedIdeas = ideas.filter((i) => i.status === "archived");
+  const confirmedIdeas = ideas
+    .filter((i) => i.status === "confirmed")
+    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.createdAt.localeCompare(b.createdAt));
+
+  const runIdeaMut = async (fn: () => Promise<{ error?: string }>) => {
+    if (ideaBusy) return;
+    setIdeaBusy(true);
+    try {
+      const res = await fn();
+      if (res.error) Alert.alert("Something went wrong", res.error);
+      await refreshIdeas();
+    } finally {
+      setIdeaBusy(false);
+    }
+  };
+
+  const openSuggestIdea = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setEditingIdea(null);
+    setIdeaSheetOpen(true);
+  };
+
+  const openEditIdea = (idea: PlanIdea) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setEditingIdea(idea);
+    setIdeaSheetOpen(true);
+  };
+
+  const submitIdea = (data: NewIdeaInput | IdeaPatch, isEdit: boolean) => {
+    setIdeaSheetOpen(false);
+    void runIdeaMut(async () => {
+      if (isEdit && editingIdea) return patchIdea(event.id, editingIdea.id, authToken, data as IdeaPatch);
+      return createIdea(event.id, authToken, data as NewIdeaInput);
+    });
+  };
+
+  // Optimistic vote toggle: flip locally, reconcile with the server response.
+  // One in-flight toggle per idea — rapid double-taps otherwise race, letting
+  // a delayed older response overwrite the newer server state.
+  const handleIdeaVote = (idea: PlanIdea) => {
+    if (ideaVoteInFlight.current.has(idea.id)) return;
+    ideaVoteInFlight.current.add(idea.id);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setIdeas((prev) => applyVoteToggle(prev, idea.id));
+    void (async () => {
+      try {
+        const res = await toggleIdeaVote(event.id, idea.id, authToken);
+        if (res.idea) {
+          const serverIdea = res.idea;
+          setIdeas((prev) => prev.map((i) => (i.id === serverIdea.id ? serverIdea : i)));
+        } else {
+          await refreshIdeas();
+          if (res.error) Alert.alert("Couldn't vote", res.error);
+        }
+      } finally {
+        ideaVoteInFlight.current.delete(idea.id);
+      }
+    })();
+  };
+
+  const confirmDeleteIdea = (idea: PlanIdea) => {
+    Alert.alert("Delete idea", `Delete "${idea.title}"? Its votes go with it.`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: () => void runIdeaMut(() => deleteIdea(event.id, idea.id, authToken)),
+      },
+    ]);
+  };
+
+  const runIdeaStatus = (idea: PlanIdea, status: PlanIdea["status"]) => {
+    if (status === "confirmed") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    void runIdeaMut(() => setIdeaStatus(event.id, idea.id, authToken, status));
+  };
+
+  const handleIdeaPin = (idea: PlanIdea) => {
+    void runIdeaMut(() => toggleIdeaPin(event.id, idea.id, authToken));
+  };
+
+  const handleIdeaMoveFlat = (ideaId: string, dir: "up" | "down") => {
+    const ids = moveWithinGroup(confirmedIdeas, ideaId, dir);
+    if (!ids) return;
+    Haptics.selectionAsync();
+    void runIdeaMut(() => reorderIdeas(event.id, authToken, null, ids));
+  };
+
   // Manual reminder cooldown state (1 h, independent per type).
   const MANUAL_REMINDER_COOLDOWN_MS = 60 * 60 * 1000;
   const nowMs = Date.now();
@@ -741,6 +874,7 @@ export default function EventDetailScreen() {
 
   const TABS: { key: EventTab; label: string }[] = [
     { key: "overview", label: "Overview" },
+    { key: "ideas", label: "💡 Ideas" },
     { key: "guests", label: "Guests" },
     { key: "tasks", label: "Tasks" },
     { key: "food", label: "🍕 Food" },
@@ -1519,6 +1653,179 @@ export default function EventDetailScreen() {
                 </View>
               </View>
             )}
+
+            {/* Confirmed ideas — voted in on the Ideas tab, locked in here */}
+            {confirmedIdeas.length > 0 && (
+              <View style={{ marginTop: 4 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                  <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Confirmed ideas</Text>
+                  {ideaReordering ? (
+                    <TouchableOpacity
+                      onPress={() => setIdeaReordering(false)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Done reordering"
+                    >
+                      <Text style={{ color: colors.primary, fontSize: 12, fontWeight: "800" }}>Done</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+                {confirmedIdeas.map((idea, idx) => (
+                  <IdeaCard
+                    key={idea.id}
+                    idea={idea}
+                    variant="inline"
+                    isMine={idea.submittedBy?.id === currentUser.id}
+                    canManage={canManage}
+                    readOnly={ideasReadOnly}
+                    reordering={ideaReordering}
+                    canMoveUp={idx > 0}
+                    canMoveDown={idx < confirmedIdeas.length - 1}
+                    onEdit={() => openEditIdea(idea)}
+                    onDelete={() => confirmDeleteIdea(idea)}
+                    onUnconfirm={() => runIdeaStatus(idea, "pending")}
+                    onMove={(dir) => handleIdeaMoveFlat(idea.id, dir)}
+                    onEnterReorder={confirmedIdeas.length > 1 ? () => setIdeaReordering(true) : undefined}
+                  />
+                ))}
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* IDEAS — suggest & vote board */}
+        {tab === "ideas" && (
+          <View>
+            {ideasReadOnly ? (
+              <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border, marginBottom: 12 }]}>
+                <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>
+                  This event has wrapped — ideas are read-only.
+                </Text>
+              </View>
+            ) : (
+              <TouchableOpacity
+                onPress={openSuggestIdea}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                  borderWidth: 1.5,
+                  borderStyle: "dashed",
+                  borderColor: colors.primary + "66",
+                  borderRadius: 14,
+                  paddingVertical: 14,
+                  marginBottom: 14,
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Suggest an idea"
+              >
+                <Ionicons name="bulb-outline" size={18} color={colors.primary} />
+                <Text style={{ color: colors.primary, fontSize: 14, fontWeight: "800" }}>Suggest an idea</Text>
+              </TouchableOpacity>
+            )}
+
+            {pendingIdeas.length > 1 ? (
+              <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
+                {(["votes", "created"] as PendingSort[]).map((s) => (
+                  <TouchableOpacity
+                    key={s}
+                    onPress={() => { Haptics.selectionAsync(); setIdeaSort(s); }}
+                    style={{
+                      borderRadius: 16,
+                      borderWidth: 1.5,
+                      borderColor: ideaSort === s ? colors.primary : colors.border,
+                      backgroundColor: ideaSort === s ? colors.primary + "18" : "transparent",
+                      paddingHorizontal: 14,
+                      paddingVertical: 6,
+                    }}
+                  >
+                    <Text style={{ color: ideaSort === s ? colors.primary : colors.mutedForeground, fontSize: 12, fontWeight: "800" }}>
+                      {s === "votes" ? "Top voted" : "Newest"}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : null}
+
+            {pendingIdeas.length === 0 ? (
+              <View style={{ alignItems: "center", paddingVertical: 36, gap: 8 }}>
+                <Ionicons name="bulb-outline" size={40} color={colors.textDim} />
+                <Text style={{ color: colors.foreground, fontSize: 17, fontWeight: "800" }}>No ideas yet</Text>
+                <Text style={{ color: colors.mutedForeground, fontSize: 13, textAlign: "center", paddingHorizontal: 24 }}>
+                  Be the first to suggest something. The group votes, organizers lock it in.
+                </Text>
+              </View>
+            ) : (
+              pendingIdeas.map((idea) => (
+                <IdeaCard
+                  key={idea.id}
+                  idea={idea}
+                  variant="board"
+                  isMine={idea.submittedBy?.id === currentUser.id}
+                  canManage={canManage}
+                  readOnly={ideasReadOnly}
+                  onVote={() => handleIdeaVote(idea)}
+                  onEdit={() => openEditIdea(idea)}
+                  onDelete={() => confirmDeleteIdea(idea)}
+                  onConfirm={() => runIdeaStatus(idea, "confirmed")}
+                  onArchive={() => runIdeaStatus(idea, "archived")}
+                  onPin={() => handleIdeaPin(idea)}
+                />
+              ))
+            )}
+
+            {confirmedIdeas.length > 0 ? (
+              <TouchableOpacity
+                onPress={() => { Haptics.selectionAsync(); setTab("overview"); }}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 8,
+                  borderWidth: 1,
+                  borderColor: colors.green + "55",
+                  backgroundColor: colors.green + "10",
+                  borderRadius: 12,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  marginTop: 4,
+                }}
+              >
+                <Ionicons name="checkmark-circle" size={16} color={colors.green} />
+                <Text style={{ color: colors.green, fontSize: 13, fontWeight: "700", flex: 1 }}>
+                  {confirmedIdeas.length} confirmed {confirmedIdeas.length === 1 ? "idea is" : "ideas are"} on the Overview
+                </Text>
+                <Ionicons name="chevron-forward" size={14} color={colors.green} />
+              </TouchableOpacity>
+            ) : null}
+
+            {archivedIdeas.length > 0 ? (
+              <View style={{ marginTop: 16 }}>
+                <TouchableOpacity
+                  onPress={() => { Haptics.selectionAsync(); setShowArchivedIdeas((v) => !v); }}
+                  style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 6 }}
+                >
+                  <Ionicons name={showArchivedIdeas ? "chevron-down" : "chevron-forward"} size={14} color={colors.mutedForeground} />
+                  <Text style={{ color: colors.mutedForeground, fontSize: 12, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                    Archived ({archivedIdeas.length})
+                  </Text>
+                </TouchableOpacity>
+                {showArchivedIdeas
+                  ? archivedIdeas.map((idea) => (
+                      <IdeaCard
+                        key={idea.id}
+                        idea={idea}
+                        variant="board"
+                        isMine={idea.submittedBy?.id === currentUser.id}
+                        canManage={canManage}
+                        readOnly={ideasReadOnly}
+                        onReactivate={() => runIdeaStatus(idea, "pending")}
+                        onDelete={() => confirmDeleteIdea(idea)}
+                      />
+                    ))
+                  : null}
+              </View>
+            ) : null}
           </View>
         )}
 
@@ -2513,6 +2820,16 @@ export default function EventDetailScreen() {
         member={contactMember}
         onClose={() => setContactOpen(false)}
       />
+      <IdeaSheet
+        visible={ideaSheetOpen}
+        dayKeys={[]}
+        isTrip={false}
+        editing={editingIdea}
+        saving={ideaBusy}
+        onClose={() => setIdeaSheetOpen(false)}
+        onSubmit={submitIdea}
+      />
+
       <FriendPickerSheet
         visible={showInvitePicker}
         title="Invite friends"

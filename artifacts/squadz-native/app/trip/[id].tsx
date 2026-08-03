@@ -30,6 +30,8 @@ import { UserAvatar } from "@/components/UserAvatar";
 import AddressLink from "@/components/AddressLink";
 import { IconPicker } from "@/components/IconPicker";
 import { StopSheet } from "@/components/StopSheet";
+import { IdeaSheet } from "@/components/IdeaSheet";
+import { IdeaCard } from "@/components/IdeaCard";
 import FriendPickerSheet from "@/components/FriendPickerSheet";
 import { ChatMessages, ChatComposer } from "@/components/EventChatPanel";
 import { EventCostsPanel } from "@/components/EventCostsPanel";
@@ -53,7 +55,28 @@ import {
   resetAuthRaceState,
   vaultRenderMode,
 } from "@/lib/vaultAuthRace";
-import type { Event, ItineraryStop } from "@/types";
+import type { Event, ItineraryStop, PlanIdea } from "@/types";
+import {
+  listIdeas,
+  createIdea,
+  patchIdea,
+  deleteIdea,
+  toggleIdeaVote,
+  setIdeaStatus,
+  toggleIdeaPin,
+  reorderIdeas,
+  type NewIdeaInput,
+  type IdeaPatch,
+} from "@/lib/ideas";
+import {
+  groupConfirmedIdeas,
+  mergedDayKeys,
+  sortPendingIdeas,
+  applyVoteToggle,
+  moveWithinGroup,
+  GENERAL_GROUP,
+  type PendingSort,
+} from "@/lib/ideaUtils";
 import {
   coverFor,
   parseISO,
@@ -178,11 +201,12 @@ const voteHeartStyles = StyleSheet.create({
   text: { fontSize: 12, fontWeight: "800" },
 });
 
-type TripTab = "itinerary" | "chat" | "costs" | "vault" | "budget" | "packing";
+type TripTab = "itinerary" | "ideas" | "chat" | "costs" | "vault" | "budget" | "packing";
 
-const TRIP_TABS: TripTab[] = ["itinerary", "chat", "costs", "vault", "budget", "packing"];
+const TRIP_TABS: TripTab[] = ["itinerary", "ideas", "chat", "costs", "vault", "budget", "packing"];
 const TRIP_TAB_LABELS: Record<TripTab, string> = {
   itinerary: "Itinerary",
+  ideas: "💡 Ideas",
   chat: "Chat",
   costs: "Costs",
   vault: "Vault",
@@ -246,11 +270,27 @@ export default function TripDetailScreen() {
     }
   }, [id, authToken]);
 
+  // Ideas live in their own table (not the events JSON), so they refresh
+  // independently of event.version — piggybacked on every trip refresh below.
+  const [ideas, setIdeas] = useState<PlanIdea[]>([]);
+  const [ideasReadOnly, setIdeasReadOnly] = useState(false);
+  const refreshIdeas = useCallback(async () => {
+    if (!id || !authToken) return;
+    const res = await listIdeas(id, authToken);
+    if (res.ideas) {
+      setIdeas(res.ideas);
+      setIdeasReadOnly(!!res.readOnly);
+    }
+  }, [id, authToken]);
+  useEffect(() => {
+    void refreshIdeas();
+  }, [refreshIdeas]);
+
   // Refresh both the shared list (drives upcoming trips reactively) and the
   // single-event fallback (drives past trips not present in that list).
   const refresh = useCallback(async () => {
-    await Promise.all([refreshEvents(), fetchDetail()]);
-  }, [refreshEvents, fetchDetail]);
+    await Promise.all([refreshEvents(), fetchDetail(), refreshIdeas()]);
+  }, [refreshEvents, fetchDetail, refreshIdeas]);
 
   // On mount / when the context misses (e.g. a past trip), hydrate the fallback.
   useEffect(() => {
@@ -305,6 +345,16 @@ export default function TripDetailScreen() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingStop, setEditingStop] = useState<ItineraryStop | null>(null);
   const [sheetDay, setSheetDay] = useState<string | null>(null);
+  // Ideas UI state: suggest/edit sheet, board sort, archived fold, and which
+  // confirmed-idea day group (day key or GENERAL_GROUP) is in reorder mode.
+  const [ideaSheetOpen, setIdeaSheetOpen] = useState(false);
+  const [editingIdea, setEditingIdea] = useState<PlanIdea | null>(null);
+  const [ideaSheetDay, setIdeaSheetDay] = useState<string | null>(null);
+  const [ideaBusy, setIdeaBusy] = useState(false);
+  const [ideaSort, setIdeaSort] = useState<PendingSort>("votes");
+  const [showArchivedIdeas, setShowArchivedIdeas] = useState(false);
+  const [ideaReorderGroup, setIdeaReorderGroup] = useState<string | null>(null);
+  const ideaVoteInFlight = useRef<Set<string>>(new Set());
   const [packingDraft, setPackingDraft] = useState("");
   // Optimistic UI overrides: applied instantly on tap, cleared when the server
   // truth arrives (event.version changes via refresh/SSE) or reverted on error.
@@ -647,6 +697,62 @@ export default function TripDetailScreen() {
   const nights = tripNights(event);
   const happening = isHappeningNow(event);
   const grouped = groupStopsByDay(stops);
+  // Confirmed ideas merge into the itinerary day groups at RENDER level only:
+  // stops always render first (untouched), then ideas by sortOrder. Idea-only
+  // day keys (legacy trips out of range) append after the known range.
+  const ideaGroups = groupConfirmedIdeas(ideas);
+  const itineraryDayKeys = mergedDayKeys(dayKeys, ideaGroups);
+  const pendingIdeas = sortPendingIdeas(ideas.filter((i) => i.status === "pending"), ideaSort);
+  const archivedIdeas = ideas.filter((i) => i.status === "archived");
+  const confirmedIdeaCount = ideas.filter((i) => i.status === "confirmed").length;
+  const hasConfirmedIdeas = confirmedIdeaCount > 0;
+
+  /** A confirmed idea inside an itinerary day group (or the General section). */
+  const renderIdeaInline = (idea: PlanIdea, groupKey: string, group: PlanIdea[]) => {
+    const idx = group.findIndex((g) => g.id === idea.id);
+    return (
+      <IdeaCard
+        key={idea.id}
+        idea={idea}
+        variant="inline"
+        isMine={idea.submittedBy?.id === currentUser.id}
+        canManage={canManage}
+        readOnly={ideasReadOnly}
+        reordering={ideaReorderGroup === groupKey}
+        canMoveUp={idx > 0}
+        canMoveDown={idx >= 0 && idx < group.length - 1}
+        onEdit={() => openEditIdea(idea)}
+        onDelete={() => confirmDeleteIdea(idea)}
+        onUnconfirm={() => runIdeaStatus(idea, "pending")}
+        onMove={(dir) => handleIdeaMove(groupKey, group, idea.id, dir)}
+        onEnterReorder={group.length > 1 ? () => setIdeaReorderGroup(groupKey) : undefined}
+      />
+    );
+  };
+
+  /** "Done reordering" pill shown while a day group's ideas are in reorder mode. */
+  const renderReorderDone = (groupKey: string) =>
+    ideaReorderGroup === groupKey ? (
+      <TouchableOpacity
+        onPress={() => setIdeaReorderGroup(null)}
+        style={{
+          alignSelf: "flex-end",
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 5,
+          backgroundColor: colors.primary + "18",
+          borderRadius: 16,
+          paddingHorizontal: 12,
+          paddingVertical: 7,
+          marginBottom: 6,
+        }}
+        accessibilityRole="button"
+        accessibilityLabel="Done reordering"
+      >
+        <Ionicons name="checkmark" size={15} color={colors.primary} />
+        <Text style={{ color: colors.primary, fontSize: 12, fontWeight: "800" }}>Done reordering</Text>
+      </TouchableOpacity>
+    ) : null;
   const costs = sumStopCosts(stops);
 
   const confirmUninvite = (u: ReturnType<typeof resolveUser>) => {
@@ -701,6 +807,97 @@ export default function TripDetailScreen() {
       }
       return addStop(event.id, authToken, data as NewStopInput, event.version);
     });
+  };
+
+  // ── Ideas handlers ─────────────────────────────────────────────────────
+  const runIdeaMut = async (fn: () => Promise<{ error?: string }>) => {
+    if (ideaBusy) return;
+    setIdeaBusy(true);
+    try {
+      const res = await fn();
+      if (res.error) Alert.alert("Something went wrong", res.error);
+      await refreshIdeas();
+    } finally {
+      setIdeaBusy(false);
+    }
+  };
+
+  const openSuggestIdea = (day: string | null = null) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setEditingIdea(null);
+    setIdeaSheetDay(day);
+    setIdeaSheetOpen(true);
+  };
+
+  const openEditIdea = (idea: PlanIdea) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setEditingIdea(idea);
+    setIdeaSheetDay(idea.suggestedDate);
+    setIdeaSheetOpen(true);
+  };
+
+  const submitIdea = (data: NewIdeaInput | IdeaPatch, isEdit: boolean) => {
+    setIdeaSheetOpen(false);
+    void runIdeaMut(async () => {
+      if (isEdit && editingIdea) return patchIdea(event.id, editingIdea.id, authToken, data as IdeaPatch);
+      return createIdea(event.id, authToken, data as NewIdeaInput);
+    });
+  };
+
+  // Optimistic vote toggle: flip locally + haptic, reconcile with the server
+  // response (or a refetch on failure). One in-flight toggle per idea — rapid
+  // double-taps otherwise race, letting a delayed older response overwrite the
+  // newer server state.
+  const handleIdeaVote = (idea: PlanIdea) => {
+    if (ideaVoteInFlight.current.has(idea.id)) return;
+    ideaVoteInFlight.current.add(idea.id);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setIdeas((prev) => applyVoteToggle(prev, idea.id));
+    void (async () => {
+      try {
+        const res = await toggleIdeaVote(event.id, idea.id, authToken);
+        if (res.idea) {
+          const serverIdea = res.idea;
+          setIdeas((prev) => prev.map((i) => (i.id === serverIdea.id ? serverIdea : i)));
+        } else {
+          await refreshIdeas();
+          if (res.error) Alert.alert("Couldn't vote", res.error);
+        }
+      } finally {
+        ideaVoteInFlight.current.delete(idea.id);
+      }
+    })();
+  };
+
+  const confirmDeleteIdea = (idea: PlanIdea) => {
+    Alert.alert("Delete idea", `Delete "${idea.title}"? Its votes go with it.`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: () => void runIdeaMut(() => deleteIdea(event.id, idea.id, authToken)),
+      },
+    ]);
+  };
+
+  const runIdeaStatus = (idea: PlanIdea, status: PlanIdea["status"]) => {
+    if (status === "confirmed") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    void runIdeaMut(() => setIdeaStatus(event.id, idea.id, authToken, status));
+  };
+
+  const handleIdeaPin = (idea: PlanIdea) => {
+    void runIdeaMut(() => toggleIdeaPin(event.id, idea.id, authToken));
+  };
+
+  // Arrow-based reorder: swap within the group locally-computed order, send the
+  // FULL group id list (server rejects partial payloads).
+  const handleIdeaMove = (groupKey: string, group: PlanIdea[], ideaId: string, dir: "up" | "down") => {
+    const ids = moveWithinGroup(group, ideaId, dir);
+    if (!ids) return;
+    Haptics.selectionAsync();
+    void runIdeaMut(() =>
+      reorderIdeas(event.id, authToken, groupKey === GENERAL_GROUP ? null : groupKey, ids),
+    );
   };
 
   const confirmDelete = (stop: ItineraryStop) => {
@@ -1205,7 +1402,7 @@ export default function TripDetailScreen() {
               </View>
             ) : null}
 
-            {stops.length === 0 ? (
+            {stops.length === 0 && !hasConfirmedIdeas ? (
               <View style={styles.empty}>
                 <Ionicons name="map-outline" size={40} color={colors.textDim} />
                 <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No stops yet</Text>
@@ -1214,40 +1411,179 @@ export default function TripDetailScreen() {
                 </Text>
               </View>
             ) : (
-              dayKeys.map((key, i) => {
-                const dayStops = grouped[key] ?? [];
-                const heading = formatDayHeading(key, i);
-                const isToday = key === today;
-                return (
-                  <View key={key} style={styles.daySection}>
+              <>
+                {itineraryDayKeys.map((key, i) => {
+                  const dayStops = grouped[key] ?? [];
+                  const dayIdeas = ideaGroups.byDay[key] ?? [];
+                  const heading = formatDayHeading(key, i);
+                  // Idea-only days appended past the trip range must NOT be
+                  // labelled "Day N" (they aren't trip days) — show the date.
+                  const isExtraDay = i >= dayKeys.length;
+                  const isToday = key === today;
+                  return (
+                    <View key={key} style={styles.daySection}>
+                      <View style={styles.dayHeader}>
+                        <View>
+                          <Text style={[styles.dayLabel, { color: isToday ? colors.primary : colors.foreground }]}>
+                            {isExtraDay ? heading.sub : heading.label}{isToday ? " · Today" : ""}
+                          </Text>
+                          <Text style={[styles.daySub, { color: colors.mutedForeground }]}>
+                            {isExtraDay ? "Voted in — outside the trip dates" : heading.sub}
+                          </Text>
+                        </View>
+                        <TouchableOpacity
+                          onPress={() => openAddStop(key)}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          style={styles.dayAddBtn}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Add stop on ${heading.label}`}
+                        >
+                          <Ionicons name="add" size={18} color={colors.primary} />
+                        </TouchableOpacity>
+                      </View>
+                      {dayStops.length === 0 && dayIdeas.length === 0 ? (
+                        <TouchableOpacity onPress={() => openAddStop(key)} style={[styles.dayEmpty, { borderColor: colors.border }]}>
+                          <Text style={[styles.dayEmptyText, { color: colors.textDim }]}>Nothing planned — tap to add</Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <>
+                          {dayStops.map(renderStop)}
+                          {renderReorderDone(key)}
+                          {dayIdeas.map((idea) => renderIdeaInline(idea, key, dayIdeas))}
+                        </>
+                      )}
+                    </View>
+                  );
+                })}
+                {ideaGroups.general.length > 0 ? (
+                  <View style={styles.daySection}>
                     <View style={styles.dayHeader}>
                       <View>
-                        <Text style={[styles.dayLabel, { color: isToday ? colors.primary : colors.foreground }]}>
-                          {heading.label}{isToday ? " · Today" : ""}
-                        </Text>
-                        <Text style={[styles.daySub, { color: colors.mutedForeground }]}>{heading.sub}</Text>
+                        <Text style={[styles.dayLabel, { color: colors.foreground }]}>Anytime</Text>
+                        <Text style={[styles.daySub, { color: colors.mutedForeground }]}>Voted in — no day picked yet</Text>
                       </View>
-                      <TouchableOpacity
-                        onPress={() => openAddStop(key)}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        style={styles.dayAddBtn}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Add stop on ${heading.label}`}
-                      >
-                        <Ionicons name="add" size={18} color={colors.primary} />
-                      </TouchableOpacity>
                     </View>
-                    {dayStops.length === 0 ? (
-                      <TouchableOpacity onPress={() => openAddStop(key)} style={[styles.dayEmpty, { borderColor: colors.border }]}>
-                        <Text style={[styles.dayEmptyText, { color: colors.textDim }]}>Nothing planned — tap to add</Text>
-                      </TouchableOpacity>
-                    ) : (
-                      dayStops.map(renderStop)
-                    )}
+                    {renderReorderDone(GENERAL_GROUP)}
+                    {ideaGroups.general.map((idea) => renderIdeaInline(idea, GENERAL_GROUP, ideaGroups.general))}
                   </View>
-                );
-              })
+                ) : null}
+              </>
             )}
+          </View>
+        ) : null}
+
+        {/* IDEAS — suggest & vote board */}
+        {tab === "ideas" ? (
+          <View style={styles.tabBody}>
+            {ideasReadOnly ? (
+              <View style={[styles.todayCard, { borderColor: colors.border, backgroundColor: colors.card }]}>
+                <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>
+                  This trip has wrapped — ideas are read-only.
+                </Text>
+              </View>
+            ) : null}
+
+            {pendingIdeas.length > 1 ? (
+              <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
+                {(["votes", "created"] as PendingSort[]).map((s) => (
+                  <TouchableOpacity
+                    key={s}
+                    onPress={() => { Haptics.selectionAsync(); setIdeaSort(s); }}
+                    style={{
+                      borderRadius: 16,
+                      borderWidth: 1.5,
+                      borderColor: ideaSort === s ? colors.primary : colors.border,
+                      backgroundColor: ideaSort === s ? colors.primary + "18" : "transparent",
+                      paddingHorizontal: 14,
+                      paddingVertical: 6,
+                    }}
+                  >
+                    <Text style={{ color: ideaSort === s ? colors.primary : colors.mutedForeground, fontSize: 12, fontWeight: "800" }}>
+                      {s === "votes" ? "Top voted" : "Newest"}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : null}
+
+            {pendingIdeas.length === 0 ? (
+              <View style={styles.empty}>
+                <Ionicons name="bulb-outline" size={40} color={colors.textDim} />
+                <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No ideas yet</Text>
+                <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>
+                  Be the first to suggest something. The squad votes, organizers lock it in.
+                </Text>
+              </View>
+            ) : (
+              pendingIdeas.map((idea) => (
+                <IdeaCard
+                  key={idea.id}
+                  idea={idea}
+                  variant="board"
+                  isMine={idea.submittedBy?.id === currentUser.id}
+                  canManage={canManage}
+                  readOnly={ideasReadOnly}
+                  onVote={() => handleIdeaVote(idea)}
+                  onEdit={() => openEditIdea(idea)}
+                  onDelete={() => confirmDeleteIdea(idea)}
+                  onConfirm={() => runIdeaStatus(idea, "confirmed")}
+                  onArchive={() => runIdeaStatus(idea, "archived")}
+                  onPin={() => handleIdeaPin(idea)}
+                />
+              ))
+            )}
+
+            {hasConfirmedIdeas ? (
+              <TouchableOpacity
+                onPress={() => { Haptics.selectionAsync(); setTab("itinerary"); }}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 8,
+                  borderWidth: 1,
+                  borderColor: colors.green + "55",
+                  backgroundColor: colors.green + "10",
+                  borderRadius: 12,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  marginTop: 4,
+                }}
+              >
+                <Ionicons name="checkmark-circle" size={16} color={colors.green} />
+                <Text style={{ color: colors.green, fontSize: 13, fontWeight: "700", flex: 1 }}>
+                  {confirmedIdeaCount} confirmed {confirmedIdeaCount === 1 ? "idea is" : "ideas are"} on the itinerary
+                </Text>
+                <Ionicons name="chevron-forward" size={14} color={colors.green} />
+              </TouchableOpacity>
+            ) : null}
+
+            {archivedIdeas.length > 0 ? (
+              <View style={{ marginTop: 16 }}>
+                <TouchableOpacity
+                  onPress={() => { Haptics.selectionAsync(); setShowArchivedIdeas((v) => !v); }}
+                  style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 6 }}
+                >
+                  <Ionicons name={showArchivedIdeas ? "chevron-down" : "chevron-forward"} size={14} color={colors.mutedForeground} />
+                  <Text style={{ color: colors.mutedForeground, fontSize: 12, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                    Archived ({archivedIdeas.length})
+                  </Text>
+                </TouchableOpacity>
+                {showArchivedIdeas
+                  ? archivedIdeas.map((idea) => (
+                      <IdeaCard
+                        key={idea.id}
+                        idea={idea}
+                        variant="board"
+                        isMine={idea.submittedBy?.id === currentUser.id}
+                        canManage={canManage}
+                        readOnly={ideasReadOnly}
+                        onReactivate={() => runIdeaStatus(idea, "pending")}
+                        onDelete={() => confirmDeleteIdea(idea)}
+                      />
+                    ))
+                  : null}
+              </View>
+            ) : null}
           </View>
         ) : null}
 
@@ -1413,6 +1749,20 @@ export default function TripDetailScreen() {
         </TouchableOpacity>
       ) : null}
 
+      {/* FAB for ideas — anyone with access can suggest (hidden once read-only) */}
+      {tab === "ideas" && !ideasReadOnly ? (
+        <TouchableOpacity
+          onPress={() => openSuggestIdea(null)}
+          activeOpacity={0.9}
+          style={[styles.fab, { bottom: insets.bottom + 24 + (Platform.OS === "web" ? TAB_BAR_HEIGHT : 0) }]}
+        >
+          <LinearGradient colors={["#FF6B2C", "#FF8050"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.fabInner}>
+            <Ionicons name="bulb" size={22} color="#fff" />
+            <Text style={styles.fabText}>Suggest idea</Text>
+          </LinearGradient>
+        </TouchableOpacity>
+      ) : null}
+
 
       <StopSheet
         visible={sheetOpen}
@@ -1424,6 +1774,17 @@ export default function TripDetailScreen() {
         members={memberOptions}
         onClose={() => setSheetOpen(false)}
         onSubmit={submitStop}
+      />
+
+      <IdeaSheet
+        visible={ideaSheetOpen}
+        dayKeys={dayKeys}
+        defaultDay={ideaSheetDay}
+        isTrip
+        editing={editingIdea}
+        saving={ideaBusy}
+        onClose={() => setIdeaSheetOpen(false)}
+        onSubmit={submitIdea}
       />
 
       <FriendPickerSheet

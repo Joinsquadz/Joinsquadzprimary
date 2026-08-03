@@ -332,7 +332,8 @@ async function getEventAsMemberForWrite(
 
 // "Help manage" rights: the host plus any co-admin may edit details, color and
 // itinerary. Cancelling the event and changing co-admins stay host-only.
-function canManageEvent(
+// Exported for the plan-ideas routes (organizer/co-admin gates share this rule).
+export function canManageEvent(
   event: typeof eventsTable.$inferSelect,
   userId: string,
 ): boolean {

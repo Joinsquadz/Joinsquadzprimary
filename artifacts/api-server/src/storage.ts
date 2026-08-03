@@ -1,5 +1,6 @@
 import {
   usersTable,
+  planIdeasTable,
   eventsTable,
   eventCreationsTable,
   photosTable,
@@ -1635,7 +1636,7 @@ export class Storage {
    * - message: must be a current member of the conversation (live membership check)
    */
   async canUserViewReportedContent(
-    contentType: "post" | "moment" | "message" | "photo" | "profile",
+    contentType: "post" | "moment" | "message" | "photo" | "profile" | "idea",
     contentId: string,
     userId: string,
   ): Promise<boolean> {
@@ -1701,6 +1702,31 @@ export class Storage {
         if (!msg) return false;
         const convo = await this.getConversationForMember(msg.conversationId, userId);
         return convo !== null;
+      }
+
+      case "idea": {
+        const [idea] = await db
+          .select({
+            planId: planIdeasTable.planId,
+            submittedByUserId: planIdeasTable.submittedByUserId,
+          })
+          .from(planIdeasTable)
+          .where(eq(planIdeasTable.id, contentId));
+        if (!idea) return false;
+        if (idea.submittedByUserId === userId) return true;
+        const [event] = await db
+          .select()
+          .from(eventsTable)
+          .where(eq(eventsTable.id, idea.planId));
+        if (!event) return false;
+        if (event.hostId === userId) return true;
+        if (((event.invitedUserIds ?? []) as string[]).includes(userId)) return true;
+        if (event.squadId && (await this.isSquadMember(event.squadId, userId))) return true;
+        // Plain events also grant access via an rsvp key; trips deliberately don't.
+        if (event.type !== "trip" && userId in ((event.rsvps ?? {}) as Record<string, string>)) {
+          return true;
+        }
+        return false;
       }
 
       default:

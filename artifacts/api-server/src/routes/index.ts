@@ -25,6 +25,7 @@ import activityRouter from "./activity";
 import friendRequestsRouter from "./friendRequests";
 import invitesRouter from "./invites";
 import moderationRouter from "./moderation";
+import ideasRouter from "./ideas";
 
 const router: IRouter = Router();
 
@@ -54,5 +55,6 @@ router.use(activityRouter);
 router.use(friendRequestsRouter);
 router.use(invitesRouter);
 router.use(moderationRouter);
+router.use(ideasRouter);
 
 export default router;

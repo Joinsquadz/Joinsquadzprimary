@@ -10,6 +10,7 @@ import {
   photosTable,
   conversationMessagesTable,
   usersTable,
+  planIdeasTable,
 } from "@workspace/db";
 import { requireAuth } from "../middleware/currentUser";
 import { logger } from "../lib/logger";
@@ -27,7 +28,7 @@ const ADMIN_EMAIL = process.env.REPORTS_EMAIL ?? process.env.SENDGRID_FROM;
 // ── Reports ───────────────────────────────────────────────────────────────────
 
 const CreateReportBody = z.object({
-  contentType: z.enum(["post", "moment", "message", "photo", "profile"]),
+  contentType: z.enum(["post", "moment", "message", "photo", "profile", "idea"]),
   contentId: z.string().min(1),
   targetUserId: z.string().min(1),
   reason: z.enum(["spam", "inappropriate_content", "harassment", "other"]),
@@ -35,7 +36,7 @@ const CreateReportBody = z.object({
 });
 
 const AUTO_HIDE_THRESHOLD = 3;
-type ReportContentType = "post" | "moment" | "message" | "photo" | "profile";
+type ReportContentType = "post" | "moment" | "message" | "photo" | "profile" | "idea";
 
 /**
  * Applies auto-hide to a piece of content when it reaches the 3-distinct-reporter
@@ -83,6 +84,13 @@ async function maybeAutoHide(contentType: ReportContentType, contentId: string):
       .update(usersTable)
       .set({ moderationHidden: true } as Record<string, unknown>)
       .where(eq(usersTable.id, contentId));
+  } else if (contentType === "idea") {
+    // Plan ideas: hidden status removes the idea from lists AND the merged
+    // itinerary view (hidden ideas 404 on every per-id route).
+    await db
+      .update(planIdeasTable)
+      .set({ status: "hidden" })
+      .where(eq(planIdeasTable.id, contentId));
   }
 }
 

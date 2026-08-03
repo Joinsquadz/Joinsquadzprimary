@@ -8,7 +8,7 @@ export const reportsTable = pgTable(
     reporterId: text("reporter_id").notNull(),
     contentType: text("content_type")
       .notNull()
-      .$type<"post" | "moment" | "message" | "photo" | "profile">(),
+      .$type<"post" | "moment" | "message" | "photo" | "profile" | "idea">(),
     contentId: text("content_id").notNull(),
     targetUserId: text("target_user_id").notNull(),
     reason: text("reason")
