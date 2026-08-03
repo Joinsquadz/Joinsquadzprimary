@@ -1,0 +1,53 @@
+# SquadZ — Ideas Batch: Closure Dispositions & Follow-Up Setup
+
+## Part A — Paste to Replit (dispositions, minimal action)
+
+The Ideas batch is CLOSED. New canonical baseline: 916 API / 284 mobile. Dispositions on the
+open items from the re-verification report — only item 4 involves any work right now:
+
+1. **Fix 2 server gap (trip shortened → out-of-range idea dates):** Accepted as-is. No server
+   change. The client trailing-section rendering ("outside the trip dates") is the intended
+   product behavior — it preserves voting intent and lets the organizer re-date via the edit
+   sheet. Do not build auto-migration or revalidation.
+2. **Fix 1 (deep-link) and Fix 3 (vote race) test gaps:** Accepted. Deep-link coverage belongs to
+   task #541 (E2E). The vote race is authoritatively guarded by the DB unique constraint. No
+   further work.
+3. **Stop-vote consolidation:** Soft-deprecation is approved in principle but NOT authorized yet.
+   Do not hide, flag, or modify anything about proposed-stop voting.
+4. **One small action now:** run a read-only production data query and report the result — count
+   of trips (a) with any itinerary stop in `proposed` status, and (b) with any non-empty
+   `itinerary[].votes` array. Also report how many of those trips are upcoming vs past. This
+   informs when/how we soft-deprecate. Query only; change nothing.
+5. **Task #541 scope addition:** when building the E2E UI test, include (a) notification →
+   deep-link → correct Ideas tab, and (b) an assertion that stop ordering is byte-identical
+   before/after an idea reorder.
+6. Proceed with the other proposed follow-ups (idea notification deep-linking, the two
+   pre-existing type-check failures) as separate scoped tasks — audit-first prompt for each,
+   do not bundle them.
+
+## Part B — Device Verification Checklist Additions (Javier, next device pass)
+
+Add to the existing device checklist:
+
+**Ideas feature (new)**
+- [ ] Full flow on device: create idea (with link + cost + date) → second account votes →
+      threshold nudge notification arrives → confirm → idea appears in the correct day group
+      with all details intact
+- [ ] Digest notification: add 3 ideas quickly from account B → account A gets ONE notification
+- [ ] "Idea confirmed" notification arrives and deep-links to the right tab (event AND trip)
+- [ ] Rapid double-tap the vote button repeatedly → count stays correct (race guard, real network)
+- [ ] Arrow reorder: long-press → arrows feel + haptics; order persists after app restart
+- [ ] Undated confirmed idea shows under "Anytime" in the merged trip view
+- [ ] Shorten a trip's dates after confirming a dated idea → "outside the trip dates" section
+      renders sensibly; re-date the idea via edit sheet and confirm it rejoins the day group
+- [ ] Read-only check: on a past/cancelled plan, no add/vote/confirm/reorder affordances anywhere
+- [ ] Block account B from account A → B's ideas and votes gone from list AND merged itinerary
+
+**Dual voting collision (informs stop-vote deprecation decision)**
+- [ ] On a trip with both a proposed stop and a confirmed idea in the same day: screenshot the
+      day group; judge whether two voting affordances (tappable stop vote + frozen idea tally)
+      read as confusing
+
+**Pre-distribution reminders (unchanged, restated)**
+- [ ] Production redeploy to pick up all sessions' changes
+- [ ] Hermes segfault fix confirmation before broader TestFlight distribution

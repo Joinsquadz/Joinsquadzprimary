@@ -185,7 +185,36 @@ second device or account ready to send events.
 
 ---
 
-## 5  Post-checklist sign-off
+## 5  Ideas feature
+
+### 5a  Full flow
+- [ ] Full flow on device: create idea (with link + cost + date) → second account votes →
+      threshold nudge notification arrives → confirm → idea appears in the correct day group
+      with all details intact
+- [ ] Digest notification: add 3 ideas quickly from account B → account A gets ONE notification
+- [ ] "Idea confirmed" notification arrives and deep-links to the right tab (event AND trip)
+- [ ] Rapid double-tap the vote button repeatedly → count stays correct (race guard, real network)
+
+### 5b  Reorder + merged view
+- [ ] Arrow reorder: long-press → arrows appear with haptics; order persists after app restart
+- [ ] Undated confirmed idea shows under "Anytime" in the merged trip itinerary view
+
+### 5c  Edge cases
+- [ ] Shorten a trip's dates after confirming a dated idea → "outside the trip dates" section
+      renders sensibly; re-date the idea via edit sheet and confirm it rejoins the day group
+- [ ] Read-only check: on a past/cancelled plan, no add/vote/confirm/reorder affordances appear
+      anywhere (Ideas tab, itinerary day groups, event Overview)
+- [ ] Block account B from account A → B's ideas and votes are gone from both the Ideas board
+      AND the merged itinerary day groups
+
+### 5d  Dual-voting collision (informs stop-vote deprecation decision)
+- [ ] On a trip with both a proposed stop and a confirmed idea in the same day: screenshot the
+      day group; judge whether two voting affordances (tappable stop vote + frozen idea tally)
+      read as confusing
+
+---
+
+## 6  Post-checklist sign-off
 
 All boxes above checked on:
 
