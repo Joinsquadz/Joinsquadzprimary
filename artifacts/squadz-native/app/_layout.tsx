@@ -37,6 +37,7 @@ import { installWebShare } from "@/lib/webShare";
 import { logOutRevenueCat } from "@/lib/revenuecat";
 import { reconcileRcEntitlement } from "@/lib/rcReconcile";
 import { routeFromNotificationData } from "@/lib/routeFromNotificationData";
+import { createNotificationResponseHandler } from "@/lib/notificationResponseHandler";
 import { useUserCache } from "@/context/UserCacheContext";
 import { initMonitoring } from "@/lib/monitoring";
 import { initAnalytics } from "@/lib/analytics";
@@ -207,23 +208,19 @@ function PushNotificationHandler() {
 
   // routeFromNotificationData is imported from @/lib/routeFromNotificationData
   // so it can be unit-tested independently of this component.
+  // createNotificationResponseHandler is imported from @/lib/notificationResponseHandler
+  // and carries the dedup logic so it too can be unit-tested independently.
 
   // Notification responses can be delivered to both the live listener and the
   // cold-start getLastNotificationResponseAsync() path; dedupe by identifier so
   // a single tap never routes twice.
   const handleNotificationResponse = useCallback(
-    (response: { notification: { request: { identifier?: string; content: { data?: unknown } } } }) => {
-      const id = response?.notification?.request?.identifier;
-      if (id) {
-        if (handledNotificationIds.current.has(id)) return;
-        handledNotificationIds.current.add(id);
-      }
-      const data = response.notification.request.content.data as
-        | Record<string, string>
-        | undefined;
-      routeFromNotificationData(data);
-    },
-    // routeFromNotificationData is a stable imported function — no dep needed.
+    createNotificationResponseHandler(
+      handledNotificationIds.current,
+      routeFromNotificationData,
+    ),
+    // createNotificationResponseHandler and routeFromNotificationData are both
+    // stable references — the handler is created once and reused across renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
