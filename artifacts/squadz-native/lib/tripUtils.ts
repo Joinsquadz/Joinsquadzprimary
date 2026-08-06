@@ -129,7 +129,8 @@ export function groupStopsByDay(stops: ItineraryStop[]): Record<string, Itinerar
     (groups[s.day] ??= []).push(s);
   }
   for (const key of Object.keys(groups)) {
-    groups[key].sort((a, b) => a.sortOrder - b.sortOrder || a.time.localeCompare(b.time));
+    // Guard: `time` is typed string but the DB may return null for untimed stops.
+    groups[key].sort((a, b) => a.sortOrder - b.sortOrder || (a.time ?? "").localeCompare(b.time ?? ""));
   }
   return groups;
 }

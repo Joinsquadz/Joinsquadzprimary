@@ -637,7 +637,9 @@ export default function EventDetailScreen() {
   const archivedIdeas = ideas.filter((i) => i.status === "archived");
   const confirmedIdeas = ideas
     .filter((i) => i.status === "confirmed")
-    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.createdAt.localeCompare(b.createdAt));
+    // Guard: createdAt is required by the type but guard against a null from an
+    // older API row to avoid a localeCompare throw crashing the screen.
+    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || (a.createdAt ?? "").localeCompare(b.createdAt ?? ""));
 
   const runIdeaMut = async (fn: () => Promise<{ error?: string }>) => {
     if (ideaBusy) return;

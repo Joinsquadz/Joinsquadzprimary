@@ -26,7 +26,8 @@ export type ConfirmedIdeaGroups = {
 function bySortOrder(a: PlanIdea, b: PlanIdea): number {
   const ao = a.sortOrder ?? Number.MAX_SAFE_INTEGER;
   const bo = b.sortOrder ?? Number.MAX_SAFE_INTEGER;
-  return ao - bo || a.createdAt.localeCompare(b.createdAt);
+  // Guard: createdAt is typed string but guard against a null from older rows.
+  return ao - bo || (a.createdAt ?? "").localeCompare(b.createdAt ?? "");
 }
 
 /** Groups CONFIRMED ideas by day key; everything else is ignored. */
@@ -66,7 +67,7 @@ export function sortPendingIdeas(ideas: PlanIdea[], sort: PendingSort): PlanIdea
   return [...ideas].sort((a, b) => {
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
     if (sort === "votes" && b.voteCount !== a.voteCount) return b.voteCount - a.voteCount;
-    return b.createdAt.localeCompare(a.createdAt);
+    return (b.createdAt ?? "").localeCompare(a.createdAt ?? "");
   });
 }
 
