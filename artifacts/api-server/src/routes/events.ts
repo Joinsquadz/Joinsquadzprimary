@@ -894,21 +894,27 @@ router.patch("/events/:id", requireAuth, async (req: Request, res: Response): Pr
   const dateLockedIn = dateChanged && wasTbd;
 
   if (timeChanged || locationChanged || titleChanged) {
-    // 5-minute collapse window, stamped in the DB (survives restarts, same as
-    // the poll-update cooldown). Check-then-stamp before the async send.
     const MATERIAL_EDIT_COOLDOWN_MS = 5 * 60 * 1000;
-    const lastNotified = event.materialEditNotifiedAt;
-    const cooldownActive =
-      lastNotified != null &&
-      Date.now() - new Date(lastNotified as unknown as string).getTime() < MATERIAL_EDIT_COOLDOWN_MS;
-    if (!cooldownActive) {
-      await db
-        .update(eventsTable)
-        .set({ materialEditNotifiedAt: new Date() })
-        .where(eq(eventsTable.id, id));
-    }
+    // Atomic cooldown stamp: this UPDATE only fires when the cooldown window
+    // has elapsed (or has never been set). Two concurrent PATCH requests race
+    // on this single statement — the DB serialises them, and only the winner
+    // gets a RETURNING row. The loser sees 0 rows and skips the push, closing
+    // the read-then-write race in the old check-then-stamp pattern.
+    const [stamped] = await db
+      .update(eventsTable)
+      .set({ materialEditNotifiedAt: new Date() })
+      .where(
+        and(
+          eq(eventsTable.id, id),
+          or(
+            isNull(eventsTable.materialEditNotifiedAt),
+            sql`${eventsTable.materialEditNotifiedAt} < NOW() - make_interval(secs => ${MATERIAL_EDIT_COOLDOWN_MS / 1000})`,
+          ),
+        ),
+      )
+      .returning({ id: eventsTable.id });
     void (async () => {
-      if (cooldownActive) return;
+      if (!stamped) return; // cooldown active — another concurrent edit already won the stamp race
       try {
         const unmuted = await collectEditAudience();
         if (unmuted.length === 0) return;

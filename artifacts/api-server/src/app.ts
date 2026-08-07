@@ -4,7 +4,8 @@ import helmet from "helmet";
 import compression from "compression";
 import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
-import { rateLimit, ipKeyGenerator } from "express-rate-limit";
+import { rateLimit } from "express-rate-limit";
+import { dbApiRateLimiter } from "./lib/rateLimiter";
 import { authMiddleware } from "./middlewares/authMiddleware";
 import router from "./routes";
 import wellKnownRouter from "./routes/wellKnown";
@@ -115,30 +116,17 @@ app.use(express.urlencoded({ extended: true }));
 app.use(authMiddleware);
 
 // ── Rate limiting ─────────────────────────────────────────────────────────────
-// Protects all /api routes. Uses an in-memory store per process.
-// For multi-process / multi-instance deployments, replace MemoryStore with
-// a Redis-backed store (e.g. rate-limit-redis) by setting REDIS_URL.
-// Tune the limit with API_RATE_LIMIT_MAX (default: 500 req / 15 min per user).
+// Protects all /api routes. Uses the DB-backed rate limiter (rate_limits table)
+// so state survives server restarts and is consistent across multiple server
+// instances. Tune the limit with API_RATE_LIMIT_MAX (default: 500 req / 15 min
+// per user).
 //
 // Keyed by AUTHENTICATED USER when available (authMiddleware runs before this),
-// falling back to IP only for anonymous traffic. Keying by IP alone throttled
-// whole friend groups at once: several members of the same squad on one
-// Wi-Fi/NAT share an IP, and the app's SSE reconnects + safety polls made a
-// 3-4 person group blow through the shared budget within minutes.
-const apiRateLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: Number(process.env.API_RATE_LIMIT_MAX ?? "500"),
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Too many requests, please try again later." },
-  skip: (req) => req.path === "/healthz" || req.path === "/health",
-  keyGenerator: (req) => {
-    const userId = (req.user as { id?: string } | undefined)?.id;
-    if (userId) return `u:${userId}`;
-    // ipKeyGenerator normalizes IPv6 so a single host can't rotate within a /64.
-    return ipKeyGenerator(req.ip ?? "");
-  },
-});
+// falling back to IP for anonymous traffic. Keying by IP alone throttled whole
+// friend groups at once: several members of the same squad on one Wi-Fi/NAT
+// share an IP, and the app's SSE reconnects + safety polls made a 3-4 person
+// group blow through the shared budget within minutes.
+const apiRateLimiter = dbApiRateLimiter();
 
 // Tighter limiter for authentication mutation routes (login, register, OTP,
 // password reset). GET requests like /auth/me are excluded — they're called

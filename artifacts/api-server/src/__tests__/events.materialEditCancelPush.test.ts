@@ -8,6 +8,13 @@ import request from "supertest";
 
 const mockRows = vi.hoisted(() => ({ value: [] as unknown[] }));
 const mockUpdateRows = vi.hoisted(() => ({ value: [] as unknown[] }));
+// Controls what the SECOND update.returning() call returns — this is the
+// atomic cooldown stamp UPDATE (WHERE cooldown not active). Defaults to a
+// non-empty array (cooldown inactive → stamp wins → push fires). Tests that
+// verify the debounce sets this to [] (stamp loses → push suppressed).
+const mockCooldownStampRows = vi.hoisted(() => ({ value: [{ id: "evt-1" }] as unknown[] }));
+// Per-request counter: each PATCH issues 1 or 2 update().returning() calls.
+const updateReturnCallN = vi.hoisted(() => ({ n: 0 }));
 
 vi.mock("@workspace/db", () => ({
   db: {
@@ -20,7 +27,14 @@ vi.mock("@workspace/db", () => ({
     update: () => ({
       set: () => ({
         where: () => ({
-          returning: () => Promise.resolve(mockUpdateRows.value),
+          returning: () => {
+            updateReturnCallN.n += 1;
+            // Call 1 per PATCH: main version-checked event update → return event row.
+            // Call 2 per PATCH (material edits only): atomic cooldown stamp → return
+            //   mockCooldownStampRows (empty = active cooldown; non-empty = stamp wins).
+            if (updateReturnCallN.n <= 1) return Promise.resolve(mockUpdateRows.value);
+            return Promise.resolve(mockCooldownStampRows.value);
+          },
         }),
       }),
     }),
@@ -106,6 +120,9 @@ function freshEvent(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  updateReturnCallN.n = 0;
+  // Default: cooldown stamp wins (stamp UPDATE matches and returns a row).
+  mockCooldownStampRows.value = [{ id: "evt-1" }];
   pushMock.sendPushNotifications.mockResolvedValue(undefined);
 });
 
@@ -180,11 +197,15 @@ describe("A1 — 5-minute debounce: second material edit within window skips pus
     const ev = freshEvent({ materialEditNotifiedAt: recentNotifiedAt, location: "Old Venue" });
     mockRows.value = [ev];
     mockUpdateRows.value = [{ ...ev, location: "New Venue", version: 1 }];
+    // The atomic cooldown stamp UPDATE returns 0 rows — the WHERE condition
+    // (materialEditNotifiedAt < NOW() - 5min) is false because notified only 1 min ago.
+    // This is what suppresses the push under the new atomic pattern.
+    mockCooldownStampRows.value = [];
     const res = await request(makeApp())
       .patch("/api/events/evt-1")
       .send({ location: "New Venue", version: 0 });
     expect(res.status).toBe(200);
-    // Cooldown is active — push is suppressed.
+    // Cooldown is active — stamp UPDATE returned 0 rows → push is suppressed.
     await new Promise((r) => setTimeout(r, 50));
     expect(pushMock.sendPushNotifications).not.toHaveBeenCalled();
   });

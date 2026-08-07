@@ -93,6 +93,28 @@ describe("sortPendingIdeas", () => {
     sortPendingIdeas(input, "votes");
     expect(input.map((i) => i.id)).toEqual(["a", "b"]);
   });
+
+  // Regression: null createdAt must not throw (DB rows pre-date the createdAt column).
+  it("does not throw when createdAt is null", () => {
+    const noDate = makeIdea({ id: "nd", createdAt: null as unknown as string });
+    expect(() => sortPendingIdeas([a, noDate], "votes")).not.toThrow();
+    expect(() => sortPendingIdeas([a, noDate], "created")).not.toThrow();
+  });
+});
+
+describe("groupConfirmedIdeas — null createdAt regression", () => {
+  // Regression: bySortOrder calls createdAt.localeCompare for tie-breaking.
+  // A null createdAt must not throw (older DB rows may lack the column).
+  it("does not throw when confirmed ideas have null createdAt", () => {
+    const ideas = [
+      makeIdea({ id: "a", status: "confirmed", sortOrder: null, createdAt: null as unknown as string }),
+      makeIdea({ id: "b", status: "confirmed", sortOrder: null, createdAt: "2026-08-01T00:00:00.000Z" }),
+    ];
+    expect(() => groupConfirmedIdeas(ideas)).not.toThrow();
+    const groups = groupConfirmedIdeas(ideas);
+    // Both should appear in the general bucket (no suggestedDate).
+    expect(groups.general.map((i) => i.id).sort()).toEqual(["a", "b"]);
+  });
 });
 
 describe("applyVoteToggle", () => {

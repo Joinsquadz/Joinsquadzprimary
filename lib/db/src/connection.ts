@@ -33,12 +33,22 @@ export function resolveDbConfig(): PoolConfig {
     );
   }
 
-  const { host, port, user, password, database, sslmode } =
+  const { host, port: parsedPort, user, password, database, sslmode } =
     parseConnectionString(raw);
 
   if (!host) {
     throw new Error("Invalid Postgres connection string (missing host).");
   }
+
+  // DB_POOLER_PORT switches between Supabase's Session pooler (:5432) and
+  // Transaction pooler (:6543) without touching the secret that holds the URL.
+  // Transaction pooler supports 100+ concurrent connections (vs ~15 for
+  // Session) and is safe for the application: every advisory lock in the
+  // codebase uses pg_advisory_xact_lock (transaction-scoped, released at
+  // COMMIT) which is compatible with Transaction pooler.
+  const port = process.env.DB_POOLER_PORT
+    ? Number(process.env.DB_POOLER_PORT)
+    : parsedPort;
 
   const ssl = resolveSsl(host, sslmode);
 
@@ -49,16 +59,14 @@ export function resolveDbConfig(): PoolConfig {
     password,
     database,
     ...(ssl !== undefined ? { ssl } : {}),
-    // Pool tuning — override via env vars for different deployment sizes.
-    // CAUTION: Supabase's Session pooler caps concurrent clients at
-    // pool_size (15 on the current plan) SHARED across every process —
-    // production, development, and scripts all draw from the same budget.
-    // A 20-per-process default exhausted it (EMAXCONNSESSION in prod logs),
-    // so default production to 9 and everything else to 4, keeping the sum
-    // of a prod server + a dev server + a script under the cap.
+    // Pool tuning — override via DB_POOL_MAX for different deployment sizes.
+    // Transaction pooler (port 6543) supports 100+ concurrent server connections,
+    // so a production default of 25 is safe and handles 40-50 concurrent users
+    // without queuing. Session pooler (port 5432) is capped at ~15 total across
+    // ALL processes, so the old default of 9 was the right ceiling there.
     max: Number(
       process.env.DB_POOL_MAX ??
-        (process.env.NODE_ENV === "production" ? "9" : "4"),
+        (process.env.NODE_ENV === "production" ? "25" : "4"),
     ),
     idleTimeoutMillis: Number(process.env.DB_POOL_IDLE_TIMEOUT_MS ?? "30000"),
     connectionTimeoutMillis: Number(process.env.DB_POOL_CONNECTION_TIMEOUT_MS ?? "5000"),

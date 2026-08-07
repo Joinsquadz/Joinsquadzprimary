@@ -170,20 +170,25 @@ router.post("/events/invites/:id/accept", requireAuth, async (req: Request, res:
       res.status(404).json({ error: "Invite not found or already actioned" });
       return;
     }
-    await db
-      .update(eventsTable)
-      .set({
-        invitedUserIds: sql`(
-          SELECT COALESCE(jsonb_agg(DISTINCT elem), '[]'::jsonb)
-          FROM jsonb_array_elements(
-            COALESCE(${eventsTable.invitedUserIds}, '[]'::jsonb) || ${JSON.stringify([userId])}::jsonb
-          ) AS elem
-        )`,
-        version: sql`${eventsTable.version} + 1`,
-      })
-      .where(eq(eventsTable.id, invite.eventId));
-    await db.update(eventInvitesTable).set({ status: "accepted" }).where(eq(eventInvitesTable.id, inviteId));
-    await db.delete(activityTable).where(and(eq(activityTable.type, "event_invite"), eq(activityTable.subjectId, inviteId)));
+    // All three writes are a single atomic unit: if any fails the others must
+    // roll back. Without a transaction the status could flip to "accepted"
+    // while the event's invitedUserIds was not updated (or vice versa).
+    await db.transaction(async (tx) => {
+      await tx
+        .update(eventsTable)
+        .set({
+          invitedUserIds: sql`(
+            SELECT COALESCE(jsonb_agg(DISTINCT elem), '[]'::jsonb)
+            FROM jsonb_array_elements(
+              COALESCE(${eventsTable.invitedUserIds}, '[]'::jsonb) || ${JSON.stringify([userId])}::jsonb
+            ) AS elem
+          )`,
+          version: sql`${eventsTable.version} + 1`,
+        })
+        .where(eq(eventsTable.id, invite.eventId));
+      await tx.update(eventInvitesTable).set({ status: "accepted" }).where(eq(eventInvitesTable.id, inviteId));
+      await tx.delete(activityTable).where(and(eq(activityTable.type, "event_invite"), eq(activityTable.subjectId, inviteId)));
+    });
     res.json({ ok: true, eventId: invite.eventId });
     emitEventUpdate(invite.eventId);
     emitActivityUpdate(userId);
@@ -205,8 +210,10 @@ router.post("/events/invites/:id/decline", requireAuth, async (req: Request, res
       res.status(404).json({ error: "Invite not found or already actioned" });
       return;
     }
-    await db.update(eventInvitesTable).set({ status: "declined" }).where(eq(eventInvitesTable.id, inviteId));
-    await db.delete(activityTable).where(and(eq(activityTable.type, "event_invite"), eq(activityTable.subjectId, inviteId)));
+    await db.transaction(async (tx) => {
+      await tx.update(eventInvitesTable).set({ status: "declined" }).where(eq(eventInvitesTable.id, inviteId));
+      await tx.delete(activityTable).where(and(eq(activityTable.type, "event_invite"), eq(activityTable.subjectId, inviteId)));
+    });
     res.json({ ok: true });
     emitActivityUpdate(userId);
   } catch (err) {

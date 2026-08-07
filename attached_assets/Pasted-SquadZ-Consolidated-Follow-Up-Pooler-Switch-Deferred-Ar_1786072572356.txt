@@ -1,0 +1,52 @@
+SquadZ — Consolidated Follow-Up: Pooler Switch + Deferred Architectural Items
+
+Source: the 20-user deep sweep session (crashes fixed, wrong-behavior fixed, connection pooler diagnosed, three items intentionally deferred for sign-off). This prompt covers three things: confirm the crash/behavior fixes are regression-tested, execute the pooler switch now that it's confirmed low-risk, and make locked decisions on the three deferred items rather than leaving them open.
+
+Part A — Confirm regression coverage on the crash/behavior fixes
+
+Before doing anything else, confirm each of the following has a regression test. If any don't, add one — these were real crashes, they need a test locking in the fix, not just a code patch:
+
+Crashes:
+
+Messages tab: null messages array no longer crashes on open
+Squads tab, Profile screen, Create screen: partially-hydrated squad (memberIds null/undefined) no longer crashes the list/picker
+Discover screen: same null-memberIds case for squad preview
+Past trip detail: untimed itinerary stop (null time) no longer crashes on sort
+Idea sorting: null createdAt no longer crashes event/trip idea views
+
+Wrong behavior:
+
+User cache: log out then log back in as a different account in quick succession — confirm no stale name/photo bleed from the prior session
+Invite screen: cold-start/deep-link into an invite shows a spinner during eventsLoading, not a premature "Invalid invite link"
+Squad/event titles: whitespace-only and empty-string names/titles/labels are rejected server-side on both create and update, across all the fields mentioned (name, title, emoji, color, stop, task, packing-label)
+Moments feed: confirm the 300-row cap is enforced and doesn't silently regress if a new query path is added later (a comment or test guarding the LIMIT is enough)
+
+Report which of these already had coverage vs. which needed a new test added.
+
+Part B — Connection pooler switch
+
+Per the sweep's finding: the server already supports Transaction pooler with no application code changes needed — this is a config change, not a code change.
+
+Search the codebase for any session-mode-dependent Postgres features (advisory locks held across multiple round-trips, SET commands expected to persist across queries, LISTEN/NOTIFY, temp tables spanning multiple queries in one logical session). Note: the founding-spot ledger's pg_advisory_xact_lock is transaction-scoped and fine — only flag anything that isn't.
+Report findings explicitly before proceeding — if something session-dependent is found, stop and flag it rather than switching blind.
+If clear: update the Supabase connection string from the Session pooler port (:5432) to the Transaction pooler port (:6543) across all relevant environments (dev and production config), and raise the server's max-connection setting from 9 to a reasoned production value (state the reasoning, don't pick an arbitrary large number).
+Re-run the concurrent-user simulation at 40–50 simulated users (not just 20) and confirm no queuing/500s occur. Report the actual ceiling if one is hit before 40–50.
+Part C — Deferred items: decisions locked below, implement all three
+
+C1 — Multi-step invite accept lacks a transaction (3 separate writes) Decision: wrap the 3 writes in a single DB transaction so a partial failure rolls back cleanly rather than leaving the invite half-processed. This is a correctness fix, not a product trade-off — implement it.
+
+Test: simulate a failure injected between write 2 and write 3 (e.g. via a mocked throw) and confirm all 3 writes roll back, not just the ones that already ran.
+
+C2 — Event notification cooldown is non-atomic (two concurrent edits could both fire a "changed" push) Decision: apply the same atomic check-and-set pattern already used for the manual reminder cooldown fix (the single UPDATE ... WHERE (condition) RETURNING pattern from that earlier fix) to this cooldown as well, for consistency with the existing pattern in the codebase.
+
+Test: two concurrent edits to the same event within the cooldown window — confirm only one "changed" push fires.
+
+C3 — In-memory rate limiter state isn't shared across server restarts/instances Decision: migrate this to the same DB-backed rate-limit pattern already used for the login/registration rate limiter (from earlier work), for the same reason — horizontal scaling readiness matters pre-launch, and having two different rate-limiting implementations in the codebase (one DB-backed, one in-memory) is itself a maintenance risk worth closing now rather than after launch.
+
+Test: hit the limit, simulate a restart (or a second instance via a second connection), confirm the limit is still enforced — same test shape as the earlier login rate-limiter fix.
+Required for this pass
+Part A must be confirmed/completed before Part B begins.
+Part B's Step 2 (findings report) must happen before Step 3 (actual switch) — do not switch blind.
+All three Part C items get fixed with tests, not just one or two — these were flagged as known, not optional.
+Report the final test suite count (API + mobile) at the end, and confirm nothing previously passing broke.
+Stop after this pass. Do not start on anything not listed above (e.g. don't touch the RevenueCat app-side wire-up in this same session — that's a separate, already-queued prompt).
