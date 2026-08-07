@@ -85,3 +85,4 @@
 - [Plan Ideas feature](plan-ideas-feature.md) — ideas are separate tables (NO version checks); confirmed ideas merge into itinerary render-only (stops first); reorder needs the FULL group; readOnly flag gates idea UI only.
 - [New content-type checklist](new-content-type-checklist.md) — every new UGC type must touch reports enum, maybeAutoHide, canUserViewReportedContent, ActivityTypes, storage ACL, deletion purge, hidden→404.
 - [Hooks after early return](hooks-after-early-return.md) — plan detail screens hydrate via fallback fetch; ALL hooks must sit above the "not available" early return or past/deep-linked plans crash.
+- [Staging load-test setup](staging-load-test.md) — SKIP_SCHEMA_SYNC + SKIP_STRIPE_INIT env vars for staging; 429 from rate-limit token reuse (use order:sequence); Transaction pooler saturates at ~25 concurrent (600ms RTT × pool_max=25).

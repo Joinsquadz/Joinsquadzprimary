@@ -101,12 +101,17 @@ beforeAll(async () => {
   pgStarted = true;
 
   // 2) Lock the environment to the local cluster and PROVE we can't reach prod.
+  //    Also clear DB_POOLER_PORT: resolveDbConfig() applies it as a port override
+  //    AFTER parsing DATABASE_URL, so leaving it set would redirect the pool to
+  //    port 6543 instead of the ephemeral cluster's random port → ECONNREFUSED.
   for (const k of [
     "SUPABASE_DB_URL",
     "SUPABASE_URL",
     "SUPABASE_SERVICE_ROLE_KEY",
     "SUPABASE_ANON_KEY",
     "DATABASE_URL",
+    "DB_POOLER_PORT",
+    "DB_POOL_MAX",
   ]) {
     delete process.env[k];
   }
@@ -116,6 +121,9 @@ beforeAll(async () => {
   }
   if (!process.env.DATABASE_URL.includes("127.0.0.1")) {
     throw new Error("refusing to run: DATABASE_URL is not the local ephemeral cluster");
+  }
+  if (process.env.DB_POOLER_PORT) {
+    throw new Error("refusing to run: DB_POOLER_PORT still set after teardown");
   }
 
   // 3) Generate the live schema SQL (offline, no DB connection) and apply it.

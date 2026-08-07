@@ -9,13 +9,13 @@ config:
   # Each row: token,email,userId  (header row present, skipHeader: true)
   # Run seed.ts immediately before the test — Supabase JWTs expire in 1 hour.
   payload:
-    path: "load-tests/.test-accounts.csv"
+    path: ".test-accounts.csv"
     fields:
       - token
       - email
       - userId
     skipHeader: true
-    order: random  # distribute tokens across VUs randomly
+    order: sequence  # round-robin so tokens aren't reused faster than the 500/15-min limit
 
   # Inject the bearer token on every request so auth middleware is always exercised.
   defaults:

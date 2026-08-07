@@ -32,6 +32,10 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 async function initStripe() {
+  if (process.env.SKIP_STRIPE_INIT) {
+    logger.info('Stripe initialization skipped (SKIP_STRIPE_INIT is set)');
+    return;
+  }
   if (!process.env.SUPABASE_DB_URL && !process.env.DATABASE_URL) {
     logger.warn('No database connection string set — skipping Stripe initialization');
     return;

@@ -1,0 +1,37 @@
+# SquadZ — Run Local Sanity Check, Then Run Real Staging Load Test
+
+Two steps. Do them in order. Staging connection strings are provided below — use them exactly as given, do not guess or reuse production credentials anywhere in this task.
+
+## Staging database connection strings
+
+**Transaction pooler (use this for the actual app/deployment connection):**
+```
+postgresql://postgres.oalnboykhpvghibkxwdd:RoyalFlushLucky101%21@aws-0-ca-central-1.pooler.supabase.com:6543/postgres
+```
+
+**Session pooler (reference only, not for the load test itself):**
+```
+postgresql://postgres.oalnboykhpvghibkxwdd:RoyalFlushLucky101%21@aws-0-ca-central-1.pooler.supabase.com:5432/postgres
+```
+
+This is a brand-new, empty Supabase project (`squadz-staging`) with no tables yet — schema migrations need to be run against it as part of this task.
+
+## Step 1 — Quick sanity check (do this first, no setup needed)
+
+Run the existing `src/__tests__/concurrency/realDb.concurrency.test.ts` ephemeral-cluster test now. Report the result plainly — pass/fail, and any connection-pool errors observed. This is a fast, free check that the pooling logic itself isn't fundamentally broken, before spending effort on the real staging test below. If this fails, stop and report — don't proceed to Step 2 until this is resolved.
+
+## Step 2 — Wire up and run the real staging load test
+
+1. Set up a way to point a deployment/process at the staging database using the Transaction pooler URL above, without touching any existing production environment variables — use a separate `.env` profile or equivalent, not a modification of production config.
+2. Run the existing schema migrations against the staging database so it has the correct tables, matching production structure.
+3. Confirm the connection is using the Transaction pooler URL (port 6543) specifically, matching the production fix from the earlier session — not the Session pooler URL.
+4. Run `load-tests/seed.ts` against staging to create the disposable test accounts. Before running, explicitly confirm and state which database URL the script is targeting — this creates real accounts and must not run against production.
+5. Run the Artillery load test (`load-tests/squadz.yml`) against the staging deployment.
+6. Report full results: error rate, p50/p95/p99 response times per endpoint, and the concurrency level at which errors or significant latency degradation first appears (if any, through the ~100 concurrent VU peak phase).
+7. Run `load-tests/cleanup.ts` against staging afterward to remove the test accounts, and confirm it completed successfully.
+
+## Required for this pass
+- Every step in Step 2 must explicitly target the staging URLs provided above — confirm this before each destructive action (migrations, seeding, load test).
+- Do not touch production credentials, production database, or production deployment config at any point in this task.
+- Report Step 1's result before starting Step 2, even though both are in this prompt together.
+- Stop and ask if anything about the target environment is ambiguous, rather than guessing.

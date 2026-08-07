@@ -501,6 +501,12 @@ async function createForeignKeys(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export async function ensureSchema(): Promise<void> {
+  // Allow staging/CI environments where the schema is already in place to skip
+  // the sync entirely. Never set this in production.
+  if (process.env.SKIP_SCHEMA_SYNC) {
+    logger.info('[schemaSync] Skipping schema sync (SKIP_SCHEMA_SYNC is set)');
+    return;
+  }
   try {
     logger.info('[schemaSync] Running startup schema sync…');
     await createMissingTables();
