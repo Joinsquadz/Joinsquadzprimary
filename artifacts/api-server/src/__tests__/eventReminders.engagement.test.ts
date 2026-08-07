@@ -2,13 +2,21 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const storageMock = vi.hoisted(() => ({
   getEventsPendingDayOfReminder: vi.fn(),
-  markEventDayOfReminderSent: vi.fn(),
+  markEventDayOfReminderSent: vi.fn(),      // retirement only
+  tryClaimDayOfReminderSend: vi.fn(),        // atomic claim before live send
+  unclaimDayOfReminderSend: vi.fn(),         // release on failure
   getEventsPending3DayReminder: vi.fn(),
-  markEvent3DayReminderSent: vi.fn(),
+  markEvent3DayReminderSent: vi.fn(),        // retirement only
+  tryClaimEvent3DayReminderSend: vi.fn(),
+  unclaimEvent3DayReminderSend: vi.fn(),
   getEventsPendingRecap: vi.fn(),
-  markEventRecapSent: vi.fn(),
+  markEventRecapSent: vi.fn(),               // retirement only
+  tryClaimEventRecapSend: vi.fn(),
+  unclaimEventRecapSend: vi.fn(),
   getPollsPendingNudge: vi.fn(),
-  markPollNudgeSent: vi.fn(),
+  markPollNudgeSent: vi.fn(),                // retirement only
+  tryClaimPollNudgeSend: vi.fn(),
+  unclaimPollNudgeSend: vi.fn(),
   getAvailabilityPollRoster: vi.fn(),
   getAvailabilityResponses: vi.fn(),
   getPushTokensForUsers: vi.fn(),
@@ -70,9 +78,17 @@ beforeEach(() => {
   storageMock.filterUnmutedForSquad.mockImplementation(async (ids: string[]) => ids);
   storageMock.getPushTokensForUsers.mockResolvedValue(["ExponentPushToken[x]"]);
   storageMock.markEventDayOfReminderSent.mockResolvedValue(undefined);
+  storageMock.tryClaimDayOfReminderSend.mockResolvedValue(true);
+  storageMock.unclaimDayOfReminderSend.mockResolvedValue(undefined);
   storageMock.markEvent3DayReminderSent.mockResolvedValue(undefined);
+  storageMock.tryClaimEvent3DayReminderSend.mockResolvedValue(true);
+  storageMock.unclaimEvent3DayReminderSend.mockResolvedValue(undefined);
   storageMock.markEventRecapSent.mockResolvedValue(undefined);
+  storageMock.tryClaimEventRecapSend.mockResolvedValue(true);
+  storageMock.unclaimEventRecapSend.mockResolvedValue(undefined);
   storageMock.markPollNudgeSent.mockResolvedValue(undefined);
+  storageMock.tryClaimPollNudgeSend.mockResolvedValue(true);
+  storageMock.unclaimPollNudgeSend.mockResolvedValue(undefined);
   storageMock.clearPushToken.mockResolvedValue(undefined);
   sendPushNotificationsMock.mockResolvedValue({ staleTokens: [], okCount: 1, hadSendError: false });
 });
@@ -88,7 +104,9 @@ describe("runDayOfReminderScan", () => {
     expect(recipientIds).toEqual([GOING]);
     expect(opts.requireNotifyReminders).toBe(true);
     expect(sendPushNotificationsMock).toHaveBeenCalledTimes(1);
-    expect(storageMock.markEventDayOfReminderSent).toHaveBeenCalledWith("evt-1");
+    // Atomic claim marks before the send; direct mark is for retirement only.
+    expect(storageMock.tryClaimDayOfReminderSend).toHaveBeenCalledWith("evt-1");
+    expect(storageMock.markEventDayOfReminderSent).not.toHaveBeenCalled();
   });
 
   it("body says 'today' when the event is the same calendar day (UTC, no timezone)", async () => {
@@ -163,12 +181,14 @@ describe("runDayOfReminderScan", () => {
     expect(storageMock.markEventDayOfReminderSent).toHaveBeenCalledWith("evt-1");
   });
 
-  it("does not mark on a non-confirmed send so it retries", async () => {
+  it("does not mark on a non-confirmed send so it retries (atomic claim released via unclaim)", async () => {
     storageMock.getEventsPendingDayOfReminder.mockResolvedValue([evt({ date: dateStr(8 * 60 * 60 * 1000) })]);
     sendPushNotificationsMock.mockResolvedValue({ staleTokens: [], okCount: 0, hadSendError: true });
 
     await runDayOfReminderScan();
 
+    expect(storageMock.tryClaimDayOfReminderSend).toHaveBeenCalledWith("evt-1");
+    expect(storageMock.unclaimDayOfReminderSend).toHaveBeenCalledWith("evt-1");
     expect(storageMock.markEventDayOfReminderSent).not.toHaveBeenCalled();
   });
 });
@@ -182,7 +202,8 @@ describe("runEventRecapScan", () => {
     const [, payload] = sendPushNotificationsMock.mock.calls[0] as [unknown, { data: Record<string, string> }];
     expect(payload.data.screen).toBe("event");
     expect(payload.data.tab).toBe("photos");
-    expect(storageMock.markEventRecapSent).toHaveBeenCalledWith("evt-1");
+    expect(storageMock.tryClaimEventRecapSend).toHaveBeenCalledWith("evt-1");
+    expect(storageMock.markEventRecapSent).not.toHaveBeenCalled();
   });
 
   it("does NOT send (or mark) before the event is comfortably over", async () => {
@@ -265,7 +286,8 @@ describe("run3DayReminderScan", () => {
     expect(recipientIds).toEqual([GOING]);
     expect(opts.requireNotifyReminders).toBe(true);
     expect(sendPushNotificationsMock).toHaveBeenCalledTimes(1);
-    expect(storageMock.markEvent3DayReminderSent).toHaveBeenCalledWith("evt-1");
+    expect(storageMock.tryClaimEvent3DayReminderSend).toHaveBeenCalledWith("evt-1");
+    expect(storageMock.markEvent3DayReminderSent).not.toHaveBeenCalled();
   });
 
   it("does NOT send when the event is still more than 3 days out", async () => {
@@ -340,6 +362,8 @@ describe("run3DayReminderScan", () => {
     ]);
     sendPushNotificationsMock.mockResolvedValue({ staleTokens: [], okCount: 0, hadSendError: true });
     await run3DayReminderScan();
+    expect(storageMock.tryClaimEvent3DayReminderSend).toHaveBeenCalledWith("evt-1");
+    expect(storageMock.unclaimEvent3DayReminderSend).toHaveBeenCalledWith("evt-1");
     expect(storageMock.markEvent3DayReminderSent).not.toHaveBeenCalled();
   });
 });
@@ -370,7 +394,8 @@ describe("runPollNudgeScan", () => {
     const [, payload] = sendPushNotificationsMock.mock.calls[0] as [unknown, { body: string; data: Record<string, string> }];
     expect(payload.data.pollId).toBe("poll-1");
     expect(payload.body).toContain("2 of 3");
-    expect(storageMock.markPollNudgeSent).toHaveBeenCalledWith("poll-1");
+    expect(storageMock.tryClaimPollNudgeSend).toHaveBeenCalledWith("poll-1");
+    expect(storageMock.markPollNudgeSent).not.toHaveBeenCalled();
   });
 
   it("sends an 'everyone responded' nudge when fully answered", async () => {
@@ -382,7 +407,8 @@ describe("runPollNudgeScan", () => {
 
     const [, payload] = sendPushNotificationsMock.mock.calls[0] as [unknown, { body: string }];
     expect(payload.body.toLowerCase()).toContain("everyone");
-    expect(storageMock.markPollNudgeSent).toHaveBeenCalledWith("poll-1");
+    expect(storageMock.tryClaimPollNudgeSend).toHaveBeenCalledWith("poll-1");
+    expect(storageMock.markPollNudgeSent).not.toHaveBeenCalled();
   });
 
   it("does nothing for too-new polls", async () => {

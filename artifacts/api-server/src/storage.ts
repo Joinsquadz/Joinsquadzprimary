@@ -31,7 +31,7 @@ import {
   type DbEvent,
   type MessageAttachment,
 } from '@workspace/db/schema';
-import { eq, sql, count, and, or, gte, lt, desc, asc, inArray, ne, isNull } from 'drizzle-orm';
+import { eq, sql, count, and, or, gte, lt, lte, desc, asc, inArray, ne, isNull } from 'drizzle-orm';
 import { db } from '@workspace/db';
 
 /**
@@ -1891,15 +1891,47 @@ export class Storage {
           isNull(eventsTable.reminderSentAt),
           ne(eventsTable.date, ""),
           ne(eventsTable.date, "TBD"),
+          // SQL-level time-window guard: skip events whose machine-readable
+          // eventAt is more than 2 h in the future (the reminder lead window).
+          // Events with no eventAt (TBD / text-only date) are kept for the
+          // JS-level text parser. Bounds the SELECT as the events table grows.
+          or(isNull(eventsTable.eventAt), sql`${eventsTable.eventAt} <= NOW() + interval '2 hours'`),
         ),
       );
   }
 
-  /** Mark an event as having had its automatic reminder sent (fire-once). */
+  /** Mark an event as having had its automatic reminder sent (fire-once).
+   *  Use for retirement (past events) only. For live sends, use
+   *  tryClaimEventReminderSend / unclaimEventReminderSend instead. */
   async markEventReminderSent(eventId: string): Promise<void> {
     await db
       .update(eventsTable)
       .set({ reminderSentAt: new Date() })
+      .where(eq(eventsTable.id, eventId));
+  }
+
+  /**
+   * Atomically claim the reminder-send slot for this instance.
+   *
+   * Sets reminderSentAt = NOW() only when it is still NULL, preventing a
+   * second concurrent instance from claiming the same event. Returns true if
+   * this caller won; false if another instance beat it (caller should skip).
+   */
+  async tryClaimEventReminderSend(eventId: string): Promise<boolean> {
+    const [row] = await db
+      .update(eventsTable)
+      .set({ reminderSentAt: new Date() })
+      .where(and(eq(eventsTable.id, eventId), isNull(eventsTable.reminderSentAt)))
+      .returning({ id: eventsTable.id });
+    return Boolean(row);
+  }
+
+  /** Clear the reminder sent marker so the next scan can retry.
+   *  Called when the send fails after a successful claim. */
+  async unclaimEventReminderSend(eventId: string): Promise<void> {
+    await db
+      .update(eventsTable)
+      .set({ reminderSentAt: null })
       .where(eq(eventsTable.id, eventId));
   }
 
@@ -1915,6 +1947,9 @@ export class Storage {
           isNull(eventsTable.dayOfReminderSentAt),
           ne(eventsTable.date, ""),
           ne(eventsTable.date, "TBD"),
+          // SQL-level time-window guard: skip events more than 14 h out (the
+          // day-of lead window). Events without eventAt kept for JS parsing.
+          or(isNull(eventsTable.eventAt), sql`${eventsTable.eventAt} <= NOW() + interval '14 hours'`),
         ),
       );
   }
@@ -1923,6 +1958,22 @@ export class Storage {
     await db
       .update(eventsTable)
       .set({ dayOfReminderSentAt: new Date() })
+      .where(eq(eventsTable.id, eventId));
+  }
+
+  async tryClaimDayOfReminderSend(eventId: string): Promise<boolean> {
+    const [row] = await db
+      .update(eventsTable)
+      .set({ dayOfReminderSentAt: new Date() })
+      .where(and(eq(eventsTable.id, eventId), isNull(eventsTable.dayOfReminderSentAt)))
+      .returning({ id: eventsTable.id });
+    return Boolean(row);
+  }
+
+  async unclaimDayOfReminderSend(eventId: string): Promise<void> {
+    await db
+      .update(eventsTable)
+      .set({ dayOfReminderSentAt: null })
       .where(eq(eventsTable.id, eventId));
   }
 
@@ -1939,6 +1990,9 @@ export class Storage {
           isNull(eventsTable.threeDayReminderSentAt),
           ne(eventsTable.date, ""),
           ne(eventsTable.date, "TBD"),
+          // SQL-level time-window guard: skip events more than 72 h out (the
+          // 3-day lead window). Events without eventAt kept for JS parsing.
+          or(isNull(eventsTable.eventAt), sql`${eventsTable.eventAt} <= NOW() + interval '72 hours'`),
         ),
       );
   }
@@ -1947,6 +2001,22 @@ export class Storage {
     await db
       .update(eventsTable)
       .set({ threeDayReminderSentAt: new Date() })
+      .where(eq(eventsTable.id, eventId));
+  }
+
+  async tryClaimEvent3DayReminderSend(eventId: string): Promise<boolean> {
+    const [row] = await db
+      .update(eventsTable)
+      .set({ threeDayReminderSentAt: new Date() })
+      .where(and(eq(eventsTable.id, eventId), isNull(eventsTable.threeDayReminderSentAt)))
+      .returning({ id: eventsTable.id });
+    return Boolean(row);
+  }
+
+  async unclaimEvent3DayReminderSend(eventId: string): Promise<void> {
+    await db
+      .update(eventsTable)
+      .set({ threeDayReminderSentAt: null })
       .where(eq(eventsTable.id, eventId));
   }
 
@@ -2034,6 +2104,11 @@ export class Storage {
           isNull(eventsTable.recapPromptSentAt),
           ne(eventsTable.date, ""),
           ne(eventsTable.date, "TBD"),
+          // SQL-level guard: only include events that have plausibly started
+          // (event_at <= NOW() - 2h, matching the RECAP_DELAY_MS minimum).
+          // Events without eventAt are kept for JS-level text parsing (they are
+          // skipped by eventStartFor returning null). Future events are excluded.
+          or(isNull(eventsTable.eventAt), sql`${eventsTable.eventAt} <= NOW() - interval '2 hours'`),
         ),
       );
   }
@@ -2045,19 +2120,62 @@ export class Storage {
       .where(eq(eventsTable.id, eventId));
   }
 
+  async tryClaimEventRecapSend(eventId: string): Promise<boolean> {
+    const [row] = await db
+      .update(eventsTable)
+      .set({ recapPromptSentAt: new Date() })
+      .where(and(eq(eventsTable.id, eventId), isNull(eventsTable.recapPromptSentAt)))
+      .returning({ id: eventsTable.id });
+    return Boolean(row);
+  }
+
+  async unclaimEventRecapSend(eventId: string): Promise<void> {
+    await db
+      .update(eventsTable)
+      .set({ recapPromptSentAt: null })
+      .where(eq(eventsTable.id, eventId));
+  }
+
   /** Availability polls that have not yet had their automatic "almost there"
-   *  organizer nudge sent (fire-once via nudgeSentAt). */
+   *  organizer nudge sent (fire-once via nudgeSentAt). Only returns polls in
+   *  the eligible age window [2h, 7d] so the SELECT stays bounded. */
   async getPollsPendingNudge(): Promise<AvailabilityPoll[]> {
     return db
       .select()
       .from(availabilityPollsTable)
-      .where(isNull(availabilityPollsTable.nudgeSentAt));
+      .where(
+        and(
+          isNull(availabilityPollsTable.nudgeSentAt),
+          // SQL-level age window matching POLL_NUDGE_MIN_AGE_MS (2h) and
+          // POLL_NUDGE_MAX_AGE_MS (7d). Polls outside this range are either
+          // too new (skip) or too old (JS retires them); both are harmless to
+          // exclude from the SELECT. Bounds the scan as polls accumulate.
+          sql`${availabilityPollsTable.createdAt} <= NOW() - interval '2 hours'`,
+          sql`${availabilityPollsTable.createdAt} >= NOW() - interval '7 days'`,
+        ),
+      );
   }
 
   async markPollNudgeSent(pollId: string): Promise<void> {
     await db
       .update(availabilityPollsTable)
       .set({ nudgeSentAt: new Date() })
+      .where(eq(availabilityPollsTable.id, pollId));
+  }
+
+  async tryClaimPollNudgeSend(pollId: string): Promise<boolean> {
+    const [row] = await db
+      .update(availabilityPollsTable)
+      .set({ nudgeSentAt: new Date() })
+      .where(and(eq(availabilityPollsTable.id, pollId), isNull(availabilityPollsTable.nudgeSentAt)))
+      .returning({ id: availabilityPollsTable.id });
+    return Boolean(row);
+  }
+
+  async unclaimPollNudgeSend(pollId: string): Promise<void> {
+    await db
+      .update(availabilityPollsTable)
+      .set({ nudgeSentAt: null })
       .where(eq(availabilityPollsTable.id, pollId));
   }
 

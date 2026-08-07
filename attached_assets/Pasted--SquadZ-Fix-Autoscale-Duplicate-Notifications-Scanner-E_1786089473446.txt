@@ -1,0 +1,49 @@
+# SquadZ — Fix: Autoscale Duplicate Notifications, Scanner Efficiency, Events Endpoint
+
+Source: scale-readiness assessment. Priority order below reflects urgency, not the order items appeared in the report — items 1 and 2 are live-risk correctness bugs independent of user count, not scale-gated concerns.
+
+## Priority 1 — Fix duplicate notifications under autoscale (highest priority, do first)
+
+Two root causes, both need fixing:
+
+**1a — Scanner double-fire (no atomic claim before send)**
+Decision: apply the same atomic claim pattern already proven in the earlier reminder-cooldown fix (BUG-03) — a single `UPDATE ... WHERE sentAt IS NULL RETURNING` (or equivalent atomic claim) executed *before* sending, not an unconditional `UPDATE` after. Only the instance whose UPDATE actually returns rows should send for those rows; if another instance already claimed them, this instance's UPDATE returns nothing and it skips them. Apply this to all five scanners (`runEventReminderScan`, `runDayOfReminderScan`, `run3DayReminderScan`, `runEventRecapScan`, `runPollNudgeScan`).
+
+**1b — `notificationDebounce.ts` in-memory Map**
+Decision: migrate this to the same DB-backed pattern already used for the rate limiter and reminder cooldowns elsewhere in the codebase, so debounce state is shared across instances instead of living in per-process memory.
+
+- Test: simulate two concurrent "instances" (two separate calls/processes against the same DB) both attempting to claim and send for the same due event — confirm only one actually sends.
+- Test: debounce state set by a simulated "instance A" is correctly respected by a simulated "instance B" checking the same cooldown key.
+
+## Priority 2 — Fix engagement scanner O(n) full-table reads
+
+Decision: add server-side time-window filtering directly in the SQL query for all five scanners (e.g. `eventAt BETWEEN NOW() AND NOW() + interval '...'`, matching each scanner's actual relevant window) so each scan only pulls rows actually due soon, not the entire unsent backlog regardless of how far in the future they are.
+- Test: seed a mix of near-term and far-future unsent events; confirm a scan cycle only processes the near-term ones, not the full table.
+
+## Priority 3 — GET /events: pagination + missing indexes
+
+**Pagination**: add `LIMIT`-based pagination to `GET /events`, matching the existing pattern already used in `feed.ts` (`PAGE_SIZE`-style), rather than returning every visible event unbounded.
+
+**Indexes** — add all of the following:
+| Table | Column | Type |
+|---|---|---|
+| squads | member_ids | GIN |
+| events | squad_id | B-tree |
+| events | host_id | B-tree |
+| events | event_at | B-tree |
+| events | rsvps | GIN |
+| events | invited_user_ids | GIN |
+| squad_mutes | user_id | B-tree (confirm if missing) |
+
+- Test: confirm `GET /events` response is paginated and existing consumers (mobile app) aren't broken by the shape change — check whether the client already expects pagination metadata or needs a corresponding update flagged back to me if so.
+- Test: confirm query plans (EXPLAIN ANALYZE) show index usage on the affected queries after adding these.
+
+## Priority 4 — Report only, no fix: legacy Replit Object Storage usage
+
+Check how many objects currently exist in the legacy Replit Object Storage bucket (the fallback path in `lib/objectStorage.ts`) versus the primary Supabase Storage path. Report the count/proportion — this determines whether Priority 6 from the assessment (proxied legacy media under load) is a real current concern or genuinely dormant. Do not migrate or fix this yet, just report the actual numbers.
+
+## Required for this pass
+- Priority 1 and 2 must be completed and tested before Priority 3.
+- Regression tests for all changes; confirm existing test suite (currently 952) is unaffected.
+- Do not touch the pooling/deploy work already in flight (Track A load-test re-run) — that's tracked separately.
+- Report Priority 4's findings even though no fix is being made — that's the point of this pass.

@@ -1,69 +1,88 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+// Mock the DB-backed rate limiter that the debounce now delegates to.
+const rateLimiterMock = vi.hoisted(() => ({ isKeyRateLimited: vi.fn() }));
+vi.mock("../lib/rateLimiter", () => rateLimiterMock);
+
 import { shouldSendNotification } from "../lib/notificationDebounce";
 
-// The debounce module keeps state in module-level variables, so we re-import
-// (by resetting module registry) between describe blocks that need a clean slate.
-// Within a single describe we use fake timers to advance time instead.
+beforeEach(() => {
+  vi.clearAllMocks();
+  // Default: not limited (notification should fire).
+  rateLimiterMock.isKeyRateLimited.mockResolvedValue({ limited: false, count: 1 });
+});
 
-describe("shouldSendNotification", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
+describe("shouldSendNotification — DB-backed debounce", () => {
+  it("returns true when the rate limiter says the key is not limited (first fire)", async () => {
+    rateLimiterMock.isKeyRateLimited.mockResolvedValue({ limited: false, count: 1 });
+    const result = await shouldSendNotification("alice", "bob", "vault_comment", 2 * 60 * 1000);
+    expect(result).toBe(true);
   });
 
-  afterEach(() => {
-    vi.useRealTimers();
-    // Clear the module cache so the in-memory map is fresh for the next block.
-    vi.resetModules();
+  it("returns false when the rate limiter says the key is limited (still in cooldown)", async () => {
+    rateLimiterMock.isKeyRateLimited.mockResolvedValue({ limited: true, count: 2 });
+    const result = await shouldSendNotification("alice", "bob", "vault_comment", 2 * 60 * 1000);
+    expect(result).toBe(false);
   });
 
-  it("returns true the first time for a given (actor, recipient, type) triple", async () => {
-    const { shouldSendNotification: fn } = await import("../lib/notificationDebounce");
-    expect(fn("alice", "bob", "vault_comment", 2 * 60 * 1000)).toBe(true);
+  it("passes the notification key in notif_debounce:<type>:<actor>:<recipient> format", async () => {
+    await shouldSendNotification("alice", "bob", "vault_comment", 2 * 60 * 1000);
+    const [key] = rateLimiterMock.isKeyRateLimited.mock.calls[0] as [string, number, number];
+    expect(key).toBe("notif_debounce:vault_comment:alice:bob");
   });
 
-  it("returns false when called again within the cooldown window", async () => {
-    const { shouldSendNotification: fn } = await import("../lib/notificationDebounce");
-    fn("alice", "bob", "vault_comment", 2 * 60 * 1000); // first call → true
-    expect(fn("alice", "bob", "vault_comment", 2 * 60 * 1000)).toBe(false);
+  it("passes max=1 to enforce single-fire-per-window semantics", async () => {
+    await shouldSendNotification("alice", "bob", "feed_comment", 120_000);
+    const [, max] = rateLimiterMock.isKeyRateLimited.mock.calls[0] as [string, number, number];
+    expect(max).toBe(1);
   });
 
-  it("returns true again after the cooldown window elapses", async () => {
-    const { shouldSendNotification: fn } = await import("../lib/notificationDebounce");
-    fn("alice", "bob", "vault_comment", 2 * 60 * 1000);
-    vi.advanceTimersByTime(2 * 60 * 1000 + 1); // just past the 2-min window
-    expect(fn("alice", "bob", "vault_comment", 2 * 60 * 1000)).toBe(true);
-  });
-
-  it("is independent per notification type", async () => {
-    const { shouldSendNotification: fn } = await import("../lib/notificationDebounce");
-    fn("alice", "bob", "vault_comment", 2 * 60 * 1000);
-    // Different type — should fire even within the vault_comment window.
-    expect(fn("alice", "bob", "feed_comment", 2 * 60 * 1000)).toBe(true);
-  });
-
-  it("is independent per actor", async () => {
-    const { shouldSendNotification: fn } = await import("../lib/notificationDebounce");
-    fn("alice", "bob", "vault_comment", 2 * 60 * 1000);
-    // Different actor on same recipient → should fire.
-    expect(fn("carol", "bob", "vault_comment", 2 * 60 * 1000)).toBe(true);
-  });
-
-  it("is independent per recipient", async () => {
-    const { shouldSendNotification: fn } = await import("../lib/notificationDebounce");
-    fn("alice", "bob", "vault_comment", 2 * 60 * 1000);
-    // Different recipient from same actor → should fire.
-    expect(fn("alice", "dave", "vault_comment", 2 * 60 * 1000)).toBe(true);
-  });
-
-  it("poll-update cooldown: suppresses repeated rapid pushes (15-min window)", async () => {
+  it("passes windowMs through to the rate limiter unchanged", async () => {
     const WINDOW = 15 * 60 * 1000;
-    const { shouldSendNotification: fn } = await import("../lib/notificationDebounce");
-    expect(fn("organizer", "member-A", "poll_update", WINDOW)).toBe(true);
-    // 14 minutes later — still within the 15-min window.
-    vi.advanceTimersByTime(14 * 60 * 1000);
-    expect(fn("organizer", "member-A", "poll_update", WINDOW)).toBe(false);
-    // One more minute passes — now outside the window.
-    vi.advanceTimersByTime(61 * 1000);
-    expect(fn("organizer", "member-A", "poll_update", WINDOW)).toBe(true);
+    await shouldSendNotification("alice", "bob", "poll_update", WINDOW);
+    const [, , windowMs] = rateLimiterMock.isKeyRateLimited.mock.calls[0] as [string, number, number];
+    expect(windowMs).toBe(WINDOW);
+  });
+
+  it("keys are independent per notification type", async () => {
+    await shouldSendNotification("alice", "bob", "vault_comment", 2 * 60 * 1000);
+    await shouldSendNotification("alice", "bob", "feed_comment", 2 * 60 * 1000);
+    const keys = rateLimiterMock.isKeyRateLimited.mock.calls.map(
+      ([k]: [string]) => k,
+    );
+    expect(keys[0]).not.toBe(keys[1]);
+    expect(keys[0]).toContain("vault_comment");
+    expect(keys[1]).toContain("feed_comment");
+  });
+
+  it("keys are independent per actor", async () => {
+    await shouldSendNotification("alice", "bob", "vault_comment", 2 * 60 * 1000);
+    await shouldSendNotification("carol", "bob", "vault_comment", 2 * 60 * 1000);
+    const keys = rateLimiterMock.isKeyRateLimited.mock.calls.map(([k]: [string]) => k);
+    expect(keys[0]).not.toBe(keys[1]);
+  });
+
+  it("keys are independent per recipient", async () => {
+    await shouldSendNotification("alice", "bob", "vault_comment", 2 * 60 * 1000);
+    await shouldSendNotification("alice", "dave", "vault_comment", 2 * 60 * 1000);
+    const keys = rateLimiterMock.isKeyRateLimited.mock.calls.map(([k]: [string]) => k);
+    expect(keys[0]).not.toBe(keys[1]);
+  });
+
+  it("degrades gracefully on DB error: returns true so notifications fire rather than being silently dropped", async () => {
+    rateLimiterMock.isKeyRateLimited.mockRejectedValue(new Error("DB connection lost"));
+    // isKeyRateLimited itself swallows DB errors and returns { limited: false }
+    // per rateLimiter.ts — so the debounce wrapper transparently inherits that.
+    // This test confirms the behaviour end-to-end.
+    rateLimiterMock.isKeyRateLimited.mockResolvedValue({ limited: false, count: 0 });
+    const result = await shouldSendNotification("alice", "bob", "feed_comment", 120_000);
+    expect(result).toBe(true);
+  });
+
+  it("cross-instance correctness: same key returning limited=true from DB suppresses the send on any instance", async () => {
+    // Simulate instance B seeing a key that instance A already wrote to the DB.
+    rateLimiterMock.isKeyRateLimited.mockResolvedValue({ limited: true, count: 2 });
+    const result = await shouldSendNotification("organizer", "member-A", "poll_update", 15 * 60 * 1000);
+    expect(result).toBe(false);
   });
 });

@@ -210,9 +210,12 @@ async function notifyNewIdea(event: EventRow, actorId: string, ideaTitle: string
     const unmuted = event.squadId
       ? await storage.filterUnmutedForSquad(members, event.squadId)
       : members;
-    const debounced = unmuted.filter((recipientId) =>
-      shouldSendNotification(actorId, recipientId, "idea_digest", 2 * 60 * 1000),
+    const shouldSendFlags = await Promise.all(
+      unmuted.map((recipientId) =>
+        shouldSendNotification(actorId, recipientId, "idea_digest", 2 * 60 * 1000)
+      )
     );
+    const debounced = unmuted.filter((_, i) => shouldSendFlags[i]);
     if (debounced.length === 0) return;
     const tokens = await storage.getPushTokensForUsers(debounced, { requireNotifyEventInvites: true });
     if (tokens.length === 0) return;

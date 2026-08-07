@@ -620,7 +620,7 @@ router.post(
           try {
             // 2-minute debounce: suppress rapid-fire "X commented" pushes from
             // the same commenter on the same post author's content.
-            if (!shouldSendNotification(userId, post.authorId, "feed_comment", 2 * 60 * 1000)) return;
+            if (!(await shouldSendNotification(userId, post.authorId, "feed_comment", 2 * 60 * 1000))) return;
             const commenter = await storage.getUser(userId);
             const commenterName = commenter?.firstName ?? "Someone";
             const tokens = await storage.getPushTokensForUsers([post.authorId], {

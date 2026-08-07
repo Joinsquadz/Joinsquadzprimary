@@ -1,32 +1,26 @@
 /**
- * Lightweight in-memory debounce for push notifications.
+ * DB-backed debounce for push notifications.
  *
- * Keyed by `${type}:${actor}:${recipient}` — a send is suppressed when
- * the same (type, actor, recipient) triple fired within `windowMs`.
+ * Replaces the per-process in-memory Map with a shared atomic check backed by
+ * the rate_limits table so debounce state is consistent across multiple server
+ * instances (horizontal autoscale). Uses the same atomic upsert already
+ * powering the API rate limiter.
  *
- * Intentionally in-memory: the windows involved (2 min) are short enough
- * that a server restart simply resets them, which is acceptable.
+ * Semantics: identical to before — a send is suppressed when the same
+ * (type, actor, recipient) triple fired within `windowMs`. The key is prefixed
+ * `notif_debounce:` to avoid collisions with rate-limit keys.
  *
- * Entries are pruned lazily on a 10-minute interval to prevent unbounded growth.
+ * The function is now async (was synchronous) because it hits the DB.
+ * All callers are already in async functions so the change is additive.
+ * Degrades gracefully on DB error: always returns true so notifications fire
+ * rather than being silently dropped.
  */
-
-const debounceMap = new Map<string, number>();
-let lastPrune = Date.now();
-const PRUNE_INTERVAL_MS = 10 * 60 * 1000;
-
-function maybePrune(windowMs: number): void {
-  const now = Date.now();
-  if (now - lastPrune < PRUNE_INTERVAL_MS) return;
-  lastPrune = now;
-  for (const [key, ts] of debounceMap) {
-    if (now - ts >= windowMs) debounceMap.delete(key);
-  }
-}
+import { isKeyRateLimited } from './rateLimiter';
 
 /**
  * Returns `true` if the notification should fire (cooldown has elapsed or this
- * is the first occurrence) and records the current timestamp.
- * Returns `false` if the cooldown is still active — the caller should skip the send.
+ * is the first occurrence) and records the current timestamp in the DB.
+ * Returns `false` if the cooldown is still active — the caller should skip.
  *
  * @param actor     The user triggering the notification (e.g. commenter userId).
  * @param recipient The user receiving the notification.
@@ -34,17 +28,17 @@ function maybePrune(windowMs: number): void {
  *                  (e.g. "vault_comment", "feed_comment", "moment_reaction").
  * @param windowMs  Cooldown window in milliseconds.
  */
-export function shouldSendNotification(
+export async function shouldSendNotification(
   actor: string,
   recipient: string,
   type: string,
   windowMs: number,
-): boolean {
-  maybePrune(windowMs);
-  const key = `${type}:${actor}:${recipient}`;
-  const last = debounceMap.get(key);
-  const now = Date.now();
-  if (last !== undefined && now - last < windowMs) return false;
-  debounceMap.set(key, now);
-  return true;
+): Promise<boolean> {
+  const key = `notif_debounce:${type}:${actor}:${recipient}`;
+  // max=1 per window: the rate-limit upsert fires the notification on window
+  // reset (count becomes 1 ≤ max=1) and suppresses repeated calls within the
+  // same window (count becomes 2 > max=1). Matches the previous in-memory
+  // semantics exactly, but now shared across all server instances.
+  const { limited } = await isKeyRateLimited(key, 1, windowMs);
+  return !limited;
 }

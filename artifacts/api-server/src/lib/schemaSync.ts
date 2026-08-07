@@ -464,6 +464,17 @@ async function createIndexes(): Promise<void> {
     `CREATE INDEX IF NOT EXISTS "IDX_reports_status" ON "reports"("status")`,
     `CREATE INDEX IF NOT EXISTS "IDX_user_blocks_blocker_id" ON "user_blocks"("blocker_id")`,
     `CREATE INDEX IF NOT EXISTS "IDX_user_blocks_blocked_id" ON "user_blocks"("blocked_id")`,
+    // Hot-path query indexes added post-launch (scale hardening).
+    // squads.member_ids: @> containment operator used by getSquadIdsForUser and
+    // GET /squads; without GIN this is a full sequential scan.
+    `CREATE INDEX IF NOT EXISTS "IDX_squads_member_ids_gin" ON "squads" USING GIN("member_ids")`,
+    // events: visibility filter columns hit on every GET /events request.
+    `CREATE INDEX IF NOT EXISTS "IDX_events_squad_id" ON "events"("squad_id")`,
+    `CREATE INDEX IF NOT EXISTS "IDX_events_host_id" ON "events"("host_id")`,
+    `CREATE INDEX IF NOT EXISTS "IDX_events_event_at" ON "events"("event_at")`,
+    // events JSONB containment (@> / ?) for rsvps and invitedUserIds visibility.
+    `CREATE INDEX IF NOT EXISTS "IDX_events_rsvps_gin" ON "events" USING GIN("rsvps")`,
+    `CREATE INDEX IF NOT EXISTS "IDX_events_invited_user_ids_gin" ON "events" USING GIN("invited_user_ids")`,
   ];
 
   for (const stmt of indexes) {

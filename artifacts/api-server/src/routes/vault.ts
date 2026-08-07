@@ -534,7 +534,7 @@ router.post("/vault/photos/:id/comments", requireAuth, async (req: Request, res:
         try {
           // 2-minute debounce: suppress duplicate "X commented" pushes when
           // someone leaves several comments in quick succession on the same photo.
-          if (!shouldSendNotification(userId, photo.uploaderId, "vault_comment", 2 * 60 * 1000)) return;
+          if (!(await shouldSendNotification(userId, photo.uploaderId, "vault_comment", 2 * 60 * 1000))) return;
           const tokens = await storage.getPushTokensForUsers([photo.uploaderId], {
             requireNotifyFriendActivity: true,
           });

@@ -1,4 +1,4 @@
-import { pgTable, text, boolean, numeric, jsonb, timestamp, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, boolean, numeric, jsonb, timestamp, integer, index } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -115,7 +115,15 @@ export const eventsTable = pgTable("events", {
   materialEditNotifiedAt: timestamp("material_edit_notified_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   version: integer("version").notNull().default(1),
-});
+}, (t) => [
+  // B-tree indexes on hot-path filter columns.
+  // Informational — schemaSync.ts creates all actual DB indexes on deploy.
+  // GIN indexes (rsvps, invitedUserIds, squad memberIds) are raw-SQL only
+  // because drizzle-orm v0.45.x doesn't support index().using("gin").on().
+  index("IDX_events_squad_id").on(t.squadId),
+  index("IDX_events_host_id").on(t.hostId),
+  index("IDX_events_event_at").on(t.eventAt),
+]);
 
 export const insertEventSchema = createInsertSchema(eventsTable).omit({ createdAt: true });
 export type InsertEvent = z.infer<typeof insertEventSchema>;

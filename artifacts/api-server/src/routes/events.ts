@@ -473,11 +473,27 @@ router.get("/events", requireAuth, async (req: Request, res: Response): Promise<
       gte(eventsTable.endAt, startOfToday),
     );
 
-    const events = await db
+    // Paginate: default 100 events, client-supplied ?limit up to 200.
+    // Still returns a plain array (backward-compatible). X-Has-More header
+    // signals when more items exist — client can paginate by adding
+    // ?limit=N to fetch up to 200 at a time (full cursor support is a
+    // follow-up requiring client changes).
+    const PAGE_SIZE = 100;
+    const reqLimit = Number(req.query.limit);
+    const limit = Number.isFinite(reqLimit) && reqLimit > 0
+      ? Math.min(reqLimit, 200)
+      : PAGE_SIZE;
+
+    const rows = await db
       .select()
       .from(eventsTable)
       .where(includePast ? visibility : and(visibility, notExpired))
-      .orderBy(eventsTable.eventAt, eventsTable.createdAt);
+      .orderBy(eventsTable.eventAt, eventsTable.createdAt)
+      .limit(limit + 1);
+
+    const hasMore = rows.length > limit;
+    const events = hasMore ? rows.slice(0, limit) : rows;
+    res.setHeader('X-Has-More', hasMore ? '1' : '0');
     res.json(events);
   } catch (err) {
     logger.error({ err }, "Error fetching event list");

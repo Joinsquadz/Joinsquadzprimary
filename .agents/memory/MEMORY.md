@@ -16,6 +16,7 @@
 - [api-server test cold-import](api-server-test-cold-import.md) — hoist router/middleware import to a static import below vi.mock; never load the real dep graph inside a timed hook.
 - [Squad photo roll-up](squad-photo-rollup.md) — curated per-squad vault via photos.squadId+sharedToSquad; member-only routes, share only your OWN photos; web SquadDetail is mock, mobile is functional.
 - [Friends are request/accept](friends-no-backend.md) — client POSTs /api/users/friend-requests, accept via Activity screen; "Request sent!" is correct; legacy instant-mutual route unused.
+- [Scale hardening (P1–P3)](scale-hardening.md) — atomic scanner claims, DB-backed debounce (now async), SQL time-window filters, GET /events LIMIT 100, 6 new schemaSync indexes; drizzle GIN declarations unsupported in v0.45.
 - [Rate-limit & pool caps](rate-limit-and-pool-caps.md) — API limiter keys per-user (IP-keying throttles NAT'd friend groups); Supabase pooler ~15 clients TOTAL across dev+prod → keep pool max small.
 - [RN modal overflow trap](rn-modal-overflow-trap.md) — iOS transparent slide modals have no swipe-dismiss; data-length content needs maxHeight+ScrollView+persistent absolute close (X), else Close pushed off-screen traps user. Reuse components/ContactSheet.tsx.
 - [RN stacked Modals freeze iOS](rn-stacked-modals-freeze.md) — a 2nd Modal opened while a sheet Modal is up freezes iOS (nothing opens, UI deadlocks); render secondary pickers as in-sheet absolute overlays, not sibling Modals.

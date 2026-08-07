@@ -78,11 +78,13 @@ export async function runEventReminderScan(): Promise<void> {
     const tokens = await storage.getPushTokensForUsers(recipientIds, { requireNotifyReminders: true });
     if (tokens.length === 0) continue;
 
+    // Atomic claim: sets reminderSentAt = NOW() only when still NULL. If two
+    // instances race on the same event, only one UPDATE returns a row; the
+    // other gets false and skips — preventing duplicate notifications.
+    const claimed = await storage.tryClaimEventReminderSend(event.id);
+    if (!claimed) continue; // another instance already claimed it
+
     try {
-      // sendPushNotifications never throws (it logs and resolves), so rely on
-      // the returned result: only mark sent when Expo actually accepted at
-      // least one message and no submission error occurred. Otherwise leave
-      // unmarked so the next scan retries (fire-once on success, not attempt).
       const result = await sendPushNotifications(
         tokens,
         {
@@ -93,15 +95,17 @@ export async function runEventReminderScan(): Promise<void> {
         { onStaleToken: (token) => storage.clearPushToken(token) },
       );
       if (result.okCount > 0 && !result.hadSendError) {
-        await storage.markEventReminderSent(event.id);
+        // Already marked by the atomic claim — nothing more to do.
       } else {
         logger.warn(
           { eventId: event.id, okCount: result.okCount, hadSendError: result.hadSendError },
-          'Event reminder not confirmed sent; will retry next scan',
+          'Event reminder not confirmed sent; releasing claim for retry next scan',
         );
+        await storage.unclaimEventReminderSend(event.id);
       }
     } catch (err) {
-      logger.error({ err, eventId: event.id }, 'Event reminder send failed; will retry');
+      logger.error({ err, eventId: event.id }, 'Event reminder send failed; releasing claim for retry');
+      await storage.unclaimEventReminderSend(event.id);
     }
   }
 }
@@ -136,6 +140,9 @@ export async function runDayOfReminderScan(): Promise<void> {
     const tokens = await storage.getPushTokensForUsers(recipientIds, { requireNotifyReminders: true });
     if (tokens.length === 0) continue;
 
+    const claimed = await storage.tryClaimDayOfReminderSend(event.id);
+    if (!claimed) continue;
+
     try {
       // Compute a calendar-day-aware label using the event's stored timezone so
       // the copy is correct in the creator's locale, not just the server's UTC.
@@ -152,15 +159,17 @@ export async function runDayOfReminderScan(): Promise<void> {
         { onStaleToken: (token) => storage.clearPushToken(token) },
       );
       if (result.okCount > 0 && !result.hadSendError) {
-        await storage.markEventDayOfReminderSent(event.id);
+        // Already marked by the atomic claim.
       } else {
         logger.warn(
           { eventId: event.id, okCount: result.okCount, hadSendError: result.hadSendError },
-          'Day-of reminder not confirmed sent; will retry next scan',
+          'Day-of reminder not confirmed sent; releasing claim for retry next scan',
         );
+        await storage.unclaimDayOfReminderSend(event.id);
       }
     } catch (err) {
-      logger.error({ err, eventId: event.id }, 'Day-of reminder send failed; will retry');
+      logger.error({ err, eventId: event.id }, 'Day-of reminder send failed; releasing claim for retry');
+      await storage.unclaimDayOfReminderSend(event.id);
     }
   }
 }
@@ -206,6 +215,9 @@ export async function run3DayReminderScan(): Promise<void> {
     const tokens = await storage.getPushTokensForUsers(recipientIds, { requireNotifyReminders: true });
     if (tokens.length === 0) continue;
 
+    const claimed = await storage.tryClaimEvent3DayReminderSend(event.id);
+    if (!claimed) continue;
+
     try {
       const daysUntil = calendarDaysUntil(now, start, (event as { timezone?: string | null }).timezone ?? null);
       const dayLabel = daysUntil === 0 ? 'today' : daysUntil === 1 ? 'tomorrow' : null;
@@ -220,15 +232,17 @@ export async function run3DayReminderScan(): Promise<void> {
         { onStaleToken: (token) => storage.clearPushToken(token) },
       );
       if (result.okCount > 0 && !result.hadSendError) {
-        await storage.markEvent3DayReminderSent(event.id);
+        // Already marked by the atomic claim.
       } else {
         logger.warn(
           { eventId: event.id, okCount: result.okCount, hadSendError: result.hadSendError },
-          '3-day reminder not confirmed sent; will retry next scan',
+          '3-day reminder not confirmed sent; releasing claim for retry next scan',
         );
+        await storage.unclaimEvent3DayReminderSend(event.id);
       }
     } catch (err) {
-      logger.error({ err, eventId: event.id }, '3-day reminder send failed; will retry');
+      logger.error({ err, eventId: event.id }, '3-day reminder send failed; releasing claim for retry');
+      await storage.unclaimEvent3DayReminderSend(event.id);
     }
   }
 }
@@ -270,6 +284,9 @@ export async function runEventRecapScan(): Promise<void> {
       continue;
     }
 
+    const claimed = await storage.tryClaimEventRecapSend(event.id);
+    if (!claimed) continue;
+
     try {
       const result = await sendPushNotifications(
         tokens,
@@ -281,15 +298,17 @@ export async function runEventRecapScan(): Promise<void> {
         { onStaleToken: (token) => storage.clearPushToken(token) },
       );
       if (result.okCount > 0 && !result.hadSendError) {
-        await storage.markEventRecapSent(event.id);
+        // Already marked by the atomic claim.
       } else {
         logger.warn(
           { eventId: event.id, okCount: result.okCount, hadSendError: result.hadSendError },
-          'Event recap prompt not confirmed sent; will retry next scan',
+          'Event recap prompt not confirmed sent; releasing claim for retry next scan',
         );
+        await storage.unclaimEventRecapSend(event.id);
       }
     } catch (err) {
-      logger.error({ err, eventId: event.id }, 'Event recap prompt send failed; will retry');
+      logger.error({ err, eventId: event.id }, 'Event recap prompt send failed; releasing claim for retry');
+      await storage.unclaimEventRecapSend(event.id);
     }
   }
 }
@@ -336,6 +355,9 @@ export async function runPollNudgeScan(): Promise<void> {
       continue;
     }
 
+    const claimed = await storage.tryClaimPollNudgeSend(poll.id);
+    if (!claimed) continue;
+
     try {
       const result = await sendPushNotifications(
         tokens,
@@ -347,15 +369,17 @@ export async function runPollNudgeScan(): Promise<void> {
         { onStaleToken: (token) => storage.clearPushToken(token) },
       );
       if (result.okCount > 0 && !result.hadSendError) {
-        await storage.markPollNudgeSent(poll.id);
+        // Already marked by the atomic claim.
       } else {
         logger.warn(
           { pollId: poll.id, okCount: result.okCount, hadSendError: result.hadSendError },
-          'Poll nudge not confirmed sent; will retry next scan',
+          'Poll nudge not confirmed sent; releasing claim for retry next scan',
         );
+        await storage.unclaimPollNudgeSend(poll.id);
       }
     } catch (err) {
-      logger.error({ err, pollId: poll.id }, 'Poll nudge send failed; will retry');
+      logger.error({ err, pollId: poll.id }, 'Poll nudge send failed; releasing claim for retry');
+      await storage.unclaimPollNudgeSend(poll.id);
     }
   }
 }

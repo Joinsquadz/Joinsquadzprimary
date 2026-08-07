@@ -23,6 +23,9 @@ export const squadsTable = pgTable("squads", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
+// GIN index on memberIds is created by schemaSync.ts via raw SQL on every
+// deploy. drizzle-orm v0.45.x doesn't support index().using("gin").on() here.
+
 export const insertSquadSchema = createInsertSchema(squadsTable).omit({ createdAt: true });
 export type InsertSquad = z.infer<typeof insertSquadSchema>;
 export type DbSquad = typeof squadsTable.$inferSelect;
