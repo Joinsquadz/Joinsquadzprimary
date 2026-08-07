@@ -17,12 +17,10 @@ config:
     skipHeader: true
     order: sequence  # round-robin so tokens aren't reused faster than the 500/15-min limit
 
-  # Inject the bearer token on every request so auth middleware is always exercised.
-  defaults:
-    headers:
-      Authorization: "Bearer {{ token }}"
-      Content-Type: "application/json"
-      Accept: "application/json"
+  # NOTE: do NOT use config.defaults.headers for per-VU CSV variables —
+  # Artillery 2.x resolves defaults at parse time, before the payload context
+  # is bound to each VU, so {{ token }} renders as an empty string there.
+  # Auth headers are injected per-request in the flow steps below instead.
 
   # Ramp from a trickle up through ~100 concurrent sessions.
   # Concurrent ≈ arrivalRate × average-scenario-duration.
@@ -67,6 +65,9 @@ scenarios:
       # Squad list — primary home-screen data load.
       - get:
           url: "/api/squads"
+          headers:
+            Authorization: "Bearer {{ token }}"
+            Content-Type: "application/json"
           expect:
             - statusCode: 200
       - think: 0.3
@@ -74,6 +75,9 @@ scenarios:
       # Event/plan list — main content of the Events tab.
       - get:
           url: "/api/events"
+          headers:
+            Authorization: "Bearer {{ token }}"
+            Content-Type: "application/json"
           expect:
             - statusCode: 200
       - think: 0.3
@@ -81,6 +85,9 @@ scenarios:
       # Vibe feed — most query-intensive read (unions friends + squad moments).
       - get:
           url: "/api/feed"
+          headers:
+            Authorization: "Bearer {{ token }}"
+            Content-Type: "application/json"
           expect:
             - statusCode: 200
       - think: 0.3
@@ -88,6 +95,9 @@ scenarios:
       # Activity/notifications — badge count + feed.
       - get:
           url: "/api/activity"
+          headers:
+            Authorization: "Bearer {{ token }}"
+            Content-Type: "application/json"
           expect:
             - statusCode: 200
       - think: 0.3
@@ -95,5 +105,8 @@ scenarios:
       # Notification preferences — lightweight settings read.
       - get:
           url: "/api/notifications/preferences"
+          headers:
+            Authorization: "Bearer {{ token }}"
+            Content-Type: "application/json"
           expect:
             - statusCode: 200

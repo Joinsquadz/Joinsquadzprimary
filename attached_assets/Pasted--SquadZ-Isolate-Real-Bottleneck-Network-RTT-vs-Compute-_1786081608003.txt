@@ -1,0 +1,31 @@
+# SquadZ — Isolate Real Bottleneck: Network RTT vs. Compute, Then Test Against a Production-Representative Target
+
+Context: the staging load test showed severe degradation at peak load (p50 ~8s, real 500 errors at ~100 concurrent). The proposed explanation is Transaction pooler round-trip latency (600ms) times pool size (25) creating a low queries/sec ceiling. This is plausible and the math is internally consistent, but unverified against an alternative explanation (Nano-tier compute saturation, not just network RTT), and the peak numbers' relationship to the rate-limiter test-harness bug fix (order: random → order: sequence) is unclear. Resolve both before treating "region-matching will fix this" as confirmed.
+
+## Step 1 — Isolate network RTT from compute latency
+
+Run a trivial, non-concurrent benchmark against the staging database: a single simple query (e.g. `SELECT 1`) repeated ~20 times sequentially, no concurrency, no application logic. Report the average and p95 latency of just that round trip.
+- If this trivial query is also ~500-600ms, that's pure network RTT (Replit host to Supabase's `ca-central-1` region) and the region-matching hypothesis holds.
+- If this trivial query is much faster (e.g. under 100ms) but real application queries under load are still slow, that points to compute/query-execution saturation on the Nano tier instead, which region-matching alone would NOT fix.
+Report which one this points to, clearly.
+
+## Step 2 — Clean re-run with the corrected test harness
+
+Re-run the Artillery load test against staging with the `order: sequence` fix already in place (confirm it's actually applied, not just described as fixed). Report a clean set of peak-load numbers (p50/p95/p99, error rate, 429 rate, 500 rate) that aren't confounded by the token-reuse bug. This is the number to actually trust going forward, not the numbers from the run that had the methodology bug.
+
+## Step 3 — Check production's actual Supabase compute tier
+
+Report what compute tier the *production* Supabase project is on (Nano, or something larger) — this may require checking the Supabase dashboard directly rather than inferring from code, in which case say so explicitly rather than guessing. If production is also on Nano/free tier, that's a real capacity concern independent of region-matching and needs its own fix (upgrading compute tier), not just a deployment location change.
+
+## Step 4 — Test against a production-representative target, not staging via the dev sandbox
+
+Per your own recommendation: deploy the app (can be the staging database, doesn't need to be production data) to an actual Replit deployment in the same region intended for production, and run the Artillery load test against that live deployment URL (`LOAD_TEST_TARGET=https://...`) rather than through the dev sandbox. This removes the dev-sandbox-to-Supabase cross-region hop that may not represent real production network topology at all. Report the same peak-load metrics from this run.
+
+## Step 5 — Review the two production file changes from the last session
+
+Show the actual diff for the `SKIP_SCHEMA_SYNC` and `SKIP_STRIPE_INIT` changes in `lib/schemaSync.ts` and `src/index.ts`. Confirm explicitly that these are purely additive env-var gates with no behavior change when unset, and that nothing else in those files was altered.
+
+## Required for this pass
+- Report Step 1's finding (network vs. compute) before interpreting anything else — this changes what the actual fix needs to be.
+- Step 3 may require manual dashboard verification rather than code inspection — say so if that's the case rather than guessing at production's tier.
+- Do not conclude "production will be fine" from this pass unless Step 4's numbers actually support it — report the real numbers, not a projection.

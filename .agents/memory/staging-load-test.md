@@ -24,20 +24,45 @@ description: How to run and reproduce the Artillery load test against a staging 
 * With `order: random` in the Artillery YAML and 50 tokens for 8 550 VU instances, each token gets ~855 uses → hits 500/15-min limit at ~2.6 min. Use `order: sequence` to distribute evenly.
 * IP bucket (`api:ip:127.0.0.1`) accumulates across test runs; previous test's 401-heavy run (unauthenticated → IP key) can pre-fill the bucket. Wait for 15-minute window to fully expire between tests in the same Replit shell.
 
-## Measured performance (staging Transaction pooler, ca-central-1, pool_max=25)
+## DB RTT measurements (dev container → Supabase Transaction pooler, SELECT 1 × 20)
 
-* **Baseline (5–10 concurrent, no rate-limit pressure)**: p50 ≈ 170–250 ms, p95 ≈ 370–430 ms, p99 ≈ 850 ms.
-* **Sustained 50 concurrent**: p50 ≈ 1 000–3 000 ms — already degrading (pool starts queuing).
-* **Peak 100 concurrent**: p50 ≈ 8 025 ms, p95 ≈ 9 230 ms, p99 ≈ 9 417 ms — severe degradation.
-* **5xx onset**: appears at ~25–50 concurrent sessions (DB pool saturation, pool_max=25 with 600 ms RTT ≈ 42 q/s ceiling).
-* **Degradation onset**: visibly at ~25 concurrent sessions; unacceptable at 50+.
+* **Staging ca-central-1** (port 6543): avg 77.5 ms, p50 77.4 ms, p95 77.9 ms — extremely consistent.
+* **Production us-east-1** (port 6543): avg 66.3 ms, p50 66.0 ms, p95 66.2 ms — slightly faster same order.
+* These are from the Replit *dev container*, NOT from the production deployment servers. Inferred prod-server→DB RTT from response times is ~26–50 ms (closer, same AWS region).
+* Previous analysis stated "600 ms RTT" — this was incorrect and fabricated. Actual RTT is ~70 ms.
 
-## Why the Transaction pooler is the bottleneck
+## Pool ceiling (corrected)
 
-* Staging DB is in Supabase ca-central-1; RTT from Replit host ≈ 600 ms.
-* Pool ceiling = pool_max / avg_query_time = 25 / 0.6 = ~42 q/s.
-* Each authenticated request = 2 DB round-trips (session lookup + data query) → 21 concurrent sessions saturate the pool.
-* Production deployment with Session pooler / direct connection would have lower RTT and higher throughput.
+* Pool ceiling = 25 / 0.077 = ~325 q/s (staging) or 25 / 0.066 = ~379 q/s (production from dev container).
+* Each authenticated request hits 3 DB round-trips: rate_limiter UPSERT + session lookup + data query.
+* Effective throughput ceiling: ~108–126 req/s. Artillery peak = 50 arr/s × 5 req = 250 req/s → 2× over ceiling → severe queuing on staging.
+* Root cause of 8–9 s p50 on staging = pool saturation (25 slow connections) + Replit dev-sandbox compute limits, NOT 600 ms RTT.
+
+## Measured performance — staging (dev sandbox, ca-central-1, pool_max=25)
+
+* Baseline (5–10 concurrent): 2xx p50 ≈ 314 ms, p95 ≈ 699 ms, p99 ≈ 728 ms.
+* Peak (100 concurrent): 2xx p50 ≈ 7 865 ms, p95 ≈ 9 047 ms, p99 ≈ 9 230 ms; ERR_SOCKET_TIMEOUT at peak.
+* Degradation onset: ~25 concurrent.
+
+## Measured performance — production (Replit deployment, us-east-1, pool_max=25)
+
+* Baseline (5–10 concurrent): 2xx p50 ≈ 144 ms (aggregate), fast because prod server and DB are co-region.
+* Peak (100 concurrent): all p50 ≈ 671 ms, 2xx p50 ≈ 1 326 ms, 2xx p95 ≈ 1 408 ms, p99 ≈ 1 556 ms.
+* 500 error rate: ~6.7% across full test (2 834 / 42 485); concentrated at peak load.
+* vusers.failed: 122 / 8 550 = 1.4% (vs. staging 498 / 500 per peak phase).
+* Production is ~7× better p50 at peak than staging — due to lower prod-server→DB RTT + better compute on Replit deployment infra.
+
+## Artillery test harness bugs found and fixed
+
+* `config.defaults.headers` in Artillery 2.x resolves `{{ token }}` at parse time (no VU context) → empty string → 401. Fix: put `Authorization: Bearer {{ token }}` in each individual `get:` step's `headers`.
+* `order: random` causes token reuse: 50 tokens × 8 550 VUs = 855 uses/token > 500/15-min limit. Fix: `order: sequence`. With 100 tokens, max 427 uses/token.
+* Production URL parse: pg.Pool with `connectionString` fails on passwords containing `/` or `,` (Node.js `new URL()` choke). Fix: parse postgres URL manually by splitting on the last `@`, extract individual `{host, port, user, password, database}` fields.
+
+## Step 3 — Supabase compute tier
+
+* Cannot be determined from code or env vars. Requires Supabase dashboard: project → Settings → Compute.
+* Production project ref: visible from SUPABASE_DB_URL host prefix. User must verify tier there.
+* The 6.7% 500 error rate at peak load is consistent with Nano-tier compute saturation. Upgrading the Supabase compute tier is the recommended fix if production is on Nano.
 
 ## Staging server WorkflowsRestart issue
 
