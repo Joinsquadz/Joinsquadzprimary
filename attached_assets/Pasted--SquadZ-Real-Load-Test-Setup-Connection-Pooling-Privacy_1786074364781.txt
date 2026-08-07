@@ -1,0 +1,37 @@
+# SquadZ — Real Load Test Setup + Connection-Pooling Privacy Audit
+
+Context: Task #552 confirmed the connection pooler switch (Session → Transaction pooler) was never actually load-tested — the prior sweep could reason about config but had no way to simulate real concurrent traffic against a deployed target. This prompt has two parts: (1) set up real load-testing infrastructure and a deployable staging target, and (2) a sharper privacy-isolation audit specific to what Transaction-mode pooling changes, not just a general session-mode check.
+
+Do not attempt to simulate "load" via the existing test suite — vitest/unit tests cannot answer this question. This requires an actual concurrent-traffic tool against a real running instance.
+
+## Part 1 — Privacy-isolation audit specific to Transaction pooler (do this first)
+
+The earlier session-mode audit checked for `LISTEN`/`NOTIFY`, session-scoped advisory locks, and `SET` persistence — good, but reframe the same codebase search around this specific risk: **Transaction pooler reuses physical DB connections across different users' unrelated requests.** Anything that sets connection-level state and assumes it stays scoped to "this user's session" is a potential cross-user data leak under this pooling mode, not just a correctness bug.
+
+Specifically check:
+- Any `SET` (not `SET LOCAL`) statement anywhere in the codebase — `SET` persists on the physical connection beyond the current transaction; `SET LOCAL` is transaction-scoped and safe. If any `SET` (non-local) exists, it must be converted to `SET LOCAL` or removed, since under Transaction pooler it could leak into the next unrelated user's request on that same physical connection.
+- Any place a raw DB client/connection object is cached, reused, or attached to a long-lived variable (e.g. a module-level singleton) outside the per-request lifecycle, rather than obtained fresh per request/transaction through the pool.
+- Confirm the ORM/query builder in use (Drizzle) is issuing all queries through the pool per-request and not holding a connection open across requests for any user-scoped operation.
+- Report explicitly: found anything, or clean. If anything is found, fix it as part of this same pass and add a regression test proving connection state doesn't leak between two simulated back-to-back requests from different users.
+
+## Part 2 — Load-test tooling setup
+
+1. Install a real load-testing tool in the project — **k6** is preferred (scriptable in JS, good for API load testing, no separate infra needed). If k6 isn't installable in this environment, use **Artillery** instead.
+2. Write a load-test script covering the hot endpoints identified in the earlier scale-readiness pass: squad list, plan list, feed, notifications, and login/auth. Script should ramp concurrent virtual users from a low baseline up through at least 100, sustaining each step long enough to observe steady-state behavior (not just a burst).
+3. The script must target a **real deployed instance URL**, not localhost — confirm what deployable staging target exists (or needs to be created) for this to run against. If no staging deployment currently exists separate from production, flag this clearly and stop before running anything destructive against production — this needs a safe target to run against, not a guess.
+4. Do NOT run this against production data with real user accounts. Seed a set of disposable test accounts for the load test to use, clearly namespaced/identifiable so they can be cleaned up afterward, and confirm a cleanup step exists.
+
+## Part 3 — Run and report (only after Parts 1 and 2 are confirmed safe to proceed)
+
+- Run the load test against the confirmed safe target.
+- Report: error rate, p50/p95/p99 response times per endpoint, at what concurrency level (if any) errors or significant latency degradation begins, and whether that threshold is above or below the peak-concurrency estimate from the earlier scale-readiness assessment.
+- Do not just report "it passed" — report the actual numbers.
+
+## What you need to do in parallel (not Replit's task)
+- While the load test runs, watch the **Supabase dashboard** (Database → connection count, query performance) live and note anything Replit's own report might miss — actual connection count under load, any slow query warnings, CPU/memory on the Postgres instance.
+- Confirm with Replit what staging target actually exists before Part 3 runs — if the honest answer is "there is no safe staging target yet," that becomes the actual next task (setting one up) rather than something to skip past.
+
+## Required for this pass
+- Part 1 must be completed and reported before Part 2 begins — a pooling-privacy leak is a more urgent finding than a missing load test.
+- If Part 2 determines there's no safe target to test against, stop there and report that clearly rather than testing against production or faking a result against localhost.
+- Do not touch the RevenueCat wire-up or anything else in flight — this is scoped narrowly to pooling privacy + real load verification.

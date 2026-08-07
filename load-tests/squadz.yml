@@ -1,0 +1,99 @@
+config:
+  # Set LOAD_TEST_TARGET to your staging API base URL before running.
+  # Example: https://staging-api.myapp.replit.app/api-server
+  # NEVER point this at the production Supabase-backed URL without a clean
+  # staging DB — see load-tests/README.md Part 3 for staging setup.
+  target: "{{ $processEnvironment.LOAD_TEST_TARGET }}"
+
+  # Pre-seeded test accounts produced by load-tests/seed.ts.
+  # Each row: token,email,userId  (header row present, skipHeader: true)
+  # Run seed.ts immediately before the test — Supabase JWTs expire in 1 hour.
+  payload:
+    path: "load-tests/.test-accounts.csv"
+    fields:
+      - token
+      - email
+      - userId
+    skipHeader: true
+    order: random  # distribute tokens across VUs randomly
+
+  # Inject the bearer token on every request so auth middleware is always exercised.
+  defaults:
+    headers:
+      Authorization: "Bearer {{ token }}"
+      Content-Type: "application/json"
+      Accept: "application/json"
+
+  # Ramp from a trickle up through ~100 concurrent sessions.
+  # Concurrent ≈ arrivalRate × average-scenario-duration.
+  # Each scenario makes 4 requests with 0.3s think time ≈ ~2s total.
+  # 50 arrivals/s × 2s scenario = ~100 concurrent sessions.
+  phases:
+    - name: "Warm up"
+      duration: 30      # seconds
+      arrivalRate: 5    # new sessions per second → ~10 concurrent
+
+    - name: "Ramp up"
+      duration: 60
+      arrivalRate: 5
+      rampTo: 25        # ramp 5 → 25/s over 60s → ~10 → 50 concurrent
+
+    - name: "Sustained load (50 concurrent)"
+      duration: 60
+      arrivalRate: 25   # steady 50 concurrent
+
+    - name: "Peak (100 concurrent)"
+      duration: 60
+      arrivalRate: 50   # 50/s × 2s ≈ 100 concurrent
+
+    - name: "Sustain peak"
+      duration: 60
+      arrivalRate: 50   # hold 100 concurrent for a full minute
+
+  # Keep Artillery from retrying failed requests — we want to see real errors.
+  http:
+    timeout: 10         # seconds; error if no response within 10s
+    maxSockets: 150     # allow enough sockets for peak concurrency
+
+scenarios:
+  # ── Hot read path (100% weight) ──────────────────────────────────────────
+  # Simulates an active user: open squad list, check upcoming events,
+  # browse feed, then check activity notifications.
+  # All endpoints require auth — the bearer token from the CSV is injected
+  # on every request via config.defaults.headers.
+  - name: "Hot read path"
+    weight: 1
+    flow:
+      # Squad list — primary home-screen data load.
+      - get:
+          url: "/api/squads"
+          expect:
+            - statusCode: 200
+      - think: 0.3
+
+      # Event/plan list — main content of the Events tab.
+      - get:
+          url: "/api/events"
+          expect:
+            - statusCode: 200
+      - think: 0.3
+
+      # Vibe feed — most query-intensive read (unions friends + squad moments).
+      - get:
+          url: "/api/feed"
+          expect:
+            - statusCode: 200
+      - think: 0.3
+
+      # Activity/notifications — badge count + feed.
+      - get:
+          url: "/api/activity"
+          expect:
+            - statusCode: 200
+      - think: 0.3
+
+      # Notification preferences — lightweight settings read.
+      - get:
+          url: "/api/notifications/preferences"
+          expect:
+            - statusCode: 200

@@ -1,0 +1,3 @@
+# Test account tokens — never commit (contains live JWTs / credentials)
+.test-accounts.csv
+*.used.csv
