@@ -86,6 +86,12 @@ export async function sendPushNotifications(
     sound: "default",
   }));
 
+  // Collect successful tickets during the Expo send loop, then batch-insert
+  // them all at once. This bounds the concurrent pool usage from a large
+  // fan-out (500 recipients: 10 sequential INSERTs of 50 rows each, not
+  // 500 concurrent fire-and-forget single-row INSERTs).
+  const okTickets: Array<{ ticketId: string; pushToken: string }> = [];
+
   try {
     const chunks = expo.chunkPushNotifications(messages);
     let messageIndex = 0;
@@ -112,9 +118,7 @@ export async function sendPushNotifications(
           } else if (ticket.status === "ok") {
             okCount++;
             _pendingTickets.set(ticket.id, token);
-            storage.storePushTicket(ticket.id, token).catch((err) => {
-              logger.error({ err, ticketId: ticket.id }, "Failed to persist push ticket to DB");
-            });
+            okTickets.push({ ticketId: ticket.id, pushToken: token });
           }
         }
         messageIndex += chunk.length;
@@ -127,6 +131,15 @@ export async function sendPushNotifications(
   } catch (err) {
     hadSendError = true;
     logger.error({ err }, "Failed to chunk push notifications");
+  }
+
+  if (okTickets.length > 0) {
+    storage.storePushTicketsBatch(okTickets).catch((err) => {
+      logger.error(
+        { err, count: okTickets.length },
+        "Failed to batch-persist push tickets to DB",
+      );
+    });
   }
 
   return { staleTokens, okCount, hadSendError };

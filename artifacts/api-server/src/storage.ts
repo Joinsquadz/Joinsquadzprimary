@@ -1229,6 +1229,108 @@ export class Storage {
       });
   }
 
+  /**
+   * Batch version of getOrCreateSquadConversation for listConversationsForUser.
+   * Issues at most 3 DB round trips regardless of squad count:
+   *   1. SELECT — find which squads already have conversation rows
+   *   2. INSERT — batch-create missing conversations (ON CONFLICT DO NOTHING)
+   *   3. SELECT — recover any rows lost to an INSERT race
+   * Then ensureParticipants runs in parallel (not sequentially) for each squad.
+   */
+  private async ensureSquadConversationsBatch(
+    squads: Array<{ id: string; memberIds: unknown }>,
+    userId: string,
+  ): Promise<void> {
+    if (squads.length === 0) return;
+    const squadIds = squads.map((s) => s.id);
+
+    const existing = await db
+      .select({ squadId: conversationsTable.squadId, id: conversationsTable.id })
+      .from(conversationsTable)
+      .where(inArray(conversationsTable.squadId, squadIds));
+
+    const convoIdBySquadId = new Map(existing.map((c) => [c.squadId!, c.id]));
+
+    const missingIds = squadIds.filter((id) => !convoIdBySquadId.has(id));
+    if (missingIds.length > 0) {
+      const inserted = await db
+        .insert(conversationsTable)
+        .values(
+          missingIds.map((squadId) => ({
+            type: "squad" as const,
+            squadId,
+            createdBy: userId,
+          })),
+        )
+        .onConflictDoNothing({ target: conversationsTable.squadId })
+        .returning({ id: conversationsTable.id, squadId: conversationsTable.squadId });
+
+      for (const row of inserted) {
+        if (row.squadId) convoIdBySquadId.set(row.squadId, row.id);
+      }
+
+      // Any ID still missing lost the INSERT race to another instance — fetch now.
+      const stillMissing = missingIds.filter((id) => !convoIdBySquadId.has(id));
+      if (stillMissing.length > 0) {
+        const recovered = await db
+          .select({ squadId: conversationsTable.squadId, id: conversationsTable.id })
+          .from(conversationsTable)
+          .where(inArray(conversationsTable.squadId, stillMissing));
+        for (const row of recovered) {
+          if (row.squadId) convoIdBySquadId.set(row.squadId, row.id);
+        }
+      }
+    }
+
+    // Ensure participant rows for all members — parallel, not sequential.
+    await Promise.all(
+      squads.map((squad) => {
+        const convoId = convoIdBySquadId.get(squad.id);
+        if (!convoId) return;
+        const memberIds = (squad.memberIds ?? []) as string[];
+        return this.ensureParticipants(convoId, memberIds);
+      }),
+    );
+  }
+
+  /**
+   * Return unread-message counts for multiple conversations in a single query.
+   * Replaces N parallel countUnreadInConversation calls in listConversationsForUser.
+   * Uses a JOIN on conversation_participants so each conversation's last_read_at
+   * is read in the same pass — no extra per-conversation round trips.
+   */
+  private async batchCountUnread(
+    conversationIds: string[],
+    userId: string,
+  ): Promise<Map<string, number>> {
+    if (conversationIds.length === 0) return new Map();
+    const rows = await db
+      .select({
+        conversationId: conversationMessagesTable.conversationId,
+        unreadCount: count(),
+      })
+      .from(conversationMessagesTable)
+      .innerJoin(
+        conversationParticipantsTable,
+        and(
+          eq(
+            conversationParticipantsTable.conversationId,
+            conversationMessagesTable.conversationId,
+          ),
+          eq(conversationParticipantsTable.userId, userId),
+        ),
+      )
+      .where(
+        and(
+          inArray(conversationMessagesTable.conversationId, conversationIds),
+          ne(conversationMessagesTable.senderId, userId),
+          sql`(${conversationParticipantsTable.lastReadAt} IS NULL OR ${conversationMessagesTable.createdAt} > ${conversationParticipantsTable.lastReadAt})`,
+        ),
+      )
+      .groupBy(conversationMessagesTable.conversationId);
+    return new Map(rows.map((r) => [r.conversationId, Number(r.unreadCount)]));
+  }
+
   async isConversationParticipant(conversationId: string, userId: string): Promise<boolean> {
     const [row] = await db
       .select({ id: conversationParticipantsTable.id })
@@ -1292,9 +1394,7 @@ export class Storage {
       .select()
       .from(squadsTable)
       .where(sql`${squadsTable.memberIds} @> ${JSON.stringify([userId])}::jsonb`);
-    for (const squad of squads) {
-      await this.getOrCreateSquadConversation(squad.id, userId);
-    }
+    await this.ensureSquadConversationsBatch(squads, userId);
 
     const rows = await db
       .select({
@@ -1321,9 +1421,15 @@ export class Storage {
         convo.type !== "squad" || (convo.squadId != null && squadById.has(convo.squadId)),
     );
 
+    // Single JOIN query replaces N parallel countUnreadInConversation calls.
+    const unreadByConvoId = await this.batchCountUnread(
+      visibleRows.map(({ convo }) => convo.id),
+      userId,
+    );
+
     const enriched = await Promise.all(
-      visibleRows.map(async ({ convo, lastReadAt }) => {
-        const unreadCount = await this.countUnreadInConversation(convo.id, userId, lastReadAt);
+      visibleRows.map(async ({ convo }) => {
+        const unreadCount = unreadByConvoId.get(convo.id) ?? 0;
         const base = {
           id: convo.id,
           type: convo.type,
@@ -2217,8 +2323,35 @@ export class Storage {
   }
 
   async loadAllPushTickets(): Promise<Map<string, string>> {
-    const rows = await db.select().from(pushTicketsTable);
+    // Expo push receipts expire after ~24 h. Tickets older than 48 h can never
+    // produce a useful receipt check; loading them wastes memory and startup
+    // time proportionally to historical push volume. Bound by the indexed
+    // createdAt column so cost scales with recent activity, not total history.
+    const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000);
+    const rows = await db
+      .select()
+      .from(pushTicketsTable)
+      .where(gte(pushTicketsTable.createdAt, cutoff));
     return new Map(rows.map((r) => [r.ticketId, r.pushToken]));
+  }
+
+  /**
+   * Insert multiple push tickets in sequential chunks.
+   * Keeps per-query row counts reasonable and bounds the pool usage from a
+   * large fan-out (500 recipients → 10 sequential INSERTs of 50 rows each,
+   * rather than 500 concurrent fire-and-forget single-row INSERTs).
+   */
+  async storePushTicketsBatch(
+    tickets: Array<{ ticketId: string; pushToken: string }>,
+  ): Promise<void> {
+    if (tickets.length === 0) return;
+    const CHUNK = 50;
+    for (let i = 0; i < tickets.length; i += CHUNK) {
+      await db
+        .insert(pushTicketsTable)
+        .values(tickets.slice(i, i + CHUNK))
+        .onConflictDoNothing();
+    }
   }
 }
 

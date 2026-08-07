@@ -1,0 +1,49 @@
+# SquadZ — Migrate Real-Time to Supabase Realtime + Remaining Multi-Instance Fixes
+
+Context: the scale-readiness assessment found several places where in-memory, per-process state breaks correctness once autoscale runs more than one instance. This is the same class of bug already fixed twice (rate limiter, notification debounce). This prompt covers the remaining instances — one architectural (real-time pub/sub), the rest mechanical.
+
+This is separate from and does not depend on the EXIF reconciliation task sent earlier — do not touch anything related to that in this prompt.
+
+## Priority 1 — Migrate SSE pub/sub to Postgres LISTEN/NOTIFY
+
+**Decision, locked (revised from an earlier draft of this task that specified Supabase Realtime)**: replace the process-local in-memory subscriber registries in `activityEvents.ts`, `feedEvents.ts`, `conversationUpdates.ts`, and `squadEvents.ts` with **Postgres LISTEN/NOTIFY**, not Supabase Realtime and not a new Redis dependency. Reasoning: LISTEN/NOTIFY is core Postgres functionality, portable to any Postgres host (Supabase, AWS RDS, self-hosted, anywhere) with zero vendor-specific code — this keeps the most likely-to-change piece of the stack portable at no extra cost, rather than adding a new Supabase-specific dependency.
+
+**Important connection detail**: LISTEN/NOTIFY requires a persistent, held-open connection for the life of the listener — this is fundamentally incompatible with the Transaction pooler (port 6543), which returns connections to the pool after each transaction and would silently break the LISTEN session. Use a **separate, dedicated connection per server instance** (not per-user, not per-request — one per instance) via the **Session pooler (port 5432)** or a direct connection, held open for the process lifetime, entirely separate from the main `DB_POOL_MAX=45` transaction-pooled request-handling pool. This is a small, fixed number of extra connections (one or two per instance) and does not compete with the request-handling pool's budget.
+
+Implementation approach:
+- Each server instance establishes one dedicated long-lived LISTEN connection on startup, listening on a small set of broad channels (e.g. `squad_events`, `feed_events`, `conversation_events`, `activity_events` — one per domain, not one per squad/user/conversation; Postgres channels aren't meant to be created per-entity at scale).
+- When an event fires on any instance (a squad update, new feed post, conversation message, activity item), issue a `NOTIFY` on the relevant channel with a compact JSON payload (Postgres NOTIFY payloads are capped at 8000 bytes — include only enough to identify and route the event, e.g. type + relevant IDs, not full event content; clients/instances needing full data can look it up).
+- Each instance's LISTEN connection receives every NOTIFY on its subscribed channels and forwards the relevant ones to its own locally-connected SSE clients — same routing/visibility logic as the current in-process emit, just triggered by the NOTIFY callback instead of a direct function call.
+- Add reconnection handling: if the dedicated LISTEN connection drops, reconnect and re-issue LISTEN for all channels rather than silently going deaf.
+- Confirm this doesn't leak data across visibility boundaries — every instance receives every NOTIFY on a channel it's listening to (Postgres NOTIFY is broadcast-to-all-listeners by design), so the per-client filtering must happen in application code using the same access-check logic already used to decide SSE subscription eligibility today. Do not rely on channel scoping alone for access control.
+
+Test: simulate two "instances" (two separate processes/connections, each with their own dedicated LISTEN connection) where an event fires on instance A — confirm a client connected via instance B's SSE handler receives it. This is the core correctness test this whole change exists for. Also test: kill and restart the dedicated LISTEN connection mid-run, confirm it reconnects and resumes receiving notifications.
+
+## Priority 2 — Mechanical fixes (independent of Priority 1, can be done in parallel)
+
+**2a — `/squads/stream` unbounded full-table scan**
+Add a `WHERE member_ids @> $1::jsonb` clause (using the existing GIN index) instead of loading every squad in the database and filtering in JavaScript.
+- Test: confirm the query plan uses the index (EXPLAIN) and confirm the endpoint's behavior is unchanged for the requesting user.
+
+**2b — N+1 queries in `listConversationsForUser`**
+Replace the per-squad sequential `getOrCreateSquadConversation` loop and the per-conversation parallel unread-count queries with batched equivalents (a single query covering all the user's squads, and a single `GROUP BY conversation_id` for unread counts instead of one query per conversation).
+- Test: confirm identical results to the current implementation for a user with multiple squads/conversations, with a reduced query count (add a test asserting query count if feasible, or note the reduction).
+
+**2c — `loadAllPushTickets()` unbounded startup load**
+Decision: bound this to only tickets that haven't yet had a receipt check completed, or a reasonable recency window (e.g. tickets from the last 48 hours) — whichever better matches the actual purpose of this function (checking pending receipts, not historical ones).
+- Test: confirm startup still correctly initializes receipt-checking for genuinely pending tickets, and confirm old/already-resolved tickets are excluded.
+
+**2d — 500+ recipient push fan-out: uncapped concurrent fire-and-forget INSERTs**
+Decision: batch the ticket INSERTs into reasonable chunks (e.g. 50-100 at a time, sequential or limited-concurrency batches) rather than firing all recipient INSERTs concurrently and uncoordinated.
+- Test: simulate a large-recipient event (500+) and confirm ticket INSERTs complete without spiking concurrent pool usage beyond a reasonable bound.
+
+**2e — `authWriteLimiter` still in-memory (missed in the earlier rate-limiter migration)**
+Migrate to the same DB-backed rate-limiting pattern already used for the general API rate limiter.
+- Test: same shape as the earlier rate-limiter fix — confirm the limit holds across a simulated restart/second-instance scenario.
+
+## Required for this pass
+- Priority 1 is the larger, more architecturally significant change — take the cross-instance test seriously, this is the one that actually matters for the fix to be real.
+- Priority 2 items are independent of each other and of Priority 1 — can be parallelized.
+- Regression tests for all changes; confirm the existing test suite is unaffected.
+- Report test suite count at the end, and confirm nothing previously passing broke.
+- Do not touch the EXIF investigation, RevenueCat wire-up, or anything else currently in flight outside this scope.

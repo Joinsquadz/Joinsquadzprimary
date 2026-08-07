@@ -25,13 +25,19 @@ vi.mock("expo-server-sdk", () => {
 
 vi.mock("../lib/logger");
 
+// storePushTicket is kept for other callers but sendPushNotifications now
+// uses storePushTicketsBatch to cap concurrent DB writes.
 const mockStorePushTicket = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const mockStorePushTicketsBatch = vi.hoisted(() =>
+  vi.fn().mockResolvedValue(undefined),
+);
 const mockDeletePushTickets = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const mockLoadAllPushTickets = vi.hoisted(() => vi.fn());
 
 vi.mock("../storage", () => ({
   storage: {
     storePushTicket: mockStorePushTicket,
+    storePushTicketsBatch: mockStorePushTicketsBatch,
     deletePushTickets: mockDeletePushTickets,
     loadAllPushTickets: mockLoadAllPushTickets,
   },
@@ -54,37 +60,41 @@ beforeEach(() => {
   mockIsExpoPushToken.mockReturnValue(true);
   mockChunkPushNotifications.mockImplementation((msgs: unknown[]) => [msgs]);
   mockChunkPushReceiptIds.mockImplementation((ids: string[]) => [ids]);
-  mockStorePushTicket.mockResolvedValue(undefined);
+  mockStorePushTicketsBatch.mockResolvedValue(undefined);
   mockDeletePushTickets.mockResolvedValue(undefined);
   mockLoadAllPushTickets.mockResolvedValue(new Map());
 });
 
 describe("sendPushNotifications — DB persistence", () => {
-  it("calls storePushTicket for each successful ticket", async () => {
+  it("batch-stores ok tickets after the send loop completes", async () => {
     mockSendPushNotificationsAsync.mockResolvedValue([
       { status: "ok", id: "ticket-1" },
     ]);
 
     await sendPushNotifications([TOKEN_A], PAYLOAD);
-    await vi.waitFor(() => expect(mockStorePushTicket).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(mockStorePushTicketsBatch).toHaveBeenCalledTimes(1));
 
-    expect(mockStorePushTicket).toHaveBeenCalledWith("ticket-1", TOKEN_A);
+    expect(mockStorePushTicketsBatch).toHaveBeenCalledWith([
+      { ticketId: "ticket-1", pushToken: TOKEN_A },
+    ]);
   });
 
-  it("calls storePushTicket for each successful ticket in a multi-token send", async () => {
+  it("collects all ok tickets across a multi-token send into a single batch call", async () => {
     mockSendPushNotificationsAsync.mockResolvedValue([
       { status: "ok", id: "ticket-1" },
       { status: "ok", id: "ticket-2" },
     ]);
 
     await sendPushNotifications([TOKEN_A, TOKEN_B], PAYLOAD);
-    await vi.waitFor(() => expect(mockStorePushTicket).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(mockStorePushTicketsBatch).toHaveBeenCalledTimes(1));
 
-    expect(mockStorePushTicket).toHaveBeenCalledWith("ticket-1", TOKEN_A);
-    expect(mockStorePushTicket).toHaveBeenCalledWith("ticket-2", TOKEN_B);
+    expect(mockStorePushTicketsBatch).toHaveBeenCalledWith([
+      { ticketId: "ticket-1", pushToken: TOKEN_A },
+      { ticketId: "ticket-2", pushToken: TOKEN_B },
+    ]);
   });
 
-  it("does NOT call storePushTicket for DeviceNotRegistered error tickets", async () => {
+  it("does NOT call storePushTicketsBatch when all tickets are DeviceNotRegistered errors", async () => {
     mockSendPushNotificationsAsync.mockResolvedValue([
       { status: "error", details: { error: "DeviceNotRegistered" } },
     ]);
@@ -92,10 +102,10 @@ describe("sendPushNotifications — DB persistence", () => {
     await sendPushNotifications([TOKEN_A], PAYLOAD);
     await new Promise((r) => setImmediate(r));
 
-    expect(mockStorePushTicket).not.toHaveBeenCalled();
+    expect(mockStorePushTicketsBatch).not.toHaveBeenCalled();
   });
 
-  it("does NOT call storePushTicket for other error tickets", async () => {
+  it("does NOT call storePushTicketsBatch when all tickets are other error types", async () => {
     mockSendPushNotificationsAsync.mockResolvedValue([
       { status: "error", details: { error: "MessageTooBig" } },
     ]);
@@ -103,23 +113,25 @@ describe("sendPushNotifications — DB persistence", () => {
     await sendPushNotifications([TOKEN_A], PAYLOAD);
     await new Promise((r) => setImmediate(r));
 
-    expect(mockStorePushTicket).not.toHaveBeenCalled();
+    expect(mockStorePushTicketsBatch).not.toHaveBeenCalled();
   });
 
-  it("stores ok tickets but not error tickets in mixed response", async () => {
+  it("batch stores only the ok ticket from a mixed ok+error response", async () => {
     mockSendPushNotificationsAsync.mockResolvedValue([
       { status: "ok", id: "ticket-1" },
       { status: "error", details: { error: "DeviceNotRegistered" } },
     ]);
 
     await sendPushNotifications([TOKEN_A, TOKEN_B], PAYLOAD);
-    await vi.waitFor(() => expect(mockStorePushTicket).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(mockStorePushTicketsBatch).toHaveBeenCalledTimes(1));
 
-    expect(mockStorePushTicket).toHaveBeenCalledWith("ticket-1", TOKEN_A);
+    expect(mockStorePushTicketsBatch).toHaveBeenCalledWith([
+      { ticketId: "ticket-1", pushToken: TOKEN_A },
+    ]);
   });
 
-  it("does not throw when storePushTicket rejects", async () => {
-    mockStorePushTicket.mockRejectedValue(new Error("DB error"));
+  it("does not throw when storePushTicketsBatch rejects", async () => {
+    mockStorePushTicketsBatch.mockRejectedValue(new Error("DB error"));
     mockSendPushNotificationsAsync.mockResolvedValue([
       { status: "ok", id: "ticket-1" },
     ]);

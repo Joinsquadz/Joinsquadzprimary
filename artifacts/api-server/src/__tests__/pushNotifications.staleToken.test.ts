@@ -26,6 +26,7 @@ const mockLoadAllPushTickets = vi.hoisted(() => vi.fn().mockResolvedValue(new Ma
 vi.mock("../storage", () => ({
   storage: {
     storePushTicket: mockStorePushTicket,
+    storePushTicketsBatch: vi.fn().mockResolvedValue(undefined),
     deletePushTickets: mockDeletePushTickets,
     loadAllPushTickets: mockLoadAllPushTickets,
   },

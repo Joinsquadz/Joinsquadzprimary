@@ -31,17 +31,24 @@ const REMOVED_SQUAD = "squad-removed";
 beforeEach(() => {
   queue.value = [];
   vi.restoreAllMocks();
-  // These helpers issue their own queries; stub them so the queue above only
-  // has to satisfy the two top-level selects in each function.
-  vi.spyOn(storage, "getOrCreateSquadConversation").mockResolvedValue(null);
+  // Stub the batch helpers so the queue above only has to satisfy the two
+  // top-level selects in listConversationsForUser (squads + participant rows).
+  vi.spyOn(
+    storage as unknown as {
+      ensureSquadConversationsBatch: (...args: unknown[]) => Promise<void>;
+    },
+    "ensureSquadConversationsBatch",
+  ).mockResolvedValue(undefined);
 });
 
 describe("listConversationsForUser — squad membership enforcement", () => {
   it("excludes squad conversations the user has been removed from", async () => {
     vi.spyOn(
-      storage as unknown as { countUnreadInConversation: () => Promise<number> },
-      "countUnreadInConversation",
-    ).mockResolvedValue(0);
+      storage as unknown as {
+        batchCountUnread: (...args: unknown[]) => Promise<Map<string, number>>;
+      },
+      "batchCountUnread",
+    ).mockResolvedValue(new Map());
 
     // squads select: only the squad the user is CURRENTLY in.
     const squads = [{ id: CURRENT_SQUAD, name: "Current", emoji: "🔥", color: "#FF5C3A" }];

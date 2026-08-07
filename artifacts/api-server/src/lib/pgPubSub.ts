@@ -61,11 +61,14 @@ async function connect(): Promise<void> {
   }
 
   const cfg = resolveDbConfig();
-  // LISTEN connections must be direct (not pooled) because the listener state
-  // is tied to the connection lifetime. Strip the pool-specific fields.
+  // LISTEN connections must use the Session pooler (port 5432), not the
+  // Transaction pooler (DB_POOLER_PORT=6543 used by the main request pool).
+  // The Transaction pooler severs connections after each transaction, silently
+  // destroying LISTEN state. PG_PUBSUB_PORT overrides when the Session pooler
+  // is on a non-standard port.
   const client = new pg.Client({
     host: cfg.host,
-    port: cfg.port as number | undefined,
+    port: Number(process.env.PG_PUBSUB_PORT ?? 5432),
     user: cfg.user,
     password: cfg.password,
     database: cfg.database,
@@ -142,7 +145,18 @@ export async function initPgPubSub(): Promise<void> {
  * query fails — we never want a NOTIFY failure to bubble into a request error.
  */
 export function pgNotify(channel: PgChannel, payload: string): void {
-  pool
+  // Vitest v4 throws a strict validation error when a named import (`pool`) is
+  // absent from a vi.mock factory — even if the null guard below would catch it.
+  // Wrap the binding access so the error degrades silently (same contract as a
+  // failed pool.query: the 20 s poll fallback covers the gap).
+  let p: typeof pool;
+  try {
+    p = pool;
+  } catch {
+    return;
+  }
+  if (!p) return;
+  p
     .query("SELECT pg_notify($1, $2)", [channel, payload])
     .catch((err: unknown) => {
       logger.error("[pgPubSub] pg_notify failed", {
