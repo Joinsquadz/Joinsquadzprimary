@@ -377,16 +377,21 @@ router.get("/squads/preview", async (req: Request, res: Response): Promise<void>
 
 router.get("/squads", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const userId = (req.user as { id: string }).id;
-  const [squads, mutedIds] = await Promise.all([
-    db
-      .select()
-      .from(squadsTable)
-      .where(sql`${squadsTable.memberIds} @> ${JSON.stringify([userId])}::jsonb`)
-      .orderBy(squadsTable.createdAt),
-    storage.getMutedSquadIdsForUser(userId),
-  ]);
-  const mutedSet = new Set(mutedIds);
-  res.json(squads.map((s) => ({ ...s, muted: mutedSet.has(s.id) })));
+  try {
+    const [squads, mutedIds] = await Promise.all([
+      db
+        .select()
+        .from(squadsTable)
+        .where(sql`${squadsTable.memberIds} @> ${JSON.stringify([userId])}::jsonb`)
+        .orderBy(squadsTable.createdAt),
+      storage.getMutedSquadIdsForUser(userId),
+    ]);
+    const mutedSet = new Set(mutedIds);
+    res.json(squads.map((s) => ({ ...s, muted: mutedSet.has(s.id) })));
+  } catch (err) {
+    logger.error({ err }, "Error fetching squad list");
+    res.status(500).json({ error: "Failed to load squads" });
+  }
 });
 
 router.post("/squads", requireAuth, async (req: Request, res: Response): Promise<void> => {

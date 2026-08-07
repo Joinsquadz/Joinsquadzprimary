@@ -453,31 +453,36 @@ router.get("/events", requireAuth, async (req: Request, res: Response): Promise<
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
 
-  // Squad items (trips AND plain events) are visible to every CURRENT member
-  // of their squad, with no RSVP required.
-  const squadIds = await storage.getSquadIdsForUser(userId);
-  const visibility = or(
-    eq(eventsTable.hostId, userId),
-    // RSVP visibility is for plain events only — a trip must never be visible
-    // via a stale RSVP key after the user is removed from its squad.
-    and(sql`${eventsTable.type} <> 'trip'`, sql`${eventsTable.rsvps} ? ${userId}`),
-    // An explicit personal invite makes the trip/event visible regardless of
-    // squad membership (and is safe for trips: it's never written by an RSVP).
-    sql`${eventsTable.invitedUserIds} ? ${userId}`,
-    ...(squadIds.length > 0 ? [inArray(eventsTable.squadId, squadIds)] : []),
-  );
-  const notExpired = or(
-    isNull(eventsTable.eventAt),
-    gte(eventsTable.eventAt, startOfToday),
-    gte(eventsTable.endAt, startOfToday),
-  );
+  try {
+    // Squad items (trips AND plain events) are visible to every CURRENT member
+    // of their squad, with no RSVP required.
+    const squadIds = await storage.getSquadIdsForUser(userId);
+    const visibility = or(
+      eq(eventsTable.hostId, userId),
+      // RSVP visibility is for plain events only — a trip must never be visible
+      // via a stale RSVP key after the user is removed from its squad.
+      and(sql`${eventsTable.type} <> 'trip'`, sql`${eventsTable.rsvps} ? ${userId}`),
+      // An explicit personal invite makes the trip/event visible regardless of
+      // squad membership (and is safe for trips: it's never written by an RSVP).
+      sql`${eventsTable.invitedUserIds} ? ${userId}`,
+      ...(squadIds.length > 0 ? [inArray(eventsTable.squadId, squadIds)] : []),
+    );
+    const notExpired = or(
+      isNull(eventsTable.eventAt),
+      gte(eventsTable.eventAt, startOfToday),
+      gte(eventsTable.endAt, startOfToday),
+    );
 
-  const events = await db
-    .select()
-    .from(eventsTable)
-    .where(includePast ? visibility : and(visibility, notExpired))
-    .orderBy(eventsTable.eventAt, eventsTable.createdAt);
-  res.json(events);
+    const events = await db
+      .select()
+      .from(eventsTable)
+      .where(includePast ? visibility : and(visibility, notExpired))
+      .orderBy(eventsTable.eventAt, eventsTable.createdAt);
+    res.json(events);
+  } catch (err) {
+    logger.error({ err }, "Error fetching event list");
+    res.status(500).json({ error: "Failed to load events" });
+  }
 });
 
 router.post("/events", requireAuth, async (req: Request, res: Response): Promise<void> => {

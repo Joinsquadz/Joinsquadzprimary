@@ -1,0 +1,26 @@
+# SquadZ — Deploy Pool Change + Diagnose Remaining Fast 500s
+
+Two separate tracks. Track A confirms the pool change actually works (it was never tested). Track B investigates the fast application-level 500 errors found on Small compute — a correctness bug, not a scale/infrastructure issue.
+
+## Track A — Deploy and re-test the pool change
+
+1. Deploy the current code (with `DB_POOL_MAX=45` and the updated `connection.ts` default) to the live production instance at `https://joinsquadz.com`. Confirm the deployment actually completed and the new instance is serving traffic — don't assume, verify.
+2. Confirm the live value is actually 45, not 25, once deployed (e.g. via a diagnostic endpoint, log line at startup, or equivalent — whatever's fastest to confirm without guessing).
+3. Re-run the identical load test (`load-tests/seed-prod.mjs` → `load-tests/squadz.yml` → cleanup) one more time.
+4. Report results in a fourth comparison column against the prior three (Nano / Micro / Small-pool25) — same metrics as before (p50/p95/p99, 500 rate, 429 rate, vusers.failed).
+5. This is the number that actually tells you whether pool size matters on top of the Small compute upgrade, or whether the compute upgrade alone already captured the available gain.
+
+## Track B — Diagnose the fast application-level 500s (before attempting any fix)
+
+The prior run found ~3.2% of requests failing fast (~207ms) on `/api/squads`, `/api/events`, `/api/feed`, or `/api/activity` — ruled out as pool timeouts based on response time alone.
+
+1. **First, classify the bug type before fixing anything**: reproduce the same requests that failed during the load test, but at low/no concurrency (1 request at a time, no load). Do the same errors occur at all under normal single-user conditions, or only when many requests hit the same endpoint concurrently?
+   - If the errors reproduce even at low concurrency: this is a pre-existing bug unrelated to scale, likely present in production right now regardless of load, and should be treated with the same urgency as any other correctness bug — not deprioritized as a "scale" issue.
+   - If the errors only occur under concurrent load: this points to a race condition or shared-state issue specific to simultaneous requests (e.g. two requests hitting a resource at the same time in a way single-request testing wouldn't surface).
+2. Once classified, identify the actual error by capturing full stack traces/error details from the failing requests during a reproduction (not just the fact that they fail) — check Sentry if these are already being captured there, since Sentry is already wired into the app per existing setup.
+3. Report the root cause and a specific fix, gated on Steps 1-2 actually identifying what's failing — do not guess at a fix without first confirming the actual error.
+
+## Required for this pass
+- Track A must confirm the deployment actually happened before reporting new numbers — a repeat of "the code changed but production didn't" is not acceptable this time.
+- Track B must classify low-concurrency vs. concurrency-specific before proposing any fix.
+- Report both tracks' findings, even if Track B doesn't reach a complete fix in this pass — a clear diagnosis with next steps is a valid outcome, don't force a rushed fix.

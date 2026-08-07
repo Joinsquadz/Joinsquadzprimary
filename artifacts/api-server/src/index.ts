@@ -112,6 +112,10 @@ app.listen(port, (err) => {
     process.exit(1);
   }
   logger.info({ port }, 'Server listening');
+  logger.info(
+    { DB_POOL_MAX: Number(process.env.DB_POOL_MAX ?? '45'), source: process.env.DB_POOL_MAX ? 'env' : 'default' },
+    '[db-pool] effective pool max',
+  );
 
   // Warn if any squads are missing invite codes. Run pnpm --filter
   // @workspace/scripts run backfill-squad-invite-codes to fix them.
