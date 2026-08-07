@@ -1,5 +1,6 @@
 import { Platform } from "react-native";
 import * as ImageManipulator from "expo-image-manipulator";
+import { track } from "@/lib/analytics";
 
 /**
  * Strip EXIF metadata (including GPS coordinates) from a photo by re-encoding
@@ -8,25 +9,42 @@ import * as ImageManipulator from "expo-image-manipulator";
  *
  * - Only applies to images. Non-images are returned unchanged.
  * - Output is always JPEG (mimeType "image/jpeg") regardless of input format.
- * - Falls back to the original URI/mimeType if stripping fails (e.g. unsupported
- *   format), so a stripping failure never blocks an upload.
+ * - Retries once on failure before falling back to the original URI/mimeType
+ *   (e.g. unsupported format), so a stripping failure never blocks an upload.
+ * - Fires an "exif_strip_fallback" analytics event when the fallback path is
+ *   taken (both attempts failed). The optional `surface` label identifies the
+ *   upload entry point (e.g. "chat", "vault", "moments").
  */
 export async function stripImageExif(
   uri: string,
   mimeType: string,
+  surface = "unknown",
 ): Promise<{ uri: string; mimeType: string }> {
   const isImage = mimeType.startsWith("image/");
   if (!isImage) return { uri, mimeType };
 
+  const attempt = () =>
+    ImageManipulator.manipulateAsync(uri, [], {
+      compress: 0.92,
+      format: ImageManipulator.SaveFormat.JPEG,
+    });
+
   try {
-    const result = await ImageManipulator.manipulateAsync(
-      uri,
-      [],
-      { compress: 0.92, format: ImageManipulator.SaveFormat.JPEG },
-    );
+    const result = await attempt();
     return { uri: result.uri, mimeType: "image/jpeg" };
   } catch {
-    return { uri, mimeType };
+    // First attempt failed — retry once before giving up.
+    try {
+      const result = await attempt();
+      return { uri: result.uri, mimeType: "image/jpeg" };
+    } catch (secondErr) {
+      track("exif_strip_fallback", {
+        surface,
+        mediaType: "image",
+        error: secondErr instanceof Error ? secondErr.message : String(secondErr),
+      });
+      return { uri, mimeType };
+    }
   }
 }
 
@@ -38,22 +56,45 @@ export async function stripImageExif(
  *
  * - No-op on web (Platform.OS === "web") — the compressor is native-only.
  * - No-op for non-video mimeTypes.
- * - Falls back to the original URI/mimeType on any error so a compression
- *   failure never blocks an upload.
+ * - Retries once on failure before falling back to the original URI/mimeType.
+ *   Fires an "exif_strip_fallback" analytics event when the fallback path is
+ *   taken (both attempts failed).
  */
 export async function stripVideoExif(
   uri: string,
   mimeType: string,
+  surface = "unknown",
 ): Promise<{ uri: string; mimeType: string }> {
   if (!mimeType.startsWith("video/")) return { uri, mimeType };
   if (Platform.OS === "web") return { uri, mimeType };
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let Video: any;
   try {
-    const { Video } = await import("react-native-compressor");
-    const compressed = await Video.compress(uri, { compressionMethod: "auto" });
+    ({ Video } = await import("react-native-compressor"));
+  } catch {
+    // Module unavailable (e.g. bundler misconfiguration) — fall back silently.
+    return { uri, mimeType };
+  }
+
+  const attempt = () => Video.compress(uri, { compressionMethod: "auto" });
+
+  try {
+    const compressed = await attempt();
     return { uri: compressed, mimeType };
   } catch {
-    return { uri, mimeType };
+    // First attempt failed — retry once before giving up.
+    try {
+      const compressed = await attempt();
+      return { uri: compressed, mimeType };
+    } catch (secondErr) {
+      track("exif_strip_fallback", {
+        surface,
+        mediaType: "video",
+        error: secondErr instanceof Error ? secondErr.message : String(secondErr),
+      });
+      return { uri, mimeType };
+    }
   }
 }
 
@@ -61,12 +102,16 @@ export async function stripVideoExif(
  * Unified metadata stripper — delegates to stripImageExif for images and
  * stripVideoExif for videos. Use this at every upload call site so that both
  * media types are covered with a single call.
+ *
+ * Pass `surface` to identify the upload entry point in any fallback analytics
+ * event (e.g. "chat", "vault", "moments", "feed").
  */
 export async function stripMediaExif(
   uri: string,
   mimeType: string,
+  surface = "unknown",
 ): Promise<{ uri: string; mimeType: string }> {
-  if (mimeType.startsWith("image/")) return stripImageExif(uri, mimeType);
-  if (mimeType.startsWith("video/")) return stripVideoExif(uri, mimeType);
+  if (mimeType.startsWith("image/")) return stripImageExif(uri, mimeType, surface);
+  if (mimeType.startsWith("video/")) return stripVideoExif(uri, mimeType, surface);
   return { uri, mimeType };
 }

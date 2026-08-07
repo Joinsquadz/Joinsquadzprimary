@@ -1,0 +1,30 @@
+# SquadZ — Fix: Chat Video EXIF Gap + Stripping Retry & Visibility
+
+Two related fixes to `lib/imageUtils.ts` and its one confirmed gap in the chat surface.
+
+## Fix 1 — Chat video attachments bypass stripping entirely (confirmed bug, not a judgment call)
+
+In `app/conversation/[id].tsx` (lines ~323-325), the current code only calls `stripImageExif` for the photo branch and sends video attachments raw and unprocessed:
+```
+const { uri: uploadUri, mimeType: uploadMimeType } = !isVideo
+  ? await stripImageExif(asset.uri, contentType)
+  : { uri: asset.uri, mimeType: contentType };   // raw, unstripped video
+```
+Fix: call `stripMediaExif` (the unified dispatcher already used correctly on every other upload surface) for both branches, matching the pattern used in Moments, Feed, and Vault uploads. Chat video attachments should go through `stripVideoExif` exactly like video uploads everywhere else in the app.
+
+Test: attach a video in a chat conversation, confirm `stripVideoExif` is actually invoked before the presigned PUT (not just present in code — confirm it's called on this exact path).
+
+## Fix 2 — Add one retry before falling back, and log when fallback actually happens
+
+**Decision, locked**: keep the current non-blocking design (uploads should not fail just because stripping fails) — but improve it in two ways:
+
+1. **Retry once** on stripping failure before falling back to the original file, for all three functions (`stripImageExif`, `stripVideoExif`, `stripMediaExif`). Most failures are likely transient; a single retry meaningfully reduces how often the fallback path is actually hit.
+2. **Log a lightweight analytics event via PostHog** (already integrated in the app) whenever a file ends up uploading unstripped after both the original attempt and the retry fail. Include enough context to be useful later (upload surface, media type, error type/message if available) without logging anything sensitive. This is purely for visibility — no behavior change, no blocking, just makes a previously invisible failure mode observable.
+
+Test: simulate a stripping failure on first attempt that succeeds on retry — confirm the retry path works and no fallback/logging occurs. Simulate a failure on both attempts — confirm the file still uploads (unstripped, current fallback behavior preserved) AND confirm the PostHog event fires with the expected context.
+
+## Required for this pass
+- Fix 1 is unconditional — no configuration or flag, just correct behavior matching every other surface.
+- Fix 2 must not introduce any blocking behavior or change upload success rate — the retry and logging are additive only.
+- Regression tests for both fixes; confirm existing test suite is unaffected.
+- Report the final test count and confirm nothing previously passing broke.
