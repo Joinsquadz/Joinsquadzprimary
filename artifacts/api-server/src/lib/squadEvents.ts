@@ -1,19 +1,15 @@
-import { EventEmitter } from "events";
+import { pgNotify, pgSubscribe } from "./pgPubSub";
 
-// In-memory pub/sub for squad mutations.
+// Cross-instance pub/sub for squad mutations via Postgres LISTEN/NOTIFY.
 // When any mutation endpoint (PATCH, join, leave, add-member, remove-member)
-// completes successfully, it calls emitSquadUpdate(squadId). All SSE clients
-// watching that squad receive an "update" event immediately.
-const emitter = new EventEmitter();
-emitter.setMaxListeners(0); // No cap — one listener per connected SSE client
+// completes successfully it calls emitSquadUpdate(squadId). All SSE clients
+// watching that squad receive an "update" event immediately — regardless of
+// which server instance handled the mutation.
 
 export function emitSquadUpdate(squadId: string): void {
-  emitter.emit(`squad:${squadId}`);
+  pgNotify("squadz_squad", squadId);
 }
 
 export function onSquadUpdate(squadId: string, handler: () => void): () => void {
-  emitter.on(`squad:${squadId}`, handler);
-  return () => {
-    emitter.off(`squad:${squadId}`, handler);
-  };
+  return pgSubscribe("squadz_squad", squadId, handler);
 }

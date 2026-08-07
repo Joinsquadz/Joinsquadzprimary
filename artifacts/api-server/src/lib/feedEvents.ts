@@ -1,18 +1,14 @@
-import { EventEmitter } from "events";
+import { pgNotify, pgSubscribe } from "./pgPubSub";
 
-// In-memory pub/sub for feed mutations (posts, reactions, comments, moments).
-// Uses a separate namespace from squad/conversation channels to prevent
-// cross-contamination with existing SSE streams.
-const emitter = new EventEmitter();
-emitter.setMaxListeners(0); // No cap — one listener per connected SSE client
+// Cross-instance pub/sub for feed mutations (posts, reactions, comments,
+// moments) via Postgres LISTEN/NOTIFY. Uses a separate namespace from
+// squad/conversation channels to prevent cross-contamination with existing
+// SSE streams.
 
 export function emitFeedUpdate(userId: string): void {
-  emitter.emit(`feed:${userId}`);
+  pgNotify("squadz_feed", userId);
 }
 
 export function onFeedUpdate(userId: string, handler: () => void): () => void {
-  emitter.on(`feed:${userId}`, handler);
-  return () => {
-    emitter.off(`feed:${userId}`, handler);
-  };
+  return pgSubscribe("squadz_feed", userId, handler);
 }

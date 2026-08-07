@@ -6,6 +6,7 @@ import { getSmtpStatus } from './emailService';
 import { ensureEmailDedupTable } from './lib/emailDedup';
 import { ensureTombstoneTable } from './lib/accountTombstones';
 import { ensureSchema } from './lib/schemaSync';
+import { initPgPubSub } from './lib/pgPubSub';
 import { checkPushReceipts, initPushTickets } from './lib/pushNotifications';
 import { storage } from './storage';
 import {
@@ -88,6 +89,13 @@ await ensureEmailDedupTable();
 // Account-deletion tombstones: must exist before any DELETE /account or login
 // so deleted credentials can never re-provision an account.
 await ensureTombstoneTable();
+
+// Start the Postgres LISTEN client so real-time SSE updates propagate across
+// all server instances. A non-fatal failure is logged and the 20 s poll
+// fallback on every SSE stream keeps the app functional.
+initPgPubSub().catch((err) =>
+  logger.error({ err }, "initPgPubSub failed at startup — SSE will fall back to polling"),
+);
 
 initPushTickets().catch((err) =>
   logger.error({ err }, "initPushTickets failed at startup"),

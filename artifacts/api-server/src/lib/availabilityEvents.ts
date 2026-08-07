@@ -1,19 +1,15 @@
-import { EventEmitter } from "events";
+import { pgNotify, pgSubscribe } from "./pgPubSub";
 
-// In-memory pub/sub for availability-poll mutations.
-// When a poll endpoint (member submits availability, host updates the range, or
-// host nudges a member) completes successfully, it calls emitPollUpdate(pollId).
-// All SSE clients watching that poll receive an "update" event immediately.
-const emitter = new EventEmitter();
-emitter.setMaxListeners(0); // No cap — one listener per connected SSE client
+// Cross-instance pub/sub for availability-poll mutations via Postgres
+// LISTEN/NOTIFY. When a poll endpoint (member submits availability, host
+// updates the range, or host nudges a member) completes successfully it calls
+// emitPollUpdate(pollId). All SSE clients watching that poll receive an
+// "update" event immediately — regardless of which instance handled the write.
 
 export function emitPollUpdate(pollId: string): void {
-  emitter.emit(`poll:${pollId}`);
+  pgNotify("squadz_poll", pollId);
 }
 
 export function onPollUpdate(pollId: string, handler: () => void): () => void {
-  emitter.on(`poll:${pollId}`, handler);
-  return () => {
-    emitter.off(`poll:${pollId}`, handler);
-  };
+  return pgSubscribe("squadz_poll", pollId, handler);
 }

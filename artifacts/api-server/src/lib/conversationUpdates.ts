@@ -1,18 +1,17 @@
-import { EventEmitter } from "events";
+import { pgNotify, pgSubscribe } from "./pgPubSub";
 
-// In-memory pub/sub for conversation mutations.
+// Cross-instance pub/sub for conversation mutations via Postgres LISTEN/NOTIFY.
 // When a new message is sent, emitConversationUpdate(conversationId) is called.
-// All SSE clients watching that conversation receive an "update" event immediately.
-const emitter = new EventEmitter();
-emitter.setMaxListeners(0); // No cap — one listener per connected SSE client
+// All SSE clients watching that conversation receive an "update" event
+// immediately — regardless of which server instance handled the POST.
 
 export function emitConversationUpdate(conversationId: string): void {
-  emitter.emit(`conversation:${conversationId}`);
+  pgNotify("squadz_conv", conversationId);
 }
 
-export function onConversationUpdate(conversationId: string, handler: () => void): () => void {
-  emitter.on(`conversation:${conversationId}`, handler);
-  return () => {
-    emitter.off(`conversation:${conversationId}`, handler);
-  };
+export function onConversationUpdate(
+  conversationId: string,
+  handler: () => void,
+): () => void {
+  return pgSubscribe("squadz_conv", conversationId, handler);
 }
