@@ -1,0 +1,89 @@
+# Extended load test — 150 peak concurrent sessions (assessment target)
+# Derived from squadz.yml; peak phases scaled from 50→75 arrivals/s
+# to reach ~150 concurrent (75/s × ~2s avg session = ~150 in-flight).
+# Temporary assessment artifact — not a production fixture.
+config:
+  target: "https://joinsquadz.com"
+
+  payload:
+    path: ".test-accounts.csv"
+    fields:
+      - token
+      - email
+      - userId
+    skipHeader: true
+    order: sequence
+
+  phases:
+    - name: "Warm up"
+      duration: 30
+      arrivalRate: 5
+
+    - name: "Ramp up"
+      duration: 60
+      arrivalRate: 5
+      rampTo: 37        # ramp to half of 75 over 60s → ~10→75 concurrent
+
+    - name: "Sustained load (75 concurrent)"
+      duration: 60
+      arrivalRate: 37
+
+    - name: "Peak (150 concurrent)"
+      duration: 60
+      arrivalRate: 75   # 75/s × 2s ≈ 150 concurrent
+
+    - name: "Sustain peak"
+      duration: 60
+      arrivalRate: 75   # hold 150 concurrent for a full minute
+
+  http:
+    timeout: 10
+    maxSockets: 225     # 1.5× peak concurrent
+
+scenarios:
+  - name: "Hot read path"
+    weight: 1
+    flow:
+      - get:
+          url: "/api/squads"
+          headers:
+            Authorization: "Bearer {{ token }}"
+            Content-Type: "application/json"
+          expect:
+            - statusCode: 200
+      - think: 0.3
+
+      - get:
+          url: "/api/events"
+          headers:
+            Authorization: "Bearer {{ token }}"
+            Content-Type: "application/json"
+          expect:
+            - statusCode: 200
+      - think: 0.3
+
+      - get:
+          url: "/api/feed"
+          headers:
+            Authorization: "Bearer {{ token }}"
+            Content-Type: "application/json"
+          expect:
+            - statusCode: 200
+      - think: 0.3
+
+      - get:
+          url: "/api/activity"
+          headers:
+            Authorization: "Bearer {{ token }}"
+            Content-Type: "application/json"
+          expect:
+            - statusCode: 200
+      - think: 0.3
+
+      - get:
+          url: "/api/notifications/preferences"
+          headers:
+            Authorization: "Bearer {{ token }}"
+            Content-Type: "application/json"
+          expect:
+            - statusCode: 200

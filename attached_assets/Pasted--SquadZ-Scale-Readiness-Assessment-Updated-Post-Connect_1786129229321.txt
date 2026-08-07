@@ -1,0 +1,52 @@
+# SquadZ — Scale Readiness Assessment (Updated — Post-Connection-Pooling Fixes)
+
+Context: the connection-pooling bottleneck is CONFIRMED RESOLVED. Final verified result on production (Small compute, DB_POOL_MAX=45, atomic notification claims, GIN/B-tree indexes): 0% 500 error rate across 42,528 requests at ~100 concurrent sessions, p95 down from ~1,380ms to 211ms. That work answered one narrow question: does the DB layer hold up under ~100 concurrent sessions hitting a handful of read endpoints for ~5 minutes. It did not answer whether SquadZ is ready for 10k+ real accounts. This assessment covers everything that work didn't touch — do not re-test or re-litigate the connection-pooling finding, treat it as closed. Report-only — no fixes in this pass, findings to be triaged afterward.
+
+## Known current state (don't re-discover this — confirmed facts to build from)
+- Production (`SquadZ Social`) and staging (`squadz-staging`) Supabase projects, both on **Small compute** (4GB RAM class), Pro plan ($25/mo org + $10/mo per project compute, minus one included credit).
+- Confirmed real `max_connections` on Small: **90** (not the initially-projected ~197 — treat any future Supabase-tier projections as estimates requiring the same empirical confirmation).
+- `DB_POOL_MAX=45`, Transaction pooler (port 6543).
+- Existing load-test tooling: `load-tests/seed-prod.mjs`, `load-tests/squadz.yml` (Artillery, config.target already fixed and confirmed working), `load-tests/cleanup-prod.mjs`. Fully proven — reuse as-is for Section 6's extended test, just adjust the target concurrency.
+- Confirmed 100GB Supabase Storage quota, currently at 0.025GB used (effectively zero) — not an active concern, revisit only as real usage accumulates post-launch.
+- The in-memory rate limiter issue was partially addressed earlier (login/registration, and a general API rate limiter migrated to DB-backed) — confirm in Section 2 below whether this pattern is now closed everywhere or if other in-memory-per-instance state still exists elsewhere in the codebase.
+
+## 1 — Supabase tier: forward-looking capacity, not current-state (already known)
+
+Given Small is now confirmed and load-tested at ~100 concurrent sessions:
+- At what growth point (registered accounts, DB size, or concurrent load) would Small stop being sufficient and Medium become necessary? Reason from current DB size/growth rate if available, not just a guess.
+- Model actual cost at 10k accounts: Pro plan includes 100k MAU and 8GB disk per project before overage — 10k accounts is comfortably within the MAU limit, so the real cost driver to check is **disk size and egress**, especially given photo/video uploads. Estimate: at current average media size per upload (check actual EXIF-stripped file sizes in production), what would 10k active accounts' worth of media storage and egress look like against the included 8GB disk / 250GB egress, and what's the overage cost per GB if exceeded?
+
+## 2 — Hosting/server architecture (still fully unanswered)
+
+- Is the backend deployment capable of running multiple instances behind a load balancer, or is it a single instance regardless of DB capacity?
+- If single instance: what's the practical ceiling (CPU/memory/concurrent request handling) on that instance alone, independent of the database?
+- Audit the codebase for any remaining in-memory, per-instance state (beyond the rate limiter, which was already addressed) that would break or behave inconsistently if the app ever ran on multiple instances — e.g. in-memory caches, session state, scheduled job locks that assume single-process execution.
+
+## 3 — Query efficiency at scale (still fully unanswered)
+
+Independent of connection pooling, check for patterns invisible at the load-test's scale (100 concurrent, 5 minutes) but likely to matter at real sustained usage:
+- N+1 query patterns on squad list, plan list, feed, and notification endpoints.
+- Missing indexes on hot-path WHERE/JOIN/ORDER BY columns — check actual query plans (EXPLAIN ANALYZE) against production-shaped data, not just the schema.
+- Any endpoint loading unbounded or full-table results before filtering in application code rather than at the database level (the moments-feed 300-row cap fix from an earlier session is the pattern to check for elsewhere).
+
+## 4 — Media storage and delivery at scale (still fully unanswered)
+
+- Where is uploaded media stored, and does that layer have its own scale ceiling separate from Postgres?
+- Is media served via CDN or directly from storage? At 10k accounts with regular uploads, would media delivery bottleneck before the database does?
+- Does EXIF-stripping/image processing happen synchronously in the request path (slows under load) or async/queued?
+
+## 5 — Push notifications and background jobs at real volume (still fully unanswered)
+
+- The push fan-out and reminder scanner have only been tested at 20 users. What happens at real volume — a popular event with 500+ invitees, or a reminder scan across thousands of active plans at once?
+- Does the reminder scanner scale with active plan count, or does it do something that gets linearly slower as plans grow (e.g. scanning all plans every cycle instead of querying only due ones)?
+
+## 6 — Establish a real peak-concurrency target, then test at it (partially tooled, target never established)
+
+- 10k total accounts does not mean 10k concurrent users. Propose a reasoned peak-concurrency estimate for a friend-group social planning app specifically — state the assumption and reasoning, not an arbitrary number.
+- Fix the known Artillery config bug (`config.target` missing) in `load-tests/squadz.yml` first.
+- Once a target is proposed and reasoned through, extend the existing load-test tooling to that number (not just the 100 that happened to be the number that broke Nano) and report real results — response times, error rates, first bottleneck encountered.
+
+## Output required
+- Answer each section factually. Where something can't be determined from code alone (e.g. actual Supabase dashboard metrics, disk growth trends), say so explicitly rather than guessing.
+- A clear priority-ordered summary: what's the most likely *next* bottleneck to hit as the app scales past what's already been tested.
+- Do not fix anything in this pass. Do not touch the pooling/deploy work already in flight — that's tracked separately.
