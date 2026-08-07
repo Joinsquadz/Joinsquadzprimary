@@ -103,7 +103,8 @@ function parseId(raw: unknown): string {
 const CreateEventBody = z.object({
   type: z.enum(["event", "trip"]).default("event"),
   emoji: z.string().default("🎉"),
-  title: z.string().min(1),
+  // .trim() rejects whitespace-only titles that would render as blank cards.
+  title: z.string().trim().min(1),
   date: z.string().default("TBD"),
   eventAt: z.string().datetime().optional(),
   // Trip date range (machine-readable). For trips, eventAt defaults to startAt.
@@ -135,7 +136,7 @@ const InviteUsersBody = z.object({
 });
 
 const UpdateEventBody = z.object({
-  title: z.string().optional(),
+  title: z.string().trim().min(1).optional(),
   description: z.string().optional(),
   date: z.string().optional(),
   eventAt: z.string().datetime().optional(),
@@ -167,7 +168,7 @@ const AddStopBody = z.object({
   day: z.string().min(1), // ISO calendar date the stop belongs to
   time: z.string().default(""),
   endTime: z.string().default(""),
-  title: z.string().min(1),
+  title: z.string().trim().min(1),
   placeName: z.string().default(""),
   address: z.string().default(""),
   note: z.string().default(""),
@@ -183,7 +184,7 @@ const PatchStopBody = z.object({
   day: z.string().optional(),
   time: z.string().optional(),
   endTime: z.string().optional(),
-  title: z.string().optional(),
+  title: z.string().trim().min(1).optional(),
   placeName: z.string().optional(),
   address: z.string().optional(),
   note: z.string().optional(),
@@ -200,11 +201,11 @@ const ConfirmStopBody = z.object({ version: z.number().int() });
 
 // ── Packing checklist request bodies ─────────────────────────────────────────
 const AddPackingBody = z.object({
-  label: z.string().min(1),
+  label: z.string().trim().min(1),
   version: z.number().int(),
 });
 const PatchPackingBody = z.object({
-  label: z.string().min(1).optional(),
+  label: z.string().trim().min(1).optional(),
   done: z.boolean().optional(),
   assigneeId: z.string().nullable().optional(),
   version: z.number().int(),
@@ -217,7 +218,7 @@ const SetRsvpBody = z.object({
 });
 
 const AddTaskBody = z.object({
-  title: z.string().min(1),
+  title: z.string().trim().min(1),
   version: z.number().int().optional(),
   category: z.string().optional(),
 });

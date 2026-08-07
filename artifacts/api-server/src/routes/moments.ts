@@ -235,11 +235,15 @@ router.get("/moments/feed", requireAuth, async (req: Request, res: Response): Pr
       inArray(momentsTable.authorId, authors),
     );
 
+    // Cap at 300 most-recent moments — ring-based display shows only the
+    // freshest per-author anyway, so an unbounded scan on a large friends list
+    // would do unnecessary work without improving the UI.
     const moments = await db
       .select()
       .from(momentsTable)
       .where(and(liveCondition(), ne(momentsTable.status, "hidden"), audienceCondition, blockFilter))
-      .orderBy(desc(momentsTable.createdAt));
+      .orderBy(desc(momentsTable.createdAt))
+      .limit(300);
     const rings = await buildRings(moments, userId);
     rings.sort((a, b) => {
       if (a.isSelf !== b.isSelf) return a.isSelf ? -1 : 1;

@@ -103,7 +103,8 @@ const ShareToVaultBody = z.object({
 });
 
 const CreateSquadBody = z.object({
-  name: z.string().min(1),
+  // .trim() prevents whitespace-only names that display as blank in the UI.
+  name: z.string().trim().min(1),
   description: z.string().trim().max(280).optional(),
   emoji: z.string().default("👥"),
   color: z.string().default("#FF5C3A"),
@@ -112,10 +113,11 @@ const CreateSquadBody = z.object({
 });
 
 const UpdateSquadBody = z.object({
-  name: z.string().optional(),
+  // Require non-empty/non-whitespace when any of these are explicitly provided.
+  name: z.string().trim().min(1).optional(),
   description: z.string().trim().max(280).nullable().optional(),
-  emoji: z.string().optional(),
-  color: z.string().optional(),
+  emoji: z.string().trim().min(1).optional(),
+  color: z.string().trim().min(1).optional(),
   isPublic: z.boolean().optional(),
   membersCanInvite: z.boolean().optional(),
   memberIds: z.array(z.string()).optional(),
