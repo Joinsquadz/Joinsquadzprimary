@@ -1,0 +1,39 @@
+# SquadZ — Re-Verify Production Load Test After Micro Compute Upgrade
+
+Context: production Supabase was upgraded from Nano to Micro compute (2 vCPU / 1GB RAM class), following the load test that found a 6.7% error rate (2,834 / 42,485 requests) at peak concurrent load, with failing requests taking up to ~9 seconds before timing out. This is a clean re-run to confirm the upgrade actually fixed it — not a new test, the same one, for a direct comparison.
+
+## Before running anything
+
+Confirm the compute resize has actually completed and is live — check the Supabase dashboard's Compute card for "SquadZ Social" shows Micro (not still showing Nano or a "resizing" state). If it's not confirmed live yet, wait and check again rather than testing against a mid-resize instance, which could give misleading results either direction.
+
+## Run the same test as before
+
+1. Seed the same disposable test-account pattern used previously (`load-tests/seed-prod.mjs`, or equivalent) against production — same account count as the last production run (100), so results are directly comparable.
+2. Run the Artillery load test (`load-tests/squadz.yml`, with the `order: sequence` and per-request-header fixes already in place from the last corrected run) against `https://joinsquadz.com`.
+3. Clean up the test accounts afterward and confirm deletion completed.
+
+## Report — direct comparison to the Nano baseline
+
+| Metric | Nano baseline (prior run) | Micro (this run) |
+|---|---|---|
+| 2xx overall p50 | 144 ms | ? |
+| 2xx overall p95 | 1,380 ms | ? |
+| 2xx overall p99 | 1,437 ms | ? |
+| Peak-phase p50 | 1,326 ms | ? |
+| Peak-phase p95 | 1,408 ms | ? |
+| Peak-phase p99 | 1,557 ms | ? |
+| 500 error rate | 6.7% (2,834/42,485) | ? |
+| vusers.failed | 1.4% (122/8,550) | ? |
+
+Fill in the "this run" column with actual measured numbers — do not estimate or project.
+
+## Interpretation
+
+- If the 500 error rate drops to near-zero (a few isolated errors are fine; anything above ~1% at this same load level means Micro still isn't enough and the next tier, Small, should be considered).
+- If errors persist at a similar rate to the Nano baseline, report that plainly — don't soften it. That would mean compute tier wasn't the full story and `DB_POOL_MAX` (currently 25) or something else needs another look.
+- Report the actual connection count during peak load if visible (Supabase dashboard shows this as "X/Y conns" — mention if this data is accessible from the test run or needs manual dashboard observation).
+
+## Required for this pass
+- This is a comparison test — report real numbers against the baseline table above, not a pass/fail summary.
+- Confirm test account cleanup completed, same as every prior production test.
+- If the compute resize isn't confirmed live before starting, stop and say so rather than proceeding.
