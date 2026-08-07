@@ -1,0 +1,59 @@
+# SquadZ — Pre-Deploy Safety Checks, Complete P4, Deploy, Final Load Test
+
+Everything from the Priority 1–3 fixes is built and tested (957 passing). This prompt closes the remaining gaps before deploying, then deploys, then runs the load test that's been blocked since the pool_max change was first made — this build is the first one that actually contains everything discussed (Small compute already live, DB_POOL_MAX=45, the atomic notification fixes, and the new indexes).
+
+## Step 1 — Index safety check (before deploy)
+
+Confirm the GIN index creation in `schemaSync.ts` uses `CREATE INDEX IF NOT EXISTS` (so re-running schema sync on every deploy doesn't error on already-existing indexes) and `CREATE INDEX CONCURRENTLY` (so index creation doesn't lock the affected tables during deploy). If either is missing, fix it now before proceeding — this is cheap to do while tables are still small, and standard practice regardless.
+
+## Step 2 — Check for any account currently exceeding the new 100-event cap
+
+Query production for any user currently able to see more than 100 events (whatever the existing visibility logic considers "visible events" for a user). Report the count of affected accounts, if any. This determines whether the new `GET /events` cap is a safe ship-now change or something that needs mobile-side pagination support first — report the finding, then use your judgment on whether it's safe to proceed to deploy this specific change or whether it should be gated behind the mobile pagination follow-up first. If zero accounts are affected, proceed normally.
+
+## Step 3 — Complete P4: legacy Replit Object Storage count
+
+Add the one-off admin route (or equivalent method) needed to call `client.list()` against the legacy Replit Object Storage bucket from the running server, as noted in the memory file. Run it, report the actual object count and, if easily available, total size. This answers whether the legacy storage path (proxied through the api-server rather than redirected to CDN) is dormant or actively holding a meaningful amount of data. Remove or leave the admin route as appropriate once the count is captured — don't leave a permanent unauthenticated admin endpoint live if one was added for this purpose.
+
+## Step 4 — Deploy
+
+Deploy the current build to production. Confirm the deployment actually completed and is serving traffic.
+
+## Step 5 — Verify the deploy landed correctly
+
+Check production startup/runtime logs for:
+- `[db-pool] effective pool max DB_POOL_MAX: 45 source: "env"` — confirms the pool fix is actually live this time, not just built.
+- `[schemaSync] Schema sync complete` — confirms the new indexes were applied to the production database.
+Report both log lines found, or report clearly if either is missing/different than expected — do not assume success without confirming.
+
+## Step 6 — Run the final load test
+
+Same sequence as every prior run:
+```
+node load-tests/seed-prod.mjs --count=100
+npx artillery run load-tests/squadz.yml
+node load-tests/cleanup-prod.mjs
+```
+Confirm `load-tests/squadz.yml`'s `config.target` fix (hardcoded to `https://joinsquadz.com`) is actually in place before running — this is what caused the last run to fail validation entirely.
+
+## Step 7 — Report final results
+
+Full comparison table against all three prior runs:
+
+| Metric | Nano | Micro | Small + pool25 (invalid — pool wasn't actually deployed) | Small + pool45 (this run) |
+|---|---|---|---|---|
+| 2xx overall p50 | 144 ms | 153 ms | 147 ms | ? |
+| 2xx overall p95 | 1,380 ms | 1,326 ms | 1,353 ms | ? |
+| 2xx overall p99 | 1,437 ms | 1,381 ms | 1,408 ms | ? |
+| Peak-phase p50 | 1,326 ms | 773 ms | 1,300 ms | ? |
+| Peak-phase p95 | 1,408 ms | 1,326 ms | 1,408 ms | ? |
+| Peak-phase p99 | 1,557 ms | 1,353 ms | 1,408 ms | ? |
+| 500 error rate | 6.7% | 3.3% | 3.2% | ? |
+| 429 error rate | 0% | 3.3% | 2.5% | ? |
+| vusers.failed | 1.4% | 0.9% | 0% | ? |
+
+State plainly whether the 500 error rate is now under ~1%. If yes, the original connection-pooling/scale question from this entire thread is resolved. If no, report what appears to be the new binding constraint, with the same rigor as before — verify with evidence, don't project or guess.
+
+## Required for this pass
+- Steps 1–3 must complete and be reported before Step 4 (deploy) proceeds.
+- Confirm test account cleanup completed in Step 6.
+- This is the deploy that matters — take the verification in Step 5 seriously rather than assuming the build is correct.
