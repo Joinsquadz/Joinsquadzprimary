@@ -1,0 +1,43 @@
+# SquadZ — Raise DB_POOL_MAX, Then Re-Verify on Small Compute
+
+Context: production and staging were just upgraded from Micro to Small compute. Per the last report's diagnosis, Micro fixed the CPU bottleneck but not the connection pool ceiling — `DB_POOL_MAX=25` was identified as the remaining constraint, with a projection (not yet verified) that Small's higher `max_connections` would remove it if paired with a higher pool max. Verify the projection empirically rather than trusting the estimate, then re-test.
+
+## Step 1 — Confirm Small is live and get the real max_connections number
+
+Before changing anything, run the same pre-test diagnostic used before the Micro test (`shared_buffers`, `work_mem`, `max_connections`, `postmaster_start`) against the production database. Confirm:
+- `shared_buffers` reflects Small tier (should be higher than Micro's 256MB)
+- `postmaster_start` timestamp shows the resize has completed and the instance has been stable for at least a few minutes (no mid-resize testing)
+- Report the actual `max_connections` value — do not assume it matches the ~197 figure projected in the last report; that was an estimate, this is where it gets confirmed or corrected.
+
+## Step 2 — Raise DB_POOL_MAX based on the confirmed number, not the estimate
+
+Using the real `max_connections` value from Step 1, choose a `DB_POOL_MAX` in the 40–50 range (per the last report's recommendation) that leaves reasonable headroom below the actual connection ceiling — state your reasoning for the specific number chosen, accounting for the fact that Postgres reserves some connections for non-pooled use (migrations, admin access, Supabase's own internal usage) and the pool shouldn't be sized right up against the hard ceiling.
+
+Apply this to both production and staging config consistently.
+
+## Step 3 — Re-run the identical load test for a three-way comparison
+
+Same test as the last two runs: `load-tests/seed-prod.mjs` (100 accounts) → `load-tests/squadz.yml` against `https://joinsquadz.com` → cleanup and confirm deletion.
+
+Report results in a three-column comparison table against both prior runs:
+
+| Metric | Nano baseline | Micro | Small + higher pool (this run) |
+|---|---|---|---|
+| 2xx overall p50 | 144 ms | 153 ms | ? |
+| 2xx overall p95 | 1,380 ms | 1,326 ms | ? |
+| 2xx overall p99 | 1,437 ms | 1,381 ms | ? |
+| Peak-phase p50 | 1,326 ms | 773 ms | ? |
+| Peak-phase p95 | 1,408 ms | 1,326 ms | ? |
+| Peak-phase p99 | 1,557 ms | 1,353 ms | ? |
+| 500 error rate | 6.7% | 3.3% | ? |
+| 429 error rate | 0% | 3.3% | ? |
+| vusers.failed | 1.4% | 0.9% | ? |
+
+## Interpretation required
+- State plainly whether the 500 error rate is now under the ~1% threshold. If yes, this is resolved at the 100-concurrent-session load level. If no, say so directly and report what the new binding constraint appears to be — don't reach for another confident projection without a next verification step attached to it.
+- On the 429 rate: the last report attributed this partly to the load-test harness itself (single source IP hitting Replit's proxy rate limiting) rather than a real production concern. If 429s persist at a similar or higher rate this run, note whether this still looks like a test artifact or something worth investigating separately.
+
+## Required for this pass
+- Step 1 must be completed and reported before Step 2's pool size decision is made.
+- Do not project or estimate the outcome — run the real test and report real numbers, consistent with both prior rounds.
+- Confirm test account cleanup completed.

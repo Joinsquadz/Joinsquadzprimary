@@ -58,11 +58,30 @@ description: How to run and reproduce the Artillery load test against a staging 
 * `order: random` causes token reuse: 50 tokens × 8 550 VUs = 855 uses/token > 500/15-min limit. Fix: `order: sequence`. With 100 tokens, max 427 uses/token.
 * Production URL parse: pg.Pool with `connectionString` fails on passwords containing `/` or `,` (Node.js `new URL()` choke). Fix: parse postgres URL manually by splitting on the last `@`, extract individual `{host, port, user, password, database}` fields.
 
-## Step 3 — Supabase compute tier
+## Compute tier progression (confirmed via shared_buffers + postmaster_start)
 
-* Cannot be determined from code or env vars. Requires Supabase dashboard: project → Settings → Compute.
-* Production project ref: visible from SUPABASE_DB_URL host prefix. User must verify tier there.
-* The 6.7% 500 error rate at peak load is consistent with Nano-tier compute saturation. Upgrading the Supabase compute tier is the recommended fix if production is on Nano.
+* **Nano**: shared_buffers=128MB, max_connections=97 (free tier). 6.7% 500s, 1.4% failed VUs, 5xx p99=8,868ms (slow pool timeouts).
+* **Micro**: shared_buffers=256MB, max_connections=60. 3.3% 500s, 0.9% failed VUs, 5xx p99=6,440ms. CPU bottleneck eased; pool still saturating.
+* **Small**: shared_buffers=512MB, max_connections=90. 3.2% 500s, **0% failed VUs**, 5xx p99=327ms, 5xx max=431ms. Pool saturation eliminated; 500s are now fast application errors.
+
+## DB_POOL_MAX sizing (Small, max_connections=90)
+
+Chosen value: **45**.
+Reasoning: 90 − 3 superuser − 10 Supabase internals − 7 direct/migration headroom = 70 available. 45 uses 64%, leaving 25 for headroom and a second instance.
+Applied: shared env var `DB_POOL_MAX=45` + connection.ts hardcoded default updated from 25 → 45.
+**Needs production redeploy to take effect on the running deployment.** Env var change alone does not restart the live container.
+
+## Key finding: "fast 500s ≠ pool saturation"
+
+After Small upgrade, 5xx max dropped from 9,525ms (Micro) to 431ms (Small). Pool connection timeout is 5,000ms — if pool overflow was the cause, 500s would take ≥5s. Fast 500s (207ms median) mean the remaining 3.2% errors are application-level (unhandled exceptions, query errors on test accounts, Transaction pooler statement limits), NOT pool queue overflow. Investigate these separately.
+
+## Peak-phase selection bias
+
+Micro peak 2xx p50 appeared better (773ms) than Small (1,300ms). This is selection bias: Micro had 75 failed VUs (socket timeouts — slow sessions never measured in 2xx); Small measured ALL sessions including previously-slow ones. Small actually handled more work successfully.
+
+## Remaining open question: /api/notifications/preferences 404
+
+All three test runs show ~20% of requests (1 in 5 scenario steps) returning 404 for /api/notifications/preferences. This route either doesn't exist or has a different path. Worth investigating as a potential real missing endpoint, not just a test artifact.
 
 ## Staging server WorkflowsRestart issue
 

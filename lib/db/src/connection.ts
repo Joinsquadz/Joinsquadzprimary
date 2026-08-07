@@ -60,13 +60,19 @@ export function resolveDbConfig(): PoolConfig {
     database,
     ...(ssl !== undefined ? { ssl } : {}),
     // Pool tuning — override via DB_POOL_MAX for different deployment sizes.
-    // Transaction pooler (port 6543) supports 100+ concurrent server connections,
-    // so a production default of 25 is safe and handles 40-50 concurrent users
-    // without queuing. Session pooler (port 5432) is capped at ~15 total across
-    // ALL processes, so the old default of 9 was the right ceiling there.
+    //
+    // Confirmed ceiling (Supabase Small, pg max_connections=90):
+    //   90 total − 3 superuser reserved − ~10 Supabase internals − ~7 direct/
+    //   migration headroom = ~70 available. DB_POOL_MAX=45 uses 64% of that,
+    //   leaving ~25 connections for Supabase admin services and a second API
+    //   instance if the deployment scales.
+    //
+    // Transaction pooler (port 6543): DB_POOL_MAX=45 recommended for Small.
+    // Session pooler (port 5432): capped at ~15 total across ALL processes;
+    //   keep DB_POOL_MAX ≤ 9 if using Session pooler.
     max: Number(
       process.env.DB_POOL_MAX ??
-        (process.env.NODE_ENV === "production" ? "25" : "4"),
+        (process.env.NODE_ENV === "production" ? "45" : "4"),
     ),
     idleTimeoutMillis: Number(process.env.DB_POOL_IDLE_TIMEOUT_MS ?? "30000"),
     connectionTimeoutMillis: Number(process.env.DB_POOL_CONNECTION_TIMEOUT_MS ?? "5000"),
