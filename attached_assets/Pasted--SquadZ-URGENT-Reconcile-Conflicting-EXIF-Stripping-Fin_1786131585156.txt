@@ -1,0 +1,17 @@
+# SquadZ — URGENT: Reconcile Conflicting EXIF Stripping Findings
+
+A scale-readiness assessment just reported "EXIF stripping: not performed anywhere" — directly contradicting an earlier audit in this same project that confirmed client-side EXIF/GPS stripping via `expo-image-manipulator` (photos) and `react-native-compressor` (video) in the mobile app, verified via actual device testing with GPS data confirmed absent from uploaded files.
+
+This is a privacy-sensitive claim. Do not guess which is right — verify directly.
+
+## What to check
+
+1. Confirm whether you have visibility into the mobile app codebase (likely `squadz-native` or similar, separate from the API server) in this session. If you only searched the API server's code, that would explain finding nothing — server-side libraries like `sharp`/`exif-parser`/`piexifjs` are irrelevant if stripping happens client-side before upload.
+2. Search the mobile app codebase specifically for `expo-image-manipulator` and `react-native-compressor` usage in the upload flow (photo/video compose paths for Moments, Vault, and any other upload surface).
+3. If found: confirm the actual code path — does every upload flow route through this stripping logic before hitting the presigned PUT to Supabase Storage, or only some flows? The earlier finding here specifically says uploads go "direct-to-cloud from the client... never touching the app server, no compression applied" — reconcile this against whatever the client-side code actually shows. It's possible the compression/stripping happens in the client before the presigned PUT is called, which wouldn't show up as "server has no compression" since compression was never expected to happen server-side.
+4. If NOT found, or found but not actually wired into the real upload path (e.g. present in code but unused, or only covers some upload surfaces and not others): this is a real, confirmed privacy gap and should be treated as urgent — report exactly which upload paths are affected.
+5. Regardless of outcome: report a clear, direct answer — "stripping is confirmed present and covers X, Y, Z upload paths" or "stripping is confirmed absent/incomplete on these specific paths: ..." Do not hedge or present both possibilities as equally likely once you've actually looked at the code.
+
+## Required for this pass
+- This is investigation only — do not fix anything yet, even if a gap is confirmed. Report first.
+- If your access in this session doesn't extend to the mobile app codebase at all, say so explicitly rather than reporting an incomplete search as if it were comprehensive.
