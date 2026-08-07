@@ -250,6 +250,10 @@ export default function PlansScreen() {
   // its own list (AppContext.events stays upcoming-only for Home etc.).
   const [allPlans, setAllPlans] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
+  // Pagination state: server pages 100 items at a time.
+  const [hasMore, setHasMore] = useState(false);
+  const [nextOffset, setNextOffset] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
   // Auth-race guard for the cold-start fetch (see lib/vaultAuthRace.ts).
   const [authRace, setAuthRace] = useState<AuthRaceState>(INITIAL_AUTH_RACE_STATE);
 
@@ -267,7 +271,7 @@ export default function PlansScreen() {
       return;
     }
     try {
-      const res = await fetch(`${API_BASE}/api/events?includePast=1`, { headers: buildAuthHeaders(authToken) });
+      const res = await fetch(`${API_BASE}/api/events?includePast=1&limit=100`, { headers: buildAuthHeaders(authToken) });
       if (res.status === 401) {
         setAuthRace(prev => applyVaultFetchOutcome(prev, { kind: "unauthorized" }));
         return;
@@ -278,6 +282,8 @@ export default function PlansScreen() {
       }
       const data = (await res.json()) as Record<string, unknown>[];
       setAllPlans(data.map(dbEventToEvent));
+      setHasMore(res.headers.get("X-Has-More") === "1");
+      setNextOffset(data.length);
       setAuthRace(prev => applyVaultFetchOutcome(prev, { kind: "ok" }));
     } catch {
       // Keep whatever is already shown; pull-to-refresh can retry.
@@ -286,6 +292,26 @@ export default function PlansScreen() {
       setLoading(false);
     }
   }, [authToken, isAuthRestoring]);
+
+  const loadMore = useCallback(async () => {
+    if (!authToken || !hasMore || loadingMore || loading) return;
+    setLoadingMore(true);
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/events?includePast=1&limit=100&offset=${nextOffset}`,
+        { headers: buildAuthHeaders(authToken) },
+      );
+      if (!res.ok) return;
+      const data = (await res.json()) as Record<string, unknown>[];
+      setAllPlans(prev => [...prev, ...data.map(dbEventToEvent)]);
+      setHasMore(res.headers.get("X-Has-More") === "1");
+      setNextOffset(prev => prev + data.length);
+    } catch {
+      // Keep whatever is already shown; user can scroll up and back down to retry.
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [authToken, hasMore, loadingMore, loading, nextOffset]);
 
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
@@ -465,6 +491,15 @@ export default function PlansScreen() {
         maxToRenderPerBatch={8}
         windowSize={11}
         removeClippedSubviews={Platform.OS !== "web"}
+        onEndReached={() => { void loadMore(); }}
+        onEndReachedThreshold={0.3}
+        ListFooterComponent={
+          loadingMore ? (
+            <View style={styles.loadMoreFooter}>
+              <ActivityIndicator size="small" color={colors.primary} />
+            </View>
+          ) : null
+        }
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
         }
@@ -587,6 +622,7 @@ const styles = StyleSheet.create({
   errorText: { fontSize: 13, fontWeight: "600", flex: 1 },
   joinBtn: { borderRadius: 14, paddingVertical: 15, alignItems: "center" },
   joinBtnText: { fontSize: 16, fontWeight: "800", color: "#fff" },
+  loadMoreFooter: { paddingVertical: 20, alignItems: "center" },
   successContent: { alignItems: "center", paddingVertical: 12 },
   successIcon: { width: 90, height: 90, borderRadius: 28, alignItems: "center", justifyContent: "center", marginBottom: 16 },
   successTitle: { fontSize: 28, fontWeight: "800", marginBottom: 6 },
