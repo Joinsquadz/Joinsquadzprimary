@@ -13,13 +13,13 @@ const JoinWaitlistBody = z.object({
 
 function buildWaitlistThankYouText(_email: string): string {
   return [
-    "Thanks for joining the Squadz waitlist!",
+    "Thanks for joining the SquadZ waitlist!",
     "",
-    "You're on the list. We'll email you the moment Squadz drops on the App Store and Google Play.",
+    "You're on the list. We'll email you the moment SquadZ drops on the App Store and Google Play.",
     "",
     "Thanks for being early — we can't wait to get your squad hanging.",
     "",
-    "— The Squadz team",
+    "— The SquadZ team",
     "https://joinsquadz.com",
   ].join("\n");
 }
@@ -33,7 +33,7 @@ function buildWaitlistThankYouHtml(_email: string): string {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>You're on the Squadz waitlist!</title>
+  <title>You're on the SquadZ waitlist!</title>
 </head>
 <body style="margin:0;padding:0;background:#0f0f1a;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;color:#e8e8f0;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#0f0f1a;padding:40px 16px;">
@@ -48,13 +48,13 @@ function buildWaitlistThankYouHtml(_email: string): string {
           <tr>
             <td style="background:#1a1a2e;border-radius:16px;padding:40px;border:1px solid rgba(255,255,255,0.08);">
               <p style="margin:0 0 12px;font-size:24px;font-weight:800;color:#ffffff;">You're on the list! 🎉</p>
-              <p style="margin:0 0 12px;font-size:15px;color:#c8c8d8;line-height:1.6;">Thanks for joining the Squadz waitlist. We'll email you the moment Squadz drops on the App Store and Google Play.</p>
+              <p style="margin:0 0 12px;font-size:15px;color:#c8c8d8;line-height:1.6;">Thanks for joining the SquadZ waitlist. We'll email you the moment SquadZ drops on the App Store and Google Play.</p>
               <p style="margin:0 0 4px;font-size:15px;color:#c8c8d8;line-height:1.6;">Thanks for being early — we can't wait to get your squad hanging.</p>
             </td>
           </tr>
           <tr>
             <td align="center" style="padding-top:28px;">
-              <p style="margin:0;font-size:13px;color:#9898b0;">— The Squadz team</p>
+              <p style="margin:0;font-size:13px;color:#9898b0;">— The SquadZ team</p>
               <p style="margin:6px 0 0;font-size:13px;"><a href="https://joinsquadz.com" style="color:#FF5C3A;text-decoration:none;">joinsquadz.com</a></p>
             </td>
           </tr>
@@ -66,7 +66,7 @@ function buildWaitlistThankYouHtml(_email: string): string {
 </html>`;
 }
 
-const FROM_ADDRESS = process.env.SENDGRID_FROM ?? process.env.SMTP_FROM ?? "Squadz <noreply@joinsquadz.com>";
+const FROM_ADDRESS = process.env.SENDGRID_FROM ?? process.env.SMTP_FROM ?? "SquadZ <noreply@joinsquadz.com>";
 const NOTIFY_ADDRESS = "javier@joinsquadz.com";
 
 /**
@@ -90,14 +90,14 @@ router.post("/waitlist", async (req: Request, res: Response): Promise<void> => {
       sendEmail({
         from: FROM_ADDRESS,
         to: parsed.data.email,
-        subject: "You're on the Squadz waitlist!",
+        subject: "You're on the SquadZ waitlist!",
         text: buildWaitlistThankYouText(parsed.data.email),
         html: buildWaitlistThankYouHtml(parsed.data.email),
       }),
       sendEmail({
         from: FROM_ADDRESS,
         to: NOTIFY_ADDRESS,
-        subject: "New Squadz waitlist signup",
+        subject: "New SquadZ waitlist signup",
         text: `New waitlist signup: ${parsed.data.email}\nSource: ${parsed.data.source ?? "web-landing"}`,
         html: `<p>New waitlist signup: <strong>${parsed.data.email}</strong></p><p>Source: ${parsed.data.source ?? "web-landing"}</p>`,
       }),

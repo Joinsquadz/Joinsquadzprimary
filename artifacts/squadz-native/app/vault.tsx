@@ -433,7 +433,7 @@ export default function VaultScreen() {
   }, [fetchPhotos]);
 
   // Personal Favorites sub-section — everything the user bookmarked across all
-  // squads. Favorites are a Squadz+ feature; free users hit the entrance gate
+  // squads. Favorites are a SquadZ+ feature; free users hit the entrance gate
   // before this view renders, so this only runs for subscribers.
   const fetchFavorites = useCallback(async () => {
     setFavoritesLoading(true);
@@ -492,7 +492,7 @@ export default function VaultScreen() {
             body: JSON.stringify({ photoId }),
           });
       if (!res.ok) {
-        // Favorites are a Squadz+ feature: surface the upgrade sheet instead of
+        // Favorites are a SquadZ+ feature: surface the upgrade sheet instead of
         // a generic failure toast when the server says the gate applies.
         const body = (await res.json().catch(() => ({}))) as { requiresPro?: boolean };
         throw Object.assign(new Error("favorite failed"), { requiresPro: !!body.requiresPro });
@@ -787,7 +787,7 @@ export default function VaultScreen() {
       const res = await fetch(`${API_BASE}/api/vault/photos`, { headers: authHeaders() });
       if (!res.ok) return;
       const data = await res.json() as { photos: VaultPhoto[]; isPro?: boolean; requiresPro?: boolean };
-      // The personal roll-up is Squadz+ only — free users get an entrance gate
+      // The personal roll-up is SquadZ+ only — free users get an entrance gate
       // here too (they can still upload directly to the squad vault for free).
       if (data.requiresPro) {
         setPickerRequiresPro(true);
@@ -1236,14 +1236,14 @@ export default function VaultScreen() {
           <Text style={styles.gateEmoji}>🔒</Text>
           <Text style={[styles.gateTitle, { color: colors.foreground }]}>Your personal vault</Text>
           <Text style={[styles.gateBody, { color: colors.mutedForeground }]}>
-            Your personal vault is a Squadz+ feature. Upgrade to access all your uploads in one place, save favorites from any squad, and keep your memories forever.
+            Your personal vault is a SquadZ+ feature. Upgrade to access all your uploads in one place, save favorites from any squad, and keep your memories forever.
           </Text>
           <TouchableOpacity
             onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setUpgradeModalVisible(true); }}
             style={[styles.upgradeBtn, { backgroundColor: colors.primary, alignSelf: "stretch" }]}
             activeOpacity={0.85}
           >
-            <Text style={styles.upgradeBtnText}>⚡ Upgrade to Squadz+ — $29.99/year</Text>
+            <Text style={styles.upgradeBtnText}>⚡ Upgrade to SquadZ+ — $29.99/year</Text>
           </TouchableOpacity>
         </View>
       ) : (
@@ -1529,7 +1529,7 @@ export default function VaultScreen() {
         onUpgradeSuccess={() => {
           setIsPro(true);
           void fetchPhotos();
-          showToast("Welcome to Squadz+! Your full vault is unlocked.", { durationMs: 4000 });
+          showToast("Welcome to SquadZ+! Your full vault is unlocked.", { durationMs: 4000 });
         }}
       />
 
@@ -1597,14 +1597,14 @@ export default function VaultScreen() {
               <View style={styles.modalCenter}>
                 <View style={[styles.proHint, { backgroundColor: colors.gold + "18", borderColor: colors.gold + "40" }]}>
                   <Text style={styles.proHintIcon}>⚡</Text>
-                  <Text style={[styles.proHintText, { color: colors.gold }]}>Upgrade to Squadz+ to roll up photos</Text>
+                  <Text style={[styles.proHintText, { color: colors.gold }]}>Upgrade to SquadZ+ to roll up photos</Text>
                 </View>
                 <TouchableOpacity
                   onPress={() => { setPickerOpen(false); setUpgradeModalVisible(true); }}
                   style={[styles.upgradeBtn, { backgroundColor: colors.primary, marginTop: 16 }]}
                   activeOpacity={0.85}
                 >
-                  <Text style={styles.upgradeBtnText}>⚡ Upgrade to Squadz+ — $29.99/year</Text>
+                  <Text style={styles.upgradeBtnText}>⚡ Upgrade to SquadZ+ — $29.99/year</Text>
                 </TouchableOpacity>
               </View>
             ) : pickerPhotos.length > 0 ? (

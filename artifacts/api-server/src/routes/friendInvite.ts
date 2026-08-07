@@ -17,7 +17,7 @@ const router: IRouter = Router();
  *   tries the native deep link (squadz-native://add/friend/:code) and falls
  *   back to the Expo web screen (/mobile/add/friend/:code) after 1 s.
  */
-// Only allow codes in the Squadz format: SQ- followed by 1–12 uppercase
+// Only allow codes in the SquadZ format: SQ- followed by 1–12 uppercase
 // alphanumeric characters.  This allowlist is enforced BEFORE any HTML
 // rendering, which ensures the code value is always safe for use in URLs
 // and HTML attribute values without further escaping.
@@ -92,7 +92,7 @@ function buildRedirectPage(code: string, name: string | null, origin: string): s
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Add ${escapedName} on Squadz</title>
+  <title>Add ${escapedName} on SquadZ</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -138,12 +138,12 @@ function buildRedirectPage(code: string, name: string | null, origin: string): s
 <body>
   <div class="card">
     <div class="logo">👥</div>
-    <h1>Add ${escapedName} on Squadz</h1>
-    <p>Opening the Squadz app…</p>
+    <h1>Add ${escapedName} on SquadZ</h1>
+    <p>Opening the SquadZ app…</p>
     <div class="code">${escapedCode}</div>
-    <a class="btn" href="${deepLink}">Open in Squadz</a>
+    <a class="btn" href="${deepLink}">Open in SquadZ</a>
     <a class="btn-outline" href="${webFallback}">Continue in browser</a>
-    <p class="hint">Don't have Squadz yet? Tap "Continue in browser" to add ${escapedName} after signing up.</p>
+    <p class="hint">Don't have SquadZ yet? Tap "Continue in browser" to add ${escapedName} after signing up.</p>
   </div>
 </body>
 </html>`;

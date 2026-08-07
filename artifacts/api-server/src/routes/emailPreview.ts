@@ -10,7 +10,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const SAMPLE_DATA: ProWelcomeEmailData = {
   toEmail: 'preview@example.com',
-  planName: 'Squadz Pro',
+  planName: 'SquadZ Pro',
   priceAmount: 999,
   priceCurrency: 'usd',
   renewalDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
@@ -32,7 +32,7 @@ function buildSampleText(data: ProWelcomeEmailData): string {
   return [
     `Welcome to ${data.planName}!`,
     '',
-    'Your Squadz Pro subscription is now active.',
+    'Your SquadZ Pro subscription is now active.',
     '',
     `Plan:         ${data.planName}`,
     `Amount:       ${price} / month`,
@@ -41,7 +41,7 @@ function buildSampleText(data: ProWelcomeEmailData): string {
     `Manage your subscription: ${data.manageUrl}`,
     '',
     '---',
-    'Squadz',
+    'SquadZ',
   ].join('\n');
 }
 
@@ -141,7 +141,7 @@ router.post(
     const port = parseInt(process.env.SMTP_PORT ?? '587', 10);
     const user = process.env.SMTP_USER;
     const pass = process.env.SMTP_PASS;
-    const from = process.env.SMTP_FROM ?? 'Squadz <noreply@joinsquadz.com>';
+    const from = process.env.SMTP_FROM ?? 'SquadZ <noreply@joinsquadz.com>';
 
     if (!host || !user || !pass) {
       res.status(503).json({

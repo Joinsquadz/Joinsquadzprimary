@@ -110,7 +110,7 @@ function serveExpoGoQr(res) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Open Squadz in Expo Go</title>
+  <title>Open SquadZ in Expo Go</title>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:system-ui,sans-serif;background:#0a0a0a;color:#fff;min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;gap:20px;text-align:center}
@@ -125,14 +125,14 @@ function serveExpoGoQr(res) {
   </style>
 </head>
 <body>
-  <h1>Open Squadz in Expo Go</h1>
+  <h1>Open SquadZ in Expo Go</h1>
   <div class="qr">
     <img src="${qrApiUrl}" width="280" height="280" alt="Expo Go QR code">
   </div>
   <div class="step">
     <b>Step 1.</b> On your iPhone, open the <b>Camera app</b><br>
     <b>Step 2.</b> Point at the QR code above — a banner appears<br>
-    <b>Step 3.</b> Tap the banner → <b>Expo Go</b> opens &amp; loads Squadz
+    <b>Step 3.</b> Tap the banner → <b>Expo Go</b> opens &amp; loads SquadZ
   </div>
   <p class="sub">Or open this URL manually in Expo Go:<br><code>${expUrl}</code></p>
   <p class="hint">If you get "no tunnel here", refresh this page — the tunnel URL changes on reconnect.</p>

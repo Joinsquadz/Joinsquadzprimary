@@ -163,7 +163,7 @@ router.post("/squads/:id/join", requireAuth, async (req: Request, res: Response)
   );
   if (!outcome.ok) {
     res.status(403).json({
-      error: `Free plan is limited to ${FREE_SQUAD_LIMIT} squads. Upgrade to Squadz+ to join more.`,
+      error: `Free plan is limited to ${FREE_SQUAD_LIMIT} squads. Upgrade to SquadZ+ to join more.`,
       code: "SQUAD_LIMIT",
       limit: FREE_SQUAD_LIMIT,
     });
@@ -282,7 +282,7 @@ router.post("/squads/join-via-code", requireAuth, async (req: Request, res: Resp
   );
   if (!outcome.ok) {
     res.status(403).json({
-      error: `Free plan is limited to ${FREE_SQUAD_LIMIT} squads. Upgrade to Squadz+ to join more.`,
+      error: `Free plan is limited to ${FREE_SQUAD_LIMIT} squads. Upgrade to SquadZ+ to join more.`,
       code: "SQUAD_LIMIT",
       limit: FREE_SQUAD_LIMIT,
     });
@@ -436,7 +436,7 @@ router.post("/squads", requireAuth, async (req: Request, res: Response): Promise
   );
   if (!outcome.ok) {
     res.status(403).json({
-      error: `Free plan is limited to ${FREE_SQUAD_LIMIT} squads. Upgrade to Squadz+ to create more.`,
+      error: `Free plan is limited to ${FREE_SQUAD_LIMIT} squads. Upgrade to SquadZ+ to create more.`,
       code: "SQUAD_LIMIT",
       limit: FREE_SQUAD_LIMIT,
     });

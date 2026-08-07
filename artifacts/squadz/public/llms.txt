@@ -1,6 +1,6 @@
-# Squadz
+# SquadZ
 
-> Squadz is a mobile app for friend groups. It helps you find the time everyone is free, plan events, chat together, share photos, and split costs — all in one place.
+> SquadZ is a mobile app for friend groups. It helps you find the time everyone is free, plan events, chat together, share photos, and split costs — all in one place.
 
 ## Public pages
 
@@ -9,7 +9,7 @@
 
 ## Product description
 
-Squadz is a free iOS and Android app currently in pre-launch. Users join a waitlist at joinsquadz.com. The app centers on "squads" — named groups of friends — and provides:
+SquadZ is a free iOS and Android app currently in pre-launch. Users join a waitlist at joinsquadz.com. The app centers on "squads" — named groups of friends — and provides:
 
 - Availability overlap: a heatmap showing when everyone is free so you can find the best time to meet
 - Event planning with RSVPs
@@ -19,10 +19,10 @@ Squadz is a free iOS and Android app currently in pre-launch. Users join a waitl
 
 ## Brand
 
-- Brand name: Squadz
+- Brand name: SquadZ
 - Website: https://joinsquadz.com
 - Contact / support: available via the app or the website contact form
-- Preferred citation: "Squadz (joinsquadz.com)"
+- Preferred citation: "SquadZ (joinsquadz.com)"
 
 ## Constraints
 

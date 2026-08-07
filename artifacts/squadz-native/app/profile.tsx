@@ -543,13 +543,13 @@ export default function ProfileScreen() {
     : [
         {
           icon: "gift-outline",
-          label: "What's included in Squadz+",
+          label: "What's included in SquadZ+",
           color: colors.gold,
           onPress: () => setUpgradeModalVisible(true),
         },
         {
           icon: "flash",
-          label: "Upgrade to Squadz+",
+          label: "Upgrade to SquadZ+",
           value: "$29.99/year",
           color: colors.gold,
           onPress: () => setUpgradeModalVisible(true),
@@ -604,7 +604,7 @@ export default function ProfileScreen() {
               <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12, marginBottom: 10 }}>
                 <Text style={styles.successEmoji}>🎉</Text>
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.successTitle, { color: colors.green }]}>Welcome to Squadz+!</Text>
+                  <Text style={[styles.successTitle, { color: colors.green }]}>Welcome to SquadZ+!</Text>
                   <Text style={[styles.successBody, { color: colors.mutedForeground }]}>
                     Your upgrade is confirmed. Tap a feature to explore what's unlocked.
                   </Text>

@@ -197,7 +197,7 @@ export default function PhotosTab() {
             style={[styles.upgradeBtn, { backgroundColor: colors.primary }]}
             activeOpacity={0.85}
           >
-            <Text style={styles.upgradeBtnText}>⚡ Upgrade to Squadz+ — $29.99/year</Text>
+            <Text style={styles.upgradeBtnText}>⚡ Upgrade to SquadZ+ — $29.99/year</Text>
           </TouchableOpacity>
 
           <UpgradeModal

@@ -7,10 +7,10 @@ const SUPPORT_EMAIL = "javier@joinsquadz.com";
 
 const FAQS: { q: string; a: React.ReactNode }[] = [
   {
-    q: "What is Squadz?",
+    q: "What is SquadZ?",
     a: (
       <>
-        Squadz is a mobile app for friend groups. Create a squad, find the time everyone's actually
+        SquadZ is a mobile app for friend groups. Create a squad, find the time everyone's actually
         free with an availability overlap, plan events with RSVPs, chat in a thread tied to the plan,
         share a group photo vault, and split costs — all in one place.
       </>
@@ -30,7 +30,7 @@ const FAQS: { q: string; a: React.ReactNode }[] = [
     q: "How do I delete my account?",
     a: (
       <>
-        Open the Squadz app and go to Settings → Account → Delete Account. This permanently removes
+        Open the SquadZ app and go to Settings → Account → Delete Account. This permanently removes
         your account and associated data. If you can't access the app, email us at{" "}
         <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a> and we'll help.
       </>
@@ -52,17 +52,17 @@ export default function Support() {
   return (
     <div style={{ background: T.bg, color: T.text, fontFamily: font, minHeight: "100dvh" }}>
       <Helmet>
-        <title>Support · Squadz</title>
-        <meta name="description" content="Get help with Squadz. Contact our support team and read answers to common questions about the Squadz app." />
+        <title>Support · SquadZ</title>
+        <meta name="description" content="Get help with SquadZ. Contact our support team and read answers to common questions about the SquadZ app." />
         <meta name="robots" content="index, follow" />
         <link rel="canonical" href="https://joinsquadz.com/support" />
-        <meta property="og:title" content="Support · Squadz" />
-        <meta property="og:description" content="Get help with Squadz. Contact our support team and read answers to common questions about the Squadz app." />
+        <meta property="og:title" content="Support · SquadZ" />
+        <meta property="og:description" content="Get help with SquadZ. Contact our support team and read answers to common questions about the SquadZ app." />
         <meta property="og:type" content="website" />
         <meta property="og:url" content="https://joinsquadz.com/support" />
         <meta name="twitter:card" content="summary" />
-        <meta name="twitter:title" content="Support · Squadz" />
-        <meta name="twitter:description" content="Get help with Squadz. Contact our support team and read answers to common questions about the Squadz app." />
+        <meta name="twitter:title" content="Support · SquadZ" />
+        <meta name="twitter:description" content="Get help with SquadZ. Contact our support team and read answers to common questions about the SquadZ app." />
       </Helmet>
       <style>{`
         .lz-wrap { max-width: 1160px; margin: 0 auto; padding: 0 24px; }
@@ -77,7 +77,7 @@ export default function Support() {
         <div className="lz-wrap" style={{ display: "flex", alignItems: "center", height: 66 }}>
           <a href="/" style={{ display: "flex", alignItems: "center", gap: 11, textDecoration: "none", color: T.text }}>
             <SquadzIcon size={34} style={{ borderRadius: 10 }} />
-            <span style={{ fontFamily: "'Georgia', serif", fontSize: 26, fontWeight: 700, letterSpacing: "-0.04em" }}>squadz</span>
+            <span style={{ fontFamily: "'Georgia', serif", fontSize: 26, fontWeight: 700, letterSpacing: "-0.04em" }}>SquadZ</span>
           </a>
         </div>
       </nav>
@@ -85,7 +85,7 @@ export default function Support() {
       <div className="lz-prose">
         <h1 style={{ fontSize: 38, fontWeight: 800, letterSpacing: "-0.03em", margin: "0 0 10px" }}>Support</h1>
         <p style={{ fontSize: 15.5, color: T.textSub, lineHeight: 1.72, marginBottom: 44 }}>
-          Need a hand with Squadz? Check the common questions below, or reach out and we'll help.
+          Need a hand with SquadZ? Check the common questions below, or reach out and we'll help.
         </p>
 
         {/* FAQ */}
@@ -159,7 +159,7 @@ export default function Support() {
               border: `1px solid ${T.border}`,
             }}
           >
-            ← Back to Squadz
+            ← Back to SquadZ
           </a>
         </div>
       </div>
@@ -168,9 +168,9 @@ export default function Support() {
         <div className="lz-wrap" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 16 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <SquadzIcon size={28} style={{ borderRadius: 9 }} />
-            <span style={{ fontFamily: "'Georgia', serif", fontSize: 21, fontWeight: 700, letterSpacing: "-0.04em" }}>squadz</span>
+            <span style={{ fontFamily: "'Georgia', serif", fontSize: 21, fontWeight: 700, letterSpacing: "-0.04em" }}>SquadZ</span>
           </div>
-          <div style={{ fontSize: 13.5, color: T.textDim }}>© {new Date().getFullYear()} Squadz · Stop texting. Start actually hanging.</div>
+          <div style={{ fontSize: 13.5, color: T.textDim }}>© {new Date().getFullYear()} SquadZ · Stop texting. Start actually hanging.</div>
         </div>
       </footer>
     </div>

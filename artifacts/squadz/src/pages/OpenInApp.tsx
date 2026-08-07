@@ -70,28 +70,28 @@ export default function OpenInApp({ kind }: { kind: LinkKind }) {
         ? `You're invited to ${preview.name}!`
         : "You're invited to a squad!",
       sub: preview
-        ? `${preview.creatorFirstName ? `${preview.creatorFirstName} and ` : ""}${preview.memberCount} ${preview.memberCount === 1 ? "friend is" : "friends are"} planning hangouts on Squadz. Open this link on your phone to join them.`
-        : "A friend invited you to their squad on Squadz. Open this link on your phone to join them.",
+        ? `${preview.creatorFirstName ? `${preview.creatorFirstName} and ` : ""}${preview.memberCount} ${preview.memberCount === 1 ? "friend is" : "friends are"} planning hangouts on SquadZ. Open this link on your phone to join them.`
+        : "A friend invited you to their squad on SquadZ. Open this link on your phone to join them.",
     },
     publicSquad: {
       emoji: "🌎",
       title: "You're invited to a squad!",
-      sub: "This squad is open to join. Open this link on your phone with Squadz installed to jump in.",
+      sub: "This squad is open to join. Open this link on your phone with SquadZ installed to jump in.",
     },
     event: {
       emoji: "📅",
       title: "You're invited to a hangout!",
-      sub: "A friend wants you at their event. Open this link on your phone with Squadz installed to RSVP.",
+      sub: "A friend wants you at their event. Open this link on your phone with SquadZ installed to RSVP.",
     },
     friend: {
       emoji: "👥",
-      title: "Add me on Squadz!",
-      sub: "A friend wants to connect with you on Squadz. Open this link on your phone with the app installed.",
+      title: "Add me on SquadZ!",
+      sub: "A friend wants to connect with you on SquadZ. Open this link on your phone with the app installed.",
     },
     poll: {
       emoji: "🗓️",
       title: "When are you free?",
-      sub: "A friend is finding the best time for a hangout. Open this link on your phone with Squadz installed to mark your availability.",
+      sub: "A friend is finding the best time for a hangout. Open this link on your phone with SquadZ installed to mark your availability.",
     },
   };
 
@@ -100,7 +100,7 @@ export default function OpenInApp({ kind }: { kind: LinkKind }) {
   return (
     <div style={{ background: T.bg, color: T.text, fontFamily: font, minHeight: "100dvh", display: "flex", flexDirection: "column" }}>
       <Helmet>
-        <title>{title} · Squadz</title>
+        <title>{title} · SquadZ</title>
         <meta name="robots" content="noindex, nofollow" />
       </Helmet>
 
@@ -108,7 +108,7 @@ export default function OpenInApp({ kind }: { kind: LinkKind }) {
         <div style={{ maxWidth: 1160, margin: "0 auto", padding: "0 24px", display: "flex", alignItems: "center", height: 66 }}>
           <a href="/" style={{ display: "flex", alignItems: "center", gap: 11, textDecoration: "none", color: T.text }}>
             <SquadzIcon size={34} style={{ borderRadius: 10 }} />
-            <span style={{ fontFamily: "'Georgia', serif", fontSize: 26, fontWeight: 700, letterSpacing: "-0.04em" }}>squadz</span>
+            <span style={{ fontFamily: "'Georgia', serif", fontSize: 26, fontWeight: 700, letterSpacing: "-0.04em" }}>SquadZ</span>
           </a>
         </div>
       </nav>
@@ -151,7 +151,7 @@ export default function OpenInApp({ kind }: { kind: LinkKind }) {
               boxShadow: `0 8px 28px ${T.accent}45`,
             }}
           >
-            Get Squadz
+            Get SquadZ
           </a>
         </div>
       </div>
@@ -160,9 +160,9 @@ export default function OpenInApp({ kind }: { kind: LinkKind }) {
         <div style={{ maxWidth: 1160, margin: "0 auto", padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 16 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <SquadzIcon size={28} style={{ borderRadius: 9 }} />
-            <span style={{ fontFamily: "'Georgia', serif", fontSize: 21, fontWeight: 700, letterSpacing: "-0.04em" }}>squadz</span>
+            <span style={{ fontFamily: "'Georgia', serif", fontSize: 21, fontWeight: 700, letterSpacing: "-0.04em" }}>SquadZ</span>
           </div>
-          <div style={{ fontSize: 13.5, color: T.textDim }}>© {new Date().getFullYear()} Squadz</div>
+          <div style={{ fontSize: 13.5, color: T.textDim }}>© {new Date().getFullYear()} SquadZ</div>
         </div>
       </footer>
     </div>

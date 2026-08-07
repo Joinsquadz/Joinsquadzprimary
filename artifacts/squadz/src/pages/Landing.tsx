@@ -16,7 +16,7 @@ const features = [
     emoji: "🗓️",
     color: T.purple,
     title: "Find the Best Time",
-    body: "Everyone marks when they're free. Squadz overlaps all your schedules, builds a live availability heatmap, and surfaces the slot that works for the most people.",
+    body: "Everyone marks when they're free. SquadZ overlaps all your schedules, builds a live availability heatmap, and surfaces the slot that works for the most people.",
   },
   {
     emoji: "🎉",
@@ -91,7 +91,7 @@ function WaitlistForm({ id, compact = false }: { id?: string; compact?: boolean 
         }}
       >
         <span style={{ fontSize: 22 }}>🎉</span>
-        <span>You're on the list! We'll email you the moment Squadz drops.</span>
+        <span>You're on the list! We'll email you the moment SquadZ drops.</span>
       </div>
     );
   }
@@ -282,17 +282,17 @@ export default function Landing() {
   return (
     <div style={{ background: T.bg, color: T.text, fontFamily: font, minHeight: "100dvh", overflowX: "hidden" }}>
       <Helmet>
-        <title>Squadz — Stop texting. Start actually hanging.</title>
-        <meta name="description" content="Squadz is the app for your friend group. Find the time everyone's free, plan the hangout, split the bill, and keep the memories. All in one place." />
+        <title>SquadZ — Stop texting. Start actually hanging.</title>
+        <meta name="description" content="SquadZ is the app for your friend group. Find the time everyone's free, plan the hangout, split the bill, and keep the memories. All in one place." />
         <meta name="robots" content="index, follow" />
         <link rel="canonical" href="https://joinsquadz.com/" />
-        <meta property="og:title" content="Squadz — Stop texting. Start actually hanging." />
-        <meta property="og:description" content="Squadz is the app for your friend group. Find the time everyone's free, plan the hangout, split the bill, and keep the memories." />
+        <meta property="og:title" content="SquadZ — Stop texting. Start actually hanging." />
+        <meta property="og:description" content="SquadZ is the app for your friend group. Find the time everyone's free, plan the hangout, split the bill, and keep the memories." />
         <meta property="og:type" content="website" />
         <meta property="og:url" content="https://joinsquadz.com/" />
         <meta name="twitter:card" content="summary_large_image" />
-        <meta name="twitter:title" content="Squadz — Stop texting. Start actually hanging." />
-        <meta name="twitter:description" content="Squadz is the app for your friend group. Find the time everyone's free, plan the hangout, split the bill, and keep the memories." />
+        <meta name="twitter:title" content="SquadZ — Stop texting. Start actually hanging." />
+        <meta name="twitter:description" content="SquadZ is the app for your friend group. Find the time everyone's free, plan the hangout, split the bill, and keep the memories." />
       </Helmet>
       <style>{`
         .lz-wrap { max-width: 1160px; margin: 0 auto; padding: 0 24px; }
@@ -330,7 +330,7 @@ export default function Landing() {
         <div className="lz-wrap" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", height: 66 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
             <SquadzIcon size={34} style={{ borderRadius: 10 }} />
-            <span style={{ fontFamily: "'Georgia', serif", fontSize: 26, fontWeight: 700, letterSpacing: "-0.04em" }}>squadz</span>
+            <span style={{ fontFamily: "'Georgia', serif", fontSize: 26, fontWeight: 700, letterSpacing: "-0.04em" }}>SquadZ</span>
           </div>
           <div className="lz-nav-links" style={{ display: "flex", alignItems: "center", gap: 30 }}>
             <a href="#features" style={{ color: T.textSub, textDecoration: "none", fontSize: 14.5, fontWeight: 600 }}>Features</a>
@@ -359,7 +359,7 @@ export default function Landing() {
               <span style={{ background: ACCENT_GRADIENT, WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}>actually hanging.</span>
             </h1>
             <p style={{ fontSize: 18.5, color: T.textSub, lineHeight: 1.55, margin: "20px 0 28px", maxWidth: 480 }}>
-              Squadz is the app for your friend group — find the time everyone's free, plan the hangout, split the bill, and keep the memories. All in one place, none of the chaos.
+              SquadZ is the app for your friend group — find the time everyone's free, plan the hangout, split the bill, and keep the memories. All in one place, none of the chaos.
             </p>
             <div id="waitlist-hero">
               <WaitlistForm />
@@ -453,7 +453,7 @@ export default function Landing() {
             <div style={{ position: "absolute", top: -80, left: "50%", transform: "translateX(-50%)", width: 420, height: 420, borderRadius: "50%", background: T.accent, opacity: 0.16, filter: "blur(120px)", pointerEvents: "none" }} />
             <div style={{ position: "relative" }}>
               <SquadzIcon size={64} style={{ borderRadius: 18, margin: "0 auto 22px", boxShadow: `0 18px 50px ${T.accent}50` }} />
-              <h2 style={{ fontSize: 38, fontWeight: 800, letterSpacing: "-0.03em", margin: "0 0 14px" }}>Squadz is ready. Are you?</h2>
+              <h2 style={{ fontSize: 38, fontWeight: 800, letterSpacing: "-0.03em", margin: "0 0 14px" }}>SquadZ is ready. Are you?</h2>
               <p style={{ fontSize: 17, color: T.textSub, maxWidth: 480, margin: "0 auto 28px", lineHeight: 1.55 }}>
                 The app is feature-complete — squads, availability, events, group chat, photo vault, cost splitting, and more. Join the waitlist and be first in when we open the doors.
               </p>
@@ -478,13 +478,13 @@ export default function Landing() {
         <div className="lz-wrap" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 16 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <SquadzIcon size={28} style={{ borderRadius: 9 }} />
-            <span style={{ fontFamily: "'Georgia', serif", fontSize: 21, fontWeight: 700, letterSpacing: "-0.04em" }}>squadz</span>
+            <span style={{ fontFamily: "'Georgia', serif", fontSize: 21, fontWeight: 700, letterSpacing: "-0.04em" }}>SquadZ</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 22, flexWrap: "wrap" }}>
             <a href="/support" style={{ fontSize: 13.5, color: T.textDim, textDecoration: "none" }}>Support</a>
             <a href="/terms" style={{ fontSize: 13.5, color: T.textDim, textDecoration: "none" }}>Terms of Service</a>
             <a href="/privacy" style={{ fontSize: 13.5, color: T.textDim, textDecoration: "none" }}>Privacy Policy</a>
-            <div style={{ fontSize: 13.5, color: T.textDim }}>© {new Date().getFullYear()} Squadz · Stop texting. Start actually hanging.</div>
+            <div style={{ fontSize: 13.5, color: T.textDim }}>© {new Date().getFullYear()} SquadZ · Stop texting. Start actually hanging.</div>
           </div>
         </div>
       </footer>

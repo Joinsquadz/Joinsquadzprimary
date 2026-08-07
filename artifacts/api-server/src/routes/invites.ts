@@ -78,7 +78,7 @@ router.post("/squads/invites/:id/accept", requireAuth, async (req: Request, res:
       );
       if (!outcome.ok) {
         res.status(403).json({
-          error: `Free plan is limited to ${FREE_SQUAD_LIMIT} squads. Upgrade to Squadz+ to join more.`,
+          error: `Free plan is limited to ${FREE_SQUAD_LIMIT} squads. Upgrade to SquadZ+ to join more.`,
           code: "SQUAD_LIMIT",
           limit: FREE_SQUAD_LIMIT,
         });

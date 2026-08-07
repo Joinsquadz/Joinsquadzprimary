@@ -600,7 +600,7 @@ router.post("/events", requireAuth, async (req: Request, res: Response): Promise
 
     if (!result.ok) {
       res.status(403).json({
-        error: `Free plan is limited to ${FREE_EVENT_LIMIT} events in a 12-month window. Upgrade to Squadz+ to create unlimited events.`,
+        error: `Free plan is limited to ${FREE_EVENT_LIMIT} events in a 12-month window. Upgrade to SquadZ+ to create unlimited events.`,
         requiresPro: true,
         count: result.count,
         limit: FREE_EVENT_LIMIT,

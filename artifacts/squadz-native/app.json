@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Squadz",
+    "name": "SquadZ",
     "slug": "squadz-native",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -19,8 +19,8 @@
       "buildNumber": "4",
       "associatedDomains": ["applinks:joinsquadz.com"],
       "infoPlist": {
-        "NSCameraUsageDescription": "Squadz uses your camera so you can take photos and videos to share with your squad.",
-        "NSMicrophoneUsageDescription": "Squadz uses your microphone so you can record videos to share with your squad."
+        "NSCameraUsageDescription": "SquadZ uses your camera so you can take photos and videos to share with your squad.",
+        "NSMicrophoneUsageDescription": "SquadZ uses your microphone so you can record videos to share with your squad."
       }
     },
     "android": {
@@ -70,8 +70,8 @@
       [
         "expo-media-library",
         {
-          "photosPermission": "Squadz needs access to save your squad photos to your device.",
-          "savePhotosPermission": "Squadz needs permission to save photos to your library.",
+          "photosPermission": "SquadZ needs access to save your squad photos to your device.",
+          "savePhotosPermission": "SquadZ needs permission to save photos to your library.",
           "isAccessMediaLocationEnabled": true
         }
       ],

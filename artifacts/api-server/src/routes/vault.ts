@@ -81,7 +81,7 @@ async function resolveProStatus(user: NonNullable<Awaited<ReturnType<typeof stor
  * When neither param is provided, returns all photos uploaded by the user.
  *
  * Response: { photos: Photo[], isPro: boolean, requiresPro?: boolean }
- * The personal roll-up (no squad/event scope) is Squadz+ only — free users get
+ * The personal roll-up (no squad/event scope) is SquadZ+ only — free users get
  * an empty list with requiresPro:true (a single entrance gate, no per-item
  * locks). Squad/event-scoped reads are open to members regardless of subscription.
  */
@@ -103,7 +103,7 @@ router.get("/vault/photos", requireAuth, async (req: Request, res: Response): Pr
 
     const isPro = await resolveProStatus(user);
 
-    // Personal vault roll-up (no squad/event scope) is a Squadz+ feature. Free
+    // Personal vault roll-up (no squad/event scope) is a SquadZ+ feature. Free
     // users see the tab but hit a single entrance gate — no per-item locks.
     if (!squadId && !eventId && !isPro) {
       res.json({ photos: [], isPro: false, requiresPro: true });
@@ -243,7 +243,7 @@ const FavoriteBody = z.object({ photoId: z.number().int().positive() });
  *
  * Every photo/video the user has bookmarked, across all squads. Reference-only:
  * favorites point back at the original item (squadId/eventId preserved).
- * Favorites are a Squadz+ feature — free users get an empty list with
+ * Favorites are a SquadZ+ feature — free users get an empty list with
  * requiresPro:true (a single entrance gate, no per-item locks).
  */
 router.get("/vault/favorites", requireAuth, async (req: Request, res: Response): Promise<void> => {
@@ -256,7 +256,7 @@ router.get("/vault/favorites", requireAuth, async (req: Request, res: Response):
     }
     const isPro = await resolveProStatus(user);
 
-    // Favorites are a Squadz+ feature — free users hit the same entrance gate.
+    // Favorites are a SquadZ+ feature — free users hit the same entrance gate.
     if (!isPro) {
       res.json({ photos: [], isPro: false, requiresPro: true });
       return;
@@ -290,14 +290,14 @@ router.post("/vault/favorites", requireAuth, async (req: Request, res: Response)
     }
     const { photoId } = parsed.data;
 
-    // Favorites are a Squadz+ feature — gate the write too, not just the GET
+    // Favorites are a SquadZ+ feature — gate the write too, not just the GET
     // list. Otherwise a free client could POST favorites it can never see.
     let user = await storage.getUser(userId);
     if (!user) {
       user = await storage.upsertUser(userId, (req.user as { id: string; email?: string }).email ?? "");
     }
     if (!(await resolveProStatus(user))) {
-      res.status(403).json({ error: "Saving favorites is a Squadz+ feature.", requiresPro: true });
+      res.status(403).json({ error: "Saving favorites is a SquadZ+ feature.", requiresPro: true });
       return;
     }
 

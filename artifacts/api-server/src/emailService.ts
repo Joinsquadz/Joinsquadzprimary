@@ -86,7 +86,7 @@ function buildHtml(data: ProWelcomeEmailData): string {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Welcome to Squadz Pro</title>
+  <title>Welcome to SquadZ Pro</title>
 </head>
 <body style="margin:0;padding:0;background:#0f0f1a;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;color:#e8e8f0;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#0f0f1a;padding:40px 16px;">
@@ -98,7 +98,7 @@ function buildHtml(data: ProWelcomeEmailData): string {
           <tr>
             <td align="center" style="padding-bottom:32px;">
               <div style="font-size:28px;font-weight:800;letter-spacing:-0.5px;color:#ffffff;">
-                Squadz
+                SquadZ
               </div>
             </td>
           </tr>
@@ -154,7 +154,7 @@ function buildHtml(data: ProWelcomeEmailData): string {
           <tr>
             <td align="center" style="padding-top:24px;">
               <p style="margin:0;font-size:12px;color:#55556a;">
-                You're receiving this because you subscribed to ${planName} on Squadz.
+                You're receiving this because you subscribed to ${planName} on SquadZ.
               </p>
             </td>
           </tr>
@@ -174,7 +174,7 @@ function buildText(data: ProWelcomeEmailData): string {
   return [
     `Welcome to ${data.planName}!`,
     '',
-    'Your Squadz Pro subscription is now active.',
+    'Your SquadZ Pro subscription is now active.',
     '',
     `Plan:         ${data.planName}`,
     `Amount:       ${price} / month`,
@@ -183,7 +183,7 @@ function buildText(data: ProWelcomeEmailData): string {
     `Manage your subscription: ${data.manageUrl}`,
     '',
     '---',
-    'Squadz',
+    'SquadZ',
   ].join('\n');
 }
 
@@ -203,7 +203,7 @@ function buildRenewalReceiptHtml(data: RenewalReceiptEmailData): string {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Squadz Pro — Renewal Receipt</title>
+  <title>SquadZ Pro — Renewal Receipt</title>
 </head>
 <body style="margin:0;padding:0;background:#0f0f1a;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;color:#e8e8f0;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#0f0f1a;padding:40px 16px;">
@@ -215,7 +215,7 @@ function buildRenewalReceiptHtml(data: RenewalReceiptEmailData): string {
           <tr>
             <td align="center" style="padding-bottom:32px;">
               <div style="font-size:28px;font-weight:800;letter-spacing:-0.5px;color:#ffffff;">
-                Squadz
+                SquadZ
               </div>
             </td>
           </tr>
@@ -229,7 +229,7 @@ function buildRenewalReceiptHtml(data: RenewalReceiptEmailData): string {
                 Your ${planName} subscription renewed ✓
               </p>
               <p style="margin:0 0 32px;font-size:15px;color:#9898b0;line-height:1.5;">
-                Thanks for staying with Squadz Pro. Here's your renewal receipt.
+                Thanks for staying with SquadZ Pro. Here's your renewal receipt.
               </p>
 
               <!-- Details table -->
@@ -284,7 +284,7 @@ function buildRenewalReceiptHtml(data: RenewalReceiptEmailData): string {
           <tr>
             <td align="center" style="padding-top:24px;">
               <p style="margin:0;font-size:12px;color:#55556a;">
-                You're receiving this because you have an active ${planName} subscription on Squadz.
+                You're receiving this because you have an active ${planName} subscription on SquadZ.
               </p>
             </td>
           </tr>
@@ -305,7 +305,7 @@ function buildRenewalReceiptText(data: RenewalReceiptEmailData): string {
   return [
     `Your ${data.planName} subscription renewed`,
     '',
-    'Thanks for staying with Squadz Pro. Here is your renewal receipt.',
+    'Thanks for staying with SquadZ Pro. Here is your renewal receipt.',
     '',
     `Plan:           ${data.planName}`,
     `Amount charged: ${paid}`,
@@ -317,7 +317,7 @@ function buildRenewalReceiptText(data: RenewalReceiptEmailData): string {
     `Update payment method:    ${data.updatePaymentUrl}`,
     '',
     '---',
-    'Squadz',
+    'SquadZ',
   ].join('\n');
 }
 
@@ -347,7 +347,7 @@ function buildPaymentFailedHtml(data: PaymentFailedEmailData): string {
           <tr>
             <td align="center" style="padding-bottom:32px;">
               <div style="font-size:28px;font-weight:800;letter-spacing:-0.5px;color:#ffffff;">
-                Squadz
+                SquadZ
               </div>
             </td>
           </tr>
@@ -407,7 +407,7 @@ function buildPaymentFailedHtml(data: PaymentFailedEmailData): string {
           <tr>
             <td align="center" style="padding-top:24px;">
               <p style="margin:0;font-size:12px;color:#55556a;">
-                You're receiving this because you have a ${planName} subscription on Squadz.
+                You're receiving this because you have a ${planName} subscription on SquadZ.
               </p>
             </td>
           </tr>
@@ -440,7 +440,7 @@ function buildPaymentFailedText(data: PaymentFailedEmailData): string {
     `Update your payment method: ${data.updatePaymentUrl}`,
     '',
     '---',
-    'Squadz',
+    'SquadZ',
   ].join('\n');
 }
 
@@ -502,7 +502,7 @@ export class EmailService {
       }
 
       await sendEmail({
-        from: process.env.SENDGRID_FROM ?? process.env.SMTP_FROM ?? 'Squadz <noreply@squadz.app>',
+        from: process.env.SENDGRID_FROM ?? process.env.SMTP_FROM ?? 'SquadZ <noreply@squadz.app>',
         to: data.toEmail,
         subject: `Welcome to ${data.planName}! Your subscription is active`,
         text: buildText(data),
@@ -530,7 +530,7 @@ export class EmailService {
       }
 
       await sendEmail({
-        from: process.env.SENDGRID_FROM ?? process.env.SMTP_FROM ?? 'Squadz <noreply@squadz.app>',
+        from: process.env.SENDGRID_FROM ?? process.env.SMTP_FROM ?? 'SquadZ <noreply@squadz.app>',
         to: data.toEmail,
         subject: `Your ${data.planName} subscription renewed — receipt enclosed`,
         text: buildRenewalReceiptText(data),
@@ -558,7 +558,7 @@ export class EmailService {
       }
 
       await sendEmail({
-        from: process.env.SENDGRID_FROM ?? process.env.SMTP_FROM ?? 'Squadz <noreply@squadz.app>',
+        from: process.env.SENDGRID_FROM ?? process.env.SMTP_FROM ?? 'SquadZ <noreply@squadz.app>',
         to: data.toEmail,
         subject: `Action required: payment failed for your ${data.planName} subscription`,
         text: buildPaymentFailedText(data),
@@ -611,7 +611,7 @@ export class EmailService {
     `);
     const priceRow = priceResult.rows[0];
 
-    const planName = (priceRow?.product_name as string | null) ?? 'Squadz Pro';
+    const planName = (priceRow?.product_name as string | null) ?? 'SquadZ Pro';
     const priceAmount = (priceRow?.unit_amount as number | null) ?? 0;
     const priceCurrency = (priceRow?.currency as string | null) ?? 'usd';
 
@@ -670,7 +670,7 @@ export class EmailService {
     const invoiceUrl = (invoice.hosted_invoice_url as string | null) ?? null;
     const subscriptionId = invoice.subscription as string | null;
 
-    let planName = 'Squadz Pro';
+    let planName = 'SquadZ Pro';
     if (subscriptionId) {
       const priceResult = await db.execute(sql`
         SELECT p.name as product_name
@@ -685,7 +685,7 @@ export class EmailService {
         WHERE s.id = ${subscriptionId}
         LIMIT 1
       `);
-      planName = (priceResult.rows[0]?.product_name as string | null) ?? 'Squadz Pro';
+      planName = (priceResult.rows[0]?.product_name as string | null) ?? 'SquadZ Pro';
     }
 
     const customerResult = await db.execute(sql`
@@ -745,7 +745,7 @@ export class EmailService {
 
     const subscriptionId = invoice.subscription as string | null;
 
-    let planName = 'Squadz Pro';
+    let planName = 'SquadZ Pro';
     if (subscriptionId) {
       const priceResult = await db.execute(sql`
         SELECT p.name as product_name
@@ -760,7 +760,7 @@ export class EmailService {
         WHERE s.id = ${subscriptionId}
         LIMIT 1
       `);
-      planName = (priceResult.rows[0]?.product_name as string | null) ?? 'Squadz Pro';
+      planName = (priceResult.rows[0]?.product_name as string | null) ?? 'SquadZ Pro';
     }
 
     const customerResult = await db.execute(sql`
@@ -812,7 +812,7 @@ function buildAuthEmailHtml(opts: {
         <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;">
           <tr>
             <td align="center" style="padding-bottom:32px;">
-              <div style="font-size:28px;font-weight:800;letter-spacing:-0.5px;color:#ffffff;">Squadz</div>
+              <div style="font-size:28px;font-weight:800;letter-spacing:-0.5px;color:#ffffff;">SquadZ</div>
             </td>
           </tr>
           <tr>
@@ -849,17 +849,17 @@ export async function sendVerificationEmail(opts: {
   toEmail: string;
   verifyUrl: string;
 }): Promise<void> {
-  const subject = "Confirm your Squadz email";
+  const subject = "Confirm your SquadZ email";
   const html = buildAuthEmailHtml({
     title: "Confirm your email 🎉",
     intro:
-      "Welcome to Squadz! Tap the button below to confirm your email address and finish setting up your account.",
+      "Welcome to SquadZ! Tap the button below to confirm your email address and finish setting up your account.",
     buttonLabel: "Confirm Email",
     url: opts.verifyUrl,
-    footnote: "This link expires in 24 hours. If you didn't create a Squadz account, you can ignore this email.",
+    footnote: "This link expires in 24 hours. If you didn't create a SquadZ account, you can ignore this email.",
   });
   const text = [
-    "Welcome to Squadz!",
+    "Welcome to SquadZ!",
     "",
     "Confirm your email address:",
     opts.verifyUrl,
@@ -868,7 +868,7 @@ export async function sendVerificationEmail(opts: {
   ].join("\n");
 
   const transport = createTransport();
-  const from = process.env.SMTP_FROM ?? "Squadz <noreply@squadz.app>";
+  const from = process.env.SMTP_FROM ?? "SquadZ <noreply@squadz.app>";
   if (!transport) {
     // Only surface the tokenized URL in non-production so a developer can
     // complete the flow without SMTP. Never log raw tokens in production.
@@ -890,24 +890,24 @@ export async function sendPasswordResetEmail(opts: {
   toEmail: string;
   resetUrl: string;
 }): Promise<void> {
-  const subject = "Reset your Squadz password";
+  const subject = "Reset your SquadZ password";
   const html = buildAuthEmailHtml({
     title: "Reset your password",
     intro:
-      "We received a request to reset your Squadz password. Tap the button below to choose a new one.",
+      "We received a request to reset your SquadZ password. Tap the button below to choose a new one.",
     buttonLabel: "Reset Password",
     url: opts.resetUrl,
     footnote: "This link expires in 1 hour. If you didn't request this, you can safely ignore this email — your password won't change.",
   });
   const text = [
-    "Reset your Squadz password:",
+    "Reset your SquadZ password:",
     opts.resetUrl,
     "",
     "This link expires in 1 hour. If you didn't request this, ignore this email.",
   ].join("\n");
 
   const transport = createTransport();
-  const from = process.env.SMTP_FROM ?? "Squadz <noreply@squadz.app>";
+  const from = process.env.SMTP_FROM ?? "SquadZ <noreply@squadz.app>";
   if (!transport) {
     // Only surface the tokenized URL in non-production so a developer can
     // complete the flow without SMTP. Never log raw tokens in production.

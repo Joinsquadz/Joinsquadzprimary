@@ -969,7 +969,7 @@ function htmlPage(title: string, body: string): string {
   input{width:100%;box-sizing:border-box;background:#13132a;border:1px solid rgba(255,255,255,0.12);border-radius:10px;padding:14px;color:#fff;font-size:15px;margin-bottom:12px;}
   button{width:100%;border:0;border-radius:10px;padding:14px;font-size:15px;font-weight:700;color:#fff;background:linear-gradient(135deg,#FF5C3A,#A855F7);cursor:pointer;}
   .err{color:#f87171;}.ok{color:#2ECC8A;}
-</style></head><body><div class="card"><div class="brand">Squadz</div>${body}</div></body></html>`;
+</style></head><body><div class="card"><div class="brand">SquadZ</div>${body}</div></body></html>`;
 }
 
 router.get("/auth/verify-email", async (req: Request, res: Response) => {
@@ -1002,7 +1002,7 @@ router.get("/auth/verify-email", async (req: Request, res: Response) => {
     .set({ usedAt: new Date() })
     .where(eq(authTokensTable.id, tok.id));
 
-  res.send(htmlPage("Email confirmed", `<h1 class="ok">Email confirmed ✓</h1><p>Your email is verified. You can close this tab and return to the Squadz app.</p>`));
+  res.send(htmlPage("Email confirmed", `<h1 class="ok">Email confirmed ✓</h1><p>Your email is verified. You can close this tab and return to the SquadZ app.</p>`));
 });
 
 router.post("/auth/forgot-password", async (req: Request, res: Response) => {
@@ -1076,7 +1076,7 @@ router.get("/auth/reset-supabase", (req: Request, res: Response) => {
     htmlPage(
       "Reset your password",
       `<h1>Choose a new password</h1>
-<p>Enter a new password for your Squadz account.</p>
+<p>Enter a new password for your SquadZ account.</p>
 <form id="form">
   <input type="hidden" id="th" value="${tokenHash.replace(/"/g, "")}" />
   <input type="password" id="pw" placeholder="New password (8+ characters)" minlength="8" required autofocus />
@@ -1099,7 +1099,7 @@ router.get("/auth/reset-supabase", (req: Request, res: Response) => {
       if(d.ok){
         formEl.style.display='none';
         msgEl.style.display='block';
-        msgEl.innerHTML='<h1 class="ok">Password updated ✓</h1><p>Your password has been changed. Open the Squadz app and sign in with your new password.</p>';
+        msgEl.innerHTML='<h1 class="ok">Password updated ✓</h1><p>Your password has been changed. Open the SquadZ app and sign in with your new password.</p>';
       } else {
         msgEl.style.display='block';
         msgEl.innerHTML='<p class="err">'+(d.error||'Please try again.')+'</p>';
@@ -1164,7 +1164,7 @@ router.get("/auth/reset-password", (req: Request, res: Response) => {
     htmlPage(
       "Reset password",
       `<h1>Choose a new password</h1>
-<p>Enter a new password for your Squadz account.</p>
+<p>Enter a new password for your SquadZ account.</p>
 <form method="POST" action="/api/auth/reset-password">
   <input type="hidden" name="token" value="${raw.replace(/[&<>"']/g, (c: string) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c] ?? c))}" />
   <input type="password" name="password" placeholder="New password (8+ characters)" minlength="8" required autofocus />
@@ -1224,7 +1224,7 @@ router.post("/auth/reset-password", async (req: Request, res: Response) => {
     .where(sql`${sessionsTable.sess}->'user'->>'id' = ${tok.userId}`);
 
   if (wantsHtml) {
-    res.send(htmlPage("Password reset", `<h1 class="ok">Password updated ✓</h1><p>Your password has been changed. Open the Squadz app and sign in with your new password.</p>`));
+    res.send(htmlPage("Password reset", `<h1 class="ok">Password updated ✓</h1><p>Your password has been changed. Open the SquadZ app and sign in with your new password.</p>`));
   } else {
     res.json({ ok: true });
   }

@@ -815,10 +815,10 @@ export default function SquadDetailScreen() {
         contentContainerStyle={{ padding: 20, paddingBottom: botPad + 24 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* Ambient Squadz+ benefit nudge for free members */}
+        {/* Ambient SquadZ+ benefit nudge for free members */}
         <SquadzPlusBanner
           trigger="squad_limit"
-          message="Squadz+ — unlimited squads, permanent vault & more"
+          message="SquadZ+ — unlimited squads, permanent vault & more"
           style={{ marginTop: 12 }}
         />
 

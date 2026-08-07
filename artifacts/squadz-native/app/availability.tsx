@@ -1148,7 +1148,7 @@ export default function AvailabilityScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const title = data.poll.title || "Find the Best Time";
     const link = `https://joinsquadz.com/availability?pollId=${data.poll.id}`;
-    const message = `Help me find the best time — fill in your availability on Squadz!\n\n${link}`;
+    const message = `Help me find the best time — fill in your availability on SquadZ!\n\n${link}`;
     try {
       await Share.share(Platform.OS === "ios" ? { message, url: link } : { message });
     } catch { /* user cancelled */ }

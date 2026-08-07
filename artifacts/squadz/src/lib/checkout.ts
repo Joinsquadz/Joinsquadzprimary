@@ -1,4 +1,4 @@
-const PRO_PRODUCT_NAME = "Squadz Pro";
+const PRO_PRODUCT_NAME = "SquadZ Pro";
 const PRO_PRICE_INTERVAL = "year";
 
 type ProductsResponse = {
@@ -13,7 +13,7 @@ export type CheckoutFailure = { ok: false; error: string };
 export type CheckoutResult = { ok: true } | CheckoutFailure;
 
 /**
- * Starts the Squadz Pro checkout flow on web:
+ * Starts the SquadZ Pro checkout flow on web:
  * fetch products-with-prices → find the Pro yearly price → POST /api/checkout
  * → redirect the browser to the returned Stripe URL.
  *
@@ -34,7 +34,7 @@ export async function startProCheckout(returnTab?: string): Promise<CheckoutResu
     const yearlyPrice = pro?.prices.find((p) => p.recurring?.interval === PRO_PRICE_INTERVAL);
 
     if (!yearlyPrice) {
-      return { ok: false, error: "Squadz Pro plan not found. Please try again later." };
+      return { ok: false, error: "SquadZ Pro plan not found. Please try again later." };
     }
 
     // Server resolves the current user from session — no userId sent from client.

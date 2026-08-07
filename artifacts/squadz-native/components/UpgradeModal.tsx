@@ -70,19 +70,19 @@ const FOUNDING_STATUS_TIMEOUT = 1000;
 const TRIGGER_COPY: Record<UpgradeTrigger, { headline: string; sub: string }> = {
   squad_limit: {
     headline: "Unlock unlimited squads",
-    sub: "Free accounts are capped at 2 squads. Squadz+ lets you create and join as many as you want.",
+    sub: "Free accounts are capped at 2 squads. SquadZ+ lets you create and join as many as you want.",
   },
   photos: {
     headline: "Keep your memories forever",
-    sub: "Your personal vault and saved favorites are a Squadz+ feature. Keep all your uploads in one place and save photos from any squad forever.",
+    sub: "Your personal vault and saved favorites are a SquadZ+ feature. Keep all your uploads in one place and save photos from any squad forever.",
   },
   events: {
     headline: "Plan without limits",
-    sub: "Free accounts can create up to 5 events per year. Squadz+ unlocks unlimited events so you keep the momentum going.",
+    sub: "Free accounts can create up to 5 events per year. SquadZ+ unlocks unlimited events so you keep the momentum going.",
   },
   general: {
-    headline: "Upgrade to Squadz+",
-    sub: "Everything Squadz has to offer, unlocked — one membership, all your squads.",
+    headline: "Upgrade to SquadZ+",
+    sub: "Everything SquadZ has to offer, unlocked — one membership, all your squads.",
   },
 };
 
@@ -93,7 +93,7 @@ const FREE_FEATURES = [
   "Group chat, Vibe Feed & Moments",
 ];
 
-// Benefits unlocked by Squadz+.
+// Benefits unlocked by SquadZ+.
 const PRO_BENEFITS: Array<{ icon: string; label: string; gold?: boolean }> = [
   { icon: "people", label: "Unlimited squads & events" },
   { icon: "images", label: "Personal vault + saved favorites" },
@@ -280,7 +280,7 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess, head
       return;
     }
     setPhase("idle");
-    setError(result.ok ? "No active Squadz+ purchase found to restore." : result.error);
+    setError(result.ok ? "No active SquadZ+ purchase found to restore." : result.error);
   }, [phase, authToken, onEntitled]);
 
   const busy = phase === "checkout" || phase === "confirming";
@@ -310,7 +310,7 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess, head
             />
             <Text style={styles.celebrateEmoji}>🎉</Text>
             <Text style={[styles.celebrateTitle, { color: colors.foreground }]}>
-              {firstName ? `Welcome to Squadz+, ${firstName}!` : "Welcome to Squadz+!"}
+              {firstName ? `Welcome to SquadZ+, ${firstName}!` : "Welcome to SquadZ+!"}
             </Text>
             <Text style={[styles.celebrateSub, { color: colors.mutedForeground }]}>
               You've unlocked everything — unlimited squads, a permanent vault, and your gold ring indicator.
@@ -381,7 +381,7 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess, head
             </View>
             {/* Pro tier */}
             <View style={[styles.tierSection, { borderColor: "#FF6B2C40", backgroundColor: "#FF6B2C08" }]}>
-              <Text style={[styles.tierLabel, { color: "#FF6B2C" }]}>Squadz+ unlocks</Text>
+              <Text style={[styles.tierLabel, { color: "#FF6B2C" }]}>SquadZ+ unlocks</Text>
               {PRO_BENEFITS.map((b) => (
                 <View key={b.label} style={styles.bulletRow}>
                   <Ionicons
@@ -457,7 +457,7 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess, head
                 </View>
               ) : (
                 <Text style={styles.ctaLabel}>
-                  {phase === "failed" ? "Restore purchases" : `Upgrade to Squadz+ — ${priceLabel}/year`}
+                  {phase === "failed" ? "Restore purchases" : `Upgrade to SquadZ+ — ${priceLabel}/year`}
                 </Text>
               )}
             </LinearGradient>

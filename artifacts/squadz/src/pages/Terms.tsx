@@ -15,17 +15,17 @@ export default function Terms() {
   return (
     <div style={{ background: T.bg, color: T.text, fontFamily: font, minHeight: "100dvh" }}>
       <Helmet>
-        <title>Terms of Service · Squadz</title>
-        <meta name="description" content="Read the Squadz Terms of Service. Learn about your rights and responsibilities when using the Squadz app." />
+        <title>Terms of Service · SquadZ</title>
+        <meta name="description" content="Read the SquadZ Terms of Service. Learn about your rights and responsibilities when using the SquadZ app." />
         <meta name="robots" content="index, follow" />
         <link rel="canonical" href="https://joinsquadz.com/terms" />
-        <meta property="og:title" content="Terms of Service · Squadz" />
-        <meta property="og:description" content="Read the Squadz Terms of Service. Learn about your rights and responsibilities when using the Squadz app." />
+        <meta property="og:title" content="Terms of Service · SquadZ" />
+        <meta property="og:description" content="Read the SquadZ Terms of Service. Learn about your rights and responsibilities when using the SquadZ app." />
         <meta property="og:type" content="website" />
         <meta property="og:url" content="https://joinsquadz.com/terms" />
         <meta name="twitter:card" content="summary" />
-        <meta name="twitter:title" content="Terms of Service · Squadz" />
-        <meta name="twitter:description" content="Read the Squadz Terms of Service. Learn about your rights and responsibilities when using the Squadz app." />
+        <meta name="twitter:title" content="Terms of Service · SquadZ" />
+        <meta name="twitter:description" content="Read the SquadZ Terms of Service. Learn about your rights and responsibilities when using the SquadZ app." />
       </Helmet>
 
       <style>{`
@@ -42,7 +42,7 @@ export default function Terms() {
         <div className="lz-wrap" style={{ display: "flex", alignItems: "center", height: 66 }}>
           <a href="/" style={{ display: "flex", alignItems: "center", gap: 11, textDecoration: "none", color: T.text }}>
             <SquadzIcon size={34} style={{ borderRadius: 10 }} />
-            <span style={{ fontFamily: "'Georgia', serif", fontSize: 26, fontWeight: 700, letterSpacing: "-0.04em" }}>squadz</span>
+            <span style={{ fontFamily: "'Georgia', serif", fontSize: 26, fontWeight: 700, letterSpacing: "-0.04em" }}>SquadZ</span>
           </a>
         </div>
       </nav>
@@ -53,7 +53,7 @@ export default function Terms() {
 
         <Section title="Acceptance of Terms">
           <p>
-            Welcome to Squadz. By downloading, installing, or using the Squadz mobile application or website (collectively,
+            Welcome to SquadZ. By downloading, installing, or using the SquadZ mobile application or website (collectively,
             the "Service"), you agree to be bound by these Terms of Service ("Terms"). If you do not agree to these Terms,
             do not access or use the Service.
           </p>
@@ -65,7 +65,7 @@ export default function Terms() {
 
         <Section title="Description of Service">
           <p>
-            Squadz is a social coordination app for friend groups. The Service allows you to:
+            SquadZ is a social coordination app for friend groups. The Service allows you to:
           </p>
           <ul>
             <li>Create and join "squads" (private groups) with your friends</li>
@@ -74,13 +74,13 @@ export default function Terms() {
             <li>Message your squad through group chats tied to events</li>
             <li>Share photos in a private squad vault</li>
             <li>Track and split costs for shared expenses</li>
-            <li>Access premium features through a Squadz Pro subscription</li>
+            <li>Access premium features through a SquadZ Pro subscription</li>
           </ul>
         </Section>
 
         <Section title="Eligibility &amp; Accounts">
           <p>
-            You must be at least 13 years old to use Squadz. By creating an account, you represent that you meet this
+            You must be at least 13 years old to use SquadZ. By creating an account, you represent that you meet this
             age requirement and that all information you provide is accurate and complete.
           </p>
           <p>
@@ -97,8 +97,8 @@ export default function Terms() {
 
         <Section title="User Content">
           <p>
-            You retain ownership of content you submit to Squadz, including photos, messages, and profile information
-            ("User Content"). By submitting User Content, you grant Squadz a limited, non-exclusive, royalty-free
+            You retain ownership of content you submit to SquadZ, including photos, messages, and profile information
+            ("User Content"). By submitting User Content, you grant SquadZ a limited, non-exclusive, royalty-free
             license to store, display, and distribute that content solely as necessary to provide the Service to you
             and the members of your squads.
           </p>
@@ -128,9 +128,9 @@ export default function Terms() {
           </p>
         </Section>
 
-        <Section title="Squadz Pro Subscription">
+        <Section title="SquadZ Pro Subscription">
           <p>
-            Squadz offers a "Squadz Pro" subscription that provides access to premium features including unlimited
+            SquadZ offers a "SquadZ Pro" subscription that provides access to premium features including unlimited
             events, additional squad slots, and priority support. Subscription pricing and feature details are
             displayed in the app before purchase.
           </p>
@@ -147,8 +147,8 @@ export default function Terms() {
 
         <Section title="Intellectual Property">
           <p>
-            All rights, title, and interest in and to the Service — including the Squadz name, logo, app design,
-            software, and content created by Squadz — are and remain the exclusive property of Squadz and its
+            All rights, title, and interest in and to the Service — including the SquadZ name, logo, app design,
+            software, and content created by SquadZ — are and remain the exclusive property of SquadZ and its
             licensors. These Terms do not grant you any right, title, or interest in the Service other than a
             limited license to use it as described herein.
           </p>
@@ -156,7 +156,7 @@ export default function Terms() {
 
         <Section title="Termination">
           <p>
-            You may delete your account at any time from Settings → Privacy → Delete Account in the Squadz app.
+            You may delete your account at any time from Settings → Privacy → Delete Account in the SquadZ app.
             Deletion permanently removes your profile, content, and squad memberships, subject to our data
             retention obligations described in our{" "}
             <a href="/privacy">Privacy Policy</a>.
@@ -215,7 +215,7 @@ export default function Terms() {
               boxShadow: `0 6px 20px ${T.accent}40`,
             }}
           >
-            ← Back to Squadz
+            ← Back to SquadZ
           </a>
           <a
             href="/privacy"
@@ -235,12 +235,12 @@ export default function Terms() {
         <div className="lz-wrap" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 16 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <SquadzIcon size={28} style={{ borderRadius: 9 }} />
-            <span style={{ fontFamily: "'Georgia', serif", fontSize: 21, fontWeight: 700, letterSpacing: "-0.04em" }}>squadz</span>
+            <span style={{ fontFamily: "'Georgia', serif", fontSize: 21, fontWeight: 700, letterSpacing: "-0.04em" }}>SquadZ</span>
           </div>
           <div style={{ display: "flex", gap: 22, flexWrap: "wrap", alignItems: "center" }}>
             <a href="/terms" style={{ fontSize: 13.5, color: T.textDim, textDecoration: "none" }}>Terms of Service</a>
             <a href="/privacy" style={{ fontSize: 13.5, color: T.textDim, textDecoration: "none" }}>Privacy Policy</a>
-            <div style={{ fontSize: 13.5, color: T.textDim }}>© {new Date().getFullYear()} Squadz</div>
+            <div style={{ fontSize: 13.5, color: T.textDim }}>© {new Date().getFullYear()} SquadZ</div>
           </div>
         </div>
       </footer>

@@ -15,17 +15,17 @@ export default function Privacy() {
   return (
     <div style={{ background: T.bg, color: T.text, fontFamily: font, minHeight: "100dvh" }}>
       <Helmet>
-        <title>Privacy Policy · Squadz</title>
-        <meta name="description" content="Read the Squadz Privacy Policy. Learn how we collect, use, and protect your personal information when you use the Squadz app." />
+        <title>Privacy Policy · SquadZ</title>
+        <meta name="description" content="Read the SquadZ Privacy Policy. Learn how we collect, use, and protect your personal information when you use the SquadZ app." />
         <meta name="robots" content="index, follow" />
         <link rel="canonical" href="https://joinsquadz.com/privacy" />
-        <meta property="og:title" content="Privacy Policy · Squadz" />
-        <meta property="og:description" content="Read the Squadz Privacy Policy. Learn how we collect, use, and protect your personal information when you use the Squadz app." />
+        <meta property="og:title" content="Privacy Policy · SquadZ" />
+        <meta property="og:description" content="Read the SquadZ Privacy Policy. Learn how we collect, use, and protect your personal information when you use the SquadZ app." />
         <meta property="og:type" content="website" />
         <meta property="og:url" content="https://joinsquadz.com/privacy" />
         <meta name="twitter:card" content="summary" />
-        <meta name="twitter:title" content="Privacy Policy · Squadz" />
-        <meta name="twitter:description" content="Read the Squadz Privacy Policy. Learn how we collect, use, and protect your personal information when you use the Squadz app." />
+        <meta name="twitter:title" content="Privacy Policy · SquadZ" />
+        <meta name="twitter:description" content="Read the SquadZ Privacy Policy. Learn how we collect, use, and protect your personal information when you use the SquadZ app." />
       </Helmet>
       <style>{`
         .lz-wrap { max-width: 1160px; margin: 0 auto; padding: 0 24px; }
@@ -42,7 +42,7 @@ export default function Privacy() {
         <div className="lz-wrap" style={{ display: "flex", alignItems: "center", height: 66 }}>
           <a href="/" style={{ display: "flex", alignItems: "center", gap: 11, textDecoration: "none", color: T.text }}>
             <SquadzIcon size={34} style={{ borderRadius: 10 }} />
-            <span style={{ fontFamily: "'Georgia', serif", fontSize: 26, fontWeight: 700, letterSpacing: "-0.04em" }}>squadz</span>
+            <span style={{ fontFamily: "'Georgia', serif", fontSize: 26, fontWeight: 700, letterSpacing: "-0.04em" }}>SquadZ</span>
           </a>
         </div>
       </nav>
@@ -53,11 +53,11 @@ export default function Privacy() {
 
         <Section title="Overview">
           <p>
-            Squadz ("we", "our", or "us") is committed to protecting your privacy. This Privacy Policy explains how we collect,
-            use, disclose, and safeguard your information when you use the Squadz mobile application and website (collectively, the "Service").
+            SquadZ ("we", "our", or "us") is committed to protecting your privacy. This Privacy Policy explains how we collect,
+            use, disclose, and safeguard your information when you use the SquadZ mobile application and website (collectively, the "Service").
           </p>
           <p>
-            By using Squadz, you agree to the collection and use of information in accordance with this policy. If you do not
+            By using SquadZ, you agree to the collection and use of information in accordance with this policy. If you do not
             agree with the terms of this policy, please do not access or use the Service.
           </p>
         </Section>
@@ -93,9 +93,9 @@ export default function Privacy() {
           <p>Your information is shared only in the following circumstances:</p>
           <ul>
             <li><strong style={{ color: T.text }}>With squad members</strong> — your name, avatar, and availability are visible to members of squads you join. Photos you share in a squad vault are visible to all members of that squad.</li>
-            <li><strong style={{ color: T.text }}>Service providers</strong> — we use trusted third-party services to operate Squadz, including Supabase (database and authentication), Expo (push notifications), Sentry (error monitoring), and PostHog (analytics). These providers access your data only as necessary to perform their services and are bound by confidentiality obligations.</li>
+            <li><strong style={{ color: T.text }}>Service providers</strong> — we use trusted third-party services to operate SquadZ, including Supabase (database and authentication), Expo (push notifications), Sentry (error monitoring), and PostHog (analytics). These providers access your data only as necessary to perform their services and are bound by confidentiality obligations.</li>
             <li><strong style={{ color: T.text }}>Legal requirements</strong> — we may disclose your information if required to do so by law or in response to valid requests by public authorities.</li>
-            <li><strong style={{ color: T.text }}>Business transfers</strong> — if Squadz is acquired or merged with another company, your information may be transferred as part of that transaction.</li>
+            <li><strong style={{ color: T.text }}>Business transfers</strong> — if SquadZ is acquired or merged with another company, your information may be transferred as part of that transaction.</li>
           </ul>
         </Section>
 
@@ -110,8 +110,8 @@ export default function Privacy() {
 
         <Section title="Push Notifications">
           <p>
-            Squadz may send push notifications to your device for squad activity, event reminders, and messages. You can
-            manage notification preferences in the Squadz app under Settings → Notifications, or through your device's
+            SquadZ may send push notifications to your device for squad activity, event reminders, and messages. You can
+            manage notification preferences in the SquadZ app under Settings → Notifications, or through your device's
             system settings. Disabling notifications does not affect your account or data.
           </p>
         </Section>
@@ -119,14 +119,14 @@ export default function Privacy() {
         <Section title="Photos and Media">
           <p>
             Photos you upload to squad vaults are stored securely and are only accessible to members of the squad they were
-            shared with. Squadz requests access to your device's photo library solely to let you select and upload photos —
+            shared with. SquadZ requests access to your device's photo library solely to let you select and upload photos —
             we do not scan or access photos you haven't chosen to share.
           </p>
         </Section>
 
         <Section title="Children's Privacy">
           <p>
-            Squadz is not directed to children under the age of 13. We do not knowingly collect personal information from
+            SquadZ is not directed to children under the age of 13. We do not knowingly collect personal information from
             children under 13. If you believe we have inadvertently collected such information, please contact us immediately
             at <a href="mailto:privacy@joinsquadz.com">privacy@joinsquadz.com</a>.
           </p>
@@ -190,7 +190,7 @@ export default function Privacy() {
               boxShadow: `0 6px 20px ${T.accent}40`,
             }}
           >
-            ← Back to Squadz
+            ← Back to SquadZ
           </a>
         </div>
       </div>
@@ -199,9 +199,9 @@ export default function Privacy() {
         <div className="lz-wrap" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 16 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <SquadzIcon size={28} style={{ borderRadius: 9 }} />
-            <span style={{ fontFamily: "'Georgia', serif", fontSize: 21, fontWeight: 700, letterSpacing: "-0.04em" }}>squadz</span>
+            <span style={{ fontFamily: "'Georgia', serif", fontSize: 21, fontWeight: 700, letterSpacing: "-0.04em" }}>SquadZ</span>
           </div>
-          <div style={{ fontSize: 13.5, color: T.textDim }}>© {new Date().getFullYear()} Squadz · Stop texting. Start actually hanging.</div>
+          <div style={{ fontSize: 13.5, color: T.textDim }}>© {new Date().getFullYear()} SquadZ · Stop texting. Start actually hanging.</div>
         </div>
       </footer>
     </div>

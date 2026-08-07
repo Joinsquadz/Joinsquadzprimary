@@ -83,7 +83,7 @@ export default function TripStartScreen() {
           {!isPro ? (
             <View style={[styles.proPill, { backgroundColor: colors.gold + "22" }]}>
               <Ionicons name="star" size={11} color={colors.gold} />
-              <Text style={[styles.proPillText, { color: colors.gold }]}>Squadz+</Text>
+              <Text style={[styles.proPillText, { color: colors.gold }]}>SquadZ+</Text>
             </View>
           ) : null}
         </View>

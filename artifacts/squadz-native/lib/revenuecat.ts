@@ -71,7 +71,7 @@ async function getPurchases(): Promise<PurchasesDefault | null> {
 }
 
 /**
- * Configure RevenueCat and identify the current user (app_user_id = Squadz user
+ * Configure RevenueCat and identify the current user (app_user_id = SquadZ user
  * id). Idempotent: safe to call on every login. No-op on web or when the SDK key
  * isn't set (graceful degrade — the app still runs, purchases just aren't
  * available on that surface).
@@ -144,7 +144,7 @@ export type PurchaseOutcome =
   | { ok: false; cancelled?: boolean; error: string };
 
 /**
- * Purchase Squadz+. `preferFounding` selects the founding package while spots
+ * Purchase SquadZ+. `preferFounding` selects the founding package while spots
  * remain (server truth via /api/subscription/founding-status); falls back to the
  * standard package. The actual founding-spot consumption happens server-side in
  * the RevenueCat webhook when payment is confirmed — this only picks which
@@ -152,7 +152,7 @@ export type PurchaseOutcome =
  */
 export async function purchaseSquadzPlus(preferFounding: boolean): Promise<PurchaseOutcome> {
   if (Platform.OS === "web") {
-    return { ok: false, error: "Squadz+ is available in the Squadz mobile app." };
+    return { ok: false, error: "SquadZ+ is available in the SquadZ mobile app." };
   }
   await ensureConfigured();
   const Purchases = await getPurchases();
@@ -180,7 +180,7 @@ export async function purchaseSquadzPlus(preferFounding: boolean): Promise<Purch
 }
 
 /**
- * Whether the on-device RevenueCat customer info currently has the Squadz+
+ * Whether the on-device RevenueCat customer info currently has the SquadZ+
  * entitlement active. Returns null when the SDK is unavailable (web / not
  * configured) so callers can distinguish "no" from "unknown".
  */
@@ -200,7 +200,7 @@ export async function getLocalEntitlementActive(): Promise<boolean | null> {
 /** Restore previous purchases (e.g. after reinstall / new device). */
 export async function restoreSquadzPlus(): Promise<PurchaseOutcome> {
   if (Platform.OS === "web") {
-    return { ok: false, error: "Restore is available in the Squadz mobile app." };
+    return { ok: false, error: "Restore is available in the SquadZ mobile app." };
   }
   await ensureConfigured();
   const Purchases = await getPurchases();

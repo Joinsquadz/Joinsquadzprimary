@@ -99,13 +99,13 @@ router.post('/checkout', requireAuth, async (req, res): Promise<void> => {
     if (user.stripeSubscriptionId) {
       const existingSub = await storage.getSubscription(user.stripeSubscriptionId);
       if (existingSub?.status === 'active' || existingSub?.status === 'trialing') {
-        res.status(400).json({ error: 'You already have an active Squadz Pro subscription' });
+        res.status(400).json({ error: 'You already have an active SquadZ Pro subscription' });
         return;
       }
     } else if (user.stripeCustomerId) {
       const existingSub = await storage.getActiveSubscriptionByCustomerId(user.stripeCustomerId);
       if (existingSub) {
-        res.status(400).json({ error: 'You already have an active Squadz Pro subscription' });
+        res.status(400).json({ error: 'You already have an active SquadZ Pro subscription' });
         return;
       }
     }
@@ -199,7 +199,7 @@ router.get('/calendar-sync', requireAuth, async (req, res): Promise<void> => {
     const isPro = user ? await resolveProStatus(user) : false;
 
     if (!isPro) {
-      res.status(403).json({ error: 'Calendar sync requires Squadz Pro', requiresPro: true });
+      res.status(403).json({ error: 'Calendar sync requires SquadZ Pro', requiresPro: true });
       return;
     }
 
@@ -241,7 +241,7 @@ router.get('/stripe/email-preview/pro-welcome', (req, res): void => {
     return;
   }
 
-  const planName = typeof req.query.planName === 'string' ? req.query.planName : 'Squadz Pro';
+  const planName = typeof req.query.planName === 'string' ? req.query.planName : 'SquadZ Pro';
   const priceRaw = typeof req.query.price === 'string' ? req.query.price : '999';
   const renewalRaw = typeof req.query.renewalDate === 'string' ? req.query.renewalDate : '';
 
