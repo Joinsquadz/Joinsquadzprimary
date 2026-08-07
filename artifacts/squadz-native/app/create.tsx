@@ -788,7 +788,7 @@ export default function CreateEventScreen() {
                 <Text style={styles.squadOptionEmoji}>{s.emoji}</Text>
                 <View style={styles.squadOptionBody}>
                   <Text style={[styles.squadOptionName, { color: colors.foreground }]}>{s.name}</Text>
-                  <Text style={[styles.squadOptionCount, { color: colors.mutedForeground }]}>{s.memberIds.length} members</Text>
+                  <Text style={[styles.squadOptionCount, { color: colors.mutedForeground }]}>{s.memberIds?.length ?? 0} members</Text>
                 </View>
                 {selectedSquad === s.id && <Ionicons name="checkmark-circle" size={20} color={colors.primary} />}
               </TouchableOpacity>

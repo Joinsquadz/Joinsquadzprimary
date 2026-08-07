@@ -213,7 +213,7 @@ export default function DiscoverSquadsScreen() {
                         </Text>
                       ) : null}
                       <Text style={[styles.squadMeta, { color: colors.mutedForeground }]}>
-                        {squad.memberIds.length} member{squad.memberIds.length !== 1 ? "s" : ""}
+                        {squad.memberIds?.length ?? 0} member{(squad.memberIds?.length ?? 0) !== 1 ? "s" : ""}
                       </Text>
                     </View>
 
@@ -287,7 +287,7 @@ export default function DiscoverSquadsScreen() {
                     <View style={styles.previewMetaItem}>
                       <Ionicons name="people-outline" size={16} color={colors.mutedForeground} />
                       <Text style={[styles.previewMetaText, { color: colors.mutedForeground }]}>
-                        {preview.memberIds.length} member{preview.memberIds.length !== 1 ? "s" : ""}
+                        {preview.memberIds?.length ?? 0} member{(preview.memberIds?.length ?? 0) !== 1 ? "s" : ""}
                       </Text>
                     </View>
                     {preview.creatorName ? (

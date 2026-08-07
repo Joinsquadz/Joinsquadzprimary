@@ -100,6 +100,10 @@ export function UserCacheProvider({ children }: { children: React.ReactNode }) {
       );
       if (!res.ok) return;
       const rows = (await res.json()) as ApiUserRow[];
+      // Guard: if auth changed while the request was in flight (logout → login),
+      // discard the response so a stale account can't populate the new session's
+      // user cache with wrong names / photos / Pro state.
+      if (authTokenRef.current !== token) return;
       setCache((prev) => {
         const next = new Map(prev);
         rows.forEach((row) => next.set(row.id, apiRowToResolved(row)));
@@ -171,6 +175,12 @@ export function UserCacheProvider({ children }: { children: React.ReactNode }) {
     setCache(new Map());
     fetchingRef.current.clear();
     pendingRef.current.clear();
+    // Cancel any in-flight batch timer so a response from the previous auth
+    // session can't race-write into the freshly cleared cache.
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
   }, [authToken]);
 
   return (

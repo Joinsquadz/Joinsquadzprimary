@@ -854,7 +854,7 @@ export default function ProfileScreen() {
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.squadRowName, { color: colors.foreground }]}>{s.name}</Text>
-                    <Text style={[styles.eventDate, { color: colors.mutedForeground }]}>{s.memberIds.length} members</Text>
+                    <Text style={[styles.eventDate, { color: colors.mutedForeground }]}>{s.memberIds?.length ?? 0} members</Text>
                   </View>
                   <Ionicons name="chevron-forward" size={16} color={colors.textDim} />
                 </TouchableOpacity>

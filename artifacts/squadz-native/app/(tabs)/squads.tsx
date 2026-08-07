@@ -291,7 +291,7 @@ export default function SquadsScreen() {
                     )}
                   </View>
                   <Text style={[styles.squadMeta, { color: colors.mutedForeground }]}>
-                    {squad.memberIds.length} members · {squadEvents.length} event{squadEvents.length !== 1 ? "s" : ""}
+                    {squad.memberIds?.length ?? 0} members · {squadEvents.length} event{squadEvents.length !== 1 ? "s" : ""}
                   </Text>
                   <View style={styles.memberAvatars}>
                     {members.map((m, i) => {
@@ -308,10 +308,10 @@ export default function SquadsScreen() {
                         </View>
                       );
                     })}
-                    {squad.memberIds.length > 5 && (
+                    {(squad.memberIds?.length ?? 0) > 5 && (
                       <View style={[styles.memberAvatar, { backgroundColor: colors.surfaceUp, marginLeft: -7, borderColor: colors.card }]}>
                         <Text style={[styles.memberInitial, { color: colors.mutedForeground }]}>
-                          +{squad.memberIds.length - 5}
+                          +{(squad.memberIds?.length ?? 0) - 5}
                         </Text>
                       </View>
                     )}

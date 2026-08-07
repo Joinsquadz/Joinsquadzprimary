@@ -22,7 +22,7 @@ import { API_BASE, buildAuthHeaders } from "@/lib/api";
 export default function InviteScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { events, authToken } = useData();
+  const { events, eventsLoading, authToken } = useData();
   const { resolveUser, prefetchUsers } = useUserCache();
   const params = useLocalSearchParams<{ eventId?: string; code?: string }>();
   const [accepted, setAccepted] = useState(false);
@@ -41,6 +41,15 @@ export default function InviteScreen() {
   const inviteCode = params.code ?? event?.inviteCode ?? "BBQ-7K2M";
 
   if (!event) {
+    // While events are still loading (cold start / deep link before hydration)
+    // show a spinner rather than flashing "Invalid invite link" immediately.
+    if (eventsLoading) {
+      return (
+        <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: topPad, alignItems: "center", justifyContent: "center" }]}>
+          <ActivityIndicator color={colors.primary} />
+        </View>
+      );
+    }
     return (
       <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: topPad }]}>
         <Text style={{ color: colors.foreground, textAlign: "center", marginTop: 40 }}>

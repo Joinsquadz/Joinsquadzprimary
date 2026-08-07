@@ -150,7 +150,7 @@ export default function MessagesScreen() {
     const convItems: UnifiedItem[] = conversations.map((c) => ({ kind: "conversation", data: c }));
 
     const eventItems: UnifiedItem[] = events
-      .filter((e) => e.messages.length > 0 && !e.cancelled)
+      .filter((e) => (e.messages?.length ?? 0) > 0 && !e.cancelled)
       .map((e) => {
         const last = e.messages[e.messages.length - 1];
         const lastAt = last.createdAt ?? last.time;
