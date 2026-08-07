@@ -56,6 +56,41 @@ export async function isKeyRateLimited(
 }
 
 /**
+ * Express middleware for the auth-write rate limiter.
+ *
+ * Replaces the default MemoryStore-backed express-rate-limit so the counter is
+ * shared across all server instances (horizontal scaling). Keyed by IP address
+ * — auth routes (login, register, OTP, password-reset) are hit before the user
+ * is known, so IP is the only stable key available. GET requests are skipped
+ * because they are safe reads (e.g. /api/auth/me on every app launch).
+ *
+ * Prefix "auth:" ensures keys never collide with the API-wide "api:" namespace.
+ */
+export function dbAuthRateLimiter(
+  max = 40,
+  windowMs = DEFAULT_WINDOW_MS,
+): (req: Request, res: Response, next: NextFunction) => Promise<void> {
+  return async function dbAuthRateLimit(req: Request, res: Response, next: NextFunction): Promise<void> {
+    if (req.method === "GET") { next(); return; }
+
+    const rawIp = req.ip ?? req.socket?.remoteAddress ?? "unknown";
+    const key = `auth:ip:${rawIp}`;
+
+    const { limited, count } = await isKeyRateLimited(key, max, windowMs);
+
+    res.setHeader("RateLimit-Limit", max);
+    res.setHeader("RateLimit-Remaining", Math.max(0, max - count));
+    res.setHeader("RateLimit-Policy", `${max};w=${Math.floor(windowMs / 1000)}`);
+
+    if (limited) {
+      res.status(429).json({ error: "Too many authentication attempts. Please try again later." });
+      return;
+    }
+    next();
+  };
+}
+
+/**
  * Express middleware for the API-wide rate limiter.
  *
  * Keyed by authenticated user ID when req.user is populated (authMiddleware

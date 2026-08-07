@@ -4,8 +4,7 @@ import helmet from "helmet";
 import compression from "compression";
 import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
-import { rateLimit } from "express-rate-limit";
-import { dbApiRateLimiter } from "./lib/rateLimiter";
+import { dbApiRateLimiter, dbAuthRateLimiter } from "./lib/rateLimiter";
 import { authMiddleware } from "./middlewares/authMiddleware";
 import router from "./routes";
 import wellKnownRouter from "./routes/wellKnown";
@@ -133,14 +132,8 @@ const apiRateLimiter = dbApiRateLimiter();
 // on every app launch and are not attack surfaces.
 // Individual route handlers also apply per-endpoint in-memory counters for
 // the most sensitive operations (register, login, forgot, reset).
-const authWriteLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 40,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Too many authentication attempts. Please try again later." },
-  skip: (req) => req.method === "GET",
-});
+// DB-backed so the 40-req/15-min cap is shared across all server instances.
+const authWriteLimiter = dbAuthRateLimiter();
 
 // /.well-known is mounted at the root (not /api) so iOS/Android association
 // files are reachable at their canonical paths. The shared proxy routes
