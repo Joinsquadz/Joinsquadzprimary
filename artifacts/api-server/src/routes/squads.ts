@@ -532,10 +532,11 @@ router.get("/squads/muted", requireAuth, async (req: Request, res: Response): Pr
 router.get("/squads/stream", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const userId = (req.user as { id: string }).id;
 
-  const allSquads = await db.select({ id: squadsTable.id, memberIds: squadsTable.memberIds }).from(squadsTable);
-  const squadIds = allSquads
-    .filter((s) => ((s.memberIds ?? []) as string[]).includes(userId))
-    .map((s) => s.id);
+  const memberSquads = await db
+    .select({ id: squadsTable.id })
+    .from(squadsTable)
+    .where(sql`${squadsTable.memberIds} @> ${JSON.stringify([userId])}::jsonb`);
+  const squadIds = memberSquads.map((s) => s.id);
 
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache, no-transform");
