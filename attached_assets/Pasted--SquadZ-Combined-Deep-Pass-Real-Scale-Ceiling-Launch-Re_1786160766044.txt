@@ -1,0 +1,54 @@
+# SquadZ — Combined Deep Pass: Real Scale Ceiling + Launch Readiness + Open-Ended Audit
+
+Context: growth target is 10k accounts by end of this month, 100k by end of October. Everything tested so far confirms 600 concurrent sessions run clean with zero server errors, but the true ceiling above that was never found — the test tool (single machine) hit its own network limits before the server did. Separately, this app's actual App Store/Play Store submission status hasn't been confirmed in a while, and there are several categories of risk that haven't been examined at all yet. This prompt covers all three, run together, at real depth — not a surface pass.
+
+**Ground rule for the entire prompt, all three tracks**: distinguish clearly between "I inspected this and it looks right" and "I actually verified this by running/testing it." Report honestly when something can't be fully verified from this environment rather than presenting an inference as a confirmed fact. A shorter report with honest uncertainty is more valuable than a longer one that looks complete but isn't. This exact discipline surfaced real bugs earlier in this project (the account-deletion resurrection bug, the EXIF gap) — apply the same rigor here.
+
+---
+
+## Track A — Find the real scalability ceiling
+
+Prior test: escalated 150 → 300 → 600 → 1200 concurrent sessions against production. Zero server-side 500 errors through 600. At 1200, the test failed due to the single Replit container exhausting its own OS ephemeral port space (~28k ports) — not a server failure. The true ceiling is confirmed to be somewhere above 600, unknown how far.
+
+1. Solve the test-tool limitation: propose and use a load-testing approach that isn't bottlenecked by a single machine's port space — options include a distributed/cloud-based load testing tool (e.g. k6 with cloud execution, or coordinating the test across multiple separate compute sources) rather than a single Replit container running Artillery. Pick whichever practical option is actually available in this environment and justify the choice.
+2. Escalate concurrency in real steps (continuing from 600: try 900, 1200, 1800, 2400...) until the server itself actually degrades or fails — not until the test tool fails again. Keep escalating past round numbers if things are still clean; the goal is a real ceiling, not a comfortable stopping point.
+3. At whatever point real degradation is found, identify the specific bottleneck (DB pool, single-threaded Node CPU, something else) with evidence, not a guess.
+4. Confirm whether autoscale actually spins up 3+ real instances at higher concurrency (not just the 2-instance simulation used to originally verify the LISTEN/NOTIFY fix), and confirm the real-time sync fix and the other multi-instance fixes (rate limiter, notification debounce, atomic scanner claims) genuinely hold under real multi-instance conditions at this scale, not just the simulated test.
+5. Report a real number: "SquadZ holds up to approximately N concurrent sessions before [specific bottleneck]." Compare against what 10k and 100k accounts would realistically require (per the earlier peak-concurrency reasoning: roughly 150-250 sustained/burst at 10k, 500-1,000 projected at 100k) and state plainly whether there's comfortable headroom or whether this needs to be addressed before the stated growth timeline.
+
+---
+
+## Track B — Full launch-readiness audit
+
+This is a status check, not a fix pass for most of it — report exactly where things stand, since some of this may already be done and some may not.
+
+1. **App Store Connect**: are the Squadz+ Founding and Standard subscriptions still sitting in "Ready to Submit," or have they actually been submitted for App Review? Has any build been submitted for App Review at all? What's the actual current status?
+2. **TestFlight internal testing group**: this failed to auto-create earlier in the project and needed manual creation — confirm whether that was ever resolved.
+3. **Google Play Console**: is the app on an internal testing track only, or has it been promoted toward production/public release? What's the actual current status?
+4. **Real sandbox/production IAP purchase test**: has an actual end-to-end purchase (not just the RevenueCat dashboard configuration) been run and confirmed successful on a real device with the current build? If this was never actually done, flag it as the single most important remaining launch blocker — a subscription business with an untested real purchase flow is a serious gap.
+5. **Device verification checklist**: was the canonical merged checklist (push notifications, RevenueCat IAP, camera/media, universal links, account deletion, DM/upgrade-modal UX fixes) ever actually run end-to-end on a real device, or does it remain unchecked?
+6. **App Store listing readiness**: screenshots, app description, keywords, privacy policy URL live and correct, age rating — confirm what exists and what's missing. This hasn't been discussed anywhere in this project's history; check what state it's actually in.
+7. **Required legal/policy items for a subscription app**: confirm a Terms of Service / EULA is in place and linked (Apple requires this for subscription apps — either their standard EULA or a custom one referenced in App Store Connect). Confirm the Privacy Policy is complete, not just present.
+8. **Minimum age / COPPA considerations**: this is a social app with user-generated content and photo uploads. Confirm whether there's any age-gating or minimum-age enforcement at signup, and whether this has been considered at all. If not, flag it clearly — this matters more at real scale than it did in testing.
+
+---
+
+## Track C — Open-ended deep find-and-fix (this is the "what haven't we thought of" pass)
+
+Go beyond the checklist. For each area below, actually investigate — don't just confirm the obvious pattern holds.
+
+1. **Write-path concurrency under real load**: everything tested in Track A has been read-heavy (squads, events, feed). Re-examine the write-heavy paths — RSVP races, cost-split concurrency, poll voting, invite acceptance — under the assumption that real growth means real concurrent writes, not just concurrent reads. Confirm the atomic patterns already built (version checks, atomic claims) actually hold at higher concurrency, not just the low-concurrency conditions they were originally tested under.
+2. **Mobile app resilience to backend failure**: if the backend does hit a real limit or degrade under load, does the app handle it gracefully (retry logic, clear error states, no data loss) or does it crash/show raw errors/silently fail? This was flagged as untested much earlier in this project and never followed up on.
+3. **Customer support and incident readiness at real scale**: is there any mechanism for handling user support requests, refund requests, or account issues at 10k-100k account scale? Not a code fix, but worth surfacing as a gap if nothing exists.
+4. **DNS/hosting resilience**: is there any protection (CDN, DDoS mitigation) in front of joinsquadz.com, or does all traffic hit the Replit deployment directly? At significantly higher visibility/scale, this becomes more relevant than it was during quiet testing.
+5. **Logging and observability retention**: will current logging be sufficient to actually debug a real incident at 100k-account scale, or does it need more structure/retention than what exists today?
+6. **Anything else structurally concerning** that doesn't fit neatly into the above categories — if something looks fragile, unclear, or risky while you're investigating any of this, write it up even if it wasn't explicitly asked about.
+
+---
+
+## Output required
+- Three clearly separated sections (A, B, C) in the final report.
+- Track A: a real, evidence-based ceiling number, not a projection.
+- Track B: an honest status checklist — what's actually done vs. what's still open, since some of this may be further along than this prompt assumes.
+- Track C: genuine findings, each labeled with your actual confidence level and whether it was inspected or verified.
+- Do not fix anything destructive or high-risk without flagging it first — report-only for anything that touches production data, App Store/Play Store submission actions, or legal/policy content. Mechanical code-level findings (e.g. a concurrency bug in a write path) can be fixed directly with tests, consistent with how this project has worked throughout.

@@ -1,0 +1,68 @@
+config:
+  target: "https://joinsquadz.com"
+
+  payload:
+    path: ".test-accounts.csv"
+    fields:
+      - token
+      - email
+      - userId
+    skipHeader: true
+    order: sequence
+
+  # 900 peak concurrent: 450 arrivals/s × ~2s avg scenario duration.
+  # Uses a keep-alive connection pool to avoid the client-side OS
+  # ephemeral-port exhaustion (EADDRNOTAVAIL) that killed the 1200 run —
+  # pooled connections are reused across requests instead of one socket
+  # per request.
+  phases:
+    - name: "Warm up"
+      duration: 30
+      arrivalRate: 5
+
+    - name: "Ramp up"
+      duration: 60
+      arrivalRate: 5
+      rampTo: 450       # 5→450/s over 60s
+
+    - name: "Peak (900 concurrent)"
+      duration: 90
+      arrivalRate: 450  # 450/s × 2s ≈ 900 concurrent
+
+  http:
+    timeout: 10
+    pool: 1500          # keep-alive connection pool — reuse sockets
+
+scenarios:
+  - name: "Hot read path"
+    weight: 1
+    flow:
+      - get:
+          url: "/api/squads"
+          headers:
+            Authorization: "Bearer {{ token }}"
+            Content-Type: "application/json"
+      - think: 0.3
+      - get:
+          url: "/api/events"
+          headers:
+            Authorization: "Bearer {{ token }}"
+            Content-Type: "application/json"
+      - think: 0.3
+      - get:
+          url: "/api/feed"
+          headers:
+            Authorization: "Bearer {{ token }}"
+            Content-Type: "application/json"
+      - think: 0.3
+      - get:
+          url: "/api/activity"
+          headers:
+            Authorization: "Bearer {{ token }}"
+            Content-Type: "application/json"
+      - think: 0.3
+      - get:
+          url: "/api/user/preferences"
+          headers:
+            Authorization: "Bearer {{ token }}"
+            Content-Type: "application/json"
