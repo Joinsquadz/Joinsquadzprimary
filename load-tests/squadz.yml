@@ -100,7 +100,7 @@ scenarios:
 
       # Notification preferences — lightweight settings read.
       - get:
-          url: "/api/notifications/preferences"
+          url: "/api/user/preferences"
           headers:
             Authorization: "Bearer {{ token }}"
             Content-Type: "application/json"

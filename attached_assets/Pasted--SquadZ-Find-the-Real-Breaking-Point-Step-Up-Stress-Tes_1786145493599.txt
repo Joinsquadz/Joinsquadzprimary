@@ -1,0 +1,34 @@
+# SquadZ — Find the Real Breaking Point (Step-Up Stress Test)
+
+Context: prior load tests confirmed 150 concurrent sessions run clean (0% 500 errors) — but that was testing against a number chosen as a reasoned estimate, not actually finding where the system breaks. This prompt exists to find the real ceiling, now that the SSE cross-instance fix and the mechanical cleanup items (unbounded push fan-out, /squads/stream scan, etc.) should already be in place — confirm that's the case before running this; if any of those fixes aren't actually deployed and verified yet, stop and say so rather than testing against a known-buggy state.
+
+## Approach — step up until it actually breaks, don't stop at a guessed number
+
+Starting from the confirmed-clean baseline (150 concurrent), run a series of load tests at increasing concurrency, each using the same methodology as prior runs (`load-tests/seed-prod.mjs` → Artillery → `load-tests/cleanup-prod.mjs`, same corrected config, `order: sequence`, proper per-request auth headers).
+
+Suggested step sequence: 150 → 300 → 600 → 1,200 — but use judgment; if a clear inflection point appears before reaching a step, no need to keep escalating past where it's already clearly broken. If 1,200 also runs clean, keep going further (2,400, etc.) until you actually find where it degrades — the goal is a real ceiling, not confirmation of an arbitrary stopping point.
+
+For each step, report:
+- 2xx overall and peak-phase p50/p95/p99
+- 500 error rate
+- 429 rate (note if this looks like a real concern or the same test-harness token-reuse artifact seen in prior runs)
+- vusers.failed rate
+- Any qualitative signal of where things start to bend before they fully break (e.g. p95 climbing steadily before error rate spikes)
+
+## Identify what actually breaks first
+
+Once a real breaking point is found, identify the specific bottleneck — don't just report "it broke at N." Check:
+- Is it the DB connection pool again (would show as pool-wait-pattern errors, similar to the original Nano/Micro findings)?
+- Is it Node.js single-process CPU (the app is single-threaded per the earlier hosting architecture findings)?
+- Is it something new that hasn't shown up before?
+- Is autoscale actually spinning up additional instances at this point, and if so, does the LISTEN/NOTIFY fix and the other multi-instance fixes actually hold up under real multi-instance conditions at this scale (not just the two-simulated-instance test used to verify the fix originally)?
+
+## Clean up after every step
+
+Confirm test account cleanup completes after each individual step, not just at the very end — don't let disposable accounts accumulate across multiple escalating runs.
+
+## Output required
+
+- A clear number: "SquadZ currently holds up to approximately N concurrent sessions before [specific bottleneck] causes real degradation."
+- Compare that ceiling against the peak-concurrency estimates from the scale-readiness assessment (150 sustained, 200-250 burst tolerance at 10k accounts; 500-1,000 concurrent projected at 100k accounts) — state plainly whether the current real ceiling comfortably exceeds near-term needs, or whether it's closer than expected.
+- Do not project or estimate — every number in the final report should come from an actual test run, consistent with every prior round in this project.
