@@ -11,6 +11,7 @@ import wellKnownRouter from "./routes/wellKnown";
 import { WebhookHandlers } from "./webhookHandlers";
 import { logger } from "./lib/logger";
 import { initMonitoring, setupSentryErrorHandler } from "./services/monitoring";
+import { slowRequestMiddleware } from "./middleware/slowRequest";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 
@@ -142,6 +143,11 @@ app.use(wellKnownRouter);
 
 app.use("/api/auth", authWriteLimiter);
 app.use("/api", apiRateLimiter);
+// Slow-request Sentry reporter — fires a warning-level event for any API
+// request that takes longer than SLOW_REQUEST_THRESHOLD_MS (default: 1 s).
+// Complements Sentry's automatic 20% performance sample with full coverage of
+// latency outliers.
+app.use("/api", slowRequestMiddleware);
 app.use("/api", router);
 setupSentryErrorHandler(app);
 

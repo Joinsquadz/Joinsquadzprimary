@@ -17,6 +17,7 @@ import {
   runEventRecapScan,
   runPollNudgeScan,
 } from './lib/eventReminders';
+import { runPoolHealthCheck, POOL_MONITOR_INTERVAL_MS } from './lib/poolMonitor';
 import { db, squadsTable } from '@workspace/db';
 import { isNull } from 'drizzle-orm';
 
@@ -163,6 +164,15 @@ setInterval(() => {
     })
     .catch((err) => logger.error({ err }, 'Push receipt check failed'));
 }, RECEIPT_CHECK_INTERVAL_MS).unref();
+
+// DB connection-pool health monitor — runs a lightweight pg_stat_activity query
+// every 5 minutes, logs a snapshot, and sends a Sentry WARNING if pool usage
+// crosses 80% of DB_POOL_MAX or any requests are queued waiting for a conn.
+logger.info({ intervalMs: POOL_MONITOR_INTERVAL_MS }, 'DB pool health monitor scheduled');
+runPoolHealthCheck().catch((err) => logger.error({ err }, 'Initial pool health check failed'));
+setInterval(() => {
+  runPoolHealthCheck().catch((err) => logger.error({ err }, 'Pool health check failed'));
+}, POOL_MONITOR_INTERVAL_MS).unref();
 
 // Automatic engagement scans (logic in ./lib/eventReminders): "starting soon"
 // + "day-of" reminders, post-event photo recap prompt, and the availability
