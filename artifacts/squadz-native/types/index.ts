@@ -42,6 +42,8 @@ export type Cost = {
   paidById: string;
   shares: CostShare[];
   billDetails?: CostBillDetails;
+  /** Optional object path for an attached receipt photo (e.g. /objects/supabase/...). */
+  receiptUrl?: string | null;
 };
 
 export type PollOption = {

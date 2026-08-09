@@ -285,6 +285,9 @@ const CostFieldsBody = {
   paidById: z.string(),
   shares: z.array(z.object({ userId: z.string(), amount: NonNegativeMoney })),
   billDetails: BillDetailsBody,
+  // Optional object path for an attached receipt photo. Validated for upload
+  // ownership before being stored so a user can't reference someone else's upload.
+  receiptUrl: z.string().nullable().optional(),
 };
 const AddCostBody = z.object({
   ...CostFieldsBody,
@@ -1503,6 +1506,15 @@ router.post("/events/:id/costs", requireAuth, async (req: Request, res: Response
     }
     seenShareUsers.add(s.userId);
   }
+  // Verify the caller owns the receipt upload so they can't reference someone
+  // else's private object and use the cost ACL to view it.
+  if (parsed.data.receiptUrl) {
+    const owner = await storage.getUploadOwner(parsed.data.receiptUrl);
+    if (owner !== userId) {
+      res.status(403).json({ error: "You can only attach a receipt photo that you uploaded" });
+      return;
+    }
+  }
   const { version: clientVersion, ...costFields } = parsed.data;
   const newCost = { id: `c${Date.now()}`, ...costFields };
   const costs = [...(existing.costs as unknown[]), newCost];
@@ -1548,7 +1560,7 @@ router.post("/events/:id/costs", requireAuth, async (req: Request, res: Response
 
 type StoredShare = { userId: string; amount: number; paidAt?: string | null; confirmedAt?: string | null };
 type StoredBillDetails = { baseAmount?: number; taxAmount?: number; tipAmount?: number; tipPercent?: number; feeAmount?: number };
-type StoredCost = { id: string; description: string; amount: number; paidById: string; shares: StoredShare[]; billDetails?: StoredBillDetails };
+type StoredCost = { id: string; description: string; amount: number; paidById: string; shares: StoredShare[]; billDetails?: StoredBillDetails; receiptUrl?: string | null };
 
 const MarkPaidBody = z.object({ paid: z.boolean(), version: z.number().int().optional() });
 const ConfirmShareBody = z.object({ confirmed: z.boolean(), version: z.number().int().optional() });
@@ -1899,6 +1911,20 @@ router.patch("/events/:id/costs/:costId", requireAuth, async (req: Request, res:
     }
     seenShareUsers.add(s.userId);
   }
+  // Verify receipt ownership when a new receiptUrl is being set.
+  if (parsed.data.receiptUrl) {
+    const owner = await storage.getUploadOwner(parsed.data.receiptUrl);
+    if (owner !== userId) {
+      res.status(403).json({ error: "You can only attach a receipt photo that you uploaded" });
+      return;
+    }
+  }
+  // Determine the receipt URL to store:
+  //  - explicit string  → new/existing receipt
+  //  - explicit null    → clear the receipt
+  //  - undefined        → keep whatever was stored before
+  const receiptUrl =
+    parsed.data.receiptUrl !== undefined ? parsed.data.receiptUrl : cost.receiptUrl;
   const updatedCost: StoredCost = {
     id: cost.id,
     description: parsed.data.description,
@@ -1906,6 +1932,7 @@ router.patch("/events/:id/costs/:costId", requireAuth, async (req: Request, res:
     paidById: cost.paidById, // immutable
     shares: shares.map((s) => ({ userId: s.userId, amount: s.amount })),
     ...(parsed.data.billDetails ? { billDetails: parsed.data.billDetails } : {}),
+    ...(receiptUrl != null ? { receiptUrl } : {}),
   };
   const nextCosts = costs.map((c) => (c.id === costId ? updatedCost : c));
   const clientVersion = parsed.data.version;

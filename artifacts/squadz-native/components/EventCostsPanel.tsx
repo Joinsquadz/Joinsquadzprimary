@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -13,13 +12,17 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
-import { useData } from "@/context/AppContext";
 import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
 import { UserAvatar } from "@/components/UserAvatar";
 import { SettleUp } from "@/components/SettleUp";
 import { computeEvenShares, computeWeightedShares, isWholeCent, isValidCostAmounts } from "@/lib/costSplit";
 import { BillDetailsFields, formatBillDetails, useBillDetailsForm } from "@/components/BillDetailsFields";
 import type { Event } from "@/types";
+import { useEffect, useState, useCallback } from "react";
+import { Image } from "expo-image";
+import * as ImagePicker from "expo-image-picker";
+import { useData, useAuth } from "@/context/AppContext";
+import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
 type Props = {
   event: Event;
@@ -47,6 +50,7 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
     ownPaymentHandles,
     updateEvent,
   } = useData();
+  const { authToken } = useAuth();
   const { resolveUser } = useUserCache();
 
   const resolveForDisplay = (userId: string): ResolvedUser =>
@@ -69,6 +73,14 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
   const [paymentHandles, setPaymentHandles] = useState<
     Record<string, { venmo: string | null; cashapp: string | null; zelle: string | null }>
   >({});
+  // ---- Receipt state ----
+  /** Local URI of a freshly-picked image (pre-upload), for in-modal preview. */
+  const [receiptLocalUri, setReceiptLocalUri] = useState<string | null>(null);
+  /** Server-side object path of the uploaded (or pre-existing) receipt. */
+  const [receiptObjectPath, setReceiptObjectPath] = useState<string | null>(null);
+  const [receiptUploading, setReceiptUploading] = useState(false);
+  /** Path opened in the full-screen viewer; null = closed. */
+  const [receiptViewerPath, setReceiptViewerPath] = useState<string | null>(null);
 
   // ---- Budget modal state ----
   const [budgetModal, setBudgetModal] = useState(false);
@@ -153,6 +165,60 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
     return resolveForDisplay(userId).name.split(" ")[0];
   };
 
+  // ---- Receipt upload ----
+  const pickAndUploadReceipt = useCallback(async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert("Permission needed", "Allow photo library access to attach a receipt.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsMultipleSelection: false,
+      quality: 0.85,
+    });
+    if (result.canceled || !result.assets.length) return;
+    const asset = result.assets[0];
+    setReceiptLocalUri(asset.uri);
+    setReceiptUploading(true);
+    try {
+      const contentType = asset.mimeType ?? "image/jpeg";
+      const name = asset.fileName ?? "receipt.jpg";
+      const size = asset.fileSize ?? 0;
+      const urlRes = await fetch(`${API_BASE}/api/storage/uploads/request-url`, {
+        method: "POST",
+        headers: { ...buildAuthHeaders(authToken), "Content-Type": "application/json" },
+        body: JSON.stringify({ name, size, contentType }),
+      });
+      if (!urlRes.ok) {
+        const body = (await urlRes.json().catch(() => ({}))) as { error?: string };
+        Alert.alert("Upload failed", body.error ?? "Couldn't start the upload. Please try again.");
+        setReceiptLocalUri(null);
+        return;
+      }
+      const { uploadURL, objectPath } = (await urlRes.json()) as { uploadURL: string; objectPath: string };
+      const { uri: strippedUri, mimeType: strippedMime } = await stripMediaExif(asset.uri, contentType);
+      const fileRes = await fetch(strippedUri);
+      const blob = await fileRes.blob();
+      const putRes = await fetch(uploadURL, {
+        method: "PUT",
+        body: blob,
+        headers: { "Content-Type": strippedMime },
+      });
+      if (!putRes.ok) {
+        Alert.alert("Upload failed", "Couldn't upload the photo. Please try again.");
+        setReceiptLocalUri(null);
+        return;
+      }
+      setReceiptObjectPath(objectPath);
+    } catch {
+      Alert.alert("Upload failed", "Something went wrong. Please try again.");
+      setReceiptLocalUri(null);
+    } finally {
+      setReceiptUploading(false);
+    }
+  }, [authToken]);
+
   // ---- Handlers ----
   const openCostModal = () => {
     setEditingCostId(null);
@@ -163,6 +229,8 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
     setCostWeights({});
     setSplitMode("even");
     setSelectedParticipantIds(new Set(participants.map((p) => p.id)));
+    setReceiptLocalUri(null);
+    setReceiptObjectPath(null);
     setCostModal(true);
   };
 
@@ -181,6 +249,9 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
     setSelectedParticipantIds(
       new Set(cost.shares.map((s) => s.userId).filter((uid) => participantIdSet.has(uid))),
     );
+    // Pre-load any existing receipt (no local URI — it's already on the server).
+    setReceiptLocalUri(null);
+    setReceiptObjectPath(cost.receiptUrl ?? null);
     setCostModal(true);
   };
 
@@ -260,12 +331,22 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
       );
       return;
     }
+    if (receiptUploading) {
+      Alert.alert("Please wait", "Receipt photo is still uploading.");
+      return;
+    }
     const shares = splitParticipants
       .map((m) => ({ userId: m.id, amount: parseFloat(activeShares[m.id] || "0") || 0 }))
       .filter((s) => s.amount > 0);
     setCostSaving(true);
     try {
-      const payload = { description: costDesc.trim(), amount: totalNum, shares, billDetails };
+      const payload = {
+        description: costDesc.trim(),
+        amount: totalNum,
+        shares,
+        billDetails,
+        ...(receiptObjectPath !== undefined ? { receiptUrl: receiptObjectPath } : {}),
+      };
       const result = editingCostId
         ? await updateCost(event.id, editingCostId, payload, event.version)
         : await addCost(event.id, payload, event.version);
@@ -402,6 +483,20 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
                       {formatBillDetails(cost.billDetails)}
                     </Text>
                   )}
+                  {cost.receiptUrl && (
+                    <TouchableOpacity
+                      onPress={() => { Haptics.selectionAsync(); setReceiptViewerPath(cost.receiptUrl!); }}
+                      hitSlop={4}
+                      style={styles.receiptRowBtn}
+                    >
+                      <Image
+                        source={{ uri: receiptImgUrl(cost.receiptUrl) }}
+                        style={styles.receiptRowThumb}
+                        contentFit="cover"
+                      />
+                      <Text style={[styles.costPayer, { color: colors.primary }]}>View receipt</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
                 <View style={styles.costRight}>
                   <Text style={[styles.costTotal, { color: colors.foreground }]}>${cost.amount.toFixed(2)}</Text>
@@ -461,6 +556,46 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
                 />
               </View>
               <BillDetailsFields form={bill} />
+
+              {/* ---- Receipt photo ---- */}
+              <Text style={[styles.assignLabel, { color: colors.mutedForeground }]}>Receipt photo (optional)</Text>
+              {receiptLocalUri || receiptObjectPath ? (
+                <View style={styles.receiptPreviewWrap}>
+                  <Image
+                    source={{ uri: receiptLocalUri ?? receiptImgUrl(receiptObjectPath!) }}
+                    style={styles.receiptPreviewThumb}
+                    contentFit="cover"
+                  />
+                  {receiptUploading && (
+                    <View style={styles.receiptUploadOverlay}>
+                      <ActivityIndicator size="small" color="#fff" />
+                    </View>
+                  )}
+                  <TouchableOpacity
+                    style={styles.receiptRemoveBtn}
+                    onPress={() => { setReceiptLocalUri(null); setReceiptObjectPath(null); }}
+                    hitSlop={8}
+                  >
+                    <Ionicons name="close-circle" size={22} color={colors.destructive} />
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={[styles.receiptPickBtn, { borderColor: colors.border, backgroundColor: colors.card }]}
+                  onPress={pickAndUploadReceipt}
+                  disabled={receiptUploading}
+                  activeOpacity={0.7}
+                >
+                  {receiptUploading ? (
+                    <ActivityIndicator size="small" color={colors.primary} />
+                  ) : (
+                    <Ionicons name="camera-outline" size={20} color={colors.primary} />
+                  )}
+                  <Text style={[styles.receiptPickText, { color: colors.primary }]}>
+                    {receiptUploading ? "Uploading…" : "Attach receipt photo"}
+                  </Text>
+                </TouchableOpacity>
+              )}
 
               {participants.length > 1 && (
                 <>
@@ -591,6 +726,27 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
         </View>
       </Modal>
 
+      {/* ---- Receipt full-screen viewer ---- */}
+      <Modal
+        visible={receiptViewerPath !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setReceiptViewerPath(null)}
+      >
+        <View style={styles.viewerOverlay}>
+          <TouchableOpacity style={styles.viewerClose} onPress={() => setReceiptViewerPath(null)} hitSlop={12}>
+            <Ionicons name="close" size={28} color="#fff" />
+          </TouchableOpacity>
+          {receiptViewerPath && (
+            <Image
+              source={{ uri: receiptImgUrl(receiptViewerPath) }}
+              style={styles.viewerImage}
+              contentFit="contain"
+            />
+          )}
+        </View>
+      </Modal>
+
       {/* ---- Budget Modal ---- */}
       <Modal visible={budgetModal} transparent animationType="fade" onRequestClose={() => setBudgetModal(false)}>
         <View style={styles.modalOverlay}>
@@ -681,4 +837,23 @@ const styles = StyleSheet.create({
   modalBtnText: { fontSize: 15, fontWeight: "800" },
   clearBudgetBtn: { alignItems: "center", paddingVertical: 4 },
   clearBudgetText: { fontSize: 13, fontWeight: "700" },
+  // Receipt photo — modal picker
+  receiptPickBtn: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 12, borderWidth: 1.5, borderStyle: "dashed", paddingHorizontal: 14, paddingVertical: 12, marginBottom: 4 },
+  receiptPickText: { fontSize: 14, fontWeight: "700" },
+  receiptPreviewWrap: { position: "relative", width: 100, height: 80, borderRadius: 10, overflow: "visible", marginBottom: 4 },
+  receiptPreviewThumb: { width: 100, height: 80, borderRadius: 10 },
+  receiptUploadOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.4)", borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  receiptRemoveBtn: { position: "absolute", top: -8, right: -8, backgroundColor: "#fff", borderRadius: 12 },
+  // Receipt photo — cost row
+  receiptRowBtn: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6 },
+  receiptRowThumb: { width: 36, height: 28, borderRadius: 5 },
+  // Full-screen receipt viewer
+  viewerOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.92)", alignItems: "center", justifyContent: "center" },
+  viewerImage: { width: "100%", height: "85%" },
+  viewerClose: { position: "absolute", top: 52, right: 20, zIndex: 10, padding: 6 },
 });
+
+/** Builds the absolute URL for a protected receipt object path. Mirrors the
+ *  pattern used in EventVaultPanel so expo-image can load it on native. */
+const receiptImgUrl = (objectPath: string): string =>
+  /^https?:\/\//i.test(objectPath) ? objectPath : `${API_BASE}/api/storage${objectPath}`;

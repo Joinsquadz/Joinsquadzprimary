@@ -298,8 +298,8 @@ type AppContextType = {
   toggleTask: (eventId: string, taskId: string) => Promise<void>;
   claimTask: (eventId: string, taskId: string) => Promise<void>;
   addTask: (eventId: string, title: string, category?: string) => Promise<{ error?: string }>;
-  addCost: (eventId: string, input: { description: string; amount: number; shares: CostShare[]; billDetails?: Cost["billDetails"] }, explicitVersion?: number) => Promise<{ error?: string }>;
-  updateCost: (eventId: string, costId: string, input: { description: string; amount: number; shares: CostShare[]; billDetails?: Cost["billDetails"] }, explicitVersion?: number) => Promise<{ error?: string; conflict?: boolean }>;
+  addCost: (eventId: string, input: { description: string; amount: number; shares: CostShare[]; billDetails?: Cost["billDetails"]; receiptUrl?: string | null }, explicitVersion?: number) => Promise<{ error?: string }>;
+  updateCost: (eventId: string, costId: string, input: { description: string; amount: number; shares: CostShare[]; billDetails?: Cost["billDetails"]; receiptUrl?: string | null }, explicitVersion?: number) => Promise<{ error?: string; conflict?: boolean }>;
   deleteCost: (eventId: string, costId: string, explicitVersion?: number) => Promise<{ error?: string; conflict?: boolean }>;
   markSharePaid: (eventId: string, costId: string, paid: boolean, explicitVersion?: number) => void;
   confirmShare: (eventId: string, costId: string, debtorId: string, confirmed: boolean, explicitVersion?: number) => void;
@@ -2020,7 +2020,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   const addCost = useCallback(
-    async (eventId: string, input: { description: string; amount: number; shares: CostShare[]; billDetails?: Cost["billDetails"] }, explicitVersion?: number): Promise<{ error?: string }> => {
+    async (eventId: string, input: { description: string; amount: number; shares: CostShare[]; billDetails?: Cost["billDetails"]; receiptUrl?: string | null }, explicitVersion?: number): Promise<{ error?: string }> => {
       const hasInvalid = input.shares.some((s) => s.amount < 0);
       const assigned = input.shares.reduce((sum, s) => sum + s.amount, 0);
       if (input.amount <= 0 || hasInvalid || Math.abs(input.amount - assigned) >= 0.01)
@@ -2035,6 +2035,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         paidById: userId,
         shares: input.shares,
         billDetails: input.billDetails,
+        ...(input.receiptUrl != null ? { receiptUrl: input.receiptUrl } : {}),
       };
       // Optimistic update
       setEvents((prev) =>
@@ -2089,7 +2090,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     async (
       eventId: string,
       costId: string,
-      input: { description: string; amount: number; shares: CostShare[]; billDetails?: Cost["billDetails"] },
+      input: { description: string; amount: number; shares: CostShare[]; billDetails?: Cost["billDetails"]; receiptUrl?: string | null },
       explicitVersion?: number,
     ): Promise<{ error?: string; conflict?: boolean }> => {
       const hasInvalid = input.shares.some((s) => s.amount < 0);
@@ -2112,7 +2113,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 costs: e.costs.map((c) =>
                   c.id !== costId
                     ? c
-                    : { ...c, description: input.description, amount: input.amount, shares: input.shares, billDetails: input.billDetails },
+                    : { ...c, description: input.description, amount: input.amount, shares: input.shares, billDetails: input.billDetails, receiptUrl: input.receiptUrl ?? null },
                 ),
               },
         ),

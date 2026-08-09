@@ -1947,6 +1947,35 @@ export class Storage {
    * current squad members. Without this, the /storage/objects/* route 403s
    * moment media for everyone (author included) → black screen / video error.
    */
+  /**
+   * Whether `userId` may load the image behind a cost receipt's stored object
+   * path. Delegates to the canonical `canUserAccessEventRecord` visibility rule
+   * so receipt access stays in sync with plan access and can never drift.
+   * Fails closed for unknown paths (no event references this objectPath).
+   */
+  async canUserViewReceiptMedia(objectPath: string, userId: string): Promise<boolean> {
+    // Use a text-search filter to quickly narrow down events that might contain
+    // this path in their costs JSON, then verify with an exact match.
+    const rows = await db
+      .select()
+      .from(eventsTable)
+      .where(sql`${eventsTable.costs}::text LIKE ${"%" + objectPath + "%"}`);
+
+    for (const event of rows) {
+      const costs = (event.costs ?? []) as Array<{ receiptUrl?: string | null }>;
+      const referenced = costs.some((c) => c.receiptUrl === objectPath);
+      if (!referenced) continue; // text-match coincidence, skip
+
+      const canAccess = await canUserAccessEventRecord(
+        event,
+        userId,
+        (squadId) => this.squadMemberIds(squadId),
+      );
+      if (canAccess) return true;
+    }
+    return false;
+  }
+
   async canUserViewMomentMedia(objectPath: string, userId: string): Promise<boolean> {
     const moments = await db
       .select({ authorId: momentsTable.authorId, audience: momentsTable.audience })

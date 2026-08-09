@@ -1,17 +1,62 @@
 /**
- * Re-exports shared cent-exact money helpers from the @workspace/cost-math
- * package so mobile screens and tests import from a single local path.
+ * Cent-exact money utilities for the mobile app.
+ *
+ * The canonical implementations live in `lib/cost-math` (used by the
+ * api-server via `@workspace/cost-math`). This file re-implements the same
+ * functions inline so the mobile bundle stays self-contained — Expo's bundler
+ * doesn't need to resolve the workspace package, and there is no separate
+ * build step. Any change here must be mirrored in `lib/cost-math/src/index.ts`
+ * (and vice versa) to keep client and server in sync.
  */
-export {
-  toCents,
-  fromCents,
-  isWholeCent,
-  calculateBillTotal,
-  computeEvenShares,
-  isValidCostAmounts,
-} from "@workspace/cost-math";
 
-import { toCents, fromCents } from "@workspace/cost-math";
+export const toCents = (amount: number): number => Math.round(amount * 100);
+export const fromCents = (cents: number): number => cents / 100;
+
+/**
+ * True when `amount` is exactly representable in cents. Compares against the
+ * 2-decimal rendering rather than `amount * 100`, because values like 10.05
+ * multiply to 1004.9999999999999 in binary floating point.
+ */
+export const isWholeCent = (amount: number): boolean =>
+  Number.isFinite(amount) && Number(amount.toFixed(2)) === amount;
+
+export type BillDetailsInput = {
+  baseAmount?: number;
+  taxAmount?: number;
+  tipAmount?: number;
+  /** Percentage expressed as a number 0–1000 (e.g. 20 = 20%). */
+  tipPercent?: number;
+  feeAmount?: number;
+};
+
+/** Returns a cent-exact total. Percentage tips are calculated from base + tax. */
+export function calculateBillTotal(details: BillDetailsInput): number {
+  const base = toCents(details.baseAmount ?? 0);
+  const tax = toCents(details.taxAmount ?? 0);
+  const fee = toCents(details.feeAmount ?? 0);
+  const tip =
+    details.tipPercent !== undefined
+      ? Math.round((base + tax) * (details.tipPercent / 100))
+      : toCents(details.tipAmount ?? 0);
+  return fromCents(base + tax + tip + fee);
+}
+
+/** Penny-accurate even split. Extra cents are assigned in participant order. */
+export function computeEvenShares(
+  total: number,
+  participantIds: string[],
+): Record<string, string> {
+  const shares: Record<string, string> = {};
+  const totalCents = toCents(total);
+  if (totalCents > 0 && participantIds.length > 0) {
+    const each = Math.floor(totalCents / participantIds.length);
+    const remainder = totalCents % participantIds.length;
+    participantIds.forEach((id, index) => {
+      shares[id] = fromCents(each + (index < remainder ? 1 : 0)).toFixed(2);
+    });
+  }
+  return shares;
+}
 
 /**
  * Distributes `total` proportionally according to share weights.
@@ -51,4 +96,39 @@ export function computeWeightedShares(
     result[id] = fromCents(flooredCents[i] + bonusCents[i]).toFixed(2);
   });
   return result;
+}
+
+type BillDetails = {
+  baseAmount?: number;
+  taxAmount?: number;
+  tipAmount?: number;
+  tipPercent?: number;
+  feeAmount?: number;
+};
+
+/**
+ * Validates that the total amount, per-share amounts, and optional bill
+ * breakdown are mutually consistent and whole-cent. Mirrors the server-side
+ * check in `lib/cost-math` so the client can surface errors locally before
+ * submitting.
+ */
+export function isValidCostAmounts(
+  amount: number,
+  shares: Array<{ amount: number }>,
+  billDetails?: BillDetails,
+): boolean {
+  if (!isWholeCent(amount) || amount <= 0) return false;
+  if (shares.some((share) => !isWholeCent(share.amount) || share.amount < 0)) return false;
+  if (shares.reduce((sum, share) => sum + toCents(share.amount), 0) !== toCents(amount)) return false;
+  if (!billDetails) return true;
+  const { baseAmount = 0, taxAmount = 0, tipAmount, tipPercent, feeAmount = 0 } = billDetails;
+  if (![baseAmount, taxAmount, feeAmount].every((v) => isWholeCent(v) && v >= 0)) return false;
+  if (tipAmount !== undefined && (!isWholeCent(tipAmount) || tipAmount < 0)) return false;
+  if (tipPercent !== undefined && (!Number.isFinite(tipPercent) || tipPercent < 0 || tipPercent > 1000)) return false;
+  if (tipAmount !== undefined && tipPercent !== undefined) return false;
+  const tip =
+    tipPercent !== undefined
+      ? Math.round((toCents(baseAmount) + toCents(taxAmount)) * (tipPercent / 100))
+      : toCents(tipAmount ?? 0);
+  return toCents(amount) === toCents(baseAmount) + toCents(taxAmount) + tip + toCents(feeAmount);
 }
