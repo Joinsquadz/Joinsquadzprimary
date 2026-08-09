@@ -215,6 +215,10 @@ export type NewEventInput = {
   /** Whether the automated 3-day-out reminder should be sent for this event.
    *  Defaults to true on the server; only send explicitly when the user opts out. */
   remind3DaysToggle?: boolean;
+  /** The "Find the Best Time" poll this plan came from. The server claims the
+   *  poll's conversion inside the create transaction, so a double-tap can't
+   *  turn one poll into two plans. */
+  sourcePollId?: string;
 };
 
 export type ConflictSnapshot = {
@@ -1687,6 +1691,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         : {}),
       ...(input.timezone ? { timezone: input.timezone } : {}),
       ...(input.remind3DaysToggle === false ? { remind3DaysToggle: false } : {}),
+      ...(input.sourcePollId ? { sourcePollId: input.sourcePollId } : {}),
     };
 
     let res: Response;

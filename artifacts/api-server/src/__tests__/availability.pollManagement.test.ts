@@ -7,7 +7,7 @@ const storageMock = vi.hoisted(() => ({
   listAvailabilityPolls: vi.fn(),
   countResponsesForPolls: vi.fn(),
   deleteAvailabilityPoll: vi.fn(),
-  markAvailabilityPollConverted: vi.fn(),
+  claimAvailabilityPollConversion: vi.fn(),
   getSquad: vi.fn(),
 }));
 
@@ -149,7 +149,7 @@ describe("POST /api/availability/polls/:id/convert", () => {
       .post("/api/availability/polls/poll-1/convert")
       .send({ eventId: "event-9" });
     expect(res.status).toBe(403);
-    expect(storageMock.markAvailabilityPollConverted).not.toHaveBeenCalled();
+    expect(storageMock.claimAvailabilityPollConversion).not.toHaveBeenCalled();
   });
 
   it("returns 400 when eventId is missing", async () => {
@@ -161,13 +161,32 @@ describe("POST /api/availability/polls/:id/convert", () => {
 
   it("marks the poll converted when the creator supplies an eventId", async () => {
     storageMock.getAvailabilityPoll.mockResolvedValue(squadPoll);
-    storageMock.markAvailabilityPollConverted.mockResolvedValue(undefined);
+    storageMock.claimAvailabilityPollConversion.mockResolvedValue({
+      claimed: true,
+      convertedEventId: "event-9",
+    });
     const app = await makeApp({ id: CREATOR_ID });
     const res = await request(app)
       .post("/api/availability/polls/poll-1/convert")
       .send({ eventId: "event-9" });
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ ok: true, convertedEventId: "event-9" });
-    expect(storageMock.markAvailabilityPollConverted).toHaveBeenCalledWith("poll-1", "event-9");
+    expect(storageMock.claimAvailabilityPollConversion).toHaveBeenCalledWith("poll-1", "event-9");
+  });
+
+  it("returns 409 with the winning event when the poll was already converted to a different plan", async () => {
+    // Exactly-once: the second plan must not be able to re-point the poll at
+    // itself — the client is told which plan actually won.
+    storageMock.getAvailabilityPoll.mockResolvedValue(squadPoll);
+    storageMock.claimAvailabilityPollConversion.mockResolvedValue({
+      claimed: false,
+      convertedEventId: "event-first",
+    });
+    const app = await makeApp({ id: CREATOR_ID });
+    const res = await request(app)
+      .post("/api/availability/polls/poll-1/convert")
+      .send({ eventId: "event-second" });
+    expect(res.status).toBe(409);
+    expect(res.body).toMatchObject({ alreadyConverted: true, convertedEventId: "event-first" });
   });
 });

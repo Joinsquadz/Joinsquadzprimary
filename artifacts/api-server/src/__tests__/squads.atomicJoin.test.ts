@@ -97,8 +97,10 @@ describe("POST /api/squads/:id/join — atomic membership guard", () => {
   });
 
   it("returns 200 and alreadyMember:true when the DB update matches 0 rows (concurrent join already added this user)", async () => {
-    // Simulate the atomic WHERE NOT @> guard firing: 0 rows returned.
-    mockSelectQueue.queue = [[PUBLIC_SQUAD]];
+    // Simulate the atomic WHERE NOT @> guard firing: 0 rows returned. The
+    // second queue entry is the route's re-read, which confirms the squad
+    // still exists (so this is "already a member", not a torn-down squad).
+    mockSelectQueue.queue = [[PUBLIC_SQUAD], [PUBLIC_SQUAD]];
     mockUpdateRows.value = [];
 
     const app = makeApp({ id: USER_A });
@@ -153,7 +155,9 @@ describe("POST /api/squads/join-via-code — atomic membership guard", () => {
   });
 
   it("returns 200 and alreadyMember:true when the DB update matches 0 rows (already a member)", async () => {
-    mockSelectQueue.queue = [[PUBLIC_SQUAD]];
+    // Second entry: the 0-row path re-reads the squad to distinguish
+    // "already a member" from "squad was torn down mid-join".
+    mockSelectQueue.queue = [[PUBLIC_SQUAD], [PUBLIC_SQUAD]];
     mockUpdateRows.value = [];
 
     const app = makeApp({ id: USER_B });

@@ -533,7 +533,18 @@ const ConvertPollBody = z.object({ eventId: z.string().min(1).max(120) });
  * POST /api/availability/polls/:id/convert
  * Mark a poll as "locked in" — it became the event/trip identified by eventId.
  * Only the poll creator may call this. A converted poll drops out of the
- * New/Existing chooser. Idempotent: re-converting just re-stamps the id.
+ * New/Existing chooser.
+ *
+ * Exactly-once: the stamp is a compare-and-swap against a NULL
+ * converted_event_id. Re-sending the SAME event id succeeds (idempotent
+ * retry); a DIFFERENT event id means this poll already became another plan, so
+ * we refuse with 409 and hand back the winning event id rather than silently
+ * re-pointing the poll at a duplicate.
+ *
+ * Note: plans created FROM a poll claim it inside the event-creation
+ * transaction (`sourcePollId` on POST /events), which is what prevents the
+ * duplicate event from existing at all. This route covers the case where the
+ * event already exists (an event-scoped poll picking its own event's time).
  */
 router.post("/availability/polls/:id/convert", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
@@ -552,8 +563,16 @@ router.post("/availability/polls/:id/convert", requireAuth, async (req: Request,
       res.status(400).json({ error: parsed.error.message });
       return;
     }
-    await storage.markAvailabilityPollConverted(poll.id, parsed.data.eventId);
-    res.json({ ok: true, convertedEventId: parsed.data.eventId });
+    const claim = await storage.claimAvailabilityPollConversion(poll.id, parsed.data.eventId);
+    if (!claim.claimed) {
+      res.status(409).json({
+        error: "This poll has already been turned into a plan.",
+        convertedEventId: claim.convertedEventId,
+        alreadyConverted: true,
+      });
+      return;
+    }
+    res.json({ ok: true, convertedEventId: claim.convertedEventId });
   } catch (err) {
     logger.error({ err }, "Error converting availability poll");
     res.status(500).json({ error: "Failed to convert poll" });
@@ -807,10 +826,14 @@ router.post("/availability/polls/:id/nudge", requireAuth, async (req: Request, r
       return;
     }
 
-    // Debounce: reject if a nudge was already sent recently.
-    const recent = await storage.getRecentNudge(pollId, userId, targetUserId, NUDGE_DEBOUNCE_MS);
-    if (recent) {
-      const retryAfterMs = NUDGE_DEBOUNCE_MS - (Date.now() - recent.sentAt.getTime());
+    // Debounce + record in one atomic upsert. Checking first and inserting
+    // second let two simultaneous taps both pass the check, and the second
+    // INSERT then violated the (poll, target) unique constraint — a 500 for
+    // what should be a 429. The upsert refreshes `sent_at` only once the window
+    // has elapsed, so the loser is told exactly how long is left.
+    const nudge = await storage.createNudge(pollId, userId, targetUserId, NUDGE_DEBOUNCE_MS);
+    if (!nudge.applied) {
+      const retryAfterMs = Math.max(0, NUDGE_DEBOUNCE_MS - (Date.now() - nudge.sentAt.getTime()));
       const retryAfterSec = Math.ceil(retryAfterMs / 1000);
       res.status(429).json({
         error: "Nudge sent too recently — please wait a few minutes before nudging again",
@@ -819,8 +842,6 @@ router.post("/availability/polls/:id/nudge", requireAuth, async (req: Request, r
       });
       return;
     }
-
-    await storage.createNudge(pollId, userId, targetUserId);
 
     // Look up the sender's name for a friendlier response message.
     const [sender] = await storage.getUsers([userId]);

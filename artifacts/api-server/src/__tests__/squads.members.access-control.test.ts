@@ -45,7 +45,17 @@ vi.mock("@workspace/db", () => ({
         delete: () => ({ where: () => Promise.resolve() }),
         // purgeSquadData: squad-events lookup + photo unshare inside the tx.
         select: () => ({ from: () => ({ where: () => Promise.resolve([]) }) }),
-        update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
+        // The teardown claim now runs inside the transaction and must win
+        // (return a row), otherwise the purge rolls back and the route retries.
+        update: () => ({
+          set: () => ({
+            where: () => {
+              const p = Promise.resolve() as Promise<unknown> & { returning?: unknown };
+              p.returning = () => Promise.resolve([{ id: "squad-1", memberIds: [] }]);
+              return p;
+            },
+          }),
+        }),
       };
       return fn(tx);
     },
@@ -333,6 +343,9 @@ describe("DELETE /api/squads/:id/members/:userId", () => {
   it("deletes the squad when the last member leaves", async () => {
     const squad = { ...baseSquad, memberIds: [CREATOR_ID] };
     mockSelectResults.value = [[squad]];
+    // The route claims the teardown with a version-guarded update first, so a
+    // concurrent join can't be wiped out along with the squad.
+    mockUpdateRows.value = [{ ...squad, memberIds: [] }];
     const app = makeApp({ id: CREATOR_ID });
     const res = await request(app).delete(
       `/api/squads/squad-1/members/${CREATOR_ID}`,

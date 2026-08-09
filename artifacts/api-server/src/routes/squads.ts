@@ -172,7 +172,16 @@ router.post("/squads/:id/join", requireAuth, async (req: Request, res: Response)
   const [updated] = outcome.value;
 
   if (!updated) {
-    res.json({ squad, alreadyMember: true });
+    // Zero rows means one of two things: the NOT @> guard fired (already a
+    // member), or the squad's last member tore it down while this join waited
+    // on the row lock. Re-read to tell them apart — reporting a successful
+    // join into a squad that no longer exists strands the client on a ghost.
+    const [current] = await db.select().from(squadsTable).where(eq(squadsTable.id, id));
+    if (!current) {
+      res.status(404).json({ error: "Squad not found" });
+      return;
+    }
+    res.json({ squad: current, alreadyMember: true });
     return;
   }
   // W-01: Record membership history for DM eligibility (non-fatal).
@@ -291,7 +300,14 @@ router.post("/squads/join-via-code", requireAuth, async (req: Request, res: Resp
   const [updated] = outcome.value;
 
   if (!updated) {
-    res.json({ squad, alreadyMember: true });
+    // See /squads/:id/join — distinguish "already a member" from "the squad was
+    // torn down by its last member while this join waited on the row lock".
+    const [current] = await db.select().from(squadsTable).where(eq(squadsTable.id, squad.id));
+    if (!current) {
+      res.status(404).json({ error: "Squad not found" });
+      return;
+    }
+    res.json({ squad: current, alreadyMember: true });
     return;
   }
   // W-01: Record membership history for DM eligibility (non-fatal).
@@ -1139,74 +1155,143 @@ router.post("/squads/:id/members", requireAuth, async (req: Request, res: Respon
   })();
 });
 
+/**
+ * Thrown inside the last-member teardown transaction when the version claim is
+ * lost, so the whole transaction (including the purge) rolls back and the
+ * removal loop can retry against fresh state.
+ */
+class SquadTeardownRaceError extends Error {
+  constructor() {
+    super("Squad changed while claiming teardown");
+    this.name = "SquadTeardownRaceError";
+  }
+}
+
 router.delete("/squads/:id/members/:userId", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const id = parseId(req.params.id);
   const targetUserId = parseId(req.params.userId);
   const requesterId = (req.user as { id: string }).id;
-  const [squad] = await db.select().from(squadsTable).where(eq(squadsTable.id, id));
-  if (!squad) {
-    res.status(404).json({ error: "Squad not found" });
-    return;
-  }
-  const memberIds = (squad.memberIds ?? []) as string[];
-  if (!memberIds.includes(requesterId)) {
-    res.status(403).json({ error: "Access denied" });
-    return;
-  }
-  const isCreator = squad.creatorId === requesterId;
-  const isManager = canManageSquad(squad, requesterId);
-  const isSelf = requesterId === targetUserId;
-  if (!isManager && !isSelf) {
-    res.status(403).json({ error: "Only the squad creator, a co-admin, or the member themselves can remove a member." });
-    return;
-  }
-  if (!memberIds.includes(targetUserId)) {
-    res.status(404).json({ error: "User is not in this squad." });
-    return;
-  }
-  if (isManager && targetUserId === squad.creatorId && !isSelf) {
-    res.status(400).json({ error: "The creator cannot be removed. Transfer ownership or delete the squad instead." });
-    return;
-  }
-  // A co-admin (who isn't the creator) cannot remove another co-admin — managing
-  // co-admins is reserved for the creator.
-  const targetIsCoAdmin = ((squad.coAdminIds ?? []) as string[]).includes(targetUserId);
-  if (isManager && !isCreator && targetIsCoAdmin && !isSelf) {
-    res.status(403).json({ error: "Only the squad creator can remove a co-admin." });
-    return;
-  }
-  const updatedMemberIds = memberIds.filter((uid) => uid !== targetUserId);
 
-  // Last member is leaving — delete the squad outright. Otherwise it would
-  // become an orphan: only the creatorId may delete a squad, so a creator who
-  // leaves as the final member would strand an empty, undeletable shell.
-  if (updatedMemberIds.length === 0) {
-    await db.transaction(async (tx) => {
-      await purgeSquadData(tx, id);
-      await tx.delete(squadsTable).where(eq(squadsTable.id, id));
-      await tx.delete(squadMutesTable).where(eq(squadMutesTable.squadId, id));
+  // Removal used to be a read-filter-write: read memberIds, drop the target,
+  // write the whole array back unconditionally. Two removals (or a removal and
+  // a join) landing together each wrote their own stale snapshot, so one of the
+  // changes silently reappeared — a removed member came back, or a new joiner
+  // vanished. Each attempt below re-reads the row and writes under a version
+  // guard, so a loser retries against fresh state instead of clobbering it.
+  // Bumping the version also invalidates any in-flight stale PATCH.
+  const MAX_ATTEMPTS = 4;
+  let squad: typeof squadsTable.$inferSelect | undefined;
+  let memberIds: string[] = [];
+  let updatedMemberIds: string[] = [];
+  let updatedSquad: typeof squadsTable.$inferSelect | undefined;
+  let isSelf = false;
+  let nextCreatorId: string | null | undefined;
+  let settled = false;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS && !settled; attempt++) {
+    [squad] = await db.select().from(squadsTable).where(eq(squadsTable.id, id));
+    if (!squad) {
+      res.status(404).json({ error: "Squad not found" });
+      return;
+    }
+    memberIds = (squad.memberIds ?? []) as string[];
+    if (!memberIds.includes(requesterId)) {
+      res.status(403).json({ error: "Access denied" });
+      return;
+    }
+    const isCreator = squad.creatorId === requesterId;
+    const isManager = canManageSquad(squad, requesterId);
+    isSelf = requesterId === targetUserId;
+    if (!isManager && !isSelf) {
+      res.status(403).json({ error: "Only the squad creator, a co-admin, or the member themselves can remove a member." });
+      return;
+    }
+    if (!memberIds.includes(targetUserId)) {
+      res.status(404).json({ error: "User is not in this squad." });
+      return;
+    }
+    if (isManager && targetUserId === squad.creatorId && !isSelf) {
+      res.status(400).json({ error: "The creator cannot be removed. Transfer ownership or delete the squad instead." });
+      return;
+    }
+    // A co-admin (who isn't the creator) cannot remove another co-admin — managing
+    // co-admins is reserved for the creator.
+    const targetIsCoAdmin = ((squad.coAdminIds ?? []) as string[]).includes(targetUserId);
+    if (isManager && !isCreator && targetIsCoAdmin && !isSelf) {
+      res.status(403).json({ error: "Only the squad creator can remove a co-admin." });
+      return;
+    }
+    updatedMemberIds = memberIds.filter((uid) => uid !== targetUserId);
+
+    // Last member is leaving — delete the squad outright. Otherwise it would
+    // become an orphan: only the creatorId may delete a squad, so a creator who
+    // leaves as the final member would strand an empty, undeletable shell.
+    if (updatedMemberIds.length === 0) {
+      // The claim, the purge and the delete MUST share one transaction. The
+      // version-guarded UPDATE takes the squad's row lock and holds it until
+      // commit, which is what actually blocks a concurrent join: the join's
+      // `member_ids || …` UPDATE waits on that lock, then re-evaluates its
+      // WHERE against the committed state and matches zero rows because the
+      // squad is gone. Claiming in a separate autocommit statement left a
+      // window where a join could commit between the claim and the delete —
+      // the new member's squad would then be purged out from under them.
+      // Losing the CAS aborts the transaction, so the purge never runs.
+      let claimLost = false;
+      try {
+        await db.transaction(async (tx) => {
+          const [claimed] = await tx
+            .update(squadsTable)
+            .set({ memberIds: [], version: sql`${squadsTable.version} + 1` })
+            .where(and(eq(squadsTable.id, id), eq(squadsTable.version, squad!.version)))
+            .returning();
+          if (!claimed) throw new SquadTeardownRaceError();
+          await purgeSquadData(tx, id);
+          await tx.delete(squadsTable).where(eq(squadsTable.id, id));
+          await tx.delete(squadMutesTable).where(eq(squadMutesTable.squadId, id));
+        });
+      } catch (err) {
+        if (!(err instanceof SquadTeardownRaceError)) throw err;
+        claimLost = true;
+      }
+      if (claimLost) continue; // someone else changed the squad — re-read and retry
+      res.json({ deleted: true });
+      emitSquadUpdate(id);
+      return;
+    }
+
+    // Ownership transfer: when the (effective) creator leaves but members remain,
+    // hand the squad to the longest-standing remaining member. memberIds are kept
+    // in join order, so the first remaining entry is the earliest joiner. This
+    // also backfills creatorId on legacy squads where it was never set (mirrors
+    // the client's `creatorId ?? memberIds[0]` fallback).
+    const effectiveCreatorId = squad.creatorId ?? memberIds[0] ?? null;
+    nextCreatorId =
+      effectiveCreatorId != null && targetUserId === effectiveCreatorId
+        ? updatedMemberIds[0]
+        : squad.creatorId;
+
+    [updatedSquad] = await db
+      .update(squadsTable)
+      .set({
+        memberIds: updatedMemberIds,
+        creatorId: nextCreatorId,
+        version: sql`${squadsTable.version} + 1`,
+      })
+      .where(and(eq(squadsTable.id, id), eq(squadsTable.version, squad.version)))
+      .returning();
+    if (updatedSquad) settled = true;
+  }
+
+  if (!settled || !squad) {
+    // Lost the compare-and-swap every attempt: the squad is being edited hard
+    // right now. Better to ask the caller to retry than to force a write that
+    // would erase whatever those concurrent edits did.
+    res.status(409).json({
+      error: "This squad was just updated by someone else. Please try again.",
+      conflict: true,
     });
-    res.json({ deleted: true });
-    emitSquadUpdate(id);
     return;
   }
-
-  // Ownership transfer: when the (effective) creator leaves but members remain,
-  // hand the squad to the longest-standing remaining member. memberIds are kept
-  // in join order, so the first remaining entry is the earliest joiner. This
-  // also backfills creatorId on legacy squads where it was never set (mirrors
-  // the client's `creatorId ?? memberIds[0]` fallback).
-  const effectiveCreatorId = squad.creatorId ?? memberIds[0] ?? null;
-  const nextCreatorId =
-    effectiveCreatorId != null && targetUserId === effectiveCreatorId
-      ? updatedMemberIds[0]
-      : squad.creatorId;
-
-  const [updatedSquad] = await db
-    .update(squadsTable)
-    .set({ memberIds: updatedMemberIds, creatorId: nextCreatorId })
-    .where(eq(squadsTable.id, id))
-    .returning();
 
   // Clean up any stale mute row for the removed user so orphaned rows
   // don't accumulate and don't cause confusion on re-join.

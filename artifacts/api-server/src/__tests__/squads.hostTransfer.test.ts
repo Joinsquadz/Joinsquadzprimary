@@ -52,7 +52,10 @@ vi.mock("@workspace/db", () => ({
       update: () => ({
         set: () => ({
           where: () => ({
-            returning: () => Promise.resolve([]),
+            // The teardown claim now lives INSIDE the transaction: it must
+            // report a won row, or the route treats it as a lost race,
+            // rolls the purge back and retries.
+            returning: () => Promise.resolve([{ id: "squad-1", memberIds: [] }]),
           }),
         }),
       }),
@@ -179,7 +182,9 @@ describe("B8 — squad deleted when sole member leaves", () => {
   it("deletes the squad when the last member removes themselves (200 with deleted:true)", async () => {
     const squad = makeSquad([HOST_ID], HOST_ID);
     mockSquadRows.value = [squad];
-    mockUpdatedSquadRows.value = [];
+    // Teardown is now claimed with a version-guarded update before the purge
+    // transaction runs, so the update must report the row it won.
+    mockUpdatedSquadRows.value = [{ ...squad, memberIds: [] }];
 
     const res = await request(makeApp(HOST_ID))
       .delete(`/api/squads/squad-1/members/${HOST_ID}`);

@@ -316,6 +316,7 @@ export default function CreateEventScreen() {
           squadId: selectedSquad, isPublic,
           type: "trip", startAt: startISO, endAt: endISO, allDay, coverStyle,
           invitedUserIds, timezone: deviceTimezone,
+          ...(prefill.prefillPollId ? { sourcePollId: prefill.prefillPollId } : {}),
         });
         // Templates are a Squadz+ feature: only materialize their stops for pro
         // users. This re-checks entitlement server-trust-free at create time so
@@ -344,6 +345,7 @@ export default function CreateEventScreen() {
           location: location.trim(),
           description: description.trim(), squadId: selectedSquad,
           isPublic, invitedUserIds, timezone: deviceTimezone,
+          ...(prefill.prefillPollId ? { sourcePollId: prefill.prefillPollId } : {}),
         });
       }
       fetch(`${API_BASE}/api/events/count`, { headers: authHeaders() })
@@ -356,15 +358,10 @@ export default function CreateEventScreen() {
           }
         })
         .catch(() => {});
-      // If this event/trip was created from a "Find the Best Time" poll, mark the
-      // poll converted so it drops out of the squad/personal "Existing" lists.
-      if (prefill.prefillPollId && id) {
-        fetch(`${API_BASE}/api/availability/polls/${prefill.prefillPollId}/convert`, {
-          method: "POST",
-          headers: authHeaders(),
-          body: JSON.stringify({ eventId: id }),
-        }).catch(() => {});
-      }
+      // Note: when this plan came from a "Find the Best Time" poll, the poll is
+      // claimed by the server inside the create transaction (sourcePollId above),
+      // not with a follow-up /convert call. Converting afterwards could only
+      // re-stamp the poll — by then a double-tap had already made two plans.
       const beat = { id, kind: kind === "trip" ? ("trip" as const) : ("event" as const), title: title.trim(), emoji: selectedEmoji };
       resetForm();
       setCreatedBeat(beat);

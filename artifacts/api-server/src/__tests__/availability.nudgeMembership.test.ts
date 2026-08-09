@@ -6,7 +6,6 @@ const storageMock = vi.hoisted(() => ({
   getAvailabilityResponses: vi.fn(),
   getSquad: vi.fn(),
   getEvent: vi.fn(),
-  getRecentNudge: vi.fn(),
   createNudge: vi.fn(),
   getUsers: vi.fn(),
   getPushTokensForUsers: vi.fn(),
@@ -37,8 +36,9 @@ beforeEach(() => {
   storageMock.getAvailabilityPoll.mockResolvedValue(squadPoll);
   storageMock.getAvailabilityResponses.mockResolvedValue([]);
   storageMock.getSquad.mockResolvedValue({ id: "squad-1", memberIds: [CREATOR, MEMBER] });
-  storageMock.getRecentNudge.mockResolvedValue(null);
-  storageMock.createNudge.mockResolvedValue(undefined);
+  // createNudge now enforces the debounce window itself (atomic upsert) and
+  // reports whether this caller's nudge actually landed.
+  storageMock.createNudge.mockResolvedValue({ applied: true, sentAt: new Date() });
   storageMock.getUsers.mockResolvedValue([{ id: CREATOR, firstName: "Cara" }]);
   storageMock.getPushTokensForUsers.mockResolvedValue([]);
 });
@@ -59,7 +59,7 @@ describe("POST /api/availability/polls/:id/nudge — participant membership", ()
       .post("/api/availability/polls/poll-1/nudge")
       .send({ targetUserId: MEMBER });
     expect(res.status).toBe(200);
-    expect(storageMock.createNudge).toHaveBeenCalledWith("poll-1", CREATOR, MEMBER);
+    expect(storageMock.createNudge).toHaveBeenCalledWith("poll-1", CREATOR, MEMBER, expect.any(Number));
   });
 
   it("returns 403 when a non-creator attempts to nudge", async () => {
@@ -94,7 +94,24 @@ describe("POST /api/availability/polls/:id/nudge — event-scoped participants",
       .post("/api/availability/polls/poll-evt/nudge")
       .send({ targetUserId: RSVP_USER });
     expect(res.status).toBe(200);
-    expect(storageMock.createNudge).toHaveBeenCalledWith("poll-evt", CREATOR, RSVP_USER);
+    expect(storageMock.createNudge).toHaveBeenCalledWith("poll-evt", CREATOR, RSVP_USER, expect.any(Number));
+  });
+
+  it("returns 429 with a retry hint when the atomic upsert rejects a nudge inside the debounce window", async () => {
+    // The debounce decision belongs to the single upsert now: when it reports
+    // `applied: false` the route must translate that into a 429, not a 500 from
+    // the (poll, target) unique constraint.
+    storageMock.createNudge.mockResolvedValue({
+      applied: false,
+      sentAt: new Date(Date.now() - 60_000),
+    });
+    const app = await makeApp({ id: CREATOR });
+    const res = await request(app)
+      .post("/api/availability/polls/poll-evt/nudge")
+      .send({ targetUserId: RSVP_USER });
+    expect(res.status).toBe(429);
+    expect(res.body.debounced).toBe(true);
+    expect(res.body.retryAfterSec).toBeGreaterThan(0);
   });
 
   it("allows nudging a member of the event's squad", async () => {

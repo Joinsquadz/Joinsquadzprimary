@@ -13,6 +13,12 @@ route/source changes — `tsconfig.json` `include`s `vitest.config.ts` while `ro
 `pnpm --filter @workspace/api-server run test` (vitest compiles+runs the TS). Don't chase the
 vitest.config rootDir error when validating source edits — it's orthogonal.
 
+**Real-DB concurrency suite:** `pnpm --filter @workspace/api-server run test:concurrency` boots a
+throwaway local Postgres and is separate from the unit suite. It has known-failing sections that are
+NOT caused by your change (concurrent cost adds and concurrent poll votes both expect 1 success /
+N-1 conflicts and currently get 0 successes). Establish the baseline before debugging: `git stash`,
+re-run, compare, `git stash pop`. Don't assume a red test in this suite is yours.
+
 **Also:** the running dev API server does NOT always hot-pick newly added routes. After adding a
 route, restart the `artifacts/api-server: API Server` workflow, then a curl to the new path returns
 401 (auth) rather than "Cannot POST" if it's correctly registered.

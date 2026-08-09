@@ -130,7 +130,9 @@ describe("POST /api/squads/:id/join", () => {
   });
 
   it("returns 200 (idempotent) when the user is already a member", async () => {
-    mockSelectResults.value = [[publicSquad]];
+    // Second entry: the 0-row path re-reads the squad to distinguish
+    // "already a member" from "squad was torn down mid-join".
+    mockSelectResults.value = [[publicSquad], [publicSquad]];
     const app = makeApp({ id: MEMBER_ID });
     const res = await request(app).post("/api/squads/squad-public/join");
     expect(res.status).toBe(200);

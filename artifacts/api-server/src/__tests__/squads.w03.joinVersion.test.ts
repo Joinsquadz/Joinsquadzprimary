@@ -113,7 +113,9 @@ describe("W-03: join-by-id bumps squad version", () => {
   });
 
   it("returns 200 alreadyMember:true when update returns 0 rows (guard fired)", async () => {
-    mockSelectQueue.queue = [[BASE_SQUAD]];
+    // Second entry: the route re-reads the squad on the 0-row path to tell
+    // "already a member" apart from "the squad was just torn down".
+    mockSelectQueue.queue = [[BASE_SQUAD], [BASE_SQUAD]];
     mockUpdateRows.value = []; // WHERE NOT @> filtered out the update
 
     const res = await request(makeApp({ id: CREATOR })) // CREATOR is already a member

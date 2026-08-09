@@ -955,13 +955,38 @@ export class Storage {
     await db.delete(availabilityPollsTable).where(eq(availabilityPollsTable.id, pollId));
   }
 
-  /** Mark a poll converted into a concrete event/trip so it drops out of the
-   *  "Existing" chooser. */
-  async markAvailabilityPollConverted(pollId: string, eventId: string): Promise<void> {
-    await db
+  /**
+   * Claim a poll's conversion slot for `eventId` so it drops out of the
+   * "Existing" chooser.
+   *
+   * Exactly-once: the stamp only lands while `converted_event_id` IS NULL, so
+   * two concurrent "lock in this time" taps cannot both believe they created
+   * the poll's plan. The loser gets back the winner's event id and must show
+   * that plan instead of its own duplicate.
+   *
+   * Re-stamping with the SAME event id is treated as success (idempotent
+   * retry), so a client that retries a dropped response is not punished.
+   */
+  async claimAvailabilityPollConversion(
+    pollId: string,
+    eventId: string,
+  ): Promise<{ claimed: boolean; convertedEventId: string | null }> {
+    const [won] = await db
       .update(availabilityPollsTable)
       .set({ convertedEventId: eventId })
+      .where(
+        and(eq(availabilityPollsTable.id, pollId), isNull(availabilityPollsTable.convertedEventId)),
+      )
+      .returning({ convertedEventId: availabilityPollsTable.convertedEventId });
+    if (won) return { claimed: true, convertedEventId: eventId };
+
+    // Lost the race (or already converted earlier) — report the winning id.
+    const [existing] = await db
+      .select({ convertedEventId: availabilityPollsTable.convertedEventId })
+      .from(availabilityPollsTable)
       .where(eq(availabilityPollsTable.id, pollId));
+    const convertedEventId = existing?.convertedEventId ?? null;
+    return { claimed: convertedEventId === eventId, convertedEventId };
   }
 
   async getAvailabilityResponses(pollId: string): Promise<AvailabilityResponse[]> {
@@ -1034,11 +1059,51 @@ export class Storage {
     return row ?? null;
   }
 
-  /** Records a new nudge from `fromUserId` → `toUserId` in this poll. */
-  async createNudge(pollId: string, fromUserId: string, toUserId: string): Promise<void> {
-    await db
+  /**
+   * Record a nudge from `fromUserId` → `toUserId` in this poll, enforcing the
+   * debounce window in the same statement.
+   *
+   * The table carries a UNIQUE (poll_id, to_user_id) constraint, so a plain
+   * INSERT throws on every nudge after the first — the debounce window would
+   * expire and the next legitimate nudge would 500. This upserts instead, and
+   * only refreshes `sent_at` when the previous nudge is already older than the
+   * window. That makes the debounce atomic: two simultaneous taps produce one
+   * nudge and one 429, never a duplicate push or an unhandled unique violation.
+   *
+   * Returns `applied: false` with the existing `sentAt` when the window is
+   * still open, so the caller can compute an accurate retry-after.
+   */
+  async createNudge(
+    pollId: string,
+    fromUserId: string,
+    toUserId: string,
+    debounceMs: number,
+  ): Promise<{ applied: boolean; sentAt: Date }> {
+    const now = new Date();
+    const cutoff = new Date(now.getTime() - debounceMs);
+    const [row] = await db
       .insert(availabilityNudgesTable)
-      .values({ pollId, fromUserId, toUserId });
+      .values({ pollId, fromUserId, toUserId, sentAt: now })
+      .onConflictDoUpdate({
+        target: [availabilityNudgesTable.pollId, availabilityNudgesTable.toUserId],
+        set: { fromUserId, sentAt: now },
+        setWhere: lt(availabilityNudgesTable.sentAt, cutoff),
+      })
+      .returning({ sentAt: availabilityNudgesTable.sentAt });
+    if (row) return { applied: true, sentAt: row.sentAt };
+
+    // Conflict target matched but the setWhere guard rejected the update — the
+    // previous nudge is still inside the debounce window.
+    const [existing] = await db
+      .select({ sentAt: availabilityNudgesTable.sentAt })
+      .from(availabilityNudgesTable)
+      .where(
+        and(
+          eq(availabilityNudgesTable.pollId, pollId),
+          eq(availabilityNudgesTable.toUserId, toUserId),
+        ),
+      );
+    return { applied: false, sentAt: existing?.sentAt ?? now };
   }
 
   /** Returns the most recent time `toUserId` was nudged in this poll within

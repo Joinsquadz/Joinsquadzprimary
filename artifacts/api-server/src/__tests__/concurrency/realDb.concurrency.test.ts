@@ -45,6 +45,9 @@ let pgStarted = false;
 // Loaded dynamically AFTER the env is locked to the local cluster.
 let dbmod: typeof import("@workspace/db");
 let app: express.Express;
+// Also loaded dynamically after the env lock — used for the chat-access checks,
+// which live in storage rather than behind an HTTP route.
+let storage: typeof import("../../storage").storage;
 
 function getFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -62,7 +65,7 @@ function getFreePort(): Promise<number> {
 // Header-based auth shim: each supertest request carries `x-test-user`, so a
 // single app instance can act as many distinct concurrent users. requireAuth
 // only checks req.isAuthenticated(), which this satisfies.
-function buildApp(eventsRouter: Router, squadsRouter: Router): express.Express {
+function buildApp(...routers: Router[]): express.Express {
   const a = express();
   a.use(express.json());
   a.use((req: Request, _res: Response, next: NextFunction) => {
@@ -73,8 +76,7 @@ function buildApp(eventsRouter: Router, squadsRouter: Router): express.Express {
     if (uid) req.user = { id: uid } as Express.User;
     next();
   });
-  a.use("/api", eventsRouter);
-  a.use("/api", squadsRouter);
+  for (const r of routers) a.use("/api", r);
   a.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
     res.status(500).json({ error: err?.message ?? "Internal Server Error" });
   });
@@ -156,7 +158,9 @@ beforeAll(async () => {
   // 5) Build the app against the real handlers.
   const eventsRouter = (await import("../../routes/events")).default;
   const squadsRouter = (await import("../../routes/squads")).default;
-  app = buildApp(eventsRouter, squadsRouter);
+  const availabilityRouter = (await import("../../routes/availability")).default;
+  app = buildApp(eventsRouter, squadsRouter, availabilityRouter);
+  storage = (await import("../../storage")).storage;
 }, 120_000);
 
 afterAll(async () => {
@@ -606,5 +610,397 @@ describe("P1 — concurrent poll votes: only one write wins per version", () => 
 
     // Version must be exactly 1 — one CAS write won.
     expect(await eventVersion("evt-vote")).toBe(1);
+  });
+});
+
+// ── Seed helpers for the SECTION-5 fixes ─────────────────────────────────────
+
+async function seedPoll(
+  id: string,
+  createdBy: string,
+  scope: { squadId?: string; eventId?: string },
+): Promise<void> {
+  await dbmod.pool.query(
+    `INSERT INTO availability_polls (id, squad_id, event_id, created_by, days, slots)
+     VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb)`,
+    [
+      id,
+      scope.squadId ?? null,
+      scope.eventId ?? null,
+      createdBy,
+      JSON.stringify(["2026-12-30", "2026-12-31"]),
+      JSON.stringify(["6PM", "7PM"]),
+    ],
+  );
+}
+
+async function squadMemberIds(id: string): Promise<string[]> {
+  const { rows } = await dbmod.pool.query(`SELECT member_ids FROM squads WHERE id = $1`, [id]);
+  return (rows[0]?.member_ids ?? []) as string[];
+}
+
+async function squadExists(id: string): Promise<boolean> {
+  const { rows } = await dbmod.pool.query(`SELECT 1 FROM squads WHERE id = $1`, [id]);
+  return rows.length > 0;
+}
+
+async function nudgeRows(pollId: string): Promise<{ from_user_id: string; sent_at: Date }[]> {
+  const { rows } = await dbmod.pool.query(
+    `SELECT from_user_id, sent_at FROM availability_nudges WHERE poll_id = $1`,
+    [pollId],
+  );
+  return rows;
+}
+
+async function pollConvertedEventId(id: string): Promise<string | null> {
+  const { rows } = await dbmod.pool.query(
+    `SELECT converted_event_id FROM availability_polls WHERE id = $1`,
+    [id],
+  );
+  return rows[0]?.converted_event_id ?? null;
+}
+
+async function eventsForHost(hostId: string): Promise<string[]> {
+  const { rows } = await dbmod.pool.query(`SELECT id FROM events WHERE host_id = $1`, [hostId]);
+  return rows.map((r: { id: string }) => r.id);
+}
+
+// ── S1: concurrent member removals never resurrect a removed member ──────────
+//
+// The old route read memberIds, filtered out one id, and wrote the whole array
+// back unconditionally. Two managers removing two different members at the same
+// instant each wrote their own stale snapshot, so the second write silently
+// restored the member the first had just removed. The version-guarded CAS makes
+// the loser re-read and retry instead.
+
+describe("S1 — concurrent squad member removals don't lose each other", () => {
+  it("two simultaneous removals both stick (no resurrected member)", async () => {
+    const creator = "rm-creator";
+    const a = "rm-member-a";
+    const b = "rm-member-b";
+    const keep = "rm-member-keep";
+    await Promise.all([creator, a, b, keep].map(seedUser));
+    await dbmod.pool.query(
+      `INSERT INTO squads (id, name, creator_id, member_ids, is_public, invite_code)
+       VALUES ($1, $2, $3, $4::jsonb, false, $5)`,
+      ["sq-rm", "Removal Squad", creator, JSON.stringify([creator, a, b, keep]), "RMCODE1"],
+    );
+
+    const [resA, resB] = await Promise.all([
+      request(app).delete(`/api/squads/sq-rm/members/${a}`).set("x-test-user", creator),
+      request(app).delete(`/api/squads/sq-rm/members/${b}`).set("x-test-user", creator),
+    ]);
+
+    // Both are legitimate removals by the creator: both must succeed (the CAS
+    // retry absorbs the collision) — a 409 here would mean we gave up too early.
+    expect(resA.status).toBe(200);
+    expect(resB.status).toBe(200);
+
+    const members = await squadMemberIds("sq-rm");
+    expect(members).not.toContain(a);
+    expect(members).not.toContain(b);
+    expect(members).toEqual(expect.arrayContaining([creator, keep]));
+    expect(members).toHaveLength(2);
+  });
+
+  it("a removal racing a join keeps the joiner (no lost update)", async () => {
+    const creator = "rmj-creator";
+    const target = "rmj-target";
+    const joiner = "rmj-joiner";
+    await Promise.all([creator, target, joiner].map(seedUser));
+    await dbmod.pool.query(
+      `INSERT INTO squads (id, name, creator_id, member_ids, is_public, invite_code)
+       VALUES ($1, $2, $3, $4::jsonb, true, $5)`,
+      ["sq-rmj", "Race Squad", creator, JSON.stringify([creator, target]), "RMJCODE1"],
+    );
+
+    const [removal, join] = await Promise.all([
+      request(app).delete(`/api/squads/sq-rmj/members/${target}`).set("x-test-user", creator),
+      request(app).post("/api/squads/sq-rmj/join").set("x-test-user", joiner).send({}),
+    ]);
+
+    expect(removal.status).toBe(200);
+    expect(join.status).toBe(201);
+
+    const members = await squadMemberIds("sq-rmj");
+    // The removal must not have written back a snapshot that predates the join.
+    expect(members).toContain(joiner);
+    expect(members).not.toContain(target);
+    expect(members).toContain(creator);
+  });
+
+  it("the last member leaving still deletes the squad exactly once", async () => {
+    const solo = "rm-solo";
+    await seedUser(solo);
+    await dbmod.pool.query(
+      `INSERT INTO squads (id, name, creator_id, member_ids, is_public, invite_code)
+       VALUES ($1, $2, $3, $4::jsonb, false, $5)`,
+      ["sq-solo", "Solo Squad", solo, JSON.stringify([solo]), "SOLOCODE"],
+    );
+
+    const res = await request(app)
+      .delete(`/api/squads/sq-solo/members/${solo}`)
+      .set("x-test-user", solo);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ deleted: true });
+    expect(await squadExists("sq-solo")).toBe(false);
+  });
+
+  // The teardown is the nastiest window: the last member leaves (squad gets
+  // purged and deleted) while a stranger joins the public squad. If the claim
+  // is a standalone statement, the join can commit between the claim and the
+  // DELETE — and the joiner's brand-new squad is purged out from under them.
+  // Claim + purge + delete share one transaction, so the claim's row lock is
+  // held for the whole teardown and the join can only land strictly before or
+  // strictly after it. Repeated to actually hit both interleavings.
+  it("a solo teardown never deletes a squad someone just joined", async () => {
+    for (let i = 0; i < 5; i++) {
+      const solo = `tj-solo-${i}`;
+      const joiner = `tj-joiner-${i}`;
+      const squadId = `sq-tj-${i}`;
+      await Promise.all([solo, joiner].map(seedUser));
+      await dbmod.pool.query(
+        `INSERT INTO squads (id, name, creator_id, member_ids, is_public, invite_code)
+         VALUES ($1, $2, $3, $4::jsonb, true, $5)`,
+        [squadId, "Teardown Race", solo, JSON.stringify([solo]), `TJCODE${i}`],
+      );
+
+      const [leave, join] = await Promise.all([
+        request(app).delete(`/api/squads/${squadId}/members/${solo}`).set("x-test-user", solo),
+        request(app).post(`/api/squads/${squadId}/join`).set("x-test-user", joiner).send({}),
+      ]);
+
+      if (await squadExists(squadId)) {
+        // The join won the row: the squad survives BECAUSE it has a member.
+        const members = await squadMemberIds(squadId);
+        expect(join.status).toBe(201);
+        expect(members).toContain(joiner);
+        // The leave then re-read fresh state and ran as an ordinary removal
+        // (or gave up with a conflict) — never as a teardown.
+        expect([200, 409]).toContain(leave.status);
+        if (leave.status === 200) {
+          expect(leave.body.deleted).toBeUndefined();
+          expect(members).not.toContain(solo);
+        }
+      } else {
+        // The teardown won: the squad is gone, so the join must NOT report
+        // that it joined, and must leave no membership behind.
+        expect(leave.status).toBe(200);
+        expect(leave.body.deleted).toBe(true);
+        expect(join.status).not.toBe(201);
+        expect(await squadCountFor(joiner)).toBe(0);
+      }
+    }
+  });
+});
+
+// ── S2: a removed member loses chat access even though their participant row
+//        is still there ───────────────────────────────────────────────────────
+//
+// Squad conversation participant rows are append-only (they're kept so old
+// messages still resolve an author). Access therefore MUST be decided from the
+// CURRENT squad membership, never from the presence of a participant row.
+
+describe("S2 — removal revokes squad chat access despite the stale participant row", () => {
+  it("getConversationForMember returns null after removal, participant row intact", async () => {
+    const creator = "chat-creator";
+    const member = "chat-member";
+    await Promise.all([creator, member].map(seedUser));
+    await dbmod.pool.query(
+      `INSERT INTO squads (id, name, creator_id, member_ids, is_public, invite_code)
+       VALUES ($1, $2, $3, $4::jsonb, false, $5)`,
+      ["sq-chat", "Chat Squad", creator, JSON.stringify([creator, member]), "CHATCODE"],
+    );
+
+    // Both users open the squad chat, which materializes participant rows.
+    const convo = await storage.getOrCreateSquadConversation("sq-chat", creator);
+    expect(convo).not.toBeNull();
+    const convoId = convo!.id;
+    expect(await storage.getConversationForMember(convoId, member)).not.toBeNull();
+
+    const res = await request(app)
+      .delete(`/api/squads/sq-chat/members/${member}`)
+      .set("x-test-user", creator);
+    expect(res.status).toBe(200);
+
+    // The row is deliberately still there…
+    const { rows } = await dbmod.pool.query(
+      `SELECT 1 FROM conversation_participants WHERE conversation_id = $1 AND user_id = $2`,
+      [convoId, member],
+    );
+    expect(rows.length).toBe(1);
+    // …but it must not grant access any more.
+    expect(await storage.getConversationForMember(convoId, member)).toBeNull();
+    // The remaining member is unaffected.
+    expect(await storage.getConversationForMember(convoId, creator)).not.toBeNull();
+  });
+});
+
+// ── S3: nudge debounce is atomic ─────────────────────────────────────────────
+//
+// The old flow was read-then-insert: getRecentNudge() and then createNudge().
+// Simultaneous taps both passed the read, and the second INSERT hit the
+// (poll_id, to_user_id) unique constraint → 500. The upsert collapses the
+// check and the write into one statement.
+
+describe("S3 — concurrent nudges debounce atomically", () => {
+  it("6 simultaneous nudges send exactly one and 429 the rest (never 500)", async () => {
+    const creator = "nudge-creator";
+    const target = "nudge-target";
+    await Promise.all([creator, target].map(seedUser));
+    await dbmod.pool.query(
+      `INSERT INTO squads (id, name, creator_id, member_ids, is_public, invite_code)
+       VALUES ($1, $2, $3, $4::jsonb, false, $5)`,
+      ["sq-nudge", "Nudge Squad", creator, JSON.stringify([creator, target]), "NDGCODE1"],
+    );
+    await seedPoll("poll-nudge", creator, { squadId: "sq-nudge" });
+
+    const results = await Promise.all(
+      Array.from({ length: 6 }, () =>
+        request(app)
+          .post("/api/availability/polls/poll-nudge/nudge")
+          .set("x-test-user", creator)
+          .send({ targetUserId: target }),
+      ),
+    );
+
+    const ok = results.filter((r) => r.status === 200);
+    const throttled = results.filter((r) => r.status === 429);
+    const failed = results.filter((r) => r.status >= 500);
+    expect(failed).toHaveLength(0); // the unique violation must never surface
+    expect(ok).toHaveLength(1);
+    expect(throttled).toHaveLength(5);
+    throttled.forEach((r) => expect(r.body.debounced).toBe(true));
+
+    // Exactly one nudge row for this (poll, target) — the constraint holds and
+    // the debounce didn't duplicate the push.
+    expect(await nudgeRows("poll-nudge")).toHaveLength(1);
+  });
+
+  it("a nudge outside the window replaces the old row instead of erroring", async () => {
+    const creator = "nudge2-creator";
+    const target = "nudge2-target";
+    await Promise.all([creator, target].map(seedUser));
+    await dbmod.pool.query(
+      `INSERT INTO squads (id, name, creator_id, member_ids, is_public, invite_code)
+       VALUES ($1, $2, $3, $4::jsonb, false, $5)`,
+      ["sq-nudge2", "Nudge Squad 2", creator, JSON.stringify([creator, target]), "NDGCODE2"],
+    );
+    await seedPoll("poll-nudge2", creator, { squadId: "sq-nudge2" });
+    // An old nudge, well outside the 5-minute debounce window.
+    await dbmod.pool.query(
+      `INSERT INTO availability_nudges (poll_id, from_user_id, to_user_id, sent_at)
+       VALUES ($1, $2, $3, now() - interval '2 hours')`,
+      ["poll-nudge2", creator, target],
+    );
+
+    const res = await request(app)
+      .post("/api/availability/polls/poll-nudge2/nudge")
+      .set("x-test-user", creator)
+      .send({ targetUserId: target });
+
+    // Pre-fix this was a 500 from the unique constraint: the window had expired
+    // but the row still existed, so the plain INSERT always blew up.
+    expect(res.status).toBe(200);
+    const rows = await nudgeRows("poll-nudge2");
+    expect(rows).toHaveLength(1);
+    expect(Date.now() - new Date(rows[0].sent_at).getTime()).toBeLessThan(60_000);
+  });
+});
+
+// ── S4: poll → plan conversion is exactly-once ───────────────────────────────
+//
+// Claiming the poll AFTER creating the event could only ever re-stamp it: by
+// then a double-tap had already produced two plans. The claim now happens
+// inside the create transaction, so the losing request's event is rolled back
+// and the caller is handed the plan that won.
+
+describe("S4 — converting a poll into a plan is exactly-once", () => {
+  it("6 simultaneous creates from one poll produce exactly ONE event", async () => {
+    const creator = "conv-creator";
+    await seedUser(creator);
+    await seedPoll("poll-conv", creator, {});
+
+    const results = await Promise.all(
+      Array.from({ length: 6 }, (_, i) =>
+        request(app)
+          .post("/api/events")
+          .set("x-test-user", creator)
+          .send({
+            title: `Locked in ${i}`,
+            date: "Dec 31",
+            location: "Somewhere",
+            sourcePollId: "poll-conv",
+          }),
+      ),
+    );
+
+    // Nobody gets an error — the losers are handed the winning plan.
+    for (const r of results) expect([200, 201]).toContain(r.status);
+    const created = results.filter((r) => r.status === 201);
+    const deduped = results.filter((r) => r.status === 200);
+    expect(created).toHaveLength(1);
+    expect(deduped).toHaveLength(5);
+    deduped.forEach((r) => expect(r.body.alreadyConverted).toBe(true));
+
+    // One event, and everyone was pointed at that same id.
+    const hostEvents = await eventsForHost(creator);
+    expect(hostEvents).toHaveLength(1);
+    const winningId = created[0].body.id;
+    expect(hostEvents[0]).toBe(winningId);
+    for (const r of results) expect(r.body.id).toBe(winningId);
+    expect(await pollConvertedEventId("poll-conv")).toBe(winningId);
+  });
+
+  it("the rolled-back losers leave no ledger rows behind", async () => {
+    const creator = "conv-ledger";
+    await seedUser(creator);
+    await seedPoll("poll-ledger", creator, {});
+
+    await Promise.all(
+      Array.from({ length: 4 }, () =>
+        request(app)
+          .post("/api/events")
+          .set("x-test-user", creator)
+          .send({ title: "Ledger", date: "Dec 31", location: "X", sourcePollId: "poll-ledger" }),
+      ),
+    );
+
+    // The event-cap ledger must not be charged for events that never existed.
+    const { rows } = await dbmod.pool.query(
+      `SELECT count(*)::int AS c FROM event_creations WHERE user_id = $1`,
+      [creator],
+    );
+    expect(rows[0].c).toBe(1);
+  });
+
+  it("a second poll conversion to a DIFFERENT event is refused (409)", async () => {
+    const creator = "conv-second";
+    await seedUser(creator);
+    await seedPoll("poll-second", creator, {});
+    await seedEvent("evt-first", creator, { [creator]: "going" }, "CONVCODE1");
+    await seedEvent("evt-other", creator, { [creator]: "going" }, "CONVCODE2");
+
+    const first = await request(app)
+      .post("/api/availability/polls/poll-second/convert")
+      .set("x-test-user", creator)
+      .send({ eventId: "evt-first" });
+    expect(first.status).toBe(200);
+
+    // Idempotent retry with the SAME id still succeeds.
+    const retry = await request(app)
+      .post("/api/availability/polls/poll-second/convert")
+      .set("x-test-user", creator)
+      .send({ eventId: "evt-first" });
+    expect(retry.status).toBe(200);
+
+    // A different plan cannot steal the conversion.
+    const second = await request(app)
+      .post("/api/availability/polls/poll-second/convert")
+      .set("x-test-user", creator)
+      .send({ eventId: "evt-other" });
+    expect(second.status).toBe(409);
+    expect(second.body.convertedEventId).toBe("evt-first");
+    expect(await pollConvertedEventId("poll-second")).toBe("evt-first");
   });
 });

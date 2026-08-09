@@ -1,7 +1,15 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, count, or, sql, and, gte, isNull, inArray, asc } from "drizzle-orm";
 import { z } from "zod";
-import { db, eventsTable, eventCreationsTable, usersTable, eventInvitesTable, activityTable } from "@workspace/db";
+import {
+  db,
+  eventsTable,
+  eventCreationsTable,
+  usersTable,
+  eventInvitesTable,
+  activityTable,
+  availabilityPollsTable,
+} from "@workspace/db";
 import type { ItineraryStop, PackingItem } from "@workspace/db";
 import { storage } from "../storage";
 import { requireAuth } from "../middleware/currentUser";
@@ -89,6 +97,19 @@ const EVENT_WINDOW_MS = 365 * 24 * 60 * 60 * 1000;
 
 type EventExecutor = Parameters<Parameters<typeof db.transaction>[0]>[0] | typeof db;
 
+/**
+ * Thrown inside the create transaction when the source poll was already
+ * converted by a concurrent (or earlier) request. Rolls back the half-created
+ * event so one poll can never yield two plans; the handler then returns the
+ * plan that actually won the claim.
+ */
+class PollAlreadyConvertedError extends Error {
+  constructor(readonly convertedEventId: string | null) {
+    super("Availability poll already converted");
+    this.name = "PollAlreadyConvertedError";
+  }
+}
+
 function randomCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let out = "";
@@ -128,6 +149,10 @@ const CreateEventBody = z.object({
   invitedUserIds: z.array(z.string().min(1)).default([]),
   // Whether the automated 3-day-out reminder should fire for this event.
   remind3DaysToggle: z.boolean().default(true),
+  // Set when this plan is being created FROM a "Find the Best Time" poll. The
+  // poll's conversion slot is claimed inside the create transaction, so a
+  // double-tap (or a retried request) can never turn one poll into two plans.
+  sourcePollId: z.string().min(1).max(120).optional(),
 });
 
 // Body for inviting friends to an existing event/trip after creation.
@@ -539,6 +564,7 @@ router.post("/events", requireAuth, async (req: Request, res: Response): Promise
       startAt,
       endAt,
       invitedUserIds: requestedInvites,
+      sourcePollId,
       ...rest
     } = parsed.data;
     const hostId = authUser.id;
@@ -567,6 +593,16 @@ router.post("/events", requireAuth, async (req: Request, res: Response): Promise
       ...(startAt ? { startAt: new Date(startAt) } : {}),
       ...(endAt ? { endAt: new Date(endAt) } : {}),
     };
+
+    // Only the poll's creator converts it into a plan (mirrors POST
+    // /availability/polls/:id/convert). An unknown poll id, or one belonging to
+    // someone else, is ignored rather than failing the create — the plan is
+    // still valid, it just isn't credited as this poll's conversion.
+    let claimPollId: string | null = null;
+    if (sourcePollId) {
+      const sourcePoll = await storage.getAvailabilityPoll(sourcePollId);
+      if (sourcePoll && sourcePoll.createdBy === hostId) claimPollId = sourcePoll.id;
+    }
 
     // Enforce the free-tier event cap and append the ledger row atomically. A
     // per-user advisory lock serializes a user's concurrent creates so the
@@ -620,6 +656,32 @@ router.post("/events", requireAuth, async (req: Request, res: Response): Promise
       await executor
         .insert(eventCreationsTable)
         .values({ userId: hostId, eventId: created.id });
+
+      // Exactly-once poll conversion. The claim lives in the SAME transaction
+      // as the insert: stamping the poll only while converted_event_id IS NULL
+      // means two concurrent "lock in this time" taps contend on one row, and
+      // the loser's event is rolled back instead of becoming a duplicate plan.
+      // Claiming after the event exists (the old client-side /convert call)
+      // could only ever re-stamp the poll — both events had already been made.
+      if (claimPollId) {
+        const [claimed] = await executor
+          .update(availabilityPollsTable)
+          .set({ convertedEventId: created.id })
+          .where(
+            and(
+              eq(availabilityPollsTable.id, claimPollId),
+              isNull(availabilityPollsTable.convertedEventId),
+            ),
+          )
+          .returning({ convertedEventId: availabilityPollsTable.convertedEventId });
+        if (!claimed) {
+          const [existing] = await executor
+            .select({ convertedEventId: availabilityPollsTable.convertedEventId })
+            .from(availabilityPollsTable)
+            .where(eq(availabilityPollsTable.id, claimPollId));
+          throw new PollAlreadyConvertedError(existing?.convertedEventId ?? null);
+        }
+      }
       return { ok: true, event: created };
     };
 
@@ -675,6 +737,23 @@ router.post("/events", requireAuth, async (req: Request, res: Response): Promise
       })();
     }
   } catch (err) {
+    // The source poll was already turned into a plan by a concurrent request —
+    // this create was rolled back. Return the winning plan so the client lands
+    // on it instead of reporting a failure or retrying into a duplicate.
+    if (err instanceof PollAlreadyConvertedError) {
+      const existingId = err.convertedEventId;
+      const existing = existingId ? await storage.getEvent(existingId) : null;
+      if (existing) {
+        res.status(200).json({ ...existing, alreadyConverted: true });
+      } else {
+        res.status(409).json({
+          error: "This poll has already been turned into a plan.",
+          convertedEventId: existingId,
+          alreadyConverted: true,
+        });
+      }
+      return;
+    }
     logger.error({ err }, "Error creating event");
     if (!res.headersSent) {
       res.status(500).json({ error: "Failed to create event" });
