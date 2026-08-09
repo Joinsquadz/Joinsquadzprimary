@@ -257,8 +257,8 @@ type AppContextType = {
     firstName?: string;
     lastName?: string;
     phone?: string;
-    /** YYYY-MM-DD. Required by the server's 13+ age gate. */
-    dateOfBirth: string;
+    /** Four-digit year. Required by the server's 13+ age gate. */
+    birthYear: string;
   }) => Promise<AuthResult>;
   loginWithEmail: (email: string, password: string) => Promise<AuthResult>;
   forgotPassword: (email: string) => Promise<AuthResult>;
@@ -1397,7 +1397,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       firstName?: string;
       lastName?: string;
       phone?: string;
-      dateOfBirth: string;
+      birthYear: string;
     }): Promise<AuthResult> => {
       try {
         const res = await fetch(`${API_BASE}/api/auth/register`, {

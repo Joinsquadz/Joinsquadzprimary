@@ -521,9 +521,9 @@ const registerSchema = z.object({
   phone: z.string().trim().max(40).optional(),
   firstName: z.string().trim().max(80).optional(),
   lastName: z.string().trim().max(80).optional(),
-  // Age gate: required for every new account. The value is only used to derive
-  // `meetsMinAge` + `birthYear`; the exact date is never persisted.
-  dateOfBirth: z.string().trim().min(1).max(10),
+  // Age gate: required for every new account. The value is used to derive
+  // `meetsMinAge` + `birthYear`; no exact date is collected or persisted.
+  birthYear: z.string().trim().min(1).max(4),
 });
 
 const loginSchema = z.object({
@@ -722,23 +722,26 @@ router.post("/auth/register", async (req: Request, res: Response) => {
   }
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) {
-    const missingDob = parsed.error.issues.some((i) => i.path[0] === "dateOfBirth");
+    const birthYearIssue = parsed.error.issues.find((i) => i.path[0] === "birthYear");
+    const missingBirthYear =
+      birthYearIssue !== undefined &&
+      (!req.body || !Object.prototype.hasOwnProperty.call(req.body, "birthYear"));
     res.status(400).json({
-      error: missingDob
-        ? "Date of birth is required."
+      error: birthYearIssue
+        ? missingBirthYear ? "Birth year is required." : "Enter a valid birth year."
         : "Invalid email or password (min 8 characters).",
-      ...(missingDob ? { code: "DOB_REQUIRED" } : {}),
+      ...(birthYearIssue ? { code: missingBirthYear ? "BIRTH_YEAR_REQUIRED" : "BIRTH_YEAR_INVALID" } : {}),
     });
     return;
   }
   const email = normalizeEmail(parsed.data.email);
-  const { password, phone, firstName, lastName, dateOfBirth } = parsed.data;
+  const { password, phone, firstName, lastName, birthYear } = parsed.data;
 
   // ── Age gate (13+) — server-side enforcement ────────────────────────────────
-  // The mobile date picker is UX only; this check is the actual gate, so a
+  // The mobile birth-year field is UX only; this check is the actual gate, so a
   // direct API call cannot create an under-13 account. Runs before ANY account
   // is provisioned (Supabase subject included) so nothing is left behind.
-  const ageCheck = deriveAgeFields(dateOfBirth);
+  const ageCheck = deriveAgeFields(birthYear);
   if (!ageCheck.ok) {
     if (ageCheck.reason === "under_age") {
       res.status(403).json({
@@ -747,7 +750,7 @@ router.post("/auth/register", async (req: Request, res: Response) => {
       });
       return;
     }
-    res.status(400).json({ error: "Enter a valid date of birth.", code: "DOB_INVALID" });
+    res.status(400).json({ error: "Enter a valid birth year.", code: "BIRTH_YEAR_INVALID" });
     return;
   }
   const ageFields = ageCheck.fields;

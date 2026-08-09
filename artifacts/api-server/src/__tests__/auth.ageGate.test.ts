@@ -1,11 +1,11 @@
 /**
  * 13+ age gate on POST /api/auth/register.
  *
- * The client shows a date-of-birth picker, but the server is the enforcement
- * point — a direct API call with an under-13 DOB (or none at all) must fail.
+ * The client collects a birth year, but the server is the enforcement point —
+ * a direct API call with an under-13 year (or none at all) must fail.
  *
  * Also asserts the data-minimization rule: only the derived marker and the
- * birth year are persisted, never the exact date of birth.
+ * birth year are persisted, never an exact date of birth.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import request from "supertest";
@@ -74,22 +74,6 @@ import { makeTestApp } from "./helpers/makeTestApp";
 
 const makeApp = () => makeTestApp(authRouter);
 
-/** A DOB comfortably over 13, computed relative to today so it never expires. */
-function adultDob(): string {
-  const d = new Date();
-  return `${d.getFullYear() - 30}-06-15`;
-}
-
-/** A DOB for someone who turns 13 tomorrow — still 12 today. */
-function almostThirteenDob(): string {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  const y = d.getFullYear() - 13;
-  const m = `${d.getMonth() + 1}`.padStart(2, "0");
-  const day = `${d.getDate()}`.padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
 beforeEach(() => {
   vi.clearAllMocks();
   dbMock.selectRows = [];
@@ -105,46 +89,46 @@ beforeEach(() => {
 });
 
 describe("POST /api/auth/register — 13+ age gate", () => {
-  it("rejects a signup with no date of birth (400 DOB_REQUIRED)", async () => {
+  it("rejects a signup with no birth year (400 BIRTH_YEAR_REQUIRED)", async () => {
     const res = await request(makeApp())
       .post("/api/auth/register")
       .send({ email: "nodob@example.com", password: "Password1!", name: "No Dob" });
 
     expect(res.status).toBe(400);
-    expect(res.body.code).toBe("DOB_REQUIRED");
+    expect(res.body.code).toBe("BIRTH_YEAR_REQUIRED");
     expect(dbMock.insertedValues).toHaveLength(0);
   });
 
-  it("rejects a malformed date of birth (400 DOB_INVALID)", async () => {
+  it("rejects a malformed birth year (400 BIRTH_YEAR_INVALID)", async () => {
     const res = await request(makeApp())
       .post("/api/auth/register")
       .send({
         email: "bad@example.com",
         password: "Password1!",
-        name: "Bad Dob",
-        dateOfBirth: "not-a-date",
+        name: "Bad Year",
+        birthYear: "not-a-year",
       });
 
     expect(res.status).toBe(400);
-    expect(res.body.code).toBe("DOB_INVALID");
+    expect(res.body.code).toBe("BIRTH_YEAR_INVALID");
     expect(dbMock.insertedValues).toHaveLength(0);
   });
 
-  it("rejects an impossible calendar date (400 DOB_INVALID)", async () => {
+  it("rejects an implausibly old birth year (400 BIRTH_YEAR_INVALID)", async () => {
     const res = await request(makeApp())
       .post("/api/auth/register")
       .send({
-        email: "feb30@example.com",
+        email: "old@example.com",
         password: "Password1!",
-        name: "Feb Thirty",
-        dateOfBirth: "2000-02-30",
+        name: "Too Old",
+        birthYear: "1899",
       });
 
     expect(res.status).toBe(400);
-    expect(res.body.code).toBe("DOB_INVALID");
+    expect(res.body.code).toBe("BIRTH_YEAR_INVALID");
   });
 
-  it("rejects a future date of birth (400 DOB_INVALID)", async () => {
+  it("rejects a future birth year (400 BIRTH_YEAR_INVALID)", async () => {
     const next = new Date();
     next.setFullYear(next.getFullYear() + 1);
     const res = await request(makeApp())
@@ -152,12 +136,12 @@ describe("POST /api/auth/register — 13+ age gate", () => {
       .send({
         email: "future@example.com",
         password: "Password1!",
-        name: "Future Kid",
-        dateOfBirth: `${next.getFullYear()}-01-01`,
+        name: "Future Person",
+        birthYear: `${next.getFullYear()}`,
       });
 
     expect(res.status).toBe(400);
-    expect(res.body.code).toBe("DOB_INVALID");
+    expect(res.body.code).toBe("BIRTH_YEAR_INVALID");
   });
 
   it("rejects an under-13 signup with 403 UNDER_MIN_AGE and creates no account", async () => {
@@ -168,7 +152,7 @@ describe("POST /api/auth/register — 13+ age gate", () => {
         email: "kid@example.com",
         password: "Password1!",
         name: "Young Kid",
-        dateOfBirth: `${d.getFullYear() - 9}-03-02`,
+        birthYear: `${d.getFullYear() - 9}`,
       });
 
     expect(res.status).toBe(403);
@@ -177,29 +161,29 @@ describe("POST /api/auth/register — 13+ age gate", () => {
     expect(dbMock.insertedValues).toHaveLength(0);
   });
 
-  it("rejects someone who turns 13 tomorrow (birthday must have passed)", async () => {
+  it("accepts the newest eligible birth year without collecting an exact birthday", async () => {
+    const year = new Date().getFullYear() - 13;
     const res = await request(makeApp())
       .post("/api/auth/register")
       .send({
-        email: "almost@example.com",
+        email: "newest-eligible@example.com",
         password: "Password1!",
-        name: "Almost Thirteen",
-        dateOfBirth: almostThirteenDob(),
+        name: "Newest Eligible",
+        birthYear: `${year}`,
       });
 
-    expect(res.status).toBe(403);
-    expect(res.body.code).toBe("UNDER_MIN_AGE");
+    expect(res.status).toBe(200);
   });
 
-  it("accepts a 13+ signup and stores only the marker + birth year (never the DOB)", async () => {
-    const dob = adultDob();
+  it("accepts a 13+ signup and stores only the marker + birth year", async () => {
+    const birthYear = `${new Date().getFullYear() - 30}`;
     const res = await request(makeApp())
       .post("/api/auth/register")
       .send({
         email: "grown@example.com",
         password: "Password1!",
         name: "Grown Up",
-        dateOfBirth: dob,
+        birthYear,
       });
 
     expect(res.status).toBe(200);
@@ -207,10 +191,9 @@ describe("POST /api/auth/register — 13+ age gate", () => {
     const userInsert = dbMock.insertedValues.find((v) => "email" in v);
     expect(userInsert).toBeDefined();
     expect(userInsert!.meetsMinAge).toBe(true);
-    expect(userInsert!.birthYear).toBe(Number(dob.slice(0, 4)));
-    // Data minimization: the exact day/month must not be persisted anywhere.
+    expect(userInsert!.birthYear).toBe(Number(birthYear));
+    // Data minimization: no exact date-of-birth field is persisted anywhere.
     const serialized = JSON.stringify(dbMock.insertedValues);
-    expect(serialized).not.toContain(dob);
     expect(Object.keys(userInsert!)).not.toContain("dateOfBirth");
   });
 });
