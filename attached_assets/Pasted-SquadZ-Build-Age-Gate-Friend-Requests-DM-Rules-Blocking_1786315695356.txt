@@ -1,0 +1,47 @@
+SquadZ — Build: Age Gate + Friend Requests + DM Rules + Blocking
+
+Context: launch-blocker and safety work, all decided and interrelated, so built as one coherent batch. Covers the age gate (a confirmed store-compliance blocker), an in-context friend-request flow, the friend/DM/squad messaging rules, and user blocking with an unblock management screen. These touch signup, profiles, friendships, DMs, and squad chat access — implement together so the rules stay consistent.
+
+1 — Age gate (13+ minimum) — LAUNCH BLOCKER
+
+Legal/compliance basis: COPPA makes collecting data from under-13s a serious liability (penalties up to ~$53k/violation; social apps with messaging are exactly the risk profile — Epic/Fortnite paid $275M partly over child communication features). 13+ is the standard, defensible minimum used by Instagram/TikTok/Snapchat/Facebook.
+
+Add a date-of-birth entry at signup (a date picker / scroll-wheel — NOT a "are you 13?" yes/no, which is weaker and less defensible).
+Server-side enforcement: the signup endpoint independently rejects account creation for anyone under 13. The client gate is UX; the server check is the actual enforcement — do not rely on the client alone.
+Data minimization: store the minimum needed. Prefer a derived "meets minimum age" boolean (and/or birth year if needed for future state-law compliance) over storing full exact DOB, to reduce privacy/compliance surface. Use your judgment, but lean toward storing less.
+Existing accounts: report how many exist. If small and pre-launch, apply to new signups; flag whether any backfill is needed rather than assuming.
+Test: signup rejects under-13 server-side, accepts 13+, client gate blocks the flow appropriately.
+2 — In-context friend requests
+
+Currently friendship requires entering a friend code. Add a second path:
+
+When two users share a squad or event, a user can tap the other's profile (which shows name + last initial, possibly full name — match existing profile display) and send a friend request without needing the friend code. The code is not shown; the request is the mechanism.
+The recipient can accept or deny. Denial is allowed even between people in the same squad — shared squad membership gives the ability to request, not an automatic friendship.
+Keep the existing friend-code path working alongside this.
+Being added to a squad does NOT auto-friend other squad members — confirm this is the behavior (no automatic friendship on squad join).
+Test: user A sends an in-context friend request to squad-mate B without a code; B can accept (they become friends) or deny (they don't); denial works even within a shared squad.
+3 — DM / messaging rules (make these consistent and explicit)
+Friends can DM privately and invite each other.
+Non-friends cannot DM privately — even if they share a squad.
+Shared-squad members can message in the squad group chat regardless of friendship — group chat participation is by squad membership, private DM is by friendship.
+Confirm these rules are enforced server-side (not just hidden in the UI) — a non-friend must not be able to open a DM thread via a direct API call.
+Test: two squad-mates who are NOT friends cannot open a private DM (server rejects); once friended, they can; group chat works for both regardless.
+4 — User blocking
+A user can block another user from their profile (contextual action).
+Blocking severs: private DMs (blocked user can't DM you, existing thread becomes inaccessible/blocked), friend requests (can't send you one; if you were friends, blocking removes the friendship), and profile access (blocked user can't view your profile to request/interact).
+Shared-squad group chat is NOT affected — a blocked person's messages still appear in a squad you both belong to. (Decision: hiding one person's messages inside a shared group creates confusing conversation holes; the remedy for that is leaving the squad. Blocking severs personal/private channels only.)
+Blocking is mutual in effect (neither can DM/friend-request/profile-view the other), consistent with how the existing block system works — confirm and match the existing report/block implementation rather than building a parallel one.
+Test: after A blocks B — B cannot DM A, cannot send A a friend request, cannot view A's profile; but if they share a squad, B's messages still show in that squad's group chat.
+5 — Unblock management (Settings)
+Add a "Blocked Users" screen in Settings listing everyone the user has blocked, with an unblock action for each.
+Blocking happens contextually (from a profile); managing/undoing lives centrally (Settings).
+Test: a blocked user appears in the Settings list; unblocking removes the block and restores normal (non-friend) interaction ability.
+6 — Friends-vs-non-friends info icon
+Add a small info icon (ⓘ) in a sensible spot (profile view and/or the friends UI) that, when tapped, clearly explains what you can do with friends vs. non-friends (DM, invite, etc.) — so the rules are transparent to users rather than confusing.
+Keep it simple and clear — a short explainer, not a wall of text.
+Required for this pass
+Age gate server-side enforcement is mandatory (the compliance-critical piece).
+All messaging/blocking rules enforced server-side, not just UI — confirm each with a direct-API-call test where relevant, since UI-only enforcement is bypassable.
+Match/extend the EXISTING friend and report/block systems rather than building parallel implementations — confirm what already exists first and report it before implementing.
+Regression tests for each area; confirm existing suites (1,057 API / 359 mobile) unaffected and report final counts.
+Do not build cost-splitting (#583) or other unrelated work in this pass.
