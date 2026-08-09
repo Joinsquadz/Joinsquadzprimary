@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { calculateBillTotal, computeEvenShares, isWholeCent, toCents } from "@/lib/costSplit";
+import { calculateBillTotal, computeEvenShares, computeWeightedShares, isWholeCent, toCents } from "@/lib/costSplit";
 
 const sumShares = (shares: Record<string, string>): number =>
   Object.values(shares).reduce((total, amount) => total + toCents(parseFloat(amount)), 0);
@@ -79,5 +79,70 @@ describe("computeEvenShares", () => {
   it("returns no shares for a zero total or an empty party", () => {
     expect(computeEvenShares(0, ["a", "b"])).toEqual({});
     expect(computeEvenShares(50, [])).toEqual({});
+  });
+});
+
+describe("computeWeightedShares", () => {
+  it("distributes a 60/40 percentage split exactly", () => {
+    const shares = computeWeightedShares(100, { a: 60, b: 40 });
+    expect(shares).toEqual({ a: "60.00", b: "40.00" });
+  });
+
+  it("distributes a 2:1 share weight split", () => {
+    const shares = computeWeightedShares(30, { a: 2, b: 1 });
+    expect(shares).toEqual({ a: "20.00", b: "10.00" });
+  });
+
+  it("always sums to the exact total in cents", () => {
+    const totals = [0.01, 0.07, 10, 19.99, 47.11, 100, 104.7, 1234.56];
+    const weightSets: Record<string, number>[] = [
+      { a: 1, b: 1, c: 1 },
+      { a: 2, b: 1 },
+      { a: 3, b: 2, c: 1 },
+      { a: 60, b: 40 },
+      { a: 1, b: 2, c: 3, d: 4 },
+    ];
+    for (const total of totals) {
+      for (const weights of weightSets) {
+        const shares = computeWeightedShares(total, weights);
+        const sumCents = Object.values(shares).reduce(
+          (s, v) => s + toCents(parseFloat(v)),
+          0,
+        );
+        expect(sumCents).toBe(toCents(total));
+      }
+    }
+  });
+
+  it("assigns leftover pennies to largest-fractional-part participants", () => {
+    // $10 split 60/40 → $6.00 / $4.00 (clean). Use a messier case: $1 at 3:2
+    // 3/5 * 100 = 60 cents, 2/5 * 100 = 40 cents → exact
+    // $0.10 at 3:2 → 6 cents / 4 cents → exact
+    // Try $1 split 1:1:1 → 33 + 33 + 34
+    const shares = computeWeightedShares(1, { a: 1, b: 1, c: 1 });
+    const cents = Object.values(shares).map((v) => toCents(parseFloat(v)));
+    expect(cents.reduce((s, c) => s + c, 0)).toBe(100);
+    expect(Math.max(...cents) - Math.min(...cents)).toBeLessThanOrEqual(1);
+  });
+
+  it("one participant gets the full amount when only their weight is non-zero", () => {
+    const shares = computeWeightedShares(50, { a: 1, b: 0 });
+    expect(shares).toEqual({ a: "50.00", b: "0.00" });
+  });
+
+  it("returns empty for zero total or zero total weight", () => {
+    expect(computeWeightedShares(0, { a: 1, b: 1 })).toEqual({});
+    expect(computeWeightedShares(100, { a: 0, b: 0 })).toEqual({});
+    expect(computeWeightedShares(100, {})).toEqual({});
+  });
+
+  it("handles an uneven 3-person party-size regression", () => {
+    // $47.11 with weights 3, 2, 1 (person carrying 2 guests)
+    const shares = computeWeightedShares(47.11, { a: 3, b: 2, c: 1 });
+    const sumCents = Object.values(shares).reduce(
+      (s, v) => s + toCents(parseFloat(v)),
+      0,
+    );
+    expect(sumCents).toBe(toCents(47.11));
   });
 });

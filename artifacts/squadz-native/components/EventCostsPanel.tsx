@@ -17,7 +17,7 @@ import { useData } from "@/context/AppContext";
 import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
 import { UserAvatar } from "@/components/UserAvatar";
 import { SettleUp } from "@/components/SettleUp";
-import { computeEvenShares, isWholeCent } from "@/lib/costSplit";
+import { computeEvenShares, computeWeightedShares, isWholeCent } from "@/lib/costSplit";
 import { BillDetailsFields, formatBillDetails, useBillDetailsForm } from "@/components/BillDetailsFields";
 import type { Event } from "@/types";
 
@@ -62,7 +62,8 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
   const [costTotal, setCostTotal] = useState("");
   const bill = useBillDetailsForm();
   const [costShares, setCostShares] = useState<Record<string, string>>({});
-  const [splitMode, setSplitMode] = useState<"even" | "manual">("even");
+  const [costWeights, setCostWeights] = useState<Record<string, string>>({});
+  const [splitMode, setSplitMode] = useState<"even" | "manual" | "weighted">("even");
   const [costSaving, setCostSaving] = useState(false);
   const [selectedParticipantIds, setSelectedParticipantIds] = useState<Set<string>>(new Set());
   const [paymentHandles, setPaymentHandles] = useState<
@@ -97,12 +98,22 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
   const totalNum = bill.show ? bill.billTotal : parseFloat(costTotal) || 0;
   const splitParticipants = participants.filter((m) => selectedParticipantIds.has(m.id));
   const evenShares = computeEvenShares(totalNum, splitParticipants.map((m) => m.id));
-  const activeShares = splitMode === "even" ? evenShares : costShares;
+  const parsedWeights = Object.fromEntries(
+    splitParticipants.map((m) => [m.id, parseFloat(costWeights[m.id] || "0") || 0]),
+  );
+  const totalWeight = splitParticipants.reduce((s, m) => s + (parsedWeights[m.id] || 0), 0);
+  const weightedShares = computeWeightedShares(totalNum, parsedWeights);
+  const activeShares =
+    splitMode === "even" ? evenShares
+    : splitMode === "weighted" ? weightedShares
+    : costShares;
   const shareValues = splitParticipants.map((m) => parseFloat(activeShares[m.id] || "0") || 0);
   const hasNegative = shareValues.some((v) => v < 0);
   const assignedNum = shareValues.reduce((sum, v) => sum + v, 0);
   const remaining = totalNum - assignedNum;
-  const covered = totalNum > 0 && splitParticipants.length > 0 && !hasNegative && Math.abs(remaining) < 0.01;
+  const covered =
+    totalNum > 0 && splitParticipants.length > 0 && !hasNegative &&
+    (splitMode === "weighted" ? totalWeight > 0 : Math.abs(remaining) < 0.01);
 
   const participantIdSet = new Set(participants.map((p) => p.id));
 
@@ -134,6 +145,7 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
     setCostTotal("");
     bill.reset();
     setCostShares({});
+    setCostWeights({});
     setSplitMode("even");
     setSelectedParticipantIds(new Set(participants.map((p) => p.id)));
     setCostModal(true);
@@ -147,6 +159,7 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
     const shareMap: Record<string, string> = {};
     cost.shares.forEach((s) => { shareMap[s.userId] = String(s.amount); });
     setCostShares(shareMap);
+    setCostWeights({});
     setSplitMode("manual");
     // Prefill selection with the cost's current split members that are still
     // resolvable participants (departed members drop out of the editable set).
@@ -188,8 +201,19 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
   };
 
   const switchToManual = () => {
-    setCostShares({ ...evenShares });
+    // Pre-fill manual inputs with whatever the current mode computes.
+    setCostShares(splitMode === "weighted" ? { ...weightedShares } : { ...evenShares });
     setSplitMode("manual");
+  };
+
+  const switchToWeighted = () => {
+    // Even → weighted: equal weights. Manual → weighted: use dollar amounts as weights.
+    const newWeights: Record<string, string> = {};
+    splitParticipants.forEach((m) => {
+      newWeights[m.id] = splitMode === "manual" ? (costShares[m.id] ?? "1") : "1";
+    });
+    setCostWeights(newWeights);
+    setSplitMode("weighted");
   };
 
   const saveCost = async () => {
@@ -456,12 +480,20 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
 
               <View style={[styles.splitToggle, { backgroundColor: colors.card, borderColor: colors.border }]}>
                 <TouchableOpacity onPress={() => setSplitMode("even")} style={[styles.splitToggleBtn, splitMode === "even" && { backgroundColor: colors.primary }]}>
-                  <Text style={[styles.splitToggleText, { color: splitMode === "even" ? "#fff" : colors.mutedForeground }]}>Split evenly</Text>
+                  <Text style={[styles.splitToggleText, { color: splitMode === "even" ? "#fff" : colors.mutedForeground }]}>Even</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={switchToWeighted} style={[styles.splitToggleBtn, splitMode === "weighted" && { backgroundColor: colors.primary }]}>
+                  <Text style={[styles.splitToggleText, { color: splitMode === "weighted" ? "#fff" : colors.mutedForeground }]}>By shares</Text>
                 </TouchableOpacity>
                 <TouchableOpacity onPress={switchToManual} style={[styles.splitToggleBtn, splitMode === "manual" && { backgroundColor: colors.primary }]}>
-                  <Text style={[styles.splitToggleText, { color: splitMode === "manual" ? "#fff" : colors.mutedForeground }]}>Enter manually</Text>
+                  <Text style={[styles.splitToggleText, { color: splitMode === "manual" ? "#fff" : colors.mutedForeground }]}>Manual</Text>
                 </TouchableOpacity>
               </View>
+              {splitMode === "weighted" && (
+                <Text style={[styles.assignLabel, { color: colors.mutedForeground, marginTop: 6, textTransform: "none", letterSpacing: 0 }]}>
+                  Enter shares or % — e.g. 2 and 1 = ⅔ and ⅓ of the bill.
+                </Text>
+              )}
 
               {splitParticipants.length > 0 && (
                 <>
@@ -475,6 +507,22 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
                           <Text style={[styles.dollar, { color: colors.primary }]}>$</Text>
                           <Text style={[styles.assignInput, { color: colors.primary, textAlignVertical: "center", paddingTop: 2 }]}>
                             {activeShares[m.id] ?? "—"}
+                          </Text>
+                        </View>
+                      ) : splitMode === "weighted" ? (
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                          <View style={[styles.assignInputWrap, { backgroundColor: colors.card, borderColor: colors.border, width: 64 }]}>
+                            <TextInput
+                              placeholder="1"
+                              placeholderTextColor={colors.textDim}
+                              value={costWeights[m.id] ?? ""}
+                              onChangeText={(v) => setCostWeights((p) => ({ ...p, [m.id]: v }))}
+                              keyboardType="decimal-pad"
+                              style={[styles.assignInput, { color: colors.foreground }]}
+                            />
+                          </View>
+                          <Text style={[styles.weightPreview, { color: totalWeight > 0 ? colors.mutedForeground : colors.textDim }]}>
+                            {totalWeight > 0 ? `$${weightedShares[m.id] ?? "0.00"}` : "—"}
                           </Text>
                         </View>
                       ) : (
@@ -607,6 +655,7 @@ const styles = StyleSheet.create({
   participantCheckbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
   assignInputWrap: { flexDirection: "row", alignItems: "center", gap: 2, borderRadius: 10, borderWidth: 1, paddingHorizontal: 10, width: 100, height: 40 },
   assignInput: { flex: 1, fontSize: 14, fontWeight: "700", height: "100%" },
+  weightPreview: { fontSize: 13, fontWeight: "700", minWidth: 54, textAlign: "right" },
   coverageBar: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 12, borderWidth: 1.5, paddingHorizontal: 12, paddingVertical: 10, marginTop: 6 },
   coverageText: { fontSize: 13, fontWeight: "700" },
   modalActions: { flexDirection: "row", gap: 10, marginTop: 6 },

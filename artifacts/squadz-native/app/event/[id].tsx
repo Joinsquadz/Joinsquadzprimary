@@ -26,7 +26,7 @@ import { shareIcsFile } from "@/lib/shareIcs";
 import { findMyConflicts, getPlanSpan } from "@/lib/conflicts";
 import ConflictBanner from "@/components/ConflictBanner";
 import { scheduleRsvpReminder } from "@/lib/reminders";
-import { computeEvenShares, isWholeCent } from "@/lib/costSplit";
+import { computeEvenShares, computeWeightedShares, isWholeCent } from "@/lib/costSplit";
 import { BillDetailsFields, formatBillDetails, useBillDetailsForm } from "@/components/BillDetailsFields";
 import { sendManualReminder } from "@/lib/api";
 import { router, useLocalSearchParams } from "expo-router";
@@ -438,7 +438,8 @@ export default function EventDetailScreen() {
   const [costDesc, setCostDesc] = useState("");
   const [costTotal, setCostTotal] = useState("");
   const [costShares, setCostShares] = useState<Record<string, string>>({});
-  const [splitMode, setSplitMode] = useState<"even" | "manual">("even");
+  const [costWeights, setCostWeights] = useState<Record<string, string>>({});
+  const [splitMode, setSplitMode] = useState<"even" | "manual" | "weighted">("even");
   const bill = useBillDetailsForm();
   const [taskSaving, setTaskSaving] = useState(false);
   const [costSaving, setCostSaving] = useState(false);
@@ -890,6 +891,7 @@ export default function EventDetailScreen() {
     setCostTotal("");
     bill.reset();
     setCostShares({});
+    setCostWeights({});
     setSplitMode("even");
     setSelectedParticipantIds(new Set(Object.keys(event.rsvps)));
     setCostModal(true);
@@ -906,6 +908,7 @@ export default function EventDetailScreen() {
     const shareMap: Record<string, string> = {};
     cost.shares.forEach((s) => { shareMap[s.userId] = String(s.amount); });
     setCostShares(shareMap);
+    setCostWeights({});
     setSplitMode("manual");
     const editableIds = new Set(costParticipants.map((p) => p.id));
     setSelectedParticipantIds(
@@ -954,18 +957,37 @@ export default function EventDetailScreen() {
   };
 
   const evenShares = computeEvenShares(totalNum, splitParticipants.map((member) => member.id));
-
-  const activeShares = splitMode === "even" ? evenShares : costShares;
+  const parsedWeights = Object.fromEntries(
+    splitParticipants.map((m) => [m.id, parseFloat(costWeights[m.id] || "0") || 0]),
+  );
+  const totalWeight = splitParticipants.reduce((s, m) => s + (parsedWeights[m.id] || 0), 0);
+  const weightedShares = computeWeightedShares(totalNum, parsedWeights);
+  const activeShares =
+    splitMode === "even" ? evenShares
+    : splitMode === "weighted" ? weightedShares
+    : costShares;
   const shareValues = splitParticipants.map((m) => parseFloat(activeShares[m.id] || "0") || 0);
   const hasNegative = shareValues.some((v) => v < 0);
   const assignedNum = shareValues.reduce((sum, v) => sum + v, 0);
   const remaining = totalNum - assignedNum;
-  const covered = totalNum > 0 && splitParticipants.length > 0 && !hasNegative && Math.abs(remaining) < 0.01;
+  const covered =
+    totalNum > 0 && splitParticipants.length > 0 && !hasNegative &&
+    (splitMode === "weighted" ? totalWeight > 0 : Math.abs(remaining) < 0.01);
 
   const switchToManual = () => {
-    // Copy current even-split values so the user has a good starting point
-    setCostShares({ ...evenShares });
+    // Pre-fill manual inputs with whatever the current mode computes.
+    setCostShares(splitMode === "weighted" ? { ...weightedShares } : { ...evenShares });
     setSplitMode("manual");
+  };
+
+  const switchToWeighted = () => {
+    // Even → weighted: equal weights. Manual → weighted: use dollar amounts as weights.
+    const newWeights: Record<string, string> = {};
+    splitParticipants.forEach((m) => {
+      newWeights[m.id] = splitMode === "manual" ? (costShares[m.id] ?? "1") : "1";
+    });
+    setCostWeights(newWeights);
+    setSplitMode("weighted");
   };
 
   const saveCost = async () => {
@@ -2477,7 +2499,15 @@ export default function EventDetailScreen() {
                   style={[styles.splitToggleBtn, splitMode === "even" && { backgroundColor: colors.primary }]}
                 >
                   <Text style={[styles.splitToggleText, { color: splitMode === "even" ? "#fff" : colors.mutedForeground }]}>
-                    Split evenly
+                    Even
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={switchToWeighted}
+                  style={[styles.splitToggleBtn, splitMode === "weighted" && { backgroundColor: colors.primary }]}
+                >
+                  <Text style={[styles.splitToggleText, { color: splitMode === "weighted" ? "#fff" : colors.mutedForeground }]}>
+                    By shares
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -2485,10 +2515,15 @@ export default function EventDetailScreen() {
                   style={[styles.splitToggleBtn, splitMode === "manual" && { backgroundColor: colors.primary }]}
                 >
                   <Text style={[styles.splitToggleText, { color: splitMode === "manual" ? "#fff" : colors.mutedForeground }]}>
-                    Enter manually
+                    Manual
                   </Text>
                 </TouchableOpacity>
               </View>
+              {splitMode === "weighted" && (
+                <Text style={[styles.assignLabel, { color: colors.mutedForeground, marginTop: 6, textTransform: "none", letterSpacing: 0 }]}>
+                  Enter shares or % — e.g. 2 and 1 = ⅔ and ⅓ of the bill.
+                </Text>
+              )}
 
               {splitParticipants.length > 0 && (
                 <>
@@ -2502,6 +2537,22 @@ export default function EventDetailScreen() {
                           <Text style={[styles.dollar, { color: colors.primary }]}>$</Text>
                           <Text style={[styles.assignInput, { color: colors.primary, textAlignVertical: "center", paddingTop: 2 }]}>
                             {activeShares[m.id] ?? "—"}
+                          </Text>
+                        </View>
+                      ) : splitMode === "weighted" ? (
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                          <View style={[styles.assignInputWrap, { backgroundColor: colors.card, borderColor: colors.border, width: 64 }]}>
+                            <TextInput
+                              placeholder="1"
+                              placeholderTextColor={colors.textDim}
+                              value={costWeights[m.id] ?? ""}
+                              onChangeText={(v) => setCostWeights((p) => ({ ...p, [m.id]: v }))}
+                              keyboardType="decimal-pad"
+                              style={[styles.assignInput, { color: colors.foreground }]}
+                            />
+                          </View>
+                          <Text style={[styles.weightPreview, { color: totalWeight > 0 ? colors.mutedForeground : colors.textDim }]}>
+                            {totalWeight > 0 ? `$${weightedShares[m.id] ?? "0.00"}` : "—"}
                           </Text>
                         </View>
                       ) : (
@@ -2981,6 +3032,7 @@ const styles = StyleSheet.create({
   participantCheckbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
   assignInputWrap: { flexDirection: "row", alignItems: "center", gap: 2, borderRadius: 10, borderWidth: 1, paddingHorizontal: 10, width: 100, height: 40 },
   assignInput: { flex: 1, fontSize: 14, fontWeight: "700", height: "100%" },
+  weightPreview: { fontSize: 13, fontWeight: "700", minWidth: 54, textAlign: "right" },
   coverageBar: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 12, borderWidth: 1.5, paddingHorizontal: 12, paddingVertical: 10, marginTop: 6 },
   coverageText: { fontSize: 13, fontWeight: "700" },
   emojiOption: { width: 48, height: 48, borderRadius: 14, borderWidth: 2, alignItems: "center", justifyContent: "center" },
