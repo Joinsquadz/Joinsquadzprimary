@@ -204,8 +204,8 @@ async function seedEvent(
   extra?: { polls?: unknown[]; costs?: unknown[] },
 ): Promise<void> {
   await dbmod.pool.query(
-    `INSERT INTO events (id, title, date, location, host_id, invite_code, rsvps, polls, costs)
-     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb)`,
+    `INSERT INTO events (id, title, date, location, host_id, invite_code, rsvps, polls, costs, version)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, 0)`,
     [
       id, "Test Event", "2026-12-31", "Somewhere", hostId, inviteCode,
       JSON.stringify(rsvps),

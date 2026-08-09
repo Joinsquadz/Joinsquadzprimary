@@ -40,3 +40,12 @@ just skipped it.
 **How to apply:** when adding ANY new event-mutation route, copy the version
 guard from a neighboring handler in the same file. Don't write `events.*` with a
 bare `WHERE id`.
+
+**Fixture trap — version 0 is not the seeded default.** `events.version` has a
+schema default of **1**, so a real-DB seed that omits the column produces a row
+at version 1. A CAS test whose requests carry `version: 0` then matches zero rows
+on the FIRST request and every writer 409s — which reads exactly like a broken
+compare-and-swap (0 successes instead of 1) even though the handlers are correct.
+Any real-DB fixture that asserts behavior at a specific version must INSERT that
+version explicitly rather than relying on the default. Suspect the fixture before
+the handler when a concurrency test reports zero winners.
