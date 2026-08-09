@@ -26,6 +26,7 @@ import friendRequestsRouter from "./friendRequests";
 import invitesRouter from "./invites";
 import moderationRouter from "./moderation";
 import ideasRouter from "./ideas";
+import mediaBackupRouter from "./mediaBackup";
 
 const router: IRouter = Router();
 
@@ -56,5 +57,6 @@ router.use(friendRequestsRouter);
 router.use(invitesRouter);
 router.use(moderationRouter);
 router.use(ideasRouter);
+router.use(mediaBackupRouter);
 
 export default router;

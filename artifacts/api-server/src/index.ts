@@ -18,6 +18,7 @@ import {
   runPollNudgeScan,
 } from './lib/eventReminders';
 import { runPoolHealthCheck, POOL_MONITOR_INTERVAL_MS } from './lib/poolMonitor';
+import { scheduleMediaBackup } from './lib/mediaBackup';
 import { db, squadsTable } from '@workspace/db';
 import { isNull } from 'drizzle-orm';
 
@@ -185,3 +186,9 @@ setInterval(() => {
   runEventRecapScan().catch((err) => logger.error({ err }, 'Event recap scan failed'));
   runPollNudgeScan().catch((err) => logger.error({ err }, 'Poll nudge scan failed'));
 }, REMINDER_SCAN_INTERVAL_MS).unref();
+
+// Nightly Supabase Storage -> Cloudflare R2 media backup. Runs at 03:30
+// America/New_York (the app's primary timezone) — well after evening plan
+// activity and before morning traffic. A Postgres advisory lock makes exactly
+// one autoscale instance perform the copy.
+scheduleMediaBackup();

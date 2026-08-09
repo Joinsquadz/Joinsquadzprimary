@@ -1,0 +1,34 @@
+SquadZ — Build: Nightly Supabase Storage → Cloudflare R2 Media Backup
+
+Context: the database is backed up (Supabase daily), but Supabase Storage media (all user photos/videos across Moments, Vault, Feed, chat) had no backup — a confirmed gap from the server-health audit. Decision (locked, after reviewing options): scheduled nightly copy from Supabase Storage to Cloudflare R2. Reasoning: R2 has zero egress fees (ideal for a backup you hope never to restore from), Cloudflare is already in use for the app, and a nightly scheduled copy keeps the backup path fully independent from the live upload path (unlike dual-write, which could let a backup failure interfere with a real user upload).
+
+Credentials (already set as Replit secrets)
+R2_ACCESS_KEY_ID
+R2_SECRET_ACCESS_KEY
+R2_ENDPOINT — the R2 S3-compatible endpoint (https://<account-id>.r2.cloudflarestorage.com)
+R2_BACKUP_BUCKET — squadz-media-backup
+
+R2 is S3-compatible, so use a standard S3 client (e.g. AWS SDK v3 @aws-sdk/client-s3) pointed at the R2 endpoint — no R2-specific SDK needed.
+
+What to build
+First, confirm which Supabase Storage buckets the app actually uses. Inspect the codebase for every bucket referenced in upload paths (Moments, Vault, Feed, chat attachments, profile avatars). Report the actual list before implementing — the backup must cover ALL of them, not just one. If there are multiple buckets, the backup job iterates over all of them.
+Nightly scheduled backup job that:
+Runs once per day (pick a sensible low-traffic hour, e.g. ~3-4am in the app's primary timezone — state which and why).
+Lists all objects in each Supabase Storage bucket the app uses and copies any that aren't already present in R2 (incremental — don't re-copy files already backed up; compare by key and ideally size/etag so unchanged files are skipped, keeping each nightly run fast and cheap).
+Preserves the bucket/path structure in R2 so a restore maps cleanly back (e.g. prefix R2 keys with the source bucket name).
+Logs a clear summary each run: how many files checked, how many newly copied, total size, any failures.
+Reports failures through Sentry (warning level) so a silently-failing backup doesn't go unnoticed — a backup that stops working without anyone knowing is worse than no backup, because it creates false confidence.
+Multi-instance safety: this runs in the autoscale environment where multiple instances exist. Use the same advisory-lock pattern already used for the notification scanners so exactly one instance runs the backup each night, not several redundantly. This is important — several instances running a full bucket copy simultaneously would waste resources and could conflict.
+A manual trigger (an internal, auth-protected admin route using the existing INTERNAL_API_TOKEN, consistent with the health endpoint) to run the backup on demand — needed for the initial first-run backup and for testing without waiting for the nightly schedule.
+Restore documentation (required, not optional)
+
+Write a short doc (e.g. docs/media-backup-restore.md) explaining, in plain steps, how to actually restore media from R2 back to Supabase Storage if it were ever needed — which credentials, which direction, how to verify. A backup nobody knows how to restore from isn't a real safety net. This doesn't need to be automated, just clearly documented.
+
+After building — run it once and verify
+Trigger the manual backup once and confirm files actually land in the R2 bucket (report how many objects and total size ended up in R2).
+Since production currently has very little media (~0.025GB confirmed earlier), this first run should be fast and is a safe, low-risk way to prove the whole path works end-to-end before relying on the nightly schedule.
+Required for this pass
+Report the actual Supabase bucket list before implementing — the backup must cover all of them.
+Confirm the manual first-run actually copied files to R2 and report the result — don't consider this done until real files are confirmed in R2.
+Regression tests where feasible; confirm existing suites unaffected and report counts.
+Do not touch the cost-splitting draft (#583) or other in-flight work.
