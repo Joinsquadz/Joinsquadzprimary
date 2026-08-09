@@ -1,0 +1,35 @@
+# SquadZ — Cost Splitting: Audit All Cost Elements, Then Build the Gaps (Tip/Gratuity Included)
+
+Context: request is to make sure the cost-splitting feature correctly handles all the elements of a real bill — not just a base amount, but tip/gratuity, tax, fees, etc. — and to build in whatever's missing, especially tip/gratuity handling. Audit first, report the gaps, then build.
+
+**Sequencing note — important**: this touches the same cost-split write path that task #575 (the lost-update race fix) modifies. Do NOT start the build portion of this until #575 has landed and is confirmed done. The audit portion (read-only) is safe to run anytime. If #575 isn't done yet when this is picked up, complete the audit and report, but hold the build until #575 is merged — flag this rather than building on top of soon-to-change code.
+
+## Part 1 — Audit (read-only, safe to run anytime)
+
+Examine the current cost-splitting implementation end to end (data model, API, and the mobile UI that drives it) and report exactly what cost elements it currently supports and how each is handled:
+
+1. **What can currently be entered?** Just a total amount, or itemized components? Report the actual fields the data model and API accept for a cost/expense.
+2. **Tip/gratuity**: is there any handling for it today — a tip field, a percentage option, anything? Or is tip currently something users would have to bake into the total manually?
+3. **Tax**: same question — separate handling, or baked into the total?
+4. **Fees** (delivery, service, booking fees, etc.): handled separately or not at all?
+5. **How is the split actually calculated?** Even division across members, or can it handle uneven splits (some people owe more), per-item assignment, or shares/weights? Report what the split logic actually does.
+6. **Rounding**: when a total doesn't divide evenly (e.g. $100 split 3 ways = $33.33 × 3 = $99.99), how is the leftover penny handled? Confirm the split always sums back exactly to the total — a common bug is splits that don't reconcile to the original amount.
+7. **Currency**: single currency assumed, or is there any currency handling? (Report even if it's just "USD assumed" — relevant for the scale/international question later.)
+
+Report the current state plainly, then list the specific gaps against a "complete real-world bill" (base + tax + tip + fees, split fairly, reconciling exactly to the total).
+
+## Part 2 — Build the gaps (only after #575 is merged)
+
+Based on the audit, build what's missing. At minimum, tip/gratuity handling is explicitly requested. Likely scope, adjust based on what the audit finds already exists:
+
+1. **Tip/gratuity**: let the person entering a cost add a tip — support both a **percentage** (e.g. 18%, 20%, custom %) and a **flat amount**, since real bills come both ways. The tip should be included in the total that gets split.
+2. **Tax** (if not already handled): allow tax as a separate line so it's transparent, not hidden in the base — but keep it optional/simple, don't force itemization on users who just want to split a round number.
+3. **Fees** (if not already handled): a general "additional fees" line for delivery/service/booking charges.
+4. **Reconciliation guarantee**: whatever elements are added, the final per-person amounts must always sum back to exactly the grand total (base + tax + tip + fees), with rounding handled so no penny is lost or created. This is the most important correctness property — add a test that asserts splits always reconcile to the total across a range of amounts and member counts.
+5. **UI**: keep the simple case simple. A user splitting a round $60 shouldn't be forced through tax/tip/fee fields — those should be optional additions, not required steps. The common case (just split this amount) stays one step; the detailed case (base + tip + tax) is available when needed.
+
+## Required for this pass
+- Part 1 (audit) reported before any Part 2 (build) work begins.
+- Part 2 held until #575 is confirmed merged — do not build on the pre-#575 cost-split write path.
+- The reconciliation guarantee (per-person amounts sum exactly to the grand total) must have a dedicated regression test covering uneven divisions and rounding edge cases.
+- Confirm existing suite unaffected; report final counts.
