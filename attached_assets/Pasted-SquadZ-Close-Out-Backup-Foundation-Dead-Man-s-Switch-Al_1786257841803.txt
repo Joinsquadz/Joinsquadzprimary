@@ -1,0 +1,35 @@
+SquadZ — Close Out Backup Foundation: Dead-Man's-Switch Alert + Restore Drill
+
+Context: the nightly Supabase Storage → R2 media backup is live and proven (first run copied 21 objects / 33.4MB to R2, incremental skip confirmed). Two gaps remain, both flagged in the backup implementation itself: (1) the system can report a backup failure but not detect that backups stopped running entirely, and (2) the restore path is documented but has never actually been executed, so it's an untested assumption rather than a proven capability. This prompt closes both.
+
+Part 1 — Dead-man's-switch alert (detect backups that silently stop)
+
+The current alerting fires only when a backup runs and hits errors. It does NOT fire if the backup job stops running altogether (a broken deploy, a misfired schedule, expired credentials, etc.) — the most dangerous failure mode, because it's silent and creates false confidence over time.
+
+Build a check that detects a missing successful backup:
+
+Record the timestamp of each successful backup completion (a small record — a row in a table, or a timestamp stored somewhere durable — updated each time a nightly run completes successfully).
+Add a lightweight recurring check (can piggyback on an existing scheduled job / the same scanner pattern already in use) that fires a Sentry alert (warning or error level — your call, but it should be visible) if no successful backup has completed in more than a reasonable threshold (e.g. 26-30 hours, giving headroom past the 24-hour nightly cycle without false alarms).
+The alert message should be unambiguous: something a tired person glancing at their phone immediately understands as "the media backup has not run — investigate," not a vague warning.
+Multi-instance safe, consistent with the advisory-lock pattern used elsewhere.
+
+Test: simulate a stale last-successful-backup timestamp (older than the threshold) and confirm the alert fires. Simulate a recent one and confirm it does not.
+
+Part 2 — Restore drill (prove the restore path actually works)
+
+The restore direction is documented in docs/media-backup-restore.md but has never been executed. An untested restore is a hope, not a capability. Run a real, controlled restore drill now, while there's minimal data and zero stakes:
+
+Pick a safe, controlled way to prove restore works WITHOUT risking production media — e.g. restore a small number of objects from R2 into a separate/temporary Supabase Storage location (a test bucket or a clearly-namespaced test prefix), NOT overwriting the live production media. The goal is to prove the mechanism end-to-end (R2 → Supabase Storage, correct file, correct content, not corrupted), not to actually replace anything live.
+Verify the restored file(s) match the originals (same content/size, openable/valid, not corrupted in transit).
+Update docs/media-backup-restore.md with anything learned from actually doing it — any step that was unclear, any gotcha (the space-containing bucket name, credential direction, etc.) — so the doc reflects a real executed restore, not a theoretical one.
+Clean up the test restore artifacts afterward (delete the temp bucket/prefix) so nothing is left lingering.
+
+Report: confirmation that a real file was successfully restored from R2 and verified intact, plus any doc updates made.
+
+Required for this pass
+Part 2 must NOT overwrite or risk live production media — use a separate/temporary target and clean it up after.
+Report both: the dead-man's-switch alert working (tested), and a real restore actually executed and verified.
+Regression tests for the dead-man's-switch check; confirm existing suite (1015 API / 351 mobile) unaffected and report counts.
+Do not touch the cost-splitting draft (#583) or other in-flight work.
+
+After this, the backup foundation is genuinely complete: backups run, failures alert, silent-stoppage alerts, and restore is proven — not assumed.
