@@ -8,7 +8,6 @@ import React, {
   useRef,
 } from "react";
 import { AppState } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { API_BASE } from "@/lib/api";
 import { useAuth } from "@/context/AppContext";
 // Shared auth-race guard (see lib/vaultAuthRace.ts). A pre-token-restore 401 on
@@ -29,15 +28,21 @@ export type ChatAttachment = {
   height?: number;
 };
 
+export type ConversationType = "direct" | "squad" | "event";
+
 export type ConversationListItem = {
   id: string;
-  type: "direct" | "squad";
+  type: ConversationType;
   title: string;
   emoji: string | null;
   color: string | null;
   squadId: string | null;
   otherUserId: string | null;
   otherUserImageUrl?: string | null;
+  // Set only on plan ("event") threads. `eventType` discriminates a plain event
+  // from a trip so the inbox can route the row to the right detail screen.
+  eventId: string | null;
+  eventType: string | null;
   lastMessageAt: string;
   lastMessagePreview: string;
   lastMessageSenderId: string;
@@ -65,7 +70,7 @@ export type ChatParticipant = {
 };
 
 export type ThreadData = {
-  conversation: { id: string; type: string; squadId: string | null };
+  conversation: { id: string; type: string; squadId: string | null; eventId?: string | null };
   messages: ChatMessage[];
   participants: ChatParticipant[];
   // Cursor pagination: hasMore = older messages exist before this page;
@@ -115,13 +120,12 @@ type MessagesContextType = {
   startDirectConversation: (userId: string) => Promise<string | null>;
   getSquadConversation: (squadId: string) => Promise<string | null>;
   /**
-   * Per-event chat read state (event & trip chats live as JSONB on the event,
-   * so there's no server-side participant row to track reads). Maps eventId →
-   * ISO timestamp of the latest message the user has seen.
+   * Get-or-create the chat thread for a plan (event OR trip). Returns null when
+   * the plan is gone or the user can no longer see it. Plan chat used to live
+   * as JSONB on the event with client-only read tracking; it is now an ordinary
+   * paginated conversation with server-side read receipts.
    */
-  eventReads: Record<string, string>;
-  /** Mark an event/trip chat as read up to its latest message. */
-  markEventChatRead: (eventId: string, lastMessageIso?: string) => void;
+  getEventConversation: (eventId: string) => Promise<string | null>;
 };
 
 const MessagesContext = createContext<MessagesContextType | null>(null);
@@ -129,7 +133,7 @@ const MessagesContext = createContext<MessagesContextType | null>(null);
 const POLL_INTERVAL_MS = 8000;
 
 export function MessagesProvider({ children }: { children: React.ReactNode }) {
-  const { authToken, currentUser } = useAuth();
+  const { authToken } = useAuth();
   const [conversations, setConversations] = useState<ConversationListItem[]>([]);
   const [conversationsLoading, setConversationsLoading] = useState(false);
   // Auth-race state for the initial conversations load (see lib/vaultAuthRace.ts).
@@ -137,11 +141,8 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
   // so a transient poll 401 can't flash an already-populated list to a spinner.
   const [conversationsAuth, setConversationsAuth] = useState<AuthRaceState>(INITIAL_AUTH_RACE_STATE);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [eventReads, setEventReads] = useState<Record<string, string>>({});
   const tokenRef = useRef<string | null>(authToken);
   tokenRef.current = authToken;
-  const userId = currentUser?.id;
-  const eventReadsKey = userId ? `event_chat_reads_${userId}` : null;
 
   const apiFetch = useCallback(
     async (path: string, options?: RequestInit) => {
@@ -324,43 +325,18 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
     [apiFetch],
   );
 
-  // Load this user's per-event chat read map from storage when they sign in.
-  useEffect(() => {
-    if (!eventReadsKey) {
-      setEventReads({});
-      return;
-    }
-    let cancelled = false;
-    void AsyncStorage.getItem(eventReadsKey).then((raw) => {
-      if (cancelled) return;
-      if (!raw) {
-        setEventReads({});
-        return;
-      }
+  const getEventConversation = useCallback(
+    async (eventId: string): Promise<string | null> => {
       try {
-        setEventReads(JSON.parse(raw) as Record<string, string>);
+        const res = await apiFetch(`/api/conversations/event/${eventId}`);
+        if (!res.ok) return null;
+        const { id } = (await res.json()) as { id: string };
+        return id;
       } catch {
-        setEventReads({});
+        return null;
       }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [eventReadsKey]);
-
-  const markEventChatRead = useCallback(
-    (eventId: string, lastMessageIso?: string) => {
-      if (!eventReadsKey) return;
-      const stamp = lastMessageIso ?? new Date().toISOString();
-      setEventReads((prev) => {
-        // Never move the read marker backwards.
-        if (prev[eventId] && prev[eventId] >= stamp) return prev;
-        const next = { ...prev, [eventId]: stamp };
-        void AsyncStorage.setItem(eventReadsKey, JSON.stringify(next)).catch(() => {});
-        return next;
-      });
     },
-    [eventReadsKey],
+    [apiFetch],
   );
 
   // Initial + token-change load. Uses the tracked load path so a pre-restore
@@ -430,8 +406,7 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
       markRead,
       startDirectConversation,
       getSquadConversation,
-      eventReads,
-      markEventChatRead,
+      getEventConversation,
     }),
     [
       conversations,
@@ -447,8 +422,7 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
       markRead,
       startDirectConversation,
       getSquadConversation,
-      eventReads,
-      markEventChatRead,
+      getEventConversation,
     ],
   );
 

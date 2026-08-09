@@ -17,10 +17,8 @@ import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AppContext";
 import { useMessages, type ConversationListItem } from "@/context/MessagesContext";
 import { UserAvatar } from "@/components/UserAvatar";
-import type { Event } from "@/types";
-// Shared auth-race guard (see lib/vaultAuthRace.ts). The inbox unions two
-// sources (conversations + event/trip chats). A cold-start / slow-login 401 on
-// either — while the list is still empty — must keep this screen loading rather
+// Shared auth-race guard (see lib/vaultAuthRace.ts). A cold-start / slow-login
+// 401 — while the list is still empty — must keep this screen loading rather
 // than flashing the "No messages yet" empty state.
 import { vaultRenderMode } from "@/lib/vaultAuthRace";
 
@@ -32,19 +30,20 @@ const TYPE_META = {
   trip:   { label: "Trip",  bg: "#2563EB", fg: "#fff" },
 } as const;
 
-// ── unified list item ─────────────────────────────────────────────────────────
-type UnifiedItem =
-  | { kind: "conversation"; data: ConversationListItem }
-  | { kind: "event"; event: Event; lastAt: string; lastText: string; unread: boolean };
-
-function itemSortKey(item: UnifiedItem): number {
-  const raw =
-    item.kind === "conversation"
-      ? new Date(item.data.lastMessageAt).getTime()
-      : new Date(item.lastAt).getTime();
-  // Event/trip messages may carry an unparseable legacy `time` ("Just now").
-  // Treat those as oldest so a bad value can't crash or reorder the list.
+// Every inbox row — DM, squad, event and trip — is now a server-side
+// conversation, so the list is a single sorted source with real unread counts
+// (plan chats used to be stitched in client-side from the event records).
+function itemSortKey(c: ConversationListItem): number {
+  const raw = new Date(c.lastMessageAt).getTime();
+  // Migrated legacy plan messages can carry an odd timestamp; treat an
+  // unparseable one as oldest so it can't crash or reorder the list.
   return Number.isNaN(raw) ? 0 : raw;
+}
+
+/** Which pill/avatar treatment a row gets. Trips are visually distinct from events. */
+function rowKind(c: ConversationListItem): keyof typeof TYPE_META {
+  if (c.type !== "event") return c.type;
+  return c.eventType === "trip" ? "trip" : "event";
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -78,17 +77,18 @@ function Avatar({
   imageUrl,
   initials,
 }: {
-  type: "direct" | "squad" | "event";
+  type: "direct" | "squad" | "event" | "trip";
   emoji?: string | null;
   color?: string | null;
   initial: string;
   imageUrl?: string | null;
   initials?: string;
 }) {
-  if (type === "event") {
+  if (type === "event" || type === "trip") {
+    const tint = type === "trip" ? "#2563EB" : "#D97706";
     return (
-      <View style={[styles.avatar, { backgroundColor: "#D9770622", borderColor: "#D9770644", borderWidth: 1 }]}>
-        <Text style={{ fontSize: 24 }}>{emoji ?? "🗓️"}</Text>
+      <View style={[styles.avatar, { backgroundColor: tint + "22", borderColor: tint + "44", borderWidth: 1 }]}>
+        <Text style={{ fontSize: 24 }}>{emoji ?? (type === "trip" ? "✈️" : "🗓️")}</Text>
       </View>
     );
   }
@@ -116,20 +116,12 @@ function Avatar({
 export default function MessagesScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const {
-    currentUser,
-    events,
-    eventsLoading,
-    eventsAuthPending,
-    eventsAuthError,
-    retryEvents,
-  } = useAuth();
+  const { currentUser } = useAuth();
   const {
     conversations,
     conversationsLoading,
     refreshConversations,
     refreshUnread,
-    eventReads,
     conversationsAuthPending,
     conversationsAuthError,
     retryConversations,
@@ -145,63 +137,37 @@ export default function MessagesScreen() {
     }, [refreshConversations, refreshUnread]),
   );
 
-  // Build event chat items — only events that have at least one message
-  const unifiedList = useMemo<UnifiedItem[]>(() => {
-    const convItems: UnifiedItem[] = conversations.map((c) => ({ kind: "conversation", data: c }));
+  const inbox = useMemo(
+    () => [...conversations].sort((a, b) => itemSortKey(b) - itemSortKey(a)),
+    [conversations],
+  );
 
-    const eventItems: UnifiedItem[] = events
-      .filter((e) => (e.messages?.length ?? 0) > 0 && !e.cancelled)
-      .map((e) => {
-        const last = e.messages[e.messages.length - 1];
-        const lastAt = last.createdAt ?? last.time;
-        // Unread when the latest message is newer than what we've seen AND it
-        // wasn't sent by us. Messages without a real timestamp (legacy) can't
-        // be compared, so they never count as unread (avoids false positives).
-        const readAt = eventReads[e.id];
-        const unread =
-          !!last.createdAt &&
-          last.senderId !== currentUser?.id &&
-          (!readAt || readAt < last.createdAt);
-        return {
-          kind: "event",
-          event: e,
-          lastAt,
-          lastText: last.text,
-          unread,
-        };
-      });
+  const isLoading = conversationsLoading && inbox.length === 0;
 
-    return [...convItems, ...eventItems].sort((a, b) => itemSortKey(b) - itemSortKey(a));
-  }, [conversations, events, eventReads, currentUser?.id]);
-
-  const isLoading = conversationsLoading && eventsLoading && unifiedList.length === 0;
-
-  // Combined auth-race guard across the two inbox sources. Only treat the screen
-  // as pending/errored while it has NOTHING to show — if either source already
-  // returned rows, render them. `authPending` overriding the empty state is what
-  // stops the false "No messages yet" flash during a slow login.
+  // Auth-race guard: only treat the screen as pending/errored while it has
+  // NOTHING to show. `authPending` overriding the empty state is what stops the
+  // false "No messages yet" flash during a slow login.
   const renderMode = vaultRenderMode({
     loading: isLoading,
-    authPending: (eventsAuthPending || conversationsAuthPending) && unifiedList.length === 0,
-    authError: (eventsAuthError || conversationsAuthError) && unifiedList.length === 0,
-    photoCount: unifiedList.length,
+    authPending: conversationsAuthPending && inbox.length === 0,
+    authError: conversationsAuthError && inbox.length === 0,
+    photoCount: inbox.length,
   });
 
   const retry = useCallback(() => {
-    retryEvents();
     retryConversations();
-  }, [retryEvents, retryConversations]);
+  }, [retryConversations]);
 
-  const openItem = useCallback((item: UnifiedItem) => {
+  const openItem = useCallback((c: ConversationListItem) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    if (item.kind === "conversation") {
-      router.push(`/conversation/${item.data.id}` as never);
-    } else {
+    if (c.type === "event" && c.eventId) {
       // Opened from the Messages inbox → land on the chat tab, not the
-      // itinerary/overview ("the event"). Both detail screens read ?tab.
-      const base = item.event.type === "trip" ? `/trip/${item.event.id}` : `/event/${item.event.id}`;
+      // itinerary/overview ("the plan"). Both detail screens read ?tab.
+      const base = c.eventType === "trip" ? `/trip/${c.eventId}` : `/event/${c.eventId}`;
       router.push(`${base}?tab=chat` as never);
+      return;
     }
+    router.push(`/conversation/${c.id}` as never);
   }, []);
 
   const handleRefresh = useCallback(() => {
@@ -209,82 +175,37 @@ export default function MessagesScreen() {
   }, [refreshConversations]);
 
   const renderItem = useCallback(
-    ({ item }: { item: UnifiedItem }) => {
-      if (item.kind === "conversation") {
-        const c = item.data;
-        const unread = c.unreadCount > 0;
-        const youSent = c.lastMessageSenderId === currentUser?.id;
-        const preview = c.lastMessagePreview
-          ? `${youSent ? "You: " : ""}${c.lastMessagePreview}`
-          : "No messages yet";
-        const type = c.type; // "direct" | "squad"
-
-        return (
-          <TouchableOpacity
-            onPress={() => openItem(item)}
-            style={[styles.row, { borderBottomColor: colors.border }]}
-            activeOpacity={0.7}
-          >
-            <Avatar
-              type={type}
-              emoji={c.emoji}
-              color={c.color}
-              initial={(c.title || "?").charAt(0)}
-              imageUrl={type === "direct" ? (c.otherUserImageUrl ?? null) : null}
-              initials={type === "direct" ? (c.title || "?").slice(0, 2).toUpperCase() : undefined}
-            />
-            <View style={styles.rowBody}>
-              <View style={styles.rowTop}>
-                <TypePill kind={type} />
-                <Text style={[styles.rowName, { color: colors.foreground }]} numberOfLines={1}>
-                  {c.title}
-                </Text>
-                <Text style={[styles.rowTime, { color: unread ? colors.primary : colors.textDim }]}>
-                  {timeAgo(c.lastMessageAt)}
-                </Text>
-              </View>
-              <View style={styles.rowBottom}>
-                <Text
-                  style={[
-                    styles.rowPreview,
-                    { color: unread ? colors.foreground : colors.mutedForeground, fontWeight: unread ? "700" : "400" },
-                  ]}
-                  numberOfLines={1}
-                >
-                  {preview}
-                </Text>
-                {unread && (
-                  <View style={[styles.badge, { backgroundColor: colors.primary }]}>
-                    <Text style={styles.badgeText}>{c.unreadCount > 99 ? "99+" : c.unreadCount}</Text>
-                  </View>
-                )}
-              </View>
-            </View>
-          </TouchableOpacity>
-        );
-      }
-
-      // ── event / trip chat item ────────────────────────────────────────
-      const { event, lastAt, lastText, unread } = item;
-      const isTrip = event.type === "trip";
-      const youSent = event.messages[event.messages.length - 1]?.senderId === currentUser?.id;
-      const preview = `${youSent ? "You: " : ""}${lastText}`;
+    ({ item: c }: { item: ConversationListItem }) => {
+      const unread = c.unreadCount > 0;
+      const youSent = c.lastMessageSenderId === currentUser?.id;
+      const preview = c.lastMessagePreview
+        ? `${youSent ? "You: " : ""}${c.lastMessagePreview}`
+        : "No messages yet";
+      const kind = rowKind(c);
+      const isDirect = c.type === "direct";
 
       return (
         <TouchableOpacity
-          onPress={() => openItem(item)}
+          onPress={() => openItem(c)}
           style={[styles.row, { borderBottomColor: colors.border }]}
           activeOpacity={0.7}
         >
-          <Avatar type="event" emoji={event.emoji ?? (isTrip ? "✈️" : null)} initial={event.title.charAt(0)} />
+          <Avatar
+            type={kind}
+            emoji={c.emoji}
+            color={c.color}
+            initial={(c.title || "?").charAt(0)}
+            imageUrl={isDirect ? (c.otherUserImageUrl ?? null) : null}
+            initials={isDirect ? (c.title || "?").slice(0, 2).toUpperCase() : undefined}
+          />
           <View style={styles.rowBody}>
             <View style={styles.rowTop}>
-              <TypePill kind={isTrip ? "trip" : "event"} />
+              <TypePill kind={kind} />
               <Text style={[styles.rowName, { color: colors.foreground }]} numberOfLines={1}>
-                {event.title}
+                {c.title}
               </Text>
               <Text style={[styles.rowTime, { color: unread ? colors.primary : colors.textDim }]}>
-                {timeAgo(lastAt)}
+                {timeAgo(c.lastMessageAt)}
               </Text>
             </View>
             <View style={styles.rowBottom}>
@@ -297,7 +218,11 @@ export default function MessagesScreen() {
               >
                 {preview}
               </Text>
-              {unread && <View style={[styles.dot, { backgroundColor: colors.primary }]} />}
+              {unread && (
+                <View style={[styles.badge, { backgroundColor: colors.primary }]}>
+                  <Text style={styles.badgeText}>{c.unreadCount > 99 ? "99+" : c.unreadCount}</Text>
+                </View>
+              )}
             </View>
           </View>
         </TouchableOpacity>
@@ -322,10 +247,8 @@ export default function MessagesScreen() {
       </View>
 
       <FlatList
-        data={renderMode === "content" ? unifiedList : []}
-        keyExtractor={(item) =>
-          item.kind === "conversation" ? `conv-${item.data.id}` : `event-${item.event.id}`
-        }
+        data={renderMode === "content" ? inbox : []}
+        keyExtractor={(item) => item.id}
         renderItem={renderItem}
         contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: botPad, flexGrow: 1 }}
         showsVerticalScrollIndicator={false}

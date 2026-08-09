@@ -184,23 +184,9 @@ describe("A3 — POST /api/events/:id/polls/:pollId/vote on a cancelled event", 
   });
 });
 
-// ── Event-chat message ────────────────────────────────────────────────────────
-
-describe("A3 — POST /api/events/:id/messages on a cancelled event", () => {
-  it("returns 410 when the host tries to post a message", async () => {
-    const res = await request(makeApp())
-      .post("/api/events/evt-1/messages")
-      .send({ text: "Still on?", version: 0 });
-    expect(res.status).toBe(410);
-  });
-
-  it("returns 410 when an RSVP'd member tries to post a message", async () => {
-    const res = await request(makeApp(RSVP_USER_ID))
-      .post("/api/events/evt-1/messages")
-      .send({ text: "Sad!", version: 0 });
-    expect(res.status).toBe(410);
-  });
-});
+// Plan chat is no longer an event sub-resource — it lives in a conversation
+// thread. The cancelled-plan 410 for chat is covered by
+// conversations.eventThread.test.ts.
 
 // ── Un-cancellation (host only) still succeeds ────────────────────────────────
 

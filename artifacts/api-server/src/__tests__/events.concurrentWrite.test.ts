@@ -223,44 +223,10 @@ describe("POST /api/events/:id/polls/:pollId/vote — version-based conflict pro
   });
 });
 
-// ─── POST /events/:id/messages ────────────────────────────────────────────────
-
-describe("POST /api/events/:id/messages — version-based conflict protection", () => {
-  it("returns 200 when the client version matches the stored version", async () => {
-    const app = makeApp({ id: HOST_ID });
-    const res = await request(app)
-      .post("/api/events/evt-1/messages")
-      .send({ text: "Can't wait!", version: 0 });
-    expect(res.status).toBe(200);
-  });
-
-  it("returns 409 when the stored version has advanced past the client version", async () => {
-    mockUpdateRows.value = [];
-    const app = makeApp({ id: HOST_ID });
-    const res = await request(app)
-      .post("/api/events/evt-1/messages")
-      .send({ text: "Can't wait!", version: 0 });
-    expect(res.status).toBe(409);
-    expect(res.body.conflict).toBe(true);
-  });
-
-  it("second of two concurrent requests with the same version gets 409", async () => {
-    const app = makeApp({ id: HOST_ID });
-
-    mockUpdateRows.value = [baseEvent];
-    const first = await request(app)
-      .post("/api/events/evt-1/messages")
-      .send({ text: "First!", version: 0 });
-    expect(first.status).toBe(200);
-
-    mockUpdateRows.value = [];
-    const second = await request(app)
-      .post("/api/events/evt-1/messages")
-      .send({ text: "Also first!", version: 0 });
-    expect(second.status).toBe(409);
-    expect(second.body.conflict).toBe(true);
-  });
-});
+// ─── Plan chat ────────────────────────────────────────────────────────────────
+// Chat is no longer an events.* JSON column, so it has no version to collide on
+// — that is the whole point of the migration. The regression that chat sends
+// never bump events.version lives in conversations.eventThread.test.ts.
 
 // ─── Version field is optional for RSVP only ─────────────────────────────────
 
@@ -321,19 +287,6 @@ describe("POST /api/events/:id/polls/:pollId/vote — version is required (400 w
       .post("/api/events/evt-1/polls/poll-1/vote")
       .send({
         optionId: "opt-1",
-        // version intentionally omitted
-      });
-    expect(res.status).toBe(400);
-  });
-});
-
-describe("POST /api/events/:id/messages — version is required (400 when missing)", () => {
-  it("returns 400 when version is omitted from the message body", async () => {
-    const app = makeApp({ id: RSVP_USER_ID });
-    const res = await request(app)
-      .post("/api/events/evt-1/messages")
-      .send({
-        text: "Hey!",
         // version intentionally omitted
       });
     expect(res.status).toBe(400);

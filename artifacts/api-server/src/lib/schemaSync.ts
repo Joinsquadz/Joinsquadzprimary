@@ -435,6 +435,8 @@ async function addMissingColumns(): Promise<void> {
     `ALTER TABLE "availability_polls" ADD COLUMN IF NOT EXISTS "poll_update_notified_at" timestamp with time zone`,
     // conversation_messages
     `ALTER TABLE "conversation_messages" ADD COLUMN IF NOT EXISTS "status" text DEFAULT 'visible' NOT NULL`,
+    // conversations — per-plan (event/trip) chat threads
+    `ALTER TABLE "conversations" ADD COLUMN IF NOT EXISTS "event_id" text`,
   ];
 
   for (const stmt of alterColumns) {
@@ -457,6 +459,12 @@ async function createIndexes(): Promise<void> {
     `CREATE UNIQUE INDEX IF NOT EXISTS "vault_hearts_photo_user_unique" ON "vault_hearts"("photo_id","user_id")`,
     `CREATE INDEX IF NOT EXISTS "vault_comments_photo_idx" ON "vault_comments"("photo_id")`,
     `CREATE UNIQUE INDEX IF NOT EXISTS "favorites_user_photo_unique" ON "favorites"("user_id","photo_id")`,
+    // Exactly one chat thread per plan. This index is not just a guard: the
+    // get-or-create path and the legacy-chat backfill both rely on it for
+    // ON CONFLICT ("event_id") DO NOTHING, so two concurrent opens converge on
+    // one thread instead of erroring out. NULLs are distinct in Postgres, so
+    // every non-plan conversation is unaffected.
+    `CREATE UNIQUE INDEX IF NOT EXISTS "conversations_event_id_unique" ON "conversations"("event_id")`,
     `CREATE INDEX IF NOT EXISTS "IDX_feed_comments_post_id" ON "feed_comments"("post_id")`,
     `CREATE INDEX IF NOT EXISTS "IDX_feed_posts_author_id" ON "feed_posts"("author_id")`,
     `CREATE INDEX IF NOT EXISTS "IDX_feed_posts_audience" ON "feed_posts"("audience")`,
@@ -515,6 +523,11 @@ async function createForeignKeys(): Promise<void> {
        FOREIGN KEY ("moment_id") REFERENCES "moments"("id") ON DELETE cascade NOT VALID`,
     `ALTER TABLE "moment_views" ADD CONSTRAINT "moment_views_moment_id_moments_id_fk"
        FOREIGN KEY ("moment_id") REFERENCES "moments"("id") ON DELETE cascade NOT VALID`,
+    // Per-plan chat threads die with their plan. Without this cascade every
+    // event-delete call site (host account deletion, squad teardown, plain
+    // delete) would have to remember to purge the thread by hand.
+    `ALTER TABLE "conversations" ADD CONSTRAINT "conversations_event_id_events_id_fk"
+       FOREIGN KEY ("event_id") REFERENCES "events"("id") ON DELETE cascade NOT VALID`,
   ];
 
   for (const stmt of fks) {

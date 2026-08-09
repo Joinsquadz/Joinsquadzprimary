@@ -28,7 +28,6 @@ const plan = (over: Partial<Event> & { id: string }): Event => ({
   tasks: [],
   costs: [],
   polls: [],
-  messages: [],
   itinerary: [],
   packing: [],
   version: 1,

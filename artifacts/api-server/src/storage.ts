@@ -33,6 +33,11 @@ import {
 } from '@workspace/db/schema';
 import { eq, sql, count, and, or, gte, lt, lte, desc, asc, inArray, ne, isNull } from 'drizzle-orm';
 import { db } from '@workspace/db';
+import {
+  canUserAccessEventRecord,
+  eventChatAudience,
+  type EventVisibilityFields,
+} from './lib/eventVisibility';
 
 /**
  * Thrown when a photo URL is already recorded under a different uploader.
@@ -1281,6 +1286,83 @@ export class Storage {
     return convo;
   }
 
+  // ---- Per-plan (event / trip) chat threads ----
+
+  /** Live squad roster reader shared by the plan visibility helpers below. */
+  private async squadMemberIds(squadId: string): Promise<string[]> {
+    const squad = await this.getSquad(squadId);
+    return (squad?.memberIds ?? []) as string[];
+  }
+
+  /**
+   * Can this user see/touch this plan? Thin delegate to the shared rule in
+   * lib/eventVisibility so plan access and plan CHAT access can never drift.
+   */
+  async canUserAccessEventRecord(
+    event: EventVisibilityFields,
+    userId: string,
+  ): Promise<boolean> {
+    return canUserAccessEventRecord(event, userId, (id) => this.squadMemberIds(id));
+  }
+
+  /** Everyone who currently belongs in the plan's chat thread. */
+  private async eventChatAudience(event: EventVisibilityFields): Promise<string[]> {
+    return eventChatAudience(event, (id) => this.squadMemberIds(id));
+  }
+
+  /**
+   * Get-or-create the chat thread for a plan (event OR trip). Returns null when
+   * the plan doesn't exist or the requesting user can't currently see it.
+   *
+   * Retry-safe: the unique index on `event_id` plus ON CONFLICT DO NOTHING means
+   * two concurrent opens converge on one thread (the loser re-reads the winner's
+   * row) — exactly the pattern squad threads use.
+   */
+  async getOrCreateEventConversation(
+    eventId: string,
+    userId: string,
+  ): Promise<DbConversation | null> {
+    const [event] = await db.select().from(eventsTable).where(eq(eventsTable.id, eventId));
+    if (!event) return null;
+    if (!(await this.canUserAccessEventRecord(event, userId))) return null;
+
+    let [convo] = await db
+      .select()
+      .from(conversationsTable)
+      .where(eq(conversationsTable.eventId, eventId));
+    if (!convo) {
+      [convo] = await db
+        .insert(conversationsTable)
+        .values({ type: 'event', eventId, createdBy: event.hostId })
+        .onConflictDoNothing({ target: conversationsTable.eventId })
+        .returning();
+      if (!convo) {
+        // Lost the create race — re-read the row the other request inserted.
+        [convo] = await db
+          .select()
+          .from(conversationsTable)
+          .where(eq(conversationsTable.eventId, eventId));
+      }
+    }
+    if (!convo) return null;
+    await this.ensureParticipants(convo.id, await this.eventChatAudience(event));
+    return convo;
+  }
+
+  /**
+   * Re-sync an event thread's participant rows from the plan's CURRENT audience.
+   * Called before a send so a squadmate added after the thread was created still
+   * receives the push and sees the thread in their inbox.
+   *
+   * Participant rows are append-only (same contract as squad threads): removal
+   * is enforced by re-checking live visibility on read, never by pruning rows.
+   */
+  async syncEventConversationParticipants(conversationId: string, eventId: string): Promise<void> {
+    const [event] = await db.select().from(eventsTable).where(eq(eventsTable.id, eventId));
+    if (!event) return;
+    await this.ensureParticipants(conversationId, await this.eventChatAudience(event));
+  }
+
   private async ensureParticipants(conversationId: string, userIds: string[]): Promise<void> {
     if (userIds.length === 0) return;
     await db
@@ -1417,9 +1499,14 @@ export class Storage {
     return convo ?? null;
   }
 
-  // Ensure the requesting user has access: a direct participant, or a current
-  // member of the bound squad (members are re-synced as participants here so
-  // newly-added squad members gain access without an explicit join).
+  // Ensure the requesting user has access: a direct participant, a current
+  // member of the bound squad, or someone who can currently see the bound plan
+  // (members/audience are re-synced as participants here so newly-added people
+  // gain access without an explicit join).
+  //
+  // Participant rows are NEVER pruned, so for squad and event threads the row
+  // alone must never be trusted — live membership/visibility is re-checked on
+  // every access.
   async getConversationForMember(
     conversationId: string,
     userId: string,
@@ -1428,6 +1515,16 @@ export class Storage {
     if (!convo) return null;
     if (convo.type === "squad" && convo.squadId) {
       if (!(await this.isSquadMember(convo.squadId, userId))) return null;
+      await this.ensureParticipants(conversationId, [userId]);
+      return convo;
+    }
+    if (convo.type === "event" && convo.eventId) {
+      const [event] = await db
+        .select()
+        .from(eventsTable)
+        .where(eq(eventsTable.id, convo.eventId));
+      if (!event) return null;
+      if (!(await this.canUserAccessEventRecord(event, userId))) return null;
       await this.ensureParticipants(conversationId, [userId]);
       return convo;
     }
@@ -1476,15 +1573,42 @@ export class Storage {
 
     const squadById = new Map(squads.map((s) => [s.id, s]));
 
-    // Squad participant rows are never pruned on removal, so a stale row can
-    // remain after a user leaves a squad. Gate squad conversations on CURRENT
-    // membership (squadById holds only squads the user belongs to right now) so
-    // removed members no longer see the thread, its preview, or unread counts.
-    // Direct conversations remain governed by the participant row itself.
-    const visibleRows = rows.filter(
-      ({ convo }) =>
-        convo.type !== "squad" || (convo.squadId != null && squadById.has(convo.squadId)),
-    );
+    // Load the plans behind any event threads so their rows can be gated on
+    // CURRENT visibility and enriched with the plan's title/emoji.
+    const eventIds = [
+      ...new Set(
+        rows
+          .filter(({ convo }) => convo.type === "event" && convo.eventId)
+          .map(({ convo }) => convo.eventId as string),
+      ),
+    ];
+    const eventById = new Map<string, DbEvent>();
+    if (eventIds.length > 0) {
+      const evs = await db.select().from(eventsTable).where(inArray(eventsTable.id, eventIds));
+      for (const e of evs) eventById.set(e.id, e);
+    }
+
+    // Squad and event participant rows are never pruned on removal, so a stale
+    // row can remain after a user leaves a squad or loses access to a plan. Gate
+    // both on CURRENT visibility (squadById / the live plan record) so removed
+    // members no longer see the thread, its preview, or unread counts. Direct
+    // conversations remain governed by the participant row itself.
+    const visibleRows = rows.filter(({ convo }) => {
+      if (convo.type === "squad") {
+        return convo.squadId != null && squadById.has(convo.squadId);
+      }
+      if (convo.type === "event") {
+        if (convo.eventId == null) return false;
+        const event = eventById.get(convo.eventId);
+        // A cancelled plan's chat is closed and drops out of the inbox, and an
+        // empty thread (opened but never used) stays hidden — matching how plan
+        // chats have always surfaced here.
+        if (!event || event.cancelled) return false;
+        if (convo.lastMessageSenderId === "") return false;
+        return this.canSeeEventWithSquadIds(event, userId, squadById);
+      }
+      return true;
+    });
 
     // Single JOIN query replaces N parallel countUnreadInConversation calls.
     const unreadByConvoId = await this.batchCountUnread(
@@ -1502,6 +1626,10 @@ export class Storage {
           lastMessagePreview: convo.lastMessagePreview,
           lastMessageSenderId: convo.lastMessageSenderId,
           unreadCount,
+          // Only set for plan threads; lets the client route the row back to the
+          // event/trip detail screen rather than the generic chat screen.
+          eventId: null as string | null,
+          eventType: null as string | null,
         };
         if (convo.type === "squad" && convo.squadId) {
           const squad = squadById.get(convo.squadId);
@@ -1511,6 +1639,19 @@ export class Storage {
             title: squad?.name ?? "Squad",
             emoji: squad?.emoji ?? "👥",
             color: squad?.color ?? "#FF5C3A",
+            otherUserId: null as string | null,
+          };
+        }
+        if (convo.type === "event" && convo.eventId) {
+          const event = eventById.get(convo.eventId);
+          return {
+            ...base,
+            eventId: convo.eventId,
+            eventType: event?.type ?? "event",
+            squadId: event?.squadId || null,
+            title: event?.title ?? "Plan",
+            emoji: event?.emoji ?? (event?.type === "trip" ? "✈️" : "🎉"),
+            color: null as string | null,
             otherUserId: null as string | null,
           };
         }
@@ -1551,6 +1692,22 @@ export class Storage {
     return enriched;
   }
 
+  /**
+   * In-memory variant of canUserAccessEventRecord for list paths that have
+   * already loaded the user's CURRENT squads — same rule, zero extra queries.
+   */
+  private canSeeEventWithSquadIds(
+    event: Pick<DbEvent, 'hostId' | 'invitedUserIds' | 'squadId' | 'type' | 'rsvps'>,
+    userId: string,
+    mySquads: Map<string, unknown>,
+  ): boolean {
+    if (event.hostId === userId) return true;
+    if (((event.invitedUserIds ?? []) as string[]).includes(userId)) return true;
+    if (event.squadId && mySquads.has(event.squadId)) return true;
+    if (event.type === 'trip') return false;
+    return userId in ((event.rsvps ?? {}) as Record<string, string>);
+  }
+
   // Count messages in a conversation not sent by the user and newer than their
   // lastReadAt (all such messages when they've never read it).
   private async countUnreadInConversation(
@@ -1576,13 +1733,13 @@ export class Storage {
   async getTotalUnreadCount(userId: string): Promise<number> {
     // Current squad membership, so stale squad participant rows left behind after
     // a user is removed don't keep inflating their badge (see listConversationsForUser).
-    const currentSquadIds = new Set(
+    const currentSquads = new Map<string, true>(
       (
         await db
           .select({ id: squadsTable.id })
           .from(squadsTable)
           .where(sql`${squadsTable.memberIds} @> ${JSON.stringify([userId])}::jsonb`)
-      ).map((s) => s.id),
+      ).map((s) => [s.id, true as const]),
     );
     const rows = await db
       .select({
@@ -1590,6 +1747,7 @@ export class Storage {
         lastReadAt: conversationParticipantsTable.lastReadAt,
         type: conversationsTable.type,
         squadId: conversationsTable.squadId,
+        eventId: conversationsTable.eventId,
       })
       .from(conversationParticipantsTable)
       .innerJoin(
@@ -1597,10 +1755,29 @@ export class Storage {
         eq(conversationParticipantsTable.conversationId, conversationsTable.id),
       )
       .where(eq(conversationParticipantsTable.userId, userId));
+
+    // Same stale-participant-row problem as squads: gate plan threads on the
+    // live plan record so a removed/uninvited user's badge stops counting them.
+    const eventIds = [
+      ...new Set(
+        rows.filter((r) => r.type === "event" && r.eventId).map((r) => r.eventId as string),
+      ),
+    ];
+    const eventById = new Map<string, DbEvent>();
+    if (eventIds.length > 0) {
+      const evs = await db.select().from(eventsTable).where(inArray(eventsTable.id, eventIds));
+      for (const e of evs) eventById.set(e.id, e);
+    }
+
     let total = 0;
     for (const row of rows) {
-      if (row.type === "squad" && (row.squadId == null || !currentSquadIds.has(row.squadId))) {
+      if (row.type === "squad" && (row.squadId == null || !currentSquads.has(row.squadId))) {
         continue;
+      }
+      if (row.type === "event") {
+        const event = row.eventId ? eventById.get(row.eventId) : undefined;
+        if (!event || event.cancelled) continue;
+        if (!this.canSeeEventWithSquadIds(event, userId, currentSquads)) continue;
       }
       total += await this.countUnreadInConversation(row.conversationId, userId, row.lastReadAt);
     }

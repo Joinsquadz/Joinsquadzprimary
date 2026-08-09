@@ -34,7 +34,8 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useEventStream } from "@/hooks/useEventStream";
 import { useData, useAuth, dbEventToEvent } from "@/context/AppContext";
-import { useMessages } from "@/context/MessagesContext";
+import { ChatMessages, ChatComposer } from "@/components/EventChatPanel";
+import { useEventChat } from "@/hooks/useEventChat";
 import { FindTimeChooser } from "@/components/FindTimeChooser";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -145,7 +146,6 @@ export default function EventDetailScreen() {
     addPoll,
     votePoll,
     setPollClosed,
-    sendMessage,
     refreshEvents,
     inviteToEvent,
     uninviteFromEvent,
@@ -257,11 +257,9 @@ export default function EventDetailScreen() {
     : tabParam === "ideas" ? "ideas"
     : "overview";
   const [tab, setTab] = useState<EventTab>(initialTab);
-  const { markEventChatRead } = useMessages();
-  const lastMsgIso = event?.messages?.[event.messages.length - 1]?.createdAt;
-  useEffect(() => {
-    if (tab === "chat" && event) markEventChatRead(event.id, lastMsgIso);
-  }, [tab, event?.id, lastMsgIso, markEventChatRead]);
+  // Event chat is a real conversation thread (paginated + server-side read
+  // receipts). The thread is created lazily the first time the Chat tab opens.
+  const chat = useEventChat(event?.id, tab === "chat");
   const [nowTick, setNowTick] = useState(() => Date.now());
   useEffect(() => {
     const t = setInterval(() => setNowTick(Date.now()), 60000);
@@ -328,7 +326,6 @@ export default function EventDetailScreen() {
       ...Object.keys(event.rsvps),
       ...event.tasks.filter((t) => t.assigneeId).map((t) => t.assigneeId!),
       ...event.costs.map((c) => c.paidById),
-      ...event.messages.map((m) => m.senderId),
     ];
     prefetchUsers(ids);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -488,9 +485,6 @@ export default function EventDetailScreen() {
 
   const [budgetModal, setBudgetModal] = useState(false);
   const [budgetInput, setBudgetInput] = useState("");
-
-  const [chatText, setChatText] = useState("");
-  const [chatSending, setChatSending] = useState(false);
 
   const conflictBannerAnim = useRef(new Animated.Value(0)).current;
   const titleHighlightAnim = useRef(new Animated.Value(0)).current;
@@ -2207,28 +2201,7 @@ export default function EventDetailScreen() {
 
         {tab === "chat" && (
           <View style={{ gap: 12 }}>
-            {event.messages.length === 0 ? (
-              <View style={styles.emptyState}>
-                <Ionicons name="chatbubbles-outline" size={40} color={colors.textDim} />
-                <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No messages yet</Text>
-                <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>Say hi to your squad below</Text>
-              </View>
-            ) : (
-              event.messages.map((m) => {
-                const sender = resolveForDisplay(m.senderId);
-                const mine = m.senderId === currentUser.id;
-                return (
-                  <View key={m.id} style={[styles.msgRow, mine && { flexDirection: "row-reverse" }]}>
-                    <UserAvatar initials={sender.initials} color={sender.color} imageUrl={sender.profileImageUrl} size={32} fontSize={11} />
-                    <View style={[styles.msgBubble, { backgroundColor: mine ? colors.primary : colors.card, borderColor: colors.border }]}>
-                      {!mine && <Text style={[styles.msgSender, { color: colors.mutedForeground }]}>{(sender.name ?? "").split(" ")[0] || "Someone"}</Text>}
-                      <Text style={[styles.msgText, { color: mine ? "#fff" : colors.foreground }]}>{m.text}</Text>
-                      <Text style={[styles.msgTime, { color: mine ? "rgba(255,255,255,0.7)" : colors.textDim }]}>{m.time}</Text>
-                    </View>
-                  </View>
-                );
-              })
-            )}
+            <ChatMessages chat={chat} />
           </View>
         )}
 
@@ -2370,43 +2343,7 @@ export default function EventDetailScreen() {
           </Text>
         </View>
       )}
-      {tab === "chat" && !isCancelled && (
-        <View style={[styles.composer, { borderTopColor: colors.border, backgroundColor: colors.background, paddingBottom: botPad + 10 }]}>
-          <TextInput
-            placeholder="Message your squad..."
-            placeholderTextColor={colors.textDim}
-            value={chatText}
-            onChangeText={setChatText}
-            style={[styles.composerInput, { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
-          />
-          <TouchableOpacity
-            onPress={async () => {
-              if (chatSending || !chatText.trim()) return;
-              const text = chatText.trim();
-              setChatText("");
-              setChatSending(true);
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              try {
-                const result = await sendMessage(event.id, text);
-                if (result.error) {
-                  setChatText(text);
-                  Alert.alert("Couldn't send message", result.error);
-                }
-              } finally {
-                setChatSending(false);
-              }
-            }}
-            disabled={chatSending || !chatText.trim()}
-            style={[styles.sendBtn, { backgroundColor: chatText.trim() && !chatSending ? colors.primary : colors.border }]}
-          >
-            {chatSending ? (
-              <ActivityIndicator size="small" color={colors.textDim} />
-            ) : (
-              <Ionicons name="send" size={18} color={chatText.trim() ? "#fff" : colors.textDim} />
-            )}
-          </TouchableOpacity>
-        </View>
-      )}
+      {tab === "chat" && !isCancelled && <ChatComposer chat={chat} botPad={botPad} />}
 
       {/* ---- Add Food Item Modal ---- */}
       <Modal visible={foodModal} transparent animationType="fade" onRequestClose={() => setFoodModal(false)}>

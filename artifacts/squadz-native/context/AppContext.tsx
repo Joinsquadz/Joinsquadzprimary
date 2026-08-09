@@ -311,7 +311,6 @@ type AppContextType = {
   addPoll: (eventId: string, question: string, options: string[]) => Promise<{ error?: string }>;
   votePoll: (eventId: string, pollId: string, optionId: string) => void;
   setPollClosed: (eventId: string, pollId: string, closed: boolean) => void;
-  sendMessage: (eventId: string, text: string) => Promise<{ error?: string }>;
   refreshEvents: () => Promise<void>;
   refreshSquads: () => Promise<void>;
   conflictEventId: string | null;
@@ -418,7 +417,6 @@ const AppContext = createContext<AppContextType>({
   addPoll: async () => ({}),
   votePoll: noop,
   setPollClosed: noop,
-  sendMessage: async () => ({}),
   refreshEvents: async () => {},
   refreshSquads: async () => {},
   conflictEventId: null,
@@ -476,7 +474,6 @@ export function dbEventToEvent(e: Record<string, unknown>): Event {
     tasks: (e.tasks as Event["tasks"]) ?? [],
     costs: (e.costs as Event["costs"]) ?? [],
     polls: (e.polls as Event["polls"]) ?? [],
-    messages: (e.messages as Event["messages"]) ?? [],
     itinerary: (e.itinerary as Event["itinerary"]) ?? [],
     packing: (e.packing as Event["packing"]) ?? [],
     isPublic: (e.isPublic as boolean) ?? false,
@@ -1723,7 +1720,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         tasks: [],
         costs: [],
         polls: [],
-        messages: [],
         itinerary: input.itinerary ?? [],
         packing: [],
         version: 1,
@@ -2511,62 +2507,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [apiFetch, applyEventUpdate, events, refreshEvents, showToast],
   );
 
-  const sendMessage = useCallback(
-    async (eventId: string, text: string): Promise<{ error?: string }> => {
-      const senderId = apiUser?.id ?? currentUserIdRef.current;
-      const currentVersion = events.find((e) => e.id === eventId)?.version;
-      const tempId = `m${Date.now()}`;
-      // Optimistic update
-      setEvents((prev) =>
-        prev.map((e) =>
-          e.id === eventId
-            ? { ...e, messages: [...e.messages, { id: tempId, senderId, text, time: "Just now", createdAt: new Date().toISOString() }] }
-            : e,
-        ),
-      );
-      try {
-        const body: Record<string, unknown> = { senderId, text, version: currentVersion ?? 0 };
-        const res = await apiFetch(`/api/events/${eventId}/messages`, {
-          method: "POST",
-          body: JSON.stringify(body),
-        });
-        if (res.status === 409) {
-          setEvents((prev) =>
-            prev.map((e) =>
-              e.id === eventId ? { ...e, messages: e.messages.filter((m) => m.id !== tempId) } : e,
-            ),
-          );
-          showToast("Someone else just updated this", { durationMs: 8000, action: { label: "Refresh", onPress: () => void refreshEvents() } });
-          return { error: "Update conflict" };
-        }
-        if (!res.ok) {
-          setEvents((prev) =>
-            prev.map((e) =>
-              e.id === eventId ? { ...e, messages: e.messages.filter((m) => m.id !== tempId) } : e,
-            ),
-          );
-          let message = "Could not send message. Please try again.";
-          try {
-            const errBody = await res.json() as { error?: string };
-            if (errBody.error) message = errBody.error;
-          } catch { /* ignore */ }
-          return { error: message };
-        }
-        const data = await res.json() as Record<string, unknown>;
-        applyEventUpdate(data);
-        return {};
-      } catch {
-        setEvents((prev) =>
-          prev.map((e) =>
-            e.id === eventId ? { ...e, messages: e.messages.filter((m) => m.id !== tempId) } : e,
-          ),
-        );
-        return { error: "Could not send message. Check your connection and try again." };
-      }
-    },
-    [apiFetch, applyEventUpdate, apiUser, events, refreshEvents],
-  );
-
   const getSquad = useCallback(
     (sid: string) => squads.find((s) => s.id === sid),
     [squads],
@@ -2879,7 +2819,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       addPoll,
       votePoll,
       setPollClosed,
-      sendMessage,
       refreshEvents,
       refreshSquads,
       conflictEventId,
@@ -2965,7 +2904,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       addPoll,
       votePoll,
       setPollClosed,
-      sendMessage,
       refreshEvents,
       refreshSquads,
       conflictEventId,

@@ -12,6 +12,7 @@ import {
 } from "@workspace/db";
 import type { ItineraryStop, PackingItem } from "@workspace/db";
 import { storage } from "../storage";
+import { canUserAccessEventRecord } from "../lib/eventVisibility";
 import { requireAuth } from "../middleware/currentUser";
 import { logger } from "../lib/logger";
 import { sendPushNotifications } from "../lib/pushNotifications";
@@ -285,53 +286,24 @@ const VotePollBody = z.object({
   version: z.number().int(),
 });
 
-const SendMessageBody = z.object({
-  senderId: z.string().optional(),
-  text: z.string().min(1),
-  // version is required so concurrent message sends from a stale read yield 409
-  // instead of one send silently overwriting the other's message.
-  version: z.number().int(),
-});
-
 const JoinEventBody = z.object({
   inviteCode: z.string().min(1),
 });
 
-// A squad item (trip OR plain event) is visible to every CURRENT member of its
-// squad, without requiring an RSVP — re-read live so a removed member loses
-// access immediately.
-async function canAccessAsSquadMember(
-  event: typeof eventsTable.$inferSelect,
-  userId: string,
-): Promise<boolean> {
-  if (!event.squadId) return false;
-  const squad = await storage.getSquad(event.squadId);
-  return !!squad && ((squad.memberIds ?? []) as string[]).includes(userId);
-}
-
-// Single source of truth for "can this user see/touch this event?".
-// Trips are CURRENT-squad-membership based and deliberately IGNORE the rsvps map
-// — a stale RSVP key (left over from before a member was removed from the squad)
-// must NOT keep granting access. Plain events additionally allow access via an
-// existing RSVP key (so invited outsiders who responded keep access).
+// Plan visibility. The rule itself lives in lib/eventVisibility because the
+// plan CHAT thread has to evaluate exactly the same thing, and a second copy of
+// it here would drift. In short: host, explicit personal invite, or CURRENT
+// squad membership grant access to both trips and plain events; plain events
+// additionally accept an existing RSVP key, while trips deliberately ignore the
+// rsvps map so a stale key can't outlive squad removal.
 export async function userCanAccessEvent(
   event: typeof eventsTable.$inferSelect,
   userId: string,
 ): Promise<boolean> {
-  if (event.hostId === userId) return true;
-  // An explicit personal invite grants access to BOTH trips and events. This is
-  // separate from the rsvps map (so it's not subject to the stale-RSVP trap) and
-  // separate from squad membership (so a non-squad friend can be invited).
-  if (((event.invitedUserIds ?? []) as string[]).includes(userId)) return true;
-  // CURRENT squad membership grants access to BOTH trips and plain squad
-  // events (a squad dinner must be visible to every squadmate, not just
-  // explicitly-invited people).
-  if (await canAccessAsSquadMember(event, userId)) return true;
-  // Trips deliberately stop here: a stale RSVP key (left over from before a
-  // member was removed from the squad) must NOT keep granting access.
-  if (event.type === "trip") return false;
-  const rsvps = (event.rsvps ?? {}) as Record<string, string>;
-  return userId in rsvps;
+  return canUserAccessEventRecord(event, userId, async (squadId) => {
+    const squad = await storage.getSquad(squadId);
+    return (squad?.memberIds ?? []) as string[];
+  });
 }
 
 async function getEventAsMember(
@@ -2023,40 +1995,18 @@ router.delete("/events/:id/costs/:costId", requireAuth, async (req: Request, res
   })();
 });
 
-router.post("/events/:id/messages", requireAuth, async (req: Request, res: Response): Promise<void> => {
-  const id = parseId(req.params.id);
-  const userId = (req.user as { id: string }).id;
-  const parsed = SendMessageBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
-  }
-  const existing = await getEventAsMemberForWrite(id, userId, res);
-  if (!existing) return;
-  const { version: clientVersion, text } = parsed.data;
-  const messages = [
-    ...(existing.messages as unknown[]),
-    { id: `m${Date.now()}`, senderId: userId, text, time: "Just now", createdAt: new Date().toISOString() },
-  ];
-  const updateWhere = clientVersion !== undefined
-    ? and(eq(eventsTable.id, id), eq(eventsTable.version, clientVersion))
-    : eq(eventsTable.id, id);
-  const [event] = await db.update(eventsTable)
-    .set({ messages, version: sql`${eventsTable.version} + 1` })
-    .where(updateWhere)
-    .returning();
-  if (!event) {
-    res.status(409).json({ error: "Someone else just updated this — refresh to see the latest", conflict: true });
-    return;
-  }
-  res.json(event);
-  emitEventUpdate(id);
-});
+// Plan chat used to live in the `events.messages` JSON column and every send
+// bumped the shared event version (so two people typing at once collided with a
+// 409, and the whole history had to be shipped with the event). It now lives in
+// a paginated conversation thread — see GET /conversations/event/:eventId and
+// POST /conversations/:id/messages. There is deliberately no
+// POST /events/:id/messages any more: chat must never touch the event version.
 
 // GET /events/:id/stream — SSE endpoint for real-time event updates.
 // Members connect while the event detail screen is focused. Any mutation
-// (RSVP, patch, join, tasks, costs, polls, messages) calls emitEventUpdate(id)
+// (RSVP, patch, join, tasks, costs, polls) calls emitEventUpdate(id)
 // which pushes an "update" event to all connected watchers immediately.
+// Chat is NOT one of them: plan messages stream over the conversation SSE.
 router.get("/events/:id/stream", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const id = parseId(req.params.id);
   const userId = (req.user as { id: string }).id;

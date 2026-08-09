@@ -23,7 +23,6 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useData, useAuth, dbEventToEvent } from "@/context/AppContext";
-import { useMessages } from "@/context/MessagesContext";
 import { useUserCache } from "@/context/UserCacheContext";
 import { useEventStream } from "@/hooks/useEventStream";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -34,6 +33,7 @@ import { IdeaSheet } from "@/components/IdeaSheet";
 import { IdeaCard } from "@/components/IdeaCard";
 import FriendPickerSheet from "@/components/FriendPickerSheet";
 import { ChatMessages, ChatComposer } from "@/components/EventChatPanel";
+import { useEventChat } from "@/hooks/useEventChat";
 import { EventCostsPanel } from "@/components/EventCostsPanel";
 import { EventVaultPanel } from "@/components/EventVaultPanel";
 import { API_BASE, buildAuthHeaders, fetchWithTimeout } from "@/lib/api";
@@ -336,11 +336,9 @@ export default function TripDetailScreen() {
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [event?.endAt, id, authToken]);
-  const { markEventChatRead } = useMessages();
-  const lastMsgIso = event?.messages?.[event.messages.length - 1]?.createdAt;
-  useEffect(() => {
-    if (tab === "chat" && event) markEventChatRead(event.id, lastMsgIso);
-  }, [tab, event?.id, lastMsgIso, markEventChatRead]);
+  // Trip chat is a real conversation thread (paginated + server-side read
+  // receipts). The thread is created lazily the first time the Chat tab opens.
+  const chat = useEventChat(event?.id, tab === "chat");
   const [busy, setBusy] = useState(false);
   const [calBusy, setCalBusy] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -1349,7 +1347,7 @@ export default function TripDetailScreen() {
         {/* CHAT */}
         {tab === "chat" ? (
           <View style={styles.tabBody}>
-            <ChatMessages event={event} />
+            <ChatMessages chat={chat} />
           </View>
         ) : null}
 
@@ -1742,7 +1740,7 @@ export default function TripDetailScreen() {
       </ScrollView>
 
       {/* Sticky chat composer — sibling of the ScrollView so it pins to the bottom */}
-      {tab === "chat" ? <ChatComposer event={event} botPad={insets.bottom} /> : null}
+      {tab === "chat" ? <ChatComposer chat={chat} botPad={insets.bottom} /> : null}
 
       {/* FAB for itinerary */}
       {tab === "itinerary" ? (

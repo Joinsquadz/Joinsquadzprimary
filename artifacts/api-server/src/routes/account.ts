@@ -170,7 +170,12 @@ router.delete("/account", requireAuth, async (req: Request, res: Response): Prom
         .delete(conversationMessagesTable)
         .where(eq(conversationMessagesTable.senderId, userId));
 
-      // Surviving (squad) conversations may have a denormalized "last message"
+      // The two deletes above are type-agnostic on purpose: they also strip the
+      // user out of every SQUAD and PLAN (event/trip) thread. Plan threads
+      // hanging off an event this user hosts are removed wholesale by the
+      // events delete below, via the conversations.event_id cascade.
+
+      // Surviving (squad / plan) conversations may have a denormalized "last message"
       // pointing at a message we just deleted — recompute from the newest
       // remaining message so no deleted-user preview/id lingers.
       const staleConvos = await tx

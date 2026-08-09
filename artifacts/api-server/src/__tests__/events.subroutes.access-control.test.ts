@@ -276,33 +276,6 @@ describe("POST /api/events/:id/polls/:pollId/vote", () => {
   });
 });
 
-describe("POST /api/events/:id/messages", () => {
-  const body = { senderId: HOST_ID, text: "Can't wait!", version: 0 };
-
-  it("returns 401 when unauthenticated", async () => {
-    const app = await makeApp();
-    const res = await request(app).post("/api/events/evt-1/messages").send(body);
-    expect(res.status).toBe(401);
-  });
-
-  it("returns 403 when authenticated as a stranger (not host, no rsvp)", async () => {
-    mockRows.value = [baseEvent];
-    const app = await makeApp({ id: STRANGER_ID });
-    const res = await request(app).post("/api/events/evt-1/messages").send(body);
-    expect(res.status).toBe(403);
-  });
-
-  it("returns 200 when authenticated as the host", async () => {
-    mockRows.value = [baseEvent];
-    const app = await makeApp({ id: HOST_ID });
-    const res = await request(app).post("/api/events/evt-1/messages").send(body);
-    expect(res.status).toBe(200);
-  });
-
-  it("returns 200 when authenticated as an RSVP'd member", async () => {
-    mockRows.value = [baseEvent];
-    const app = await makeApp({ id: RSVP_USER_ID });
-    const res = await request(app).post("/api/events/evt-1/messages").send(body);
-    expect(res.status).toBe(200);
-  });
-});
+// Plan chat moved off the events router into conversation threads; its
+// host/RSVP/stranger access matrix is covered by
+// conversations.eventThread.test.ts.

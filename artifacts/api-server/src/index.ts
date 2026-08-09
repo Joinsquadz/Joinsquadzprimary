@@ -6,6 +6,7 @@ import { getSmtpStatus } from './emailService';
 import { ensureEmailDedupTable } from './lib/emailDedup';
 import { ensureTombstoneTable } from './lib/accountTombstones';
 import { ensureSchema } from './lib/schemaSync';
+import { migrateEmbeddedEventMessages } from './lib/eventChatMigration';
 import { initPgPubSub } from './lib/pgPubSub';
 import { checkPushReceipts, initPushTickets } from './lib/pushNotifications';
 import { storage } from './storage';
@@ -81,6 +82,11 @@ async function initStripe() {
 // the Drizzle schema but were not yet migrated to the live DB.  Runs before
 // everything else so routes never hit a "relation does not exist" 500.
 await ensureSchema();
+
+// One-way backfill of the legacy embedded `events.messages` JSON into
+// conversation threads. Idempotent + self-draining, so it becomes a no-op once
+// every plan's chat has moved across.
+await migrateEmbeddedEventMessages();
 
 await initStripe();
 

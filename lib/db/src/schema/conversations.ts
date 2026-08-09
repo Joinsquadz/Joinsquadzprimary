@@ -2,6 +2,7 @@ import { pgTable, text, jsonb, timestamp, uniqueIndex, index } from "drizzle-orm
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import { eventsTable } from "./events";
 
 /**
  * A message attachment captured in-app or attached from the library. The bytes
@@ -17,11 +18,14 @@ export type MessageAttachment = {
 };
 
 /**
- * A conversation thread. Two flavours:
+ * A conversation thread. Three flavours:
  *  - "direct": a 1:1 DM. `directKey` is the sorted "a|b" pair of user ids and is
  *    unique, so get-or-create is idempotent regardless of who initiates.
  *  - "squad": a group chat bound to a squad. `squadId` is set and unique, so each
  *    squad has exactly one chat thread.
+ *  - "event": the chat for a single plan (a plain event OR a trip — both live in
+ *    the events table). `eventId` is set and unique, so each plan has exactly one
+ *    thread, and the FK cascade drops the thread when the plan is deleted.
  * `lastMessageAt`/`lastMessagePreview`/`lastMessageSenderId` are denormalized so
  * the conversation list can order + preview without a per-row message lookup.
  */
@@ -32,6 +36,10 @@ export const conversationsTable = pgTable(
     type: text("type").notNull(),
     squadId: text("squad_id"),
     directKey: text("direct_key"),
+    // Set only for type "event". Cascade: deleting the plan deletes its thread
+    // (and, through the message/participant FKs, everything under it), so no
+    // deletion call site has to remember to clean chat up.
+    eventId: text("event_id").references(() => eventsTable.id, { onDelete: "cascade" }),
     createdBy: text("created_by").notNull(),
     lastMessageAt: timestamp("last_message_at", { withTimezone: true }).notNull().defaultNow(),
     lastMessagePreview: text("last_message_preview").notNull().default(""),
@@ -41,6 +49,7 @@ export const conversationsTable = pgTable(
   (t) => [
     uniqueIndex("conversations_direct_key_unique").on(t.directKey),
     uniqueIndex("conversations_squad_id_unique").on(t.squadId),
+    uniqueIndex("conversations_event_id_unique").on(t.eventId),
   ],
 );
 

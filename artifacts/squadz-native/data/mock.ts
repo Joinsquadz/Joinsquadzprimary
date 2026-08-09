@@ -6,7 +6,6 @@ export type {
   Cost,
   PollOption,
   Poll,
-  Message,
   Event,
   Squad,
 } from "@/types";

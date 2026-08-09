@@ -138,6 +138,29 @@ router.get(
   },
 );
 
+// GET /conversations/event/:eventId — get-or-create the chat thread for a plan
+// (event OR trip). Authorized by CURRENT plan visibility, not by a stale
+// participant row, so a removed squadmate or uninvited guest gets a 403.
+router.get(
+  "/conversations/event/:eventId",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const eventId = parseId(req.params.eventId);
+    const userId = (req.user as { id: string }).id;
+    try {
+      const convo = await storage.getOrCreateEventConversation(eventId, userId);
+      if (!convo) {
+        res.status(403).json({ error: "Access denied" });
+        return;
+      }
+      res.json({ id: convo.id });
+    } catch (err) {
+      logger.error({ err }, "Error opening event conversation");
+      res.status(500).json({ error: "Failed to open conversation" });
+    }
+  },
+);
+
 // GET /conversations/:id/messages — full thread + participants/read receipts.
 router.get(
   "/conversations/:id/messages",
@@ -166,6 +189,7 @@ router.get(
           id: convo.id,
           type: convo.type,
           squadId: convo.squadId,
+          eventId: convo.eventId,
         },
         messages,
         participants,
@@ -211,6 +235,23 @@ router.post(
         }
       }
 
+      // A cancelled plan is read-only: its chat closes with it (mirrors the
+      // 410 the event sub-resource routes return for cancelled plans).
+      if (convo.type === "event" && convo.eventId) {
+        const event = await storage.getEvent(convo.eventId);
+        if (!event) {
+          res.status(404).json({ error: "Plan not found" });
+          return;
+        }
+        if (event.cancelled) {
+          res.status(410).json({ error: "This plan was cancelled — chat is closed" });
+          return;
+        }
+        // Re-derive the audience so a squadmate added after the thread was
+        // created still gets the push and sees the thread in their inbox.
+        await storage.syncEventConversationParticipants(convo.id, convo.eventId);
+      }
+
       // Provenance: only attach media you uploaded. The attachment ACL authorizes
       // the message sender to read the bytes, so without this a user could point
       // an attachment at another user's private object path and self-authorize
@@ -244,6 +285,22 @@ router.post(
           if (convo.type === "squad" && convo.squadId) {
             recipientIds = await storage.filterUnmutedForSquad(recipientIds, convo.squadId);
           }
+
+          // Plan threads: drop anyone who has since lost access to the plan
+          // (participant rows are append-only), and honour the mute on the
+          // squad the plan belongs to.
+          let planEvent: Awaited<ReturnType<typeof storage.getEvent>> | null = null;
+          if (convo.type === "event" && convo.eventId) {
+            planEvent = await storage.getEvent(convo.eventId);
+            if (!planEvent) return;
+            const stillVisible = await Promise.all(
+              recipientIds.map((uid) => storage.canUserAccessEventRecord(planEvent!, uid)),
+            );
+            recipientIds = recipientIds.filter((_, i) => stillVisible[i]);
+            if (planEvent.squadId) {
+              recipientIds = await storage.filterUnmutedForSquad(recipientIds, planEvent.squadId);
+            }
+          }
           if (recipientIds.length === 0) return;
 
           const sender = await storage.getUser(userId);
@@ -255,7 +312,17 @@ router.post(
               : "📷 Photo";
 
           const onStaleToken = (token: string) => storage.clearPushToken(token);
-          const data = { screen: "conversation", conversationId: id };
+          // Plan chats live inside the event/trip detail screen, so their taps
+          // must route there (with the chat tab selected), not to the generic
+          // conversation screen. See the push-tap routing contract.
+          const data =
+            planEvent != null
+              ? {
+                  screen: planEvent.type === "trip" ? "trip" : "event",
+                  eventId: planEvent.id,
+                  tab: "chat",
+                }
+              : { screen: "conversation", conversationId: id };
 
           const tokens = await storage.getPushTokensForUsers(recipientIds, {
             requireNotifyMessages: true,
