@@ -1,0 +1,36 @@
+SquadZ — Multi-User Simulation + Feature Sweep + Bug Hunt (Current State, Post-#613)
+
+Context: this is a comprehensive pre-launch confidence check against the CURRENT state of the app — after all concurrency fixes (#575/#592/#593/#599), the chat migration, the media backup, and especially the just-landed #613 (age gate, in-context friend requests, friends-only DMs, extended blocking). It combines three things in one pass: a realistic multi-user simulation, a feature/process sweep, and a bug hunt. Report-only for findings — but real bugs found in code paths (not product decisions) may be fixed inline with tests, consistent with how this project has worked. Flag anything ambiguous or product-level rather than deciding it.
+
+Ground rule (same discipline that's caught real bugs all project): label every finding with how it was verified — actually executed/simulated vs. inspected vs. inferred. Honest "couldn't fully verify this" beats a confident false pass. This exact rigor caught the account-deletion bug, the EXIF gap, and the failed first backup run.
+
+Part 1 — Multi-user simulation (15-20 simulated users)
+
+Simulate a realistic mix of concurrent users, NOT isolated ones — overlapping squads, shared events, mixed roles, some users near free-tier limits, some friends and some not. Run flows concurrently where realistic to surface races, not just sequential correctness. Cover:
+
+Onboarding with the new age gate: signups at various ages — under 13 (must be rejected server-side), exactly 13, adult. Confirm rejection can't be bypassed via direct API.
+The new friend/DM/blocking rules under concurrency (highest priority — this is the freshest, least-tested code):
+Friends-only DMs: two squad-mates who are NOT friends cannot DM (confirm server-enforced, not just UI); once friended, they can.
+In-context friend requests: send from a shared squad/event without a code; accept and deny paths, including denial between squad-mates.
+Blocking under concurrent action: A blocks B while B is mid-action (sending a friend request, opening a DM) — confirm the block wins cleanly with no half-state. Confirm block severs DM/friend-request/profile but leaves shared-squad group chat intact. Confirm unblock from the Settings screen restores normal non-friend interaction.
+Squad lifecycle concurrently: joins, leaves, removals happening simultaneously (the #592 fixes) — confirm no lost updates, no resurrected members, removed members lose chat access.
+Plans/events/RSVPs/cost splits/poll votes under concurrent load: confirm the concurrency fixes hold (no lost expenses, no lost votes, no duplicate events from poll conversion).
+Event chat (post-migration): concurrent messages, confirm pagination works and messages from departed members persist.
+Squadz+ gating: free-tier caps enforced under concurrent access.
+Part 2 — Feature/process sweep
+
+For each major feature, confirm it works end-to-end in the current state and flag any broken states, dead ends, or confusing flows — with particular attention to anything the recent changes (#613, chat migration, concurrency fixes) might have inadvertently affected. Note any feature where behavior changed and an existing flow now feels inconsistent.
+
+Part 3 — Bug hunt
+
+Beyond the scripted flows, actively look for: privacy-boundary leaks (especially around the new friend/block rules — can a blocked or non-friend user access something they shouldn't via direct API?), unhandled error states, race conditions in the newly-changed code, and anything that would look broken or unsafe to a real user.
+
+Output
+Bug list — each with repro, severity (Blocker/High/Medium/Low), which users/flows involved, and verification label.
+Feature sweep results — pass/fail per feature, flagging anything confusing or inconsistent.
+Special focus section on #613 — since it's the newest and most safety-critical: does the age gate hold server-side, do the friends-only DM rules actually enforce, does blocking sever the right channels and leave group chat intact, does unblock work? This is the part most worth verifying thoroughly.
+Launch-readiness read: based on this sweep, what (if anything) is a genuine blocker vs. an enhancement to defer.
+Required
+Real bugs in code paths may be fixed inline with tests; product decisions and ambiguous items get flagged for the founder, not decided.
+Report final test counts if any fixes are made.
+Distinguish executed/simulated from inspected/inferred throughout.
