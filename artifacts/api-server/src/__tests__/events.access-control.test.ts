@@ -301,16 +301,14 @@ describe("PATCH /api/events/:id/tasks/:taskId — concurrent-edit version guard"
     expect(deepContains(capturedUpdateWhere.arg, TASK_STALE_VERSION)).toBe(true);
   });
 
-  it("returns 200 without a version field (backwards-compatible omission, WHERE has no numeric version)", async () => {
+  it("returns 400 when version is omitted (version is now required)", async () => {
     mockRows.value = [eventWithTask];
     mockUpdateRows.value = [updatedEvent];
     const app = await makeApp({ id: HOST_ID });
     const res = await request(app)
       .patch(`/api/events/evt-1/tasks/${taskId}`)
       .send({ done: true });
-    expect(res.status).toBe(200);
-    expect(deepContains(capturedUpdateWhere.arg, TASK_CLIENT_VERSION)).toBe(false);
-    expect(deepContains(capturedUpdateWhere.arg, TASK_STALE_VERSION)).toBe(false);
+    expect(res.status).toBe(400);
   });
 });
 

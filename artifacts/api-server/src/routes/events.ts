@@ -221,14 +221,18 @@ const SetRsvpBody = z.object({
 
 const AddTaskBody = z.object({
   title: z.string().trim().min(1),
-  version: z.number().int().optional(),
+  // version is required so concurrent task adds from a stale read yield 409
+  // instead of silently overwriting tasks written by a concurrent user.
+  version: z.number().int(),
   category: z.string().optional(),
 });
 
 const PatchTaskBody = z.object({
   done: z.boolean().optional(),
   assigneeId: z.string().nullable().optional(),
-  version: z.number().int().optional(),
+  // version is required so concurrent task toggles/claims are serialised via
+  // compare-and-swap rather than one write silently overwriting the other.
+  version: z.number().int(),
 });
 
 const AddCostBody = z.object({
@@ -259,7 +263,9 @@ const VotePollBody = z.object({
 const SendMessageBody = z.object({
   senderId: z.string().optional(),
   text: z.string().min(1),
-  version: z.number().int().optional(),
+  // version is required so concurrent message sends from a stale read yield 409
+  // instead of one send silently overwriting the other's message.
+  version: z.number().int(),
 });
 
 const JoinEventBody = z.object({

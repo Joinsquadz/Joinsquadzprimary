@@ -1888,8 +1888,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             : e,
         ),
       );
-      const body: Record<string, unknown> = { done: !task.done };
-      if (currentVersion !== undefined) body.version = currentVersion;
+      const body: Record<string, unknown> = { done: !task.done, version: currentVersion ?? 0 };
       try {
         const res = await apiFetch(`/api/events/${eventId}/tasks/${taskId}`, {
           method: "PATCH",
@@ -1930,8 +1929,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             : e,
         ),
       );
-      const body: Record<string, unknown> = { assigneeId: userId };
-      if (currentVersion !== undefined) body.version = currentVersion;
+      const body: Record<string, unknown> = { assigneeId: userId, version: currentVersion ?? 0 };
       try {
         const res = await apiFetch(`/api/events/${eventId}/tasks/${taskId}`, {
           method: "PATCH",
@@ -1975,7 +1973,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       try {
         const res = await apiFetch(`/api/events/${eventId}/tasks`, {
           method: "POST",
-          body: JSON.stringify({ title, ...(category ? { category } : {}), ...(currentVersion !== undefined ? { version: currentVersion } : {}) }),
+          body: JSON.stringify({ title, ...(category ? { category } : {}), version: currentVersion ?? 0 }),
         });
         if (res.status === 409) {
           // Revert the optimistic task
@@ -2522,8 +2520,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ),
       );
       try {
-        const body: Record<string, unknown> = { senderId, text };
-        if (currentVersion !== undefined) body.version = currentVersion;
+        const body: Record<string, unknown> = { senderId, text, version: currentVersion ?? 0 };
         const res = await apiFetch(`/api/events/${eventId}/messages`, {
           method: "POST",
           body: JSON.stringify(body),

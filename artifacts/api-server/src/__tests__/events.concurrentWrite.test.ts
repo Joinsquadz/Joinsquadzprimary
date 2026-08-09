@@ -262,24 +262,15 @@ describe("POST /api/events/:id/messages — version-based conflict protection", 
   });
 });
 
-// ─── Version field is optional for RSVP/messages but required for costs/polls ─
+// ─── Version field is optional for RSVP only ─────────────────────────────────
 
-describe("version field is optional — omitting it bypasses conflict protection", () => {
+describe("version field is optional — RSVP only (per-user key merge, no overwrite risk)", () => {
   it("POST /api/events/:id/rsvp without version always succeeds (no WHERE version clause)", async () => {
     mockUpdateRows.value = [baseEvent];
     const app = makeApp({ id: HOST_ID });
     const res = await request(app)
       .post("/api/events/evt-1/rsvp")
       .send({ status: "going" });
-    expect(res.status).toBe(200);
-  });
-
-  it("POST /api/events/:id/messages without version always succeeds", async () => {
-    mockUpdateRows.value = [baseEvent];
-    const app = makeApp({ id: RSVP_USER_ID });
-    const res = await request(app)
-      .post("/api/events/evt-1/messages")
-      .send({ text: "Hey!" });
     expect(res.status).toBe(200);
   });
 });
@@ -330,6 +321,45 @@ describe("POST /api/events/:id/polls/:pollId/vote — version is required (400 w
       .post("/api/events/evt-1/polls/poll-1/vote")
       .send({
         optionId: "opt-1",
+        // version intentionally omitted
+      });
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("POST /api/events/:id/messages — version is required (400 when missing)", () => {
+  it("returns 400 when version is omitted from the message body", async () => {
+    const app = makeApp({ id: RSVP_USER_ID });
+    const res = await request(app)
+      .post("/api/events/evt-1/messages")
+      .send({
+        text: "Hey!",
+        // version intentionally omitted
+      });
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("POST /api/events/:id/tasks — version is required (400 when missing)", () => {
+  it("returns 400 when version is omitted from the task body", async () => {
+    const app = makeApp({ id: HOST_ID });
+    const res = await request(app)
+      .post("/api/events/evt-1/tasks")
+      .send({
+        title: "Buy snacks",
+        // version intentionally omitted
+      });
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("PATCH /api/events/:id/tasks/:taskId — version is required (400 when missing)", () => {
+  it("returns 400 when version is omitted from the task patch body", async () => {
+    const app = makeApp({ id: HOST_ID });
+    const res = await request(app)
+      .patch("/api/events/evt-1/tasks/task-1")
+      .send({
+        done: true,
         // version intentionally omitted
       });
     expect(res.status).toBe(400);

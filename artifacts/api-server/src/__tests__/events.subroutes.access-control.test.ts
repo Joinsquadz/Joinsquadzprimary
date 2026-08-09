@@ -116,7 +116,7 @@ describe("POST /api/events/:id/rsvp", () => {
 });
 
 describe("POST /api/events/:id/tasks", () => {
-  const body = { title: "Pick up supplies" };
+  const body = { title: "Pick up supplies", version: 0 };
 
   it("returns 401 when unauthenticated", async () => {
     const app = await makeApp();
@@ -147,7 +147,7 @@ describe("POST /api/events/:id/tasks", () => {
 });
 
 describe("PATCH /api/events/:id/tasks/:taskId", () => {
-  const body = { done: true };
+  const body = { done: true, version: 0 };
 
   it("returns 401 when unauthenticated", async () => {
     const app = await makeApp();
@@ -277,7 +277,7 @@ describe("POST /api/events/:id/polls/:pollId/vote", () => {
 });
 
 describe("POST /api/events/:id/messages", () => {
-  const body = { senderId: HOST_ID, text: "Can't wait!" };
+  const body = { senderId: HOST_ID, text: "Can't wait!", version: 0 };
 
   it("returns 401 when unauthenticated", async () => {
     const app = await makeApp();

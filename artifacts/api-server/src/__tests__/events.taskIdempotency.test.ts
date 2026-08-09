@@ -86,7 +86,7 @@ describe("PATCH /api/events/:id/tasks/:taskId — idempotency", () => {
     const app = await makeApp();
     const res = await request(app)
       .patch("/api/events/evt-1/tasks/t1")
-      .send({ done: true });
+      .send({ done: true, version: 0 });
 
     expect(res.status).toBe(200);
     const written = writtenTask("t1");
@@ -98,7 +98,7 @@ describe("PATCH /api/events/:id/tasks/:taskId — idempotency", () => {
 
     const first = await request(app)
       .patch("/api/events/evt-1/tasks/t1")
-      .send({ done: true });
+      .send({ done: true, version: 0 });
 
     expect(first.status).toBe(200);
     const firstWritten = writtenTask("t1");
@@ -110,7 +110,7 @@ describe("PATCH /api/events/:id/tasks/:taskId — idempotency", () => {
 
     const second = await request(app)
       .patch("/api/events/evt-1/tasks/t1")
-      .send({ done: true });
+      .send({ done: true, version: 0 });
 
     expect(second.status).toBe(200);
     const secondWritten = writtenTask("t1");
@@ -129,7 +129,7 @@ describe("PATCH /api/events/:id/tasks/:taskId — idempotency", () => {
 
     const first = await request(app)
       .patch("/api/events/evt-1/tasks/t1")
-      .send({ done: false });
+      .send({ done: false, version: 0 });
     expect(first.status).toBe(200);
     expect(writtenTask("t1")?.done).toBe(false);
 
@@ -137,7 +137,7 @@ describe("PATCH /api/events/:id/tasks/:taskId — idempotency", () => {
 
     const second = await request(app)
       .patch("/api/events/evt-1/tasks/t1")
-      .send({ done: false });
+      .send({ done: false, version: 0 });
     expect(second.status).toBe(200);
     expect(writtenTask("t1")?.done).toBe(false);
   });
@@ -146,7 +146,7 @@ describe("PATCH /api/events/:id/tasks/:taskId — idempotency", () => {
     const app = await makeApp();
     const res = await request(app)
       .patch("/api/events/evt-1/tasks/t1")
-      .send({ done: "true" });
+      .send({ done: "true", version: 0 });
     expect(res.status).toBe(400);
   });
 
@@ -154,7 +154,7 @@ describe("PATCH /api/events/:id/tasks/:taskId — idempotency", () => {
     const app = await makeApp();
     const res = await request(app)
       .patch("/api/events/evt-1/tasks/t1")
-      .send({ done: 1 });
+      .send({ done: 1, version: 0 });
     expect(res.status).toBe(400);
   });
 
@@ -163,7 +163,7 @@ describe("PATCH /api/events/:id/tasks/:taskId — idempotency", () => {
 
     const first = await request(app)
       .patch("/api/events/evt-1/tasks/t1")
-      .send({ done: true });
+      .send({ done: true, version: 0 });
     expect(first.status).toBe(200);
 
     mockRows.value = [doneEvent];
@@ -171,7 +171,7 @@ describe("PATCH /api/events/:id/tasks/:taskId — idempotency", () => {
 
     const second = await request(app)
       .patch("/api/events/evt-1/tasks/t1")
-      .send({ done: true });
+      .send({ done: true, version: 0 });
     expect(second.status).toBe(200);
     expect(writtenTask("t1")?.done).toBe(true);
   });
