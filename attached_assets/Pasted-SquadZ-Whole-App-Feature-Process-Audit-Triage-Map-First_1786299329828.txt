@@ -1,0 +1,38 @@
+SquadZ — Whole-App Feature & Process Audit (Triage Map First, Then Targeted Deep-Dives)
+
+Context: the cost-splitting audit went deep on one feature and found real issues (floating-point money handling, a version-check bypass, reconciliation gaps). The goal now is that same rigor applied across the whole app — but doing every feature at full depth in one pass isn't realistic (it would go shallow everywhere or run out of runway). So this is a two-stage approach: first a structured triage map of every feature and process, scored for the specific risks that matter, which then identifies which features actually warrant a deep-dive. Report-only — no fixes in this pass.
+
+The two things every feature is scored against
+
+For each feature/process, the two concerns that matter most (learned from this project's audits):
+
+Concurrency safety — when many users in a large group act at the same time, can their actions overwrite each other, double-fire, or leave data in a half-written state? (This is the lost-update / race-condition class. Note: several of these were already fixed this project — #575 lost-update race, notification duplicate races, atomic scanner claims. Confirm those holdings where relevant AND find spots that were missed, don't assume the whole app is covered just because some paths were.)
+Simplicity / usability at scale — is the flow thorough but simple, or does it have friction, confusing states, or failure modes that get worse with larger groups? (E.g. an action that's fine for 3 people but confusing or slow for 50.)
+Stage 1 — The triage map (this is the main deliverable)
+
+Enumerate every user-facing feature and every background process in the app. For each, produce a row with:
+
+Feature/process name
+What it does (one line)
+Write-concurrency risk: does this feature involve multiple users writing to shared data? (None / Low / Medium / High) — and if Medium/High, is there already protection (version check, atomic claim, transaction) or is it unguarded?
+Large-group behavior: does it scale cleanly to large squads (50+ members), or are there patterns that degrade, confuse, or break at that size?
+Simplicity flag: any notable friction, confusing state, or overly complex flow worth revisiting?
+Deep-dive recommended? (Yes/No) — flag the features where a full split-costs-style deep audit is actually warranted based on real risk, not just for completeness.
+
+Cover at minimum (add anything missed): Squads (create/join/leave/roles), Plans/Events/Trips, RSVPs, Itineraries & stop voting, Ideas (suggestion + voting), Availability polling, Cost splitting (already audited — mark as done), Vibe Feed, Moments, Photo Vault, DMs/conversations, Packing lists, Push notifications, Invites, Report/Block/moderation, Calendar export, Cross-squad conflict detection, Profile/account management, Squadz+ entitlement/paywall, and every background scanner/scheduled job.
+
+Stage 2 — Prioritized findings (not a fix list, a decision list)
+
+After the map, a short prioritized section:
+
+Highest concern: the 3-5 features where concurrency risk or large-group breakage is most real and most likely to actually hurt users — with enough detail to understand why, and a recommendation for what a deep-dive would examine.
+Simplicity wins: the 3-5 places where the flow is more complex than it needs to be and could be simplified — the "thorough but simple" goal.
+Confirmed solid: briefly note what's genuinely fine so it's clear what does NOT need further work (so the report shows what's healthy, not just what's broken).
+Ground rules
+Distinguish "inspected the code and it looks right" from "verified by testing" — same discipline that caught real bugs earlier in this project (the account-deletion bug, the EXIF gap, the first-run backup failure). Don't present inference as confirmed fact.
+This is a MAP and a DECISION LIST, not a fix pass and not 40 pages of exhaustive detail on everything. Depth goes into the prioritized findings; the map is scannable. The point is to decide where to go deep next, not to go deep everywhere at once.
+Do not fix anything. Do not touch cost-splitting (#583) or other in-flight work.
+If the app is too large to cover every feature thoroughly in one run, prioritize the write-heavy and large-group-facing features first (where the real risk lives) and clearly note what wasn't reached, rather than going shallow on everything to claim full coverage.
+Output
+
+The triage map (Stage 1) plus the prioritized decision list (Stage 2). From that, we'll send targeted deep-dive prompts only for the features the map flags as genuinely warranting it — the same depth the cost-splitting audit had, applied where it actually matters.
