@@ -40,6 +40,35 @@ const StartDirectBody = z.object({
   userId: z.string().min(1),
 });
 
+/**
+ * Live gate for an EXISTING direct thread, applied to both reading and sending.
+ *
+ * Participant rows are append-only, so membership alone proves nothing: a DM is
+ * only accessible while the two people are friends and neither has blocked the
+ * other. Unfriending (or a block, which drops the friendship) closes the thread.
+ * Returns a denial to send, or null when access is allowed.
+ */
+async function directThreadDenial(
+  convoId: string,
+  userId: string,
+): Promise<{ status: number; body: Record<string, unknown> } | null> {
+  const reason = await storage.directThreadDenialReason(convoId, userId);
+  // Neutral copy — never reveal who blocked whom.
+  if (reason === "blocked") {
+    return { status: 403, body: { error: "You can't message this person" } };
+  }
+  if (reason === "not_friends") {
+    return {
+      status: 403,
+      body: {
+        error: "You can only message your friends. Send a friend request first.",
+        code: "NOT_FRIENDS",
+      },
+    };
+  }
+  return null;
+}
+
 // GET /conversations — every conversation the user can see (DMs + squad chats),
 // enriched and ordered by most recent activity.
 router.get("/conversations", requireAuth, async (req: Request, res: Response): Promise<void> => {
@@ -50,9 +79,20 @@ router.get("/conversations", requireAuth, async (req: Request, res: Response): P
       getBlockedAndBlockerIds(userId),
     ]);
     const blockedSet = new Set(blockedIds);
-    const visible = conversations.filter(
+    const notBlocked = conversations.filter(
       (c) => c.type !== "direct" || !c.otherUserId || !blockedSet.has(c.otherUserId),
     );
+    // DMs are friends-only: hide direct threads with people who are not
+    // currently friends (unfriended, or a block that dropped the friendship).
+    // Squad conversations are membership-based and never filtered here.
+    const friendChecks = await Promise.all(
+      notBlocked.map((c) =>
+        c.type === "direct" && c.otherUserId
+          ? storage.areUsersFriends(userId, c.otherUserId)
+          : Promise.resolve(true),
+      ),
+    );
+    const visible = notBlocked.filter((_, i) => friendChecks[i]);
     res.json(visible);
   } catch (err) {
     logger.error({ err }, "Error listing conversations");
@@ -98,13 +138,13 @@ router.post(
         res.status(403).json({ error: "Cannot message this user" });
         return;
       }
-      // W-01: New DM threads require shared-squad history. Resuming an existing
-      // thread is always allowed (canInitiateDm handles the idempotent case).
+      // Private DMs are friends-only — sharing a squad is not enough. This is
+      // the server-side gate; the UI hiding the button is not enforcement.
       const allowed = await storage.canInitiateDm(userId, otherUserId);
       if (!allowed) {
         res.status(403).json({
-          error: "You can only message people you share or have shared a squad with.",
-          code: "NO_SHARED_SQUAD",
+          error: "You can only message your friends. Send a friend request first.",
+          code: "NOT_FRIENDS",
         });
         return;
       }
@@ -174,6 +214,15 @@ router.get(
         res.status(403).json({ error: "Access denied" });
         return;
       }
+      // A DM is only readable while the two are friends and unblocked, so a
+      // non-friend cannot open the thread via a direct API call.
+      if (convo.type === "direct") {
+        const denial = await directThreadDenial(id, userId);
+        if (denial) {
+          res.status(denial.status).json(denial.body);
+          return;
+        }
+      }
       // Cursor pagination: ?before=<messageId> fetches the page of older
       // messages before that message; no cursor = latest page.
       const before = typeof req.query.before === "string" ? req.query.before : undefined;
@@ -222,15 +271,12 @@ router.post(
         return;
       }
 
-      // Block check on EXISTING direct threads (mirrors the creation-time
-      // check): if either party has blocked the other, sends are rejected.
-      // Neutral copy — never reveal who blocked whom.
+      // Block + friendship check on EXISTING direct threads, mirroring the
+      // creation-time gate so a stale participant row can't be used to send.
       if (convo.type === "direct") {
-        const participants = await storage.getConversationParticipants(id);
-        const otherIds = participants.map((p) => p.userId).filter((uid) => uid !== userId);
-        const blockedIds = await getBlockedAndBlockerIds(userId);
-        if (otherIds.some((uid) => blockedIds.includes(uid))) {
-          res.status(403).json({ error: "You can't message this person" });
+        const denial = await directThreadDenial(id, userId);
+        if (denial) {
+          res.status(denial.status).json(denial.body);
           return;
         }
       }
@@ -366,6 +412,16 @@ router.get(
       res.status(403).json({ error: "Access denied" });
       return;
     }
+    // A stream is a live read of the thread, so it needs the same friends-only
+    // gate as reading it — otherwise an unfriended/blocked participant keeps a
+    // long-lived subscription to a thread they can no longer open.
+    if (convo.type === "direct") {
+      const denial = await directThreadDenial(id, userId);
+      if (denial) {
+        res.status(denial.status).json(denial.body);
+        return;
+      }
+    }
 
     // SSE response headers.
     // no-transform stops the compression middleware from buffering the stream.
@@ -379,19 +435,63 @@ router.get(
     // Confirm connection to the client.
     res.write("event: connected\ndata: {}\n\n");
 
-    const unsubscribe = onConversationUpdate(id, () => {
-      res.write(`event: update\ndata: {"conversationId":"${id}"}\n\n`);
+    let closed = false;
+    let unsubscribe: () => void = () => {};
+    let heartbeat: ReturnType<typeof setInterval> | undefined;
+
+    const closeStream = (): void => {
+      if (closed) return;
+      closed = true;
+      if (heartbeat) clearInterval(heartbeat);
+      unsubscribe();
+      res.end();
+    };
+
+    /**
+     * Authorization at connect time is not enough: this socket outlives the
+     * check. An unfriend or block mid-stream must stop delivery immediately —
+     * even the bare "a message happened" ping is activity disclosure — so the
+     * gate is re-run before every push and on each heartbeat, and the stream is
+     * torn down the moment it closes.
+     */
+    const stillAllowed = async (): Promise<boolean> => {
+      if (convo.type !== "direct") return true;
+      try {
+        return (await storage.directThreadDenialReason(id, userId)) === null;
+      } catch (err) {
+        // Fail closed: an unverifiable thread is not a readable thread.
+        logger.error({ err, conversationId: id }, "Error revalidating DM stream access");
+        return false;
+      }
+    };
+
+    unsubscribe = onConversationUpdate(id, () => {
+      void (async () => {
+        if (closed) return;
+        if (!(await stillAllowed())) {
+          closeStream();
+          return;
+        }
+        if (closed) return;
+        res.write(`event: update\ndata: {"conversationId":"${id}"}\n\n`);
+      })();
     });
 
     // Keep-alive heartbeat every 25 s to prevent proxy/mobile connection timeouts.
-    const heartbeat = setInterval(() => {
-      res.write(": heartbeat\n\n");
+    // Doubles as the periodic re-authorization tick for idle threads.
+    heartbeat = setInterval(() => {
+      void (async () => {
+        if (closed) return;
+        if (!(await stillAllowed())) {
+          closeStream();
+          return;
+        }
+        if (closed) return;
+        res.write(": heartbeat\n\n");
+      })();
     }, 25000);
 
-    req.on("close", () => {
-      clearInterval(heartbeat);
-      unsubscribe();
-    });
+    req.on("close", closeStream);
   },
 );
 
@@ -407,6 +507,14 @@ router.post(
       if (!convo) {
         res.status(403).json({ error: "Access denied" });
         return;
+      }
+      // Marking read writes state onto a thread you must still be able to open.
+      if (convo.type === "direct") {
+        const denial = await directThreadDenial(id, userId);
+        if (denial) {
+          res.status(denial.status).json(denial.body);
+          return;
+        }
       }
       await storage.markConversationRead(id, userId);
       res.json({ ok: true });

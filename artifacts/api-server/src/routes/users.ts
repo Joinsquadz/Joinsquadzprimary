@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { db, usersTable, friendshipsTable, squadsTable } from "@workspace/db";
+import { db, usersTable, friendshipsTable, squadsTable, userBlocksTable } from "@workspace/db";
 import { requireAuth } from "../middleware/currentUser";
 import { logger } from "../lib/logger";
 import { storage } from "../storage";
@@ -282,6 +282,31 @@ router.get("/users/:id/profile", requireAuth, async (req: Request, res: Response
     if (target.moderationHidden && targetId !== requesterId) {
       res.status(451).json({ underReview: true, error: "This profile is currently under review." });
       return;
+    }
+    // Blocking cuts profile access in BOTH directions: the blocked user can't
+    // reach the blocker's profile to interact from it, and the blocker doesn't
+    // see theirs either. Neutral copy — never disclose who blocked whom.
+    if (targetId !== requesterId) {
+      const [blockRow] = await db
+        .select({ id: userBlocksTable.id })
+        .from(userBlocksTable)
+        .where(
+          or(
+            and(
+              eq(userBlocksTable.blockerId, requesterId),
+              eq(userBlocksTable.blockedId, targetId),
+            ),
+            and(
+              eq(userBlocksTable.blockerId, targetId),
+              eq(userBlocksTable.blockedId, requesterId),
+            ),
+          ),
+        )
+        .limit(1);
+      if (blockRow) {
+        res.status(403).json({ error: "This profile isn't available.", code: "BLOCKED" });
+        return;
+      }
     }
     // Squads where both the requester and the target are members.
     const [sharedSquads, fullTarget] = await Promise.all([

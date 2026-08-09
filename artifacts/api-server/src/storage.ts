@@ -18,6 +18,7 @@ import {
   feedPostsTable,
   momentsTable,
   friendshipsTable,
+  userBlocksTable,
   objectUploadsTable,
   favoritesTable,
   vaultHeartsTable,
@@ -1207,18 +1208,29 @@ export class Storage {
   }
 
   /**
-   * W-01: Returns true if userId may initiate a DM with otherUserId.
-   * Allows: (a) an existing DM thread (always resumable), or (b) a shared
-   * squad history entry (current OR former squadmates).
+   * Returns true when the two users are friends. Friendship rows are written
+   * symmetrically (one per direction), so a single-direction lookup is enough.
+   */
+  async areUsersFriends(userA: string, userB: string): Promise<boolean> {
+    const [row] = await db
+      .select({ id: friendshipsTable.id })
+      .from(friendshipsTable)
+      .where(and(eq(friendshipsTable.ownerId, userA), eq(friendshipsTable.friendId, userB)))
+      .limit(1);
+    return Boolean(row);
+  }
+
+  /**
+   * Private DMs are friends-only.
+   *
+   * This replaces the earlier shared-squad-history rule: sharing a squad now
+   * grants group-chat access only, never a private thread. Friendship is the
+   * sole key, so an existing thread between people who are not (or are no
+   * longer) friends is not resumable either — otherwise unfriending, or a
+   * block that drops the friendship, would leave a usable back door.
    */
   async canInitiateDm(userId: string, otherUserId: string): Promise<boolean> {
-    const key = this.directKey(userId, otherUserId);
-    const [existing] = await db
-      .select({ id: conversationsTable.id })
-      .from(conversationsTable)
-      .where(eq(conversationsTable.directKey, key));
-    if (existing) return true;
-    return this.doUsersShareSquadHistory(userId, otherUserId);
+    return this.areUsersFriends(userId, otherUserId);
   }
 
   // Get-or-create the 1:1 DM between two users. Both become participants.
@@ -1530,6 +1542,59 @@ export class Storage {
     }
     if (await this.isConversationParticipant(conversationId, userId)) return convo;
     return null;
+  }
+
+  /**
+   * Live authorization for an EXISTING direct thread.
+   *
+   * `getConversationForMember` is NOT sufficient for a DM: participant rows are
+   * append-only, so they still say "member" after an unfriend or a block. A
+   * private thread is only open while the two people are currently friends and
+   * neither has blocked the other. Returns the reason access is denied, or null
+   * when the thread is open. Every DM surface (read, send, SSE stream, read
+   * receipts, attachment bytes) must go through this.
+   */
+  async directThreadDenialReason(
+    conversationId: string,
+    userId: string,
+  ): Promise<"blocked" | "not_friends" | null> {
+    const participants = await this.getConversationParticipants(conversationId);
+    const otherIds = participants.map((p) => p.userId).filter((uid) => uid !== userId);
+    if (otherIds.length === 0) return null;
+
+    const [blockedByUser, blockersOfUser] = await Promise.all([
+      db
+        .select({ id: userBlocksTable.blockedId })
+        .from(userBlocksTable)
+        .where(eq(userBlocksTable.blockerId, userId)),
+      db
+        .select({ id: userBlocksTable.blockerId })
+        .from(userBlocksTable)
+        .where(eq(userBlocksTable.blockedId, userId)),
+    ]);
+    const blocked = new Set<string>([
+      ...blockedByUser.map((r) => r.id),
+      ...blockersOfUser.map((r) => r.id),
+    ]);
+    if (otherIds.some((uid) => blocked.has(uid))) return "blocked";
+
+    const friendship = await Promise.all(
+      otherIds.map((uid) => this.areUsersFriends(userId, uid)),
+    );
+    if (friendship.some((isFriend) => !isFriend)) return "not_friends";
+    return null;
+  }
+
+  /**
+   * Full access check for any conversation kind: membership first, then the
+   * live friends-only/block rule for direct threads. Squad and event chats stay
+   * membership-based and are unaffected by blocks.
+   */
+  async canAccessConversation(conversationId: string, userId: string): Promise<boolean> {
+    const convo = await this.getConversationForMember(conversationId, userId);
+    if (!convo) return false;
+    if (convo.type !== "direct") return true;
+    return (await this.directThreadDenialReason(conversationId, userId)) === null;
   }
 
   async getConversationParticipants(conversationId: string) {
@@ -1887,7 +1952,10 @@ export class Storage {
     for (const row of rows) {
       if (seen.has(row.conversationId)) continue;
       seen.add(row.conversationId);
-      if (await this.getConversationForMember(row.conversationId, userId)) return true;
+      // canAccessConversation, not getConversationForMember: a direct thread's
+      // participant row survives an unfriend/block, so membership alone would
+      // keep handing out the attachment bytes of a closed DM.
+      if (await this.canAccessConversation(row.conversationId, userId)) return true;
     }
     return false;
   }
@@ -2077,6 +2145,10 @@ export class Storage {
           .from(conversationMessagesTable)
           .where(eq(conversationMessagesTable.id, contentId));
         if (!msg) return false;
+        // Deliberately membership-based, NOT canAccessConversation: this gates
+        // whether you may REPORT a message, and the common abuse pattern is
+        // "send something awful, then block/unfriend". Closing the DM must not
+        // also close the report path for a message you legitimately received.
         const convo = await this.getConversationForMember(msg.conversationId, userId);
         return convo !== null;
       }

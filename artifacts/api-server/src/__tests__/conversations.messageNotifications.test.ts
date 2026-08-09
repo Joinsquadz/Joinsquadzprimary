@@ -5,6 +5,10 @@ const storageMock = vi.hoisted(() => ({
   getConversationForMember: vi.fn(),
   addConversationMessage: vi.fn(),
   getConversationParticipants: vi.fn(),
+  // DMs are friends-only; the notification cases are between friends, so the
+  // live direct-thread gate reports no denial.
+  areUsersFriends: vi.fn().mockResolvedValue(true),
+  directThreadDenialReason: vi.fn().mockResolvedValue(null),
   getPushTokensForUsers: vi.fn(),
   filterUnmutedForSquad: vi.fn(),
   getUser: vi.fn(),
@@ -38,6 +42,7 @@ beforeEach(() => {
     { userId: ALICE },
     { userId: BOB },
   ]);
+  storageMock.directThreadDenialReason.mockResolvedValue(null);
   storageMock.getPushTokensForUsers.mockResolvedValue([]);
   storageMock.filterUnmutedForSquad.mockImplementation(async (ids: string[]) => ids);
   storageMock.getUser.mockResolvedValue({ id: SENDER, firstName: "Sam", lastName: null, email: "sam@x.io" });
@@ -89,7 +94,8 @@ describe("POST /api/conversations/:id/messages — push notifications", () => {
 
   it("does NOT send when no recipient has a registered token (or all muted the pref)", async () => {
     storageMock.getConversationForMember.mockResolvedValue({ id: "c1", type: "direct", squadId: null });
-    storageMock.getPushTokensForUsers.mockResolvedValue([]);
+    storageMock.directThreadDenialReason.mockResolvedValue(null);
+  storageMock.getPushTokensForUsers.mockResolvedValue([]);
 
     const app = await makeApp({ id: SENDER });
     await request(app).post("/api/conversations/c1/messages").send({ text: "hi" });

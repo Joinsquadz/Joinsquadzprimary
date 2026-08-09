@@ -397,6 +397,10 @@ async function addMissingColumns(): Promise<void> {
     `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "activity_last_read_at" timestamp with time zone`,
     `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "moderation_hidden" boolean DEFAULT false NOT NULL`,
     `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "is_squadz_plus" boolean DEFAULT false NOT NULL`,
+    // Age gate (13+). Nullable on purpose: existing accounts predate the gate,
+    // so NULL = "never age-checked" and must stay distinguishable from false.
+    `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "meets_min_age" boolean`,
+    `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "birth_year" integer`,
     // photos
     `ALTER TABLE "photos" ADD COLUMN IF NOT EXISTS "media_type" text DEFAULT 'image' NOT NULL`,
     `ALTER TABLE "photos" ADD COLUMN IF NOT EXISTS "caption" text`,

@@ -69,7 +69,23 @@ vi.mock("@workspace/db", () => ({
   },
   usersTable: {
     id: "id",
+    firstName: "first_name",
+    lastName: "last_name",
+    profileImageUrl: "profile_image_url",
     moderationHidden: "moderation_hidden",
+  },
+  planIdeasTable: {
+    id: "id",
+    status: "status",
+  },
+  friendshipsTable: {
+    ownerId: "owner_id",
+    friendId: "friend_id",
+  },
+  friendRequestsTable: {
+    fromUserId: "from_user_id",
+    toUserId: "to_user_id",
+    status: "status",
   },
 }));
 
@@ -308,7 +324,15 @@ describe("GET /api/users/blocks", () => {
 // ── POST /api/users/:id/block ─────────────────────────────────────────────────
 describe("POST /api/users/:id/block", () => {
   beforeEach(() => {
+    mockSelectRows.value = [];
     mockUpdate.mockReset();
+    // Blocking also severs the friendship and cancels pending requests, so the
+    // route issues an UPDATE alongside the INSERT.
+    mockUpdate.mockReturnValue({
+      set: () => ({
+        where: () => Promise.resolve(),
+      }),
+    });
   });
 
   it("returns 401 when unauthenticated", async () => {

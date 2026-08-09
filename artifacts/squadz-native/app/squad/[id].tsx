@@ -44,6 +44,8 @@ import { goingCount } from "@/lib/eventUtils";
 import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
 
 import { IconPicker } from "@/components/IconPicker";
+import { AddFriendBadge } from "@/components/AddFriendBadge";
+import { FriendRulesInfo } from "@/components/FriendRulesInfo";
 // Shared auth-race guard (see lib/vaultAuthRace.ts). Opening a squad directly on
 // a cold start (deep link / push tap) can 401 before the token restores and
 // AppContext hasn't loaded the squad yet; keep it loading + retry instead of
@@ -876,7 +878,10 @@ export default function SquadDetailScreen() {
         </View>
 
         {/* Members — horizontal avatar row */}
-        <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginTop: 24 }]}>Members</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 24 }}>
+          <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Members</Text>
+          <FriendRulesInfo size={15} />
+        </View>
         {showLongPressHint && (
           <Animated.View style={[styles.longPressHint, { backgroundColor: colors.primary + "18", borderColor: colors.primary + "35", opacity: hintOpacity }]}>
             <Ionicons name="hand-left-outline" size={14} color={colors.primary} />
@@ -906,6 +911,8 @@ export default function SquadDetailScreen() {
                 <Text style={[styles.memberAvatarName, { color: colors.mutedForeground }]} numberOfLines={1}>
                   {m.id === currentUser.id ? "You" : m.name.split(" ")[0]}
                 </Text>
+                {/* Squadmates aren't friends by default — DMs need a friendship. */}
+                {!isSelf && <AddFriendBadge userId={m.id} />}
                 {showRemoveBtn && (
                   <TouchableOpacity
                     onPress={() => handleRemoveMember(m.id, m.name.split(" ")[0])}

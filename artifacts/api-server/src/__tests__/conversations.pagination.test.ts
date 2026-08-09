@@ -11,6 +11,14 @@ const storageMock = vi.hoisted(() => ({
   getConversationForMember: vi.fn(),
   getConversationMessages: vi.fn(),
   getConversationParticipants: vi.fn(),
+  // DMs are friends-only; these pagination cases are between friends, so the
+  // live direct-thread gate reports no denial.
+  areUsersFriends: vi.fn().mockResolvedValue(true),
+  directThreadDenialReason: vi.fn().mockResolvedValue(null),
+}));
+
+vi.mock("../routes/moderation", () => ({
+  getBlockedAndBlockerIds: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock("../storage", () => ({
@@ -55,6 +63,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   storageMock.getConversationForMember.mockResolvedValue(CONVO);
   storageMock.getConversationParticipants.mockResolvedValue(PARTICIPANTS);
+  storageMock.directThreadDenialReason.mockResolvedValue(null);
 });
 
 describe("B1 — GET /api/conversations/:id/messages — cursor pagination", () => {

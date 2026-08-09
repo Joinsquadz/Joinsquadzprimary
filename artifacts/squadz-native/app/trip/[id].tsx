@@ -43,6 +43,7 @@ import { findMyConflicts, getPlanSpan } from "@/lib/conflicts";
 import ConflictBanner from "@/components/ConflictBanner";
 import { attendingIds } from "@/lib/eventUtils";
 import { TAB_BAR_HEIGHT } from "@/constants/layout";
+import { AddFriendBadge } from "@/components/AddFriendBadge";
 // Shared auth-race guard (see lib/vaultAuthRace.ts). Opening a trip directly on a
 // cold start (deep link / push tap / past trip from the Past hub) fetches the
 // single event; a pre-token-restore 401 must keep it loading + retry instead of
@@ -1292,6 +1293,8 @@ export default function TripDetailScreen() {
                   <Text style={[styles.memberCellName, { color: colors.mutedForeground }]} numberOfLines={1}>
                     {isSelf ? "You" : u.name.split(" ")[0]}
                   </Text>
+                  {/* Sharing a trip doesn't make you friends — DMs need one. */}
+                  {!isSelf && <AddFriendBadge userId={u.id} />}
                   {u.id === event.hostId && (
                     <View style={[styles.memberHostBadge, { backgroundColor: colors.primary + "22" }]}>
                       <Text style={[styles.memberHostBadgeText, { color: colors.primary }]}>host</Text>

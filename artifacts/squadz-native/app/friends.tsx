@@ -26,6 +26,7 @@ import { useMessages } from "@/context/MessagesContext";
 import { useUserCache } from "@/context/UserCacheContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
+import { FriendRulesInfo } from "@/components/FriendRulesInfo";
 
 export default function FriendsScreen() {
   const colors = useColors();
@@ -251,7 +252,9 @@ export default function FriendsScreen() {
           <Ionicons name="arrow-back" size={20} color={colors.foreground} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.foreground }]}>Friends</Text>
-        <View style={{ width: 40 }} />
+        <View style={{ width: 40, alignItems: "flex-end" }}>
+          <FriendRulesInfo size={20} />
+        </View>
       </View>
 
       {/* Inline feedback banner — replaces Alert.alert (no-op on web) */}

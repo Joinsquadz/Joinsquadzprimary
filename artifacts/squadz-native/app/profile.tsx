@@ -564,6 +564,7 @@ export default function ProfileScreen() {
       { icon: "people-outline", label: "Friends", value: String(friends.length), onPress: () => router.push("/friends" as never) },
       { icon: "notifications-outline", label: "Notifications", onPress: () => router.push("/settings/notifications" as never) },
       { icon: "lock-closed-outline", label: "Privacy", onPress: () => router.push("/settings/privacy" as never) },
+      { icon: "ban-outline", label: "Blocked Users", onPress: () => router.push("/settings/blocked" as never) },
     ],
     proSection,
     [

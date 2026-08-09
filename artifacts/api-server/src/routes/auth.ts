@@ -30,6 +30,7 @@ import {
 import { sendVerificationEmail, sendPasswordResetEmail } from "../emailService";
 import { supabaseAdmin, supabaseAuth } from "../services/supabase";
 import { isAnyTombstoned, AccountDeletedError } from "../lib/accountTombstones";
+import { deriveAgeFields, MIN_SIGNUP_AGE } from "../lib/age";
 import { trackEvent, identifyUser } from "../services/analytics";
 import { logger } from "../lib/logger";
 import { storage } from "../storage";
@@ -520,6 +521,9 @@ const registerSchema = z.object({
   phone: z.string().trim().max(40).optional(),
   firstName: z.string().trim().max(80).optional(),
   lastName: z.string().trim().max(80).optional(),
+  // Age gate: required for every new account. The value is only used to derive
+  // `meetsMinAge` + `birthYear`; the exact date is never persisted.
+  dateOfBirth: z.string().trim().min(1).max(10),
 });
 
 const loginSchema = z.object({
@@ -591,7 +595,15 @@ async function syncSupabaseUser(
     user_metadata?: Record<string, unknown>;
     app_metadata?: Record<string, unknown>;
   },
-  extras: { firstName?: string | null; lastName?: string | null; phone?: string | null } = {},
+  extras: {
+    firstName?: string | null;
+    lastName?: string | null;
+    phone?: string | null;
+    // Age-gate fields, only ever supplied by the registration path. Login-time
+    // syncs omit them so an existing user's stored marker is never overwritten.
+    meetsMinAge?: boolean;
+    birthYear?: number;
+  } = {},
 ): Promise<typeof usersTable.$inferSelect> {
   // Deleted-account backstop: if this auth subject (or the canonical account
   // it was linked to) was tombstoned by account deletion, never re-provision
@@ -665,6 +677,8 @@ async function syncSupabaseUser(
       phone: extras.phone ?? null,
       emailVerified: false,
       friendCode: generateFriendCode(),
+      ...(extras.meetsMinAge !== undefined ? { meetsMinAge: extras.meetsMinAge } : {}),
+      ...(extras.birthYear !== undefined ? { birthYear: extras.birthYear } : {}),
     })
     .onConflictDoUpdate({
       target: usersTable.id,
@@ -708,11 +722,35 @@ router.post("/auth/register", async (req: Request, res: Response) => {
   }
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: "Invalid email or password (min 8 characters)." });
+    const missingDob = parsed.error.issues.some((i) => i.path[0] === "dateOfBirth");
+    res.status(400).json({
+      error: missingDob
+        ? "Date of birth is required."
+        : "Invalid email or password (min 8 characters).",
+      ...(missingDob ? { code: "DOB_REQUIRED" } : {}),
+    });
     return;
   }
   const email = normalizeEmail(parsed.data.email);
-  const { password, phone, firstName, lastName } = parsed.data;
+  const { password, phone, firstName, lastName, dateOfBirth } = parsed.data;
+
+  // ── Age gate (13+) — server-side enforcement ────────────────────────────────
+  // The mobile date picker is UX only; this check is the actual gate, so a
+  // direct API call cannot create an under-13 account. Runs before ANY account
+  // is provisioned (Supabase subject included) so nothing is left behind.
+  const ageCheck = deriveAgeFields(dateOfBirth);
+  if (!ageCheck.ok) {
+    if (ageCheck.reason === "under_age") {
+      res.status(403).json({
+        error: `You must be at least ${MIN_SIGNUP_AGE} to use SquadZ.`,
+        code: "UNDER_MIN_AGE",
+      });
+      return;
+    }
+    res.status(400).json({ error: "Enter a valid date of birth.", code: "DOB_INVALID" });
+    return;
+  }
+  const ageFields = ageCheck.fields;
 
   // --- Supabase Auth path (when SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY are set) ---
   if (supabaseAdmin && supabaseAuth) {
@@ -739,7 +777,13 @@ router.post("/auth/register", async (req: Request, res: Response) => {
     const { data: signIn } = await supabaseAuth.auth.signInWithPassword({ email, password });
     let dbUser: Awaited<ReturnType<typeof syncSupabaseUser>>;
     try {
-      dbUser = await syncSupabaseUser(created.user, { firstName, lastName, phone });
+      dbUser = await syncSupabaseUser(created.user, {
+        firstName,
+        lastName,
+        phone,
+        meetsMinAge: ageFields.meetsMinAge,
+        birthYear: ageFields.birthYear,
+      });
     } catch (err) {
       if (err instanceof AccountDeletedError) {
         // Defensive: a brand-new signup gets a fresh subject id, so this only
@@ -781,6 +825,8 @@ router.post("/auth/register", async (req: Request, res: Response) => {
       lastName: lastName || null,
       emailVerified: false,
       friendCode: generateFriendCode(),
+      meetsMinAge: ageFields.meetsMinAge,
+      birthYear: ageFields.birthYear,
     })
     .returning();
 

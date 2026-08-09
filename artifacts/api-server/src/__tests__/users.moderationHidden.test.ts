@@ -19,8 +19,12 @@ vi.mock("@workspace/db", () => ({
     select: () => ({
       from: () => ({
         where: () => {
-          const next = mockSelectQueue.queue.shift();
-          return Promise.resolve(next ?? []);
+          const next = (mockSelectQueue.queue.shift() ?? []) as unknown[];
+          // Thenable + .limit() so both `await where(...)` and
+          // `await where(...).limit(1)` (the block gate) resolve to the row set.
+          return Object.assign(Promise.resolve(next), {
+            limit: () => Promise.resolve(next),
+          });
         },
       }),
     }),
@@ -39,6 +43,8 @@ vi.mock("@workspace/db", () => ({
   },
   squadsTable: { id: "id", memberIds: "member_ids" },
   friendshipsTable: { ownerId: "owner_id", friendId: "friend_id" },
+  // Profile reads are block-gated in both directions.
+  userBlocksTable: { id: "id", blockerId: "blocker_id", blockedId: "blocked_id" },
 }));
 
 vi.mock("../storage", () => ({

@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, or, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   db,
@@ -11,6 +11,8 @@ import {
   conversationMessagesTable,
   usersTable,
   planIdeasTable,
+  friendshipsTable,
+  friendRequestsTable,
 } from "@workspace/db";
 import { requireAuth } from "../middleware/currentUser";
 import { logger } from "../lib/logger";
@@ -185,7 +187,10 @@ ${notes ? `<li><strong>Notes:</strong> ${notes}</li>` : ""}
 
 /**
  * GET /api/users/blocks
- * Returns the list of user IDs the caller has blocked.
+ * Returns the users the caller has blocked. `blockedIds` is kept for existing
+ * clients; `blocked` carries the display fields the Settings → Blocked Users
+ * screen needs so it doesn't have to fan out one profile fetch per row (and
+ * profile fetches are themselves block-gated).
  */
 router.get("/users/blocks", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const userId = req.user!.id;
@@ -194,7 +199,31 @@ router.get("/users/blocks", requireAuth, async (req: Request, res: Response): Pr
       .select({ blockedId: userBlocksTable.blockedId })
       .from(userBlocksTable)
       .where(eq(userBlocksTable.blockerId, userId));
-    res.json({ blockedIds: rows.map((r) => r.blockedId) });
+    const blockedIds = rows.map((r) => r.blockedId);
+    if (blockedIds.length === 0) {
+      res.json({ blockedIds: [], blocked: [] });
+      return;
+    }
+    const users = await db
+      .select({
+        id: usersTable.id,
+        firstName: usersTable.firstName,
+        lastName: usersTable.lastName,
+        profileImageUrl: usersTable.profileImageUrl,
+      })
+      .from(usersTable)
+      .where(inArray(usersTable.id, blockedIds));
+    const byId = new Map(users.map((u) => [u.id, u]));
+    const blocked = blockedIds.map((id) => {
+      const u = byId.get(id);
+      const name = [u?.firstName, u?.lastName].filter(Boolean).join(" ").trim();
+      return {
+        id,
+        name: name || "SquadZ user",
+        profileImageUrl: u?.profileImageUrl ?? null,
+      };
+    });
+    res.json({ blockedIds, blocked });
   } catch (err) {
     logger.error({ err }, "[moderation] Failed to list blocks");
     res.status(500).json({ error: "Failed to list blocks" });
@@ -204,6 +233,13 @@ router.get("/users/blocks", requireAuth, async (req: Request, res: Response): Pr
 /**
  * POST /api/users/:id/block
  * Block a user. Idempotent.
+ *
+ * Blocking severs the private relationship in both directions: the friendship
+ * is removed (both symmetric rows) and any pending friend request between the
+ * two is cancelled, so neither side is left with a live private channel or a
+ * request they could still accept. Shared squad group chat is deliberately
+ * untouched — a blocked person's messages still appear in a squad you both
+ * belong to; the remedy there is leaving the squad.
  */
 router.post(
   "/users/:id/block",
@@ -222,6 +258,43 @@ router.post(
         .insert(userBlocksTable)
         .values({ blockerId: userId, blockedId: targetId })
         .onConflictDoNothing();
+
+      // Sever the friendship in both directions.
+      await db
+        .delete(friendshipsTable)
+        .where(
+          or(
+            and(
+              eq(friendshipsTable.ownerId, userId),
+              eq(friendshipsTable.friendId, targetId),
+            ),
+            and(
+              eq(friendshipsTable.ownerId, targetId),
+              eq(friendshipsTable.friendId, userId),
+            ),
+          ),
+        );
+
+      // Cancel any pending request either way so it can't be accepted later.
+      await db
+        .update(friendRequestsTable)
+        .set({ status: "declined" })
+        .where(
+          and(
+            eq(friendRequestsTable.status, "pending"),
+            or(
+              and(
+                eq(friendRequestsTable.fromUserId, userId),
+                eq(friendRequestsTable.toUserId, targetId),
+              ),
+              and(
+                eq(friendRequestsTable.fromUserId, targetId),
+                eq(friendRequestsTable.toUserId, userId),
+              ),
+            ),
+          ),
+        );
+
       res.json({ ok: true });
     } catch (err) {
       logger.error({ err }, "[moderation] Failed to insert block");

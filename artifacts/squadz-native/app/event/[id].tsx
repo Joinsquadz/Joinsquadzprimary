@@ -69,6 +69,7 @@ import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
 import { useTips } from "@/context/TipsContext";
 import { IconPicker } from "@/components/IconPicker";
 import { EventVaultPanel } from "@/components/EventVaultPanel";
+import { AddFriendBadge } from "@/components/AddFriendBadge";
 // Shared auth-race guard (see lib/vaultAuthRace.ts). Opening an event directly on
 // a cold start (deep link / push tap) can 401 before the token restores and
 // AppContext hasn't loaded the event yet; keep it loading + retry instead of
@@ -1874,6 +1875,12 @@ export default function EventDetailScreen() {
                   <Text style={[styles.guestName, { color: colors.foreground }]}>{u.name}{u.id === currentUser.id ? " (You)" : ""}</Text>
                   <Text style={[styles.guestStatus, { color: statusColor(status) }]}>{STATUS_LABEL[status]}</Text>
                 </View>
+                {/* Being on the same guest list isn't a friendship — DMs need one. */}
+                {u.id !== currentUser.id && (
+                  <View style={{ alignItems: "flex-end" }}>
+                    <AddFriendBadge userId={u.id} />
+                  </View>
+                )}
                 {u.id === event.hostId && (
                   <View style={[styles.hostBadge, { backgroundColor: colors.gold + "20", borderColor: colors.gold + "40" }]}>
                     <Text style={[styles.hostBadgeText, { color: colors.gold }]}>Host</Text>

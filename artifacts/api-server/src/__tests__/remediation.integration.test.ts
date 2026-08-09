@@ -64,6 +64,7 @@ const convoStorageMock = vi.hoisted(() => ({
   getConversationForMember: vi.fn(),
   getConversationMessages: vi.fn(),
   getConversationParticipants: vi.fn(),
+  directThreadDenialReason: vi.fn().mockResolvedValue(null),
   addConversationMessage: vi.fn().mockResolvedValue({
     id: "msg-1",
     conversationId: "convo-int-1",
@@ -320,10 +321,11 @@ describe("Integration — blocked DM send returns 403 in both directions", () =>
       messages: [],
       hasMore: false,
     });
+    convoStorageMock.directThreadDenialReason.mockResolvedValue(null);
   });
 
   it("blocked user cannot send a DM → 403", async () => {
-    getBlockedMock.mockResolvedValue([USER_B]);
+    convoStorageMock.directThreadDenialReason.mockResolvedValue("blocked");
     const convoApp = makeTestApp(conversationsRouter, { id: USER_A });
     const res = await request(convoApp)
       .post(`/api/conversations/${CONVO_ID}/messages`)
@@ -345,6 +347,7 @@ describe("Integration — conversation pagination passes cursor to storage", () 
       squadId: null,
     });
     convoStorageMock.getConversationParticipants.mockResolvedValue([{ userId: USER_A }]);
+    convoStorageMock.directThreadDenialReason.mockResolvedValue(null);
     convoStorageMock.getConversationMessages.mockResolvedValue({
       messages: Array.from({ length: 5 }, (_, i) => ({
         id: `msg-${i + 1}`,

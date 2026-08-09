@@ -22,6 +22,14 @@ export const usersTable = pgTable("users", {
   passwordHash: text("password_hash"),
   phone: text("phone"),
   emailVerified: boolean("email_verified").notNull().default(false),
+  // Age gate (13+ minimum, COPPA). Data minimization: we deliberately do NOT
+  // store the exact date of birth. The signup endpoint computes the age from
+  // the submitted DOB, keeps only the derived pass/fail marker plus the birth
+  // year (kept for future state-law age-tier compliance), and discards the
+  // day/month. NULL means "predates the age gate" (legacy account), which is
+  // distinct from `false` ("checked and under the minimum").
+  meetsMinAge: boolean("meets_min_age"),
+  birthYear: integer("birth_year"),
   stripeCustomerId: text("stripe_customer_id"),
   stripeSubscriptionId: text("stripe_subscription_id"),
   // Unified Squadz+ entitlement flag. Source-of-truth is RevenueCat (mobile IAP);

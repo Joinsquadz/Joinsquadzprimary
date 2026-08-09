@@ -18,6 +18,7 @@ import { useAuth, useData } from "@/context/AppContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { ProAvatar } from "@/components/ProAvatar";
 import { ImageViewerModal } from "@/components/ImageViewerModal";
+import { FriendRulesInfo } from "@/components/FriendRulesInfo";
 
 type SharedSquad = { id: string; name: string; emoji: string; color: string };
 
@@ -213,7 +214,9 @@ export default function UserProfileScreen() {
           <Ionicons name="chevron-back" size={26} color={colors.foreground} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.foreground }]}>{profile.name}</Text>
-        <View style={{ width: 26 }} />
+        <View style={{ width: 26, alignItems: "flex-end" }}>
+          <FriendRulesInfo size={20} />
+        </View>
       </View>
 
       <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 40 }} showsVerticalScrollIndicator={false}>

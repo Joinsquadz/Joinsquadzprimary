@@ -97,7 +97,7 @@ describe("B10 — POST /api/auth/register email-already-exists gate", () => {
 
     const res = await request(makeApp())
       .post("/api/auth/register")
-      .send({ email: "existing@example.com", password: "Password1!", name: "Existing" });
+      .send({ email: "existing@example.com", password: "Password1!", name: "Existing", dateOfBirth: "1990-05-04" });
 
     expect(res.status).toBe(409);
     expect(res.body.error).toBe("An account with this email already exists.");
@@ -118,7 +118,7 @@ describe("B10 — POST /api/auth/register email-already-exists gate", () => {
 
     const res = await request(makeApp())
       .post("/api/auth/register")
-      .send({ email: "newuser@example.com", password: "Password1!", name: "New User" });
+      .send({ email: "newuser@example.com", password: "Password1!", name: "New User", dateOfBirth: "1990-05-04" });
 
     // The route calls res.json() (200) on success.
     expect(res.status).toBe(200);
@@ -131,7 +131,7 @@ describe("B10 — POST /api/auth/register email-already-exists gate", () => {
     dbMock.selectRows = [{ id: "existing-user-2" }];
     const res = await request(makeApp())
       .post("/api/auth/register")
-      .send({ email: "old@example.com", password: "Password1!", name: "Old" });
+      .send({ email: "old@example.com", password: "Password1!", name: "Old", dateOfBirth: "1990-05-04" });
     expect(res.status).toBe(409);
     expect(res.body.error).toBe("An account with this email already exists.");
   });

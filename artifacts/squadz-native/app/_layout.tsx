@@ -412,6 +412,7 @@ function RootLayoutNav() {
         <Stack.Screen name="settings/edit-profile" />
         <Stack.Screen name="settings/notifications" />
         <Stack.Screen name="settings/privacy" />
+        <Stack.Screen name="settings/blocked" />
         <Stack.Screen name="add/friend/[code]" />
         <Stack.Screen name="user/[id]" />
       </Stack>

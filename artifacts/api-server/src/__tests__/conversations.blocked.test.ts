@@ -10,6 +10,14 @@ const storageMock = vi.hoisted(() => ({
   getConversationParticipants: vi.fn(),
   addConversationMessage: vi.fn(),
   getOrCreateDirectConversation: vi.fn(),
+  // Friendship is a separate gate from blocking — default to friends so these
+  // cases isolate the block behavior.
+  areUsersFriends: vi.fn().mockResolvedValue(true),
+  // The live direct-thread gate now lives in storage (it consults blocks in
+  // BOTH directions and current friendship — see
+  // storage.directThreadAccess.test.ts). These route tests assert that every
+  // DM surface consults it and maps the reason to the right response.
+  directThreadDenialReason: vi.fn<() => Promise<"blocked" | "not_friends" | null>>(),
   // For listConversationsForUser — not needed in these tests.
 }));
 
@@ -62,12 +70,13 @@ beforeEach(() => {
     createdAt: new Date().toISOString(),
   });
   getBlockedMock.mockResolvedValue([]);
+  storageMock.directThreadDenialReason.mockResolvedValue(null);
 });
 
 describe("B2 — POST /api/conversations/:id/messages blocked in both directions", () => {
   it("returns 403 when the SENDER has blocked the OTHER party", async () => {
-    // USER_A blocked USER_B — getBlockedAndBlockerIds returns both ids for A.
-    getBlockedMock.mockResolvedValue([USER_B]);
+    // USER_A blocked USER_B.
+    storageMock.directThreadDenialReason.mockResolvedValue("blocked");
     const res = await request(makeApp(USER_A))
       .post(`/api/conversations/${CONVO_ID}/messages`)
       .send({ text: "Hello" });
@@ -76,10 +85,8 @@ describe("B2 — POST /api/conversations/:id/messages blocked in both directions
   });
 
   it("returns 403 when the RECEIVER has blocked the sender (reverse direction)", async () => {
-    // USER_B blocked USER_A — getBlockedAndBlockerIds for USER_A still returns USER_B
-    // because getBlockedAndBlockerIds returns IDs that have a block relationship in
-    // EITHER direction (blockers AND blockees of the caller).
-    getBlockedMock.mockResolvedValue([USER_B]);
+    // USER_B blocked USER_A — the gate reports "blocked" for either direction.
+    storageMock.directThreadDenialReason.mockResolvedValue("blocked");
     const res = await request(makeApp(USER_A))
       .post(`/api/conversations/${CONVO_ID}/messages`)
       .send({ text: "Hey!" });
@@ -88,7 +95,7 @@ describe("B2 — POST /api/conversations/:id/messages blocked in both directions
   });
 
   it("returns 201 when there is no block relationship", async () => {
-    getBlockedMock.mockResolvedValue([]);
+    storageMock.directThreadDenialReason.mockResolvedValue(null);
     const res = await request(makeApp(USER_A))
       .post(`/api/conversations/${CONVO_ID}/messages`)
       .send({ text: "Hey!" });
@@ -96,7 +103,7 @@ describe("B2 — POST /api/conversations/:id/messages blocked in both directions
   });
 
   it("error copy never reveals who blocked whom (symmetric message)", async () => {
-    getBlockedMock.mockResolvedValue([USER_B]);
+    storageMock.directThreadDenialReason.mockResolvedValue("blocked");
     // Sender's perspective.
     const fromA = await request(makeApp(USER_A))
       .post(`/api/conversations/${CONVO_ID}/messages`)
@@ -112,7 +119,7 @@ describe("B2 — POST /api/conversations/:id/messages blocked in both directions
       ...directConvo,
       otherUserId: USER_A,
     });
-    getBlockedMock.mockResolvedValue([USER_A]);
+    storageMock.directThreadDenialReason.mockResolvedValue("blocked");
     const fromB = await request(makeApp(USER_B))
       .post(`/api/conversations/${CONVO_ID}/messages`)
       .send({ text: "B→A" });
@@ -133,12 +140,14 @@ describe("B2 — POST /api/conversations/:id/messages blocked in both directions
       { userId: USER_A },
       { userId: USER_B },
     ]);
-    // Even if there's a block, squad sends go through.
-    getBlockedMock.mockResolvedValue([USER_B]);
+    // Even if there's a block, squad sends go through — the gate must not even
+    // be consulted for a squad conversation.
+    storageMock.directThreadDenialReason.mockResolvedValue("blocked");
     const res = await request(makeApp(USER_A))
       .post(`/api/conversations/${CONVO_ID}/messages`)
       .send({ text: "Squad message" });
     expect(res.status).toBe(201);
+    expect(storageMock.directThreadDenialReason).not.toHaveBeenCalled();
   });
 });
 

@@ -6,6 +6,9 @@ const state = vi.hoisted(() => ({
   messages: [] as unknown[],
   participants: [] as unknown[],
   uploadOwner: null as string | null,
+  // Live direct-thread gate (friendship + blocks). These cases are about
+  // membership access control, so the thread is open unless a case says otherwise.
+  directThreadDenial: null as "blocked" | "not_friends" | null,
 }));
 
 vi.mock("../storage", () => ({
@@ -19,6 +22,7 @@ vi.mock("../storage", () => ({
     getOrCreateSquadConversation: (squadId: string, _userId: string) =>
       state.member ? Promise.resolve({ id: `squad-${squadId}` }) : Promise.resolve(null),
     getConversationForMember: () => Promise.resolve(state.member),
+    directThreadDenialReason: () => Promise.resolve(state.directThreadDenial),
     getUser: (id: string) => Promise.resolve({ id }),
     getConversationMessages: () => Promise.resolve({ messages: state.messages, hasMore: false }),
     getConversationParticipants: () => Promise.resolve(state.participants),
@@ -44,6 +48,7 @@ beforeEach(() => {
   state.messages = [];
   state.participants = [];
   state.uploadOwner = null;
+  state.directThreadDenial = null;
 });
 
 describe("GET /api/conversations", () => {
