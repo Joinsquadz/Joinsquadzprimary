@@ -20,6 +20,11 @@ import { emitEventUpdate, onEventUpdate } from "../lib/eventUpdates";
 import { recordActivitySafe, removeActivity } from "../lib/activity";
 import { parseEventStart, calendarDaysUntil } from "../lib/eventDate";
 import { resolveProStatus } from "../lib/proStatus";
+import {
+  isWholeCent,
+  isValidCostAmounts,
+  WHOLE_CENT_MESSAGE,
+} from "@workspace/cost-math";
 
 const router: IRouter = Router();
 
@@ -263,12 +268,10 @@ const PatchTaskBody = z.object({
 
 // Money must land on a whole cent: floats like 10.005 can never be split
 // exactly, so they are rejected at the edge instead of rounded silently.
-const WHOLE_CENT_MESSAGE = "Money amounts must use no more than two decimal places";
-// Compared against the 2-decimal rendering, not `value * 100`: binary floats
-// turn 10.05 into 1004.9999999999999, which would reject a legitimate amount.
-const isWholeCentValue = (value: number): boolean => Number(value.toFixed(2)) === value;
-const NonNegativeMoney = z.number().finite().nonnegative().refine(isWholeCentValue, WHOLE_CENT_MESSAGE);
-const PositiveMoney = z.number().finite().positive().refine(isWholeCentValue, WHOLE_CENT_MESSAGE);
+// isWholeCent and WHOLE_CENT_MESSAGE come from @workspace/cost-math so the
+// server and mobile app share a single source of truth for this check.
+const NonNegativeMoney = z.number().finite().nonnegative().refine(isWholeCent, WHOLE_CENT_MESSAGE);
+const PositiveMoney = z.number().finite().positive().refine(isWholeCent, WHOLE_CENT_MESSAGE);
 const BillDetailsBody = z.object({
   baseAmount: NonNegativeMoney.optional(),
   taxAmount: NonNegativeMoney.optional(),
@@ -1546,33 +1549,6 @@ router.post("/events/:id/costs", requireAuth, async (req: Request, res: Response
 type StoredShare = { userId: string; amount: number; paidAt?: string | null; confirmedAt?: string | null };
 type StoredBillDetails = { baseAmount?: number; taxAmount?: number; tipAmount?: number; tipPercent?: number; feeAmount?: number };
 type StoredCost = { id: string; description: string; amount: number; paidById: string; shares: StoredShare[]; billDetails?: StoredBillDetails };
-
-function toCents(amount: number): number {
-  return Math.round(amount * 100);
-}
-
-function isWholeCent(amount: number): boolean {
-  return Number.isFinite(amount) && isWholeCentValue(amount);
-}
-
-function isValidCostAmounts(
-  amount: number,
-  shares: Array<{ amount: number }>,
-  billDetails?: StoredBillDetails,
-): boolean {
-  if (!isWholeCent(amount) || amount <= 0 || shares.some((share) => !isWholeCent(share.amount) || share.amount < 0)) return false;
-  if (shares.reduce((sum, share) => sum + toCents(share.amount), 0) !== toCents(amount)) return false;
-  if (!billDetails) return true;
-  const { baseAmount = 0, taxAmount = 0, tipAmount, tipPercent, feeAmount = 0 } = billDetails;
-  if (![baseAmount, taxAmount, feeAmount].every((value) => isWholeCent(value) && value >= 0)) return false;
-  if (tipAmount !== undefined && (!isWholeCent(tipAmount) || tipAmount < 0)) return false;
-  if (tipPercent !== undefined && (!Number.isFinite(tipPercent) || tipPercent < 0 || tipPercent > 1000)) return false;
-  if (tipAmount !== undefined && tipPercent !== undefined) return false;
-  const tip = tipPercent !== undefined
-    ? Math.round((toCents(baseAmount) + toCents(taxAmount)) * tipPercent / 100)
-    : toCents(tipAmount ?? 0);
-  return toCents(amount) === toCents(baseAmount) + toCents(taxAmount) + tip + toCents(feeAmount);
-}
 
 const MarkPaidBody = z.object({ paid: z.boolean(), version: z.number().int().optional() });
 const ConfirmShareBody = z.object({ confirmed: z.boolean(), version: z.number().int().optional() });

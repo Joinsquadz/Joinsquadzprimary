@@ -118,6 +118,9 @@ importers:
       '@workspace/api-zod':
         specifier: workspace:*
         version: link:../../lib/api-zod
+      '@workspace/cost-math':
+        specifier: workspace:*
+        version: link:../../lib/cost-math
       '@workspace/db':
         specifier: workspace:*
         version: link:../../lib/db
@@ -721,6 +724,9 @@ importers:
       '@workspace/api-client-react':
         specifier: workspace:*
         version: link:../../lib/api-client-react
+      '@workspace/cost-math':
+        specifier: workspace:*
+        version: link:../../lib/cost-math
       babel-plugin-react-compiler:
         specifier: ^19.0.0-beta-e993439-20250117
         version: 19.0.0-beta-ebf51a3-20250411
@@ -841,6 +847,8 @@ importers:
       zod:
         specifier: 'catalog:'
         version: 3.25.76
+
+  lib/cost-math: {}
 
   lib/db:
     dependencies:

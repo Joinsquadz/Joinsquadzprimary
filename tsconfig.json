@@ -13,6 +13,9 @@
       "path": "./lib/api-zod"
     },
     {
+      "path": "./lib/cost-math"
+    },
+    {
       "path": "./lib/replit-auth-web"
     },
     {

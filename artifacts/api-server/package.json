@@ -20,6 +20,7 @@
     "@sentry/node": "^10.56.0",
     "@supabase/supabase-js": "^2.107.0",
     "@workspace/api-zod": "workspace:*",
+    "@workspace/cost-math": "workspace:*",
     "@workspace/db": "workspace:*",
     "pg": "^8.20.0",
     "compression": "^1.8.1",
