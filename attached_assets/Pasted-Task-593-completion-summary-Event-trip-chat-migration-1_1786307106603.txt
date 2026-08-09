@@ -1,0 +1,85 @@
+Task #593 completion summary — Event/trip chat migration
+
+1. Source messages vs. migrated messages
+
+Confirmed for the dedicated migration regression fixture: 3 source messages → 3 migrated messages, exactly.
+
+The real-Postgres migration test seeds three legacy events.messages entries and verifies that the new conversation thread contains exactly those three messages, in the original order:
+
+first — sent by the host
+second — sent by the member
+third — sent by the host
+The migration run log also reports:
+
+Events migrated: 1
+Messages processed: 3
+It then verifies the conversation has 3 rows after a second run and after deliberately re-seeding the old JSON array. Deterministic legacy IDs plus ON CONFLICT DO NOTHING prevent duplicates.
+
+Conclusion: the tested migration is a strict 3/3 match, with no dropped or duplicated messages.
+Scope note: there is no preserved production-era aggregate count in the repository/logs, so I cannot honestly claim an unverified whole-database historical total.
+
+2. Messages from departed/removed squad members
+
+Their historical messages are preserved with sender attribution intact.
+
+The migration copies each legacy message’s original senderId, text, and timestamp into conversation_messages. The regression fixture explicitly proves sender preservation, including a message attributed to the non-host member:
+
+Source sender IDs: host, member, host
+Migrated sender IDs: host, member, host
+The migration does not filter historical messages based on the sender’s current squad membership. That is important: someone leaving later does not erase or anonymize what they wrote while they had access.
+
+For older legacy messages that never stored a real timestamp, migration uses the event creation time plus a stable per-message offset, preserving the original sequence.
+
+3. Departed-member access boundary
+
+Confirmed: a removed member cannot read the new paginated event-chat thread, even if their participant row remains.
+
+The real database test proves this exact scenario:
+
+A squad member opens the event chat, creating/retaining their participant row.
+The user is removed from the squad.
+Their conversation participant record intentionally remains append-only.
+getConversationForMember returns no conversation for them.
+The thread disappears from their inbox and unread count.
+Access is re-evaluated from current plan visibility on every open, read, send, list, and unread path—not inferred from the stale conversation-participant record.
+
+This also covers the related stale-RSVP boundary: a stale RSVP does not grant trip chat access after squad membership is gone.
+
+4. How existing event-chat data was migrated and what remained
+
+Migration behavior
+
+At API startup, the server runs a one-way backfill for any event/trip whose embedded events.messages JSON array is non-empty.
+
+For each plan:
+
+Acquires a transaction-scoped advisory lock so concurrent server instances serialize the migration.
+Creates or reuses exactly one event conversation, uniquely keyed by event_id.
+Copies messages into conversation_messages.
+Uses deterministic IDs in the form legacy:<eventId>:<legacyMessageId>.
+Preserves sender, text, original timestamp where available, and ordering.
+Gives migrated messages an empty attachment list because the old embedded message format did not carry attachments.
+Seeds the current legitimate audience as conversation participants.
+Marks them as caught up, preventing historical messages from becoming a wall of new unread notifications.
+Updates the conversation preview with the newest migrated message.
+Drains events.messages to [] in the same transaction.
+Does not increment the event’s version, so migration cannot invalidate an in-flight optimistic plan update.
+Left behind
+
+The events.messages column remains in the schema intentionally, but it is drained to an empty array after successful migration.
+No legacy messages remain embedded on the plan record after a successful migration.
+No duplicate conversation thread is created.
+No duplicate migrated message is created if the migration is rerun or if old JSON is reintroduced after a partial-run scenario.
+Existing participant rows are intentionally not pruned when someone leaves; they are no longer an authorization grant.
+Test suite results
+
+I ran the exact pre-task and post-task source revisions in isolated worktrees.
+
+Suite	Before Task #593	After Task #593	Change
+API	106 files, 1,054 tests passed	107 files, 1,057 tests passed	+1 file, +3 tests
+Mobile	27 files, 358 tests passed	27 files, 359 tests passed	+1 test
+The post-task API suite was also run through the configured workflow and passed at 1,057 / 1,057.
+
+Additional migration-focused validation
+
+The dedicated real-Postgres concurrency suite successfully ran the event-chat migration checks, including the logged 1 event / 3 messages migration. The broader concurrency command currently reports two unrelated failures in concurrent cost-add and poll-vote tests; those are outside Task #593’s event-chat migration coverage.
