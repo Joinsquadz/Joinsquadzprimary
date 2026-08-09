@@ -18,7 +18,7 @@ import {
   runPollNudgeScan,
 } from './lib/eventReminders';
 import { runPoolHealthCheck, POOL_MONITOR_INTERVAL_MS } from './lib/poolMonitor';
-import { scheduleMediaBackup } from './lib/mediaBackup';
+import { scheduleMediaBackup, scheduleMediaBackupFreshnessCheck } from './lib/mediaBackup';
 import { db, squadsTable } from '@workspace/db';
 import { isNull } from 'drizzle-orm';
 
@@ -192,3 +192,4 @@ setInterval(() => {
 // activity and before morning traffic. A Postgres advisory lock makes exactly
 // one autoscale instance perform the copy.
 scheduleMediaBackup();
+scheduleMediaBackupFreshnessCheck();

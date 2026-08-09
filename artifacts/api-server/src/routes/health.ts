@@ -4,6 +4,7 @@ import { getSmtpStatus } from "../emailService";
 import { pool } from "@workspace/db";
 import { getRecentErrorCount } from "../services/monitoring";
 import { POOL_MAX, DB_MAX_CONNECTIONS } from "../lib/poolMonitor";
+import { getMediaBackupStatus } from "../lib/mediaBackup";
 
 const router: IRouter = Router();
 
@@ -70,7 +71,7 @@ function requireInternalToken(
   next();
 }
 
-router.get("/internal/health", requireInternalToken, (_req, res) => {
+router.get("/internal/health", requireInternalToken, async (_req, res, next) => {
   // ── Pool stats (no DB query — instant) ────────────────────────────────────
   const poolTotal = pool.totalCount;
   const poolIdle = pool.idleCount;
@@ -79,7 +80,9 @@ router.get("/internal/health", requireInternalToken, (_req, res) => {
   const poolUsagePct =
     POOL_MAX > 0 ? Math.round((poolActive / POOL_MAX) * 1000) / 10 : 0;
 
-  res.json({
+  try {
+    const mediaBackup = await getMediaBackupStatus();
+    res.json({
     status: "ok",
     uptime: Math.round(process.uptime()),
     env: process.env.NODE_ENV ?? "development",
@@ -98,7 +101,11 @@ router.get("/internal/health", requireInternalToken, (_req, res) => {
     recentErrors: getRecentErrorCount(60 * 60 * 1000),
     recentErrorsWindow: "1h",
     sentryNote: "Full error history and performance traces: Sentry dashboard",
-  });
+      mediaBackup,
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 export default router;

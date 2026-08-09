@@ -16,6 +16,7 @@ import express from "express";
 
 // ── Mocks — hoisted before any import ─────────────────────────────────────────
 const mockGetRecentErrorCount = vi.hoisted(() => vi.fn(() => 0));
+const mockGetMediaBackupStatus = vi.hoisted(() => vi.fn());
 
 vi.mock("@workspace/db", () => ({
   pool: {
@@ -29,6 +30,10 @@ vi.mock("@workspace/db", () => ({
 vi.mock("../lib/poolMonitor", () => ({
   POOL_MAX: 45,
   DB_MAX_CONNECTIONS: 90,
+}));
+
+vi.mock("../lib/mediaBackup", () => ({
+  getMediaBackupStatus: mockGetMediaBackupStatus,
 }));
 
 vi.mock("../services/monitoring", () => ({
@@ -78,6 +83,12 @@ function makeApp(token?: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockGetRecentErrorCount.mockReturnValue(0);
+  mockGetMediaBackupStatus.mockResolvedValue({
+    lastSuccessAt: "2026-08-09T06:39:48.734Z",
+    ageMs: 1000,
+    stale: false,
+    thresholdHours: 36,
+  });
 });
 
 afterEach(() => {
@@ -166,5 +177,18 @@ describe("GET /api/internal/health — snapshot", () => {
       .get("/api/internal/health")
       .set("Authorization", `Bearer ${TEST_TOKEN}`);
     expect(res.body.recentErrorsWindow).toBe("1h");
+  });
+
+  it("includes a safe durable media-backup freshness snapshot", async () => {
+    const res = await request(makeApp(TEST_TOKEN))
+      .get("/api/internal/health")
+      .set("Authorization", `Bearer ${TEST_TOKEN}`);
+
+    expect(res.body.mediaBackup).toEqual({
+      lastSuccessAt: "2026-08-09T06:39:48.734Z",
+      ageMs: 1000,
+      stale: false,
+      thresholdHours: 36,
+    });
   });
 });

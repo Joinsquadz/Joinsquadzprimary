@@ -27,6 +27,7 @@ vi.hoisted(() => {
 const mockSend = vi.hoisted(() => vi.fn());
 const mockConnect = vi.hoisted(() => vi.fn());
 const mockQuery = vi.hoisted(() => vi.fn());
+const mockPoolQuery = vi.hoisted(() => vi.fn());
 const mockRelease = vi.hoisted(() => vi.fn());
 const mockCaptureMessage = vi.hoisted(() => vi.fn());
 const mockList = vi.hoisted(() => vi.fn());
@@ -57,7 +58,7 @@ vi.mock("@aws-sdk/client-s3", () => ({
 }));
 
 vi.mock("@workspace/db", () => ({
-  pool: { connect: mockConnect },
+  pool: { connect: mockConnect, query: mockPoolQuery },
 }));
 
 vi.mock("../services/supabase", () => ({
@@ -88,7 +89,12 @@ vi.mock("../lib/logger", () => ({
 
 // Import AFTER mocks.
 import mediaBackupRouter from "../routes/mediaBackup";
-import { runMediaBackup } from "../lib/mediaBackup";
+import {
+  checkMediaBackupFreshness,
+  getMediaBackupStatus,
+  MEDIA_BACKUP_STALE_AFTER_MS,
+  runMediaBackup,
+} from "../lib/mediaBackup";
 
 const TEST_TOKEN = "internal-token-xyz789";
 const PRIVATE_BUCKET = "squadz-media";
@@ -136,6 +142,7 @@ beforeEach(() => {
   delete process.env.PUBLIC_OBJECT_SEARCH_PATHS;
 
   mockConnect.mockResolvedValue({ query: mockQuery, release: mockRelease });
+  mockPoolQuery.mockResolvedValue({ rows: [] });
   grantLock(true);
   seedBuckets({});
   mockDownload.mockResolvedValue({
@@ -322,6 +329,63 @@ describe("runMediaBackup — failure reporting", () => {
     await runMediaBackup();
 
     expect(mockCaptureMessage).not.toHaveBeenCalled();
+  });
+
+  it("persists a durable success marker only after a zero-failure run", async () => {
+    seedBuckets({ [PRIVATE_BUCKET]: [file("ok.jpg", 5)] });
+    mockSend.mockImplementation(async (cmd: unknown) =>
+      cmd instanceof HeadObjectCommand ? { ContentLength: 5 } : {},
+    );
+
+    await runMediaBackup();
+
+    expect(mockQuery).toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO media_backup_status"),
+      expect.arrayContaining([1, expect.any(String), expect.any(String)]),
+    );
+  });
+
+  it("does not advance the success marker after a partial backup", async () => {
+    seedBuckets({ [PRIVATE_BUCKET]: [file("bad.jpg", 10)] });
+    mockSend.mockRejectedValue(new Error("R2 unavailable"));
+
+    await runMediaBackup();
+
+    expect(mockQuery).not.toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO media_backup_status"),
+      expect.anything(),
+    );
+  });
+});
+
+// ── Durable dead-man switch ───────────────────────────────────────────────────
+
+describe("media backup dead-man switch", () => {
+  it("reports a missing success marker as stale", async () => {
+    mockPoolQuery.mockResolvedValue({ rows: [] });
+    const status = await getMediaBackupStatus(Date.UTC(2026, 7, 9));
+    expect(status).toMatchObject({ lastSuccessAt: null, ageMs: null, stale: true, thresholdHours: 36 });
+  });
+
+  it("reports a recent successful run as fresh", async () => {
+    const now = Date.UTC(2026, 7, 9, 12);
+    mockPoolQuery.mockResolvedValue({ rows: [{ last_success_at: new Date(now - 2 * 60 * 60 * 1000) }] });
+    const status = await getMediaBackupStatus(now);
+    expect(status).toMatchObject({ stale: false, thresholdHours: 36 });
+    expect(status.ageMs).toBe(2 * 60 * 60 * 1000);
+  });
+
+  it("reports a run beyond the 36-hour threshold as stale and alerts once", async () => {
+    const now = Date.UTC(2026, 7, 9, 12);
+    mockPoolQuery.mockResolvedValue({
+      rows: [{ last_success_at: new Date(now - MEDIA_BACKUP_STALE_AFTER_MS - 1) }],
+    });
+    const first = await checkMediaBackupFreshness();
+    const second = await checkMediaBackupFreshness();
+
+    expect(first.stale).toBe(true);
+    expect(second.stale).toBe(true);
+    expect(mockCaptureMessage).toHaveBeenCalledTimes(1);
   });
 });
 

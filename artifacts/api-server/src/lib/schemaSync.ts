@@ -367,6 +367,18 @@ async function createMissingTables(): Promise<void> {
       "created_at" timestamp with time zone DEFAULT now() NOT NULL
     )
   `);
+
+  // Single-row table tracking the last fully-successful (zero-failure) media
+  // backup run. The CHECK constraint guarantees at most one row so there is
+  // nothing to paginate or reconcile; UPSERT stamps it on every clean run.
+  await exec(`
+    CREATE TABLE IF NOT EXISTS "media_backup_status" (
+      "id" integer PRIMARY KEY DEFAULT 1 NOT NULL,
+      "last_success_at" timestamp with time zone,
+      "last_summary" jsonb,
+      CONSTRAINT "media_backup_status_single_row" CHECK ("id" = 1)
+    )
+  `);
 }
 
 // ---------------------------------------------------------------------------

@@ -6,6 +6,7 @@ import {
 } from "@aws-sdk/client-s3";
 import type { Readable } from "node:stream";
 import { pool } from "@workspace/db";
+import type { PoolClient } from "pg";
 import { objectStorageClient } from "./objectStorage";
 import { logger } from "./logger";
 import { supabaseAdmin } from "../services/supabase";
@@ -15,6 +16,8 @@ const SUPABASE_PRIVATE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET ?? "squadz-m
 const SUPABASE_PUBLIC_BUCKET = process.env.SUPABASE_PUBLIC_BUCKET ?? "squadz-avatars";
 const LOCK_KEY = 4_027_417_913;
 const PAGE_SIZE = 100;
+export const MEDIA_BACKUP_STALE_AFTER_MS = 36 * 60 * 60 * 1000;
+const MEDIA_BACKUP_STATUS_ID = 1;
 
 export type MediaBackupSummary = {
   startedAt: string;
@@ -25,6 +28,13 @@ export type MediaBackupSummary = {
   copied: number;
   copiedBytes: number;
   failures: number;
+};
+
+export type MediaBackupStatus = {
+  lastSuccessAt: string | null;
+  ageMs: number | null;
+  stale: boolean;
+  thresholdHours: number;
 };
 
 type SourceObject = {
@@ -178,6 +188,72 @@ async function alreadyBackedUp(client: S3Client, key: string, size: number): Pro
   }
 }
 
+function summaryForStorage(summary: MediaBackupSummary): Record<string, unknown> {
+  return {
+    finishedAt: summary.finishedAt,
+    checked: summary.checked,
+    copied: summary.copied,
+    copiedBytes: summary.copiedBytes,
+    failures: summary.failures,
+    sources: summary.sources,
+  };
+}
+
+/** Records only completely clean runs; partial copies must never imply safety. */
+async function recordSuccessfulBackup(dbClient: PoolClient, summary: MediaBackupSummary): Promise<void> {
+  await dbClient.query(
+    `INSERT INTO media_backup_status (id, last_success_at, last_summary)
+     VALUES ($1, $2, $3::jsonb)
+     ON CONFLICT (id) DO UPDATE
+     SET last_success_at = EXCLUDED.last_success_at, last_summary = EXCLUDED.last_summary`,
+    [MEDIA_BACKUP_STATUS_ID, summary.finishedAt, JSON.stringify(summaryForStorage(summary))],
+  );
+}
+
+/** Safe for an authenticated health endpoint: contains no object paths or secrets. */
+export async function getMediaBackupStatus(now = Date.now()): Promise<MediaBackupStatus> {
+  const result = await pool.query<{ last_success_at: Date | string | null }>(
+    `SELECT last_success_at FROM media_backup_status WHERE id = $1`,
+    [MEDIA_BACKUP_STATUS_ID],
+  );
+  const value = result.rows[0]?.last_success_at ?? null;
+  const lastSuccessAt = value ? new Date(value).toISOString() : null;
+  const ageMs = lastSuccessAt ? Math.max(0, now - new Date(lastSuccessAt).getTime()) : null;
+  return {
+    lastSuccessAt,
+    ageMs,
+    stale: ageMs === null || ageMs > MEDIA_BACKUP_STALE_AFTER_MS,
+    thresholdHours: MEDIA_BACKUP_STALE_AFTER_MS / (60 * 60 * 1000),
+  };
+}
+
+let staleAlertActive = false;
+
+/**
+ * Emit one warning when backup freshness first becomes stale. The durable
+ * timestamp makes this work across restarts; the process-local latch prevents
+ * a warning every monitor interval while an outage is being investigated.
+ */
+export async function checkMediaBackupFreshness(): Promise<MediaBackupStatus> {
+  const status = await getMediaBackupStatus();
+  if (status.stale) {
+    if (!staleAlertActive) {
+      staleAlertActive = true;
+      const ageHours = status.ageMs === null ? null : Math.floor(status.ageMs / (60 * 60 * 1000));
+      logger.warn({ ...status, ageHours }, "[media-backup] dead-man switch: no recent successful backup");
+      captureMessage(
+        status.lastSuccessAt
+          ? `Media backup is stale: last successful run was ${ageHours} hour(s) ago`
+          : "Media backup has no recorded successful run",
+        "warning",
+      );
+    }
+  } else {
+    staleAlertActive = false;
+  }
+  return status;
+}
+
 export async function runMediaBackup(): Promise<MediaBackupSummary> {
   const startedAt = new Date().toISOString();
   const allSources = sources();
@@ -251,6 +327,8 @@ export async function runMediaBackup(): Promise<MediaBackupSummary> {
         `Media backup completed with ${summary.failures} failure(s); copied ${summary.copied}/${summary.checked} checked objects`,
         "warning",
       );
+    } else {
+      await recordSuccessfulBackup(dbClient, summary);
     }
     return summary;
   } catch (error) {
@@ -282,4 +360,21 @@ export function scheduleMediaBackup(): void {
   logger.info({ timezone, hour, minute }, "[media-backup] scheduled nightly");
   setInterval(check, 60_000).unref();
   check();
+}
+
+/** Check at startup and every six hours; alerts are deduplicated per process. */
+export function scheduleMediaBackupFreshnessCheck(): void {
+  const intervalMs = 6 * 60 * 60 * 1000;
+  logger.info(
+    { intervalMs, staleAfterHours: MEDIA_BACKUP_STALE_AFTER_MS / (60 * 60 * 1000) },
+    "[media-backup] dead-man switch scheduled",
+  );
+  checkMediaBackupFreshness().catch((error) =>
+    logger.warn({ err: error }, "[media-backup] dead-man switch check failed"),
+  );
+  setInterval(() => {
+    checkMediaBackupFreshness().catch((error) =>
+      logger.warn({ err: error }, "[media-backup] dead-man switch check failed"),
+    );
+  }, intervalMs).unref();
 }
