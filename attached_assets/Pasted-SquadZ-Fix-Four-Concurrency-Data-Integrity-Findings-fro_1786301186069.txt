@@ -1,0 +1,36 @@
+SquadZ — Fix: Four Concurrency/Data-Integrity Findings from Whole-App Triage
+
+Source: the whole-app triage audit (docs/audit/whole-app-triage-map.md). Four confirmed findings, ordered by urgency. #1 may already be causing a known live symptom; #2 is a confirmed hard-error verified against the live DB.
+
+Fix 1 — Squad member removal is an unguarded lost update (HIGHEST PRIORITY)
+
+Root cause: removal reads member_ids, filters in memory, and writes the whole array back with WHERE id only — no version predicate, no version bump. Join is atomic and version-bumped, so the two paths are asymmetric: a join landing mid-removal is silently erased, and a concurrent PATCH can resurrect a just-removed member. The audit flags this as a plausible root cause of the existing known issue where removed members still appear in chats.
+
+Fix: make removal use the same atomic, version-guarded pattern that join already uses — an atomic array update (e.g. jsonb array-remove at the DB level, or a compare-and-swap on version) that bumps the version, so a concurrent join/PATCH can't silently overwrite or resurrect. Removal and join must be symmetric in their concurrency handling.
+Since this is flagged as a possible cause of removed-members-still-in-chats: after fixing the removal path, confirm whether that symptom is actually resolved by the fix, or whether there's a separate downstream issue (e.g. chat/conversation membership derived separately and not updated on removal). Report what you find — don't assume the array fix alone resolves the chat symptom without checking.
+Test (real-database concurrency test, not mocked): concurrent removal + join on the same squad → the removed member is gone, the joining member is present, no silent overwrite, no resurrection. This is the core correctness test.
+Fix 2 — Availability nudge 500s on the second nudge to the same member (CHEAP, CONFIRMED)
+
+Root cause: the route enforces a 5-minute debounce then plain-INSERTs into a table with a permanent unique constraint on (poll_id, to_user_id) (confirmed to exist against the live DB). The second nudge to the same member violates the constraint and 500s. The existing test mocks storage so it can't catch this.
+
+Fix: replace the plain INSERT with an UPSERT (INSERT ... ON CONFLICT (poll_id, to_user_id) DO UPDATE ...) so a repeat nudge updates the existing row (e.g. refreshes the timestamp) instead of erroring — consistent with the debounce intent, which is "don't nudge too often," not "can only ever nudge once."
+Test (against a real DB, since the table is currently empty in dev and this is unexercised): send two nudges to the same member on the same poll → second one succeeds (respecting debounce timing), no 500, no constraint violation.
+Fix 3 — Event chat is an unbounded JSON array on the shared event row
+
+Root cause: every chat send copies the full message history, rewrites the whole array, and returns the entire event. Cost grows with history length, and it contends with tasks/packing/itinerary on one shared event version. A properly paginated chat system already exists elsewhere in the app (conversations/DMs).
+
+Fix: migrate event chat to the same paginated, separate-table pattern the existing conversation/DM system uses, rather than an unbounded array on the event row. This removes both the growing-cost problem and the version contention with unrelated event fields.
+This is a larger change than 1/2 — if it can't be done cleanly in the same pass, scope it as its own task and report a clear migration plan rather than rushing it. Flag whether existing event chat data needs migrating.
+Test: sending event chat messages doesn't rewrite unrelated event fields or bump the shared event version; chat history paginates instead of loading in full.
+Fix 4 — Poll → event conversion has no claim (double-tap spawns two events)
+
+Root cause: converting a poll to an event has no atomic claim, so a double-tap (or two organizers at once) can spawn two events from one poll.
+
+Fix: add an atomic claim on the poll before creating the event (same pattern as the atomic scanner claims / reminder cooldowns already in the codebase) — the first conversion wins and marks the poll converted; a second attempt finds it already converted and is cleanly rejected without creating a duplicate event.
+Test: two concurrent poll→event conversions on the same poll → exactly one event created, the second cleanly rejected.
+Required for this pass
+Fixes 1 and 2 first — 1 is highest-impact (possible live symptom), 2 is cheapest and confirmed.
+Use real-database concurrency tests for 1, 2, and 4 — the audit specifically noted the existing tests mock storage and can't catch these classes of bug. Mocked tests are insufficient here.
+For Fix 1, report whether the removed-members-in-chats symptom is actually resolved or has a separate cause.
+Confirm existing suites (1,052 API / 358 mobile) otherwise unaffected; report final counts.
+Do not touch cost-splitting (#583) or other in-flight work.
