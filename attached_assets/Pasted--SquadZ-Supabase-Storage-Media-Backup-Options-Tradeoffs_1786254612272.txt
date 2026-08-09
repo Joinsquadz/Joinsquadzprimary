@@ -1,0 +1,26 @@
+# SquadZ — Supabase Storage Media Backup: Options + Tradeoffs (Report First, Then Build)
+
+Context: the server-health audit confirmed the database is backed up (Supabase daily backups, 7-day retention) but **Supabase Storage media (all user photos/videos across Moments, Vault, Feed, chat) has no backup at all** — if a file is deleted or corrupted there, it's permanently lost, and the database backup can't recover it (the DB only stores references to those files). Currently pre-launch with near-zero stored media, so this is the cheapest possible moment to solve it.
+
+## Part 1 — Report the options (do this first, no implementation)
+
+Lay out the realistic options for backing up Supabase Storage media, with honest tradeoffs for each. For each option cover: how it works, rough cost, how much ongoing maintenance it needs, how complete/reliable the protection is, and how a restore would actually work if media were ever lost. At minimum evaluate:
+
+1. **Supabase's own storage backup capabilities** — does Supabase offer any native/built-in backup or point-in-time recovery for Storage on the current Pro plan, or any add-on that covers it? Report what's actually available, not what's assumed. If Storage genuinely has no native backup option even on paid tiers, say so plainly.
+2. **Scheduled copy to a separate bucket / cloud storage** — a recurring job that copies (syncs) media from the primary Supabase Storage bucket to a separate location (a second Supabase bucket, AWS S3, Cloudflare R2, Backblaze B2, etc.). Report which destination is most cost-effective and simplest to operate for this app's scale, and how the sync would be triggered (cron, scheduled function, etc.).
+3. **Dual-write at upload time** — writing each uploaded file to two locations at the moment of upload, so there's always a redundant copy. Report the reliability tradeoff (what happens if the second write fails) versus the scheduled-copy approach.
+
+Then make a clear recommendation: given this is a pre-launch friend-group social app on Supabase Pro, targeting real growth, which option is the best fit and why. Consider the same principles that have guided this project's other infrastructure decisions — avoid unnecessary cost and complexity, prefer solutions that don't require new paid services unless clearly justified, and keep it portable rather than deeply vendor-locked where possible.
+
+## Part 2 — Implement the recommended option (only after I confirm the choice)
+
+Do NOT implement in this pass. After I review the options and pick one, implement it with:
+- A clear description of what's backed up, how often, and where it lands.
+- Confirmation that the backup actually captures all Storage buckets in use (not just one) — verify which buckets the app actually uses first.
+- A note on how to verify the backup is working and how to actually perform a restore if ever needed — a backup nobody knows how to restore from isn't a real safety net.
+- If the approach involves a scheduled job, it must be resilient to the multi-instance autoscale environment (same concern as the notification scanners — don't let multiple instances run the same backup job redundantly or conflict).
+
+## Required for this pass
+- Part 1 only — report and recommend. Hold all implementation until I confirm the choice.
+- Be honest about what Supabase does and doesn't offer natively rather than assuming — if the answer is "Storage has no native backup, you must roll your own," that's important to state clearly.
+- Do not touch the cost-splitting task (#583), which stays a draft, or any other in-flight work.
