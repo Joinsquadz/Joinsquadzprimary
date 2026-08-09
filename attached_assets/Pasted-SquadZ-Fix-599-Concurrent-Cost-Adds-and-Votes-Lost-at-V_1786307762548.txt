@@ -1,0 +1,18 @@
+SquadZ — Fix #599: Concurrent Cost-Adds and Votes Lost at Version 0
+Context: task #592 surfaced two pre-existing failing real-DB concurrency tests (confirmed pre-existing by stashing #592’s work and re-running against baseline — not regressions). Both are the same lost-update class already fixed elsewhere: 5 concurrent cost-adds at version 0 and 5 concurrent votes at version 0 lose updates because the version-checked compare-and-swap is bypassed when the version is 0 (or absent). This is the same root pattern as the #575 version-bypass finding. Worth fixing now, before the cost-splitting feature (#583) gets built on this same path.
+The problem
+The version guard protects concurrent writes only when a meaningful version is present. At version 0 (initial/absent state), concurrent cost-adds or votes skip the guard and overwrite each other — a lost expense, a lost vote. The two real-DB tests filed under #599 already demonstrate this failing.
+The fix
+Apply the same atomic, version-safe pattern already used successfully in #592’s membership fixes to the cost-add and vote write paths:
+	•	Concurrent writes at ANY version — including version 0 — must not silently overwrite each other.
+	•	Use a compare-and-swap with re-read retry (the pattern #592 established for membership writes), or an atomic DB-level operation (e.g. atomic array append / jsonb operation) that doesn’t depend on a non-zero version to be safe. Choose whichever is most consistent with how these specific writes work and how #592 solved the analogous membership case.
+	•	The end state: N concurrent cost-adds all land (none lost), and N concurrent votes all register correctly, regardless of starting version.
+Verify with the already-failing tests
+The two real-DB tests that currently fail (5 concurrent cost-adds at version 0, 5 concurrent votes at version 0) are the acceptance criteria — they should pass after the fix. Do NOT weaken or delete those tests to make them pass; the fix must make the actual behavior correct so the tests pass legitimately.
+	•	Confirm both previously-failing real-DB concurrency tests now pass.
+	•	Confirm the full real-DB concurrency suite is now fully green (was 42 passed / 2 failed at the end of #592 — should be 44/44 or the current total after this fix).
+Required for this pass
+	•	Real-database concurrency tests are the proof here, same as #592 — mocked tests structurally cannot catch this class.
+	•	Confirm the full API and mobile suites remain green; report before/after counts.
+	•	This clears the last known concurrency gap before the cost-splitting feature (#583) is built — note in the summary that the cost-add path is now concurrency-safe, since #583 will build on it.
+	•	Do not build #583 in this pass — just fix #599 and confirm the path is now safe for it.
