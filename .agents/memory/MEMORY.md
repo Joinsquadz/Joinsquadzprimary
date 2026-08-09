@@ -89,5 +89,5 @@
 - [New content-type checklist](new-content-type-checklist.md) — every new UGC type must touch reports enum, maybeAutoHide, canUserViewReportedContent, ActivityTypes, storage ACL, deletion purge, hidden→404.
 - [Hooks after early return](hooks-after-early-return.md) — plan detail screens hydrate via fallback fetch; ALL hooks must sit above the "not available" early return or past/deep-linked plans crash.
 - [Load-test ceiling & Artillery pooling](load-test-ceiling.md) — prod ceiling ≈600–800 concurrent (p95>1.9s + timeouts at 900); use Artillery `http.pool` or the container's ~28k ports fail the test first.
-- [Media backup to R2](media-backup-r2.md) — private bucket is literally "Squadz storage bucket"; R2 PutObject needs Buffer/Readable + explicit ContentLength or every upload dies on a bad chunked header.
+- [Media backup to R2](media-backup-r2.md) — private bucket is literally "Squadz storage bucket"; PutObject needs explicit ContentLength; durable writes inside the advisory-lock txn need COMMIT or rollback eats them.
 - [Staging load-test setup](staging-load-test.md) — SKIP_SCHEMA_SYNC + SKIP_STRIPE_INIT env vars for staging; 429 from rate-limit token reuse (use order:sequence); Transaction pooler saturates at ~25 concurrent (600ms RTT × pool_max=25).

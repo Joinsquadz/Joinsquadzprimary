@@ -345,6 +345,35 @@ describe("runMediaBackup — failure reporting", () => {
     );
   });
 
+  it("commits the success marker so it survives the lock transaction", async () => {
+    seedBuckets({ [PRIVATE_BUCKET]: [file("ok.jpg", 5)] });
+    mockSend.mockImplementation(async (cmd: unknown) =>
+      cmd instanceof HeadObjectCommand ? { ContentLength: 5 } : {},
+    );
+
+    await runMediaBackup();
+
+    const statements = mockQuery.mock.calls.map(([sql]) => sql as string);
+    const insertIndex = statements.findIndex((sql) => sql.includes("INSERT INTO media_backup_status"));
+    const commitIndex = statements.findIndex((sql) => sql === "COMMIT");
+    expect(insertIndex).toBeGreaterThanOrEqual(0);
+    // The marker is written inside the advisory-lock transaction: without a
+    // COMMIT after it, the finally-block ROLLBACK silently discards it.
+    expect(commitIndex).toBeGreaterThan(insertIndex);
+    expect(statements).not.toContain("ROLLBACK");
+  });
+
+  it("rolls back (never commits) when the run fails partway", async () => {
+    seedBuckets({ [PRIVATE_BUCKET]: [file("bad.jpg", 10)] });
+    mockSend.mockRejectedValue(new Error("R2 unavailable"));
+
+    await runMediaBackup();
+
+    const statements = mockQuery.mock.calls.map(([sql]) => sql as string);
+    expect(statements).toContain("ROLLBACK");
+    expect(statements).not.toContain("COMMIT");
+  });
+
   it("does not advance the success marker after a partial backup", async () => {
     seedBuckets({ [PRIVATE_BUCKET]: [file("bad.jpg", 10)] });
     mockSend.mockRejectedValue(new Error("R2 unavailable"));
@@ -380,8 +409,8 @@ describe("media backup dead-man switch", () => {
     mockPoolQuery.mockResolvedValue({
       rows: [{ last_success_at: new Date(now - MEDIA_BACKUP_STALE_AFTER_MS - 1) }],
     });
-    const first = await checkMediaBackupFreshness();
-    const second = await checkMediaBackupFreshness();
+    const first = await checkMediaBackupFreshness(now);
+    const second = await checkMediaBackupFreshness(now);
 
     expect(first.stale).toBe(true);
     expect(second.stale).toBe(true);

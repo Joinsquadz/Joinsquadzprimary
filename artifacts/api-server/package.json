@@ -10,7 +10,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:concurrency": "vitest run --config vitest.concurrency.config.ts",
-    "backfill:upload-owners": "node backfill-upload-owners.mjs"
+    "backfill:upload-owners": "node backfill-upload-owners.mjs",
+    "restore:drill": "node restore-drill.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.800.0",

@@ -30,6 +30,79 @@ It responds with the run summary (`checked`, `copied`, `copiedBytes`,
 of the same size already exists in R2, so re-running is cheap and safe.
 Failures are logged per object and reported to Sentry at warning level.
 
+## Backup freshness (dead-man switch)
+
+A run that finishes with **zero failures** records `last_success_at` in the
+single-row `media_backup_status` table. A partial run never advances it, so a
+half-working backup can't look healthy.
+
+A check runs at startup and every six hours. If no clean run has completed
+within **36 hours** (one nightly run, plus a full missed run before anyone is
+paged), it logs a warning and raises a Sentry warning. The alert fires once per
+outage — it re-arms only after a clean run — so an ongoing incident does not
+flood the channel.
+
+`GET /api/internal/health` (internal bearer token) reports `mediaBackup` with
+`lastSuccessAt`, `ageMs`, `stale`, and `thresholdHours`. No bucket names,
+object paths, or credentials are included.
+
+## Restore drill (safe, repeatable)
+
+`restore:drill` restores a bounded sample from R2 into a throwaway Supabase
+bucket, verifies it, and deletes the bucket:
+
+```bash
+pnpm --filter @workspace/api-server run restore:drill -- \
+  --prefix "supabase/squadz-avatars/" --bucket restore-drill-<date> --limit 3
+```
+
+It refuses to run unless the destination starts with `restore-drill-` and is
+not a configured live bucket, and it refuses a pre-existing bucket unless
+`--reuse-bucket` is passed. R2 is only ever read. Objects are written back to
+their original paths (the `supabase/<bucket>/` or `replit/<bucket>/` routing
+prefix is stripped), then read back OUT of the destination and compared on
+**bytes, SHA-256 and content type**. All three must match: bytes served under
+the wrong media type still break playback and inline rendering, so that counts
+as a failed restore. Content types are compared case-insensitively and ignoring
+parameters (`image/jpeg; charset=utf-8` matches `image/jpeg`), but the media
+type itself must be identical.
+
+Cleanup is part of the contract, not best-effort housekeeping. The drill deletes
+the objects and the temporary bucket, then re-confirms the bucket is gone.
+**The drill exits non-zero for unverified content OR unconfirmed cleanup**, and
+prints the bucket name to delete by hand if anything is left behind — an
+abandoned drill bucket is an unmanaged copy of production media. Absence is only
+ever concluded from an explicit 404, never from error text, so a failed check
+can't masquerade as a clean teardown.
+
+Pass `--keep` to inspect the restored objects before cleanup (leftovers are then
+intentional and do not fail the run); delete the bucket yourself afterwards.
+
+### Last drill: 2026-08-09
+
+Command: `--prefix "supabase/squadz-avatars/" --bucket restore-drill-20260809b --limit 3`
+
+| Measure | Result |
+| --- | --- |
+| Objects restored | 3 |
+| Source bytes | 1,156,861 |
+| Restored bytes | 1,156,861 |
+| Fully verified (bytes + SHA-256 + content type) | 3 |
+| Mismatches | 0 |
+| Exit code | 0 |
+
+Sampled objects (`uploads/78317644-…jpeg`, `uploads/a050db10-…jpeg`,
+`uploads/feebd54b-…jpeg`) each round-tripped with an identical SHA-256 and
+`image/jpeg` intact.
+
+Guard checks confirmed the same day: the drill refused
+`"$SUPABASE_STORAGE_BUCKET"` and `squadz-avatars` as live buckets, and
+`some-other-bucket` for not being a scratch name.
+
+Cleanup: all 3 drill objects removed, bucket `restore-drill-20260809` deleted,
+and its absence re-confirmed by the script. No live media was read for writing,
+modified, published, or used as a destination.
+
 ## Before restoring
 
 1. Pause writes to the affected media source if possible. This avoids restoring

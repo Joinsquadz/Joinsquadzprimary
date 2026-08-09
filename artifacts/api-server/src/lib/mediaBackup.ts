@@ -6,7 +6,6 @@ import {
 } from "@aws-sdk/client-s3";
 import type { Readable } from "node:stream";
 import { pool } from "@workspace/db";
-import type { PoolClient } from "pg";
 import { objectStorageClient } from "./objectStorage";
 import { logger } from "./logger";
 import { supabaseAdmin } from "../services/supabase";
@@ -199,8 +198,12 @@ function summaryForStorage(summary: MediaBackupSummary): Record<string, unknown>
   };
 }
 
+// `pg` ships no bundled types and @types/pg is not a dependency here, so the
+// pooled client is described structurally rather than imported from "pg".
+type QueryableClient = { query: (text: string, values?: unknown[]) => Promise<unknown> };
+
 /** Records only completely clean runs; partial copies must never imply safety. */
-async function recordSuccessfulBackup(dbClient: PoolClient, summary: MediaBackupSummary): Promise<void> {
+async function recordSuccessfulBackup(dbClient: QueryableClient, summary: MediaBackupSummary): Promise<void> {
   await dbClient.query(
     `INSERT INTO media_backup_status (id, last_success_at, last_summary)
      VALUES ($1, $2, $3::jsonb)
@@ -234,8 +237,8 @@ let staleAlertActive = false;
  * timestamp makes this work across restarts; the process-local latch prevents
  * a warning every monitor interval while an outage is being investigated.
  */
-export async function checkMediaBackupFreshness(): Promise<MediaBackupStatus> {
-  const status = await getMediaBackupStatus();
+export async function checkMediaBackupFreshness(now = Date.now()): Promise<MediaBackupStatus> {
+  const status = await getMediaBackupStatus(now);
   if (status.stale) {
     if (!staleAlertActive) {
       staleAlertActive = true;
@@ -275,6 +278,7 @@ export async function runMediaBackup(): Promise<MediaBackupSummary> {
   }
 
   const dbClient = await pool.connect();
+  let committed = false;
   try {
     await dbClient.query("BEGIN");
     const lockResult = await dbClient.query<{ locked: boolean }>(
@@ -329,6 +333,12 @@ export async function runMediaBackup(): Promise<MediaBackupSummary> {
       );
     } else {
       await recordSuccessfulBackup(dbClient, summary);
+      // MUST commit: the success marker is written inside the advisory-lock
+      // transaction, so without this the `finally` rollback discards it and
+      // the dead-man switch reports "no successful run" after a perfectly
+      // clean run. Committing also releases the xact-scoped lock.
+      await dbClient.query("COMMIT");
+      committed = true;
     }
     return summary;
   } catch (error) {
@@ -336,7 +346,7 @@ export async function runMediaBackup(): Promise<MediaBackupSummary> {
     captureMessage("Media backup failed before completion", "warning");
     throw error;
   } finally {
-    await dbClient.query("ROLLBACK").catch(() => undefined);
+    if (!committed) await dbClient.query("ROLLBACK").catch(() => undefined);
     dbClient.release();
   }
 }
