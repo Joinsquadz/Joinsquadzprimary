@@ -1,0 +1,29 @@
+# SquadZ — Server Health & Backup Verification (What's Confirmable From Code/Config)
+
+Context: before layering on more features, confirm the server-side foundation is solid and the data is genuinely backed up. Much of this requires dashboard access you don't have — for those, report clearly what needs manual verification rather than guessing. For everything confirmable from code/config, verify it properly.
+
+## 1 — Database backup readiness (report what's confirmable, flag what isn't)
+
+- Confirm whether there is any application-level or scripted backup mechanism in the codebase, or whether backups rely entirely on Supabase's managed daily backups (Pro plan, 7-day retention).
+- If it relies entirely on Supabase managed backups (likely): state that clearly, and note that confirming a recent backup actually exists — and that a restore has ever been tested — requires manual dashboard verification (Supabase → Database → Backups). This CANNOT be confirmed from code; say so plainly rather than implying backups are "fine."
+- Report whether there's anything in the data model that would make a restore problematic — e.g. data stored outside Postgres (Supabase Storage media, the legacy Replit Object Storage objects) that a Postgres backup alone would NOT capture. A DB backup that doesn't include uploaded media is only a partial backup — flag this if it's the case, since it affects what "backed up" actually means.
+
+## 2 — Monitoring is built but confirm it's actually wired and functional
+
+- Confirm the pool monitor (`poolMonitor.ts`), slow-request middleware, and internal health endpoint from the recent monitoring work are all actually active in the running server (imported, scheduled, and wired into the app), not just present as files.
+- Confirm the internal health endpoint requires `INTERNAL_API_TOKEN` and report whether that env var appears to be set in the environment (if determinable) — if it's not set, the endpoint is non-functional and this needs to be flagged as a required manual step.
+- Report what Sentry is actually configured to capture (errors, warnings, performance traces) based on the code/config, and note that whether alerts actually REACH someone depends on Sentry dashboard notification settings that can't be confirmed from code.
+
+## 3 — Data integrity safety checks
+
+- Confirm the account-deletion cascade (the resurrection bug fixed earlier) is genuinely complete — deleting a user removes their data everywhere it lives (squads, events, DMs, vault, moderation, Supabase auth user, storage objects) without leaving orphans, and without breaking other users' data (e.g. an event another user hosts if a participant deletes their account). This was fixed before but is worth re-confirming as part of a foundation check.
+- Confirm there are no obvious paths where a failed multi-step write leaves data in a half-written state (the invite-accept and cost-split concerns from the audit are already tracked in #575 — this is checking for any OTHER unguarded multi-step writes beyond those).
+
+## 4 — Graceful degradation / fail-safe review
+
+- The audit noted the server starts successfully even if Stripe init fails or SMTP is misconfigured (degrades to log-only). Confirm this and report: if a critical dependency (database, auth, storage) is unavailable at startup, does the server fail loudly and refuse to serve, or does it start anyway and serve broken requests? For non-critical dependencies (email, billing-adjacent), degrading gracefully is fine — but confirm the truly critical ones (DB, auth) don't silently start in a broken state.
+
+## Output required
+- A clear "confirmed healthy" vs. "needs manual verification" vs. "found a gap" status for each section.
+- For anything requiring dashboard/manual action, a specific, actionable instruction (which dashboard, which page, what to check) — since the person will action those directly.
+- Do not fix anything in this pass — this is a foundation health check, report-only. Anything found gets triaged into a fix afterward.
