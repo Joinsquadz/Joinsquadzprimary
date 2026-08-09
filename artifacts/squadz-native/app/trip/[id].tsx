@@ -36,7 +36,7 @@ import FriendPickerSheet from "@/components/FriendPickerSheet";
 import { ChatMessages, ChatComposer } from "@/components/EventChatPanel";
 import { EventCostsPanel } from "@/components/EventCostsPanel";
 import { EventVaultPanel } from "@/components/EventVaultPanel";
-import { API_BASE, buildAuthHeaders } from "@/lib/api";
+import { API_BASE, buildAuthHeaders, fetchWithTimeout } from "@/lib/api";
 import { buildPlanIcs } from "@/lib/ics";
 import { shareIcsFile } from "@/lib/shareIcs";
 import { findMyConflicts, getPlanSpan } from "@/lib/conflicts";
@@ -251,7 +251,7 @@ export default function TripDetailScreen() {
   const fetchDetail = useCallback(async (track = false) => {
     if (!id) return;
     try {
-      const res = await fetch(`${API_BASE}/api/events/${id}`, {
+      const res = await fetchWithTimeout(`${API_BASE}/api/events/${id}`, {
         headers: buildAuthHeaders(authToken),
       });
       if (res.ok) {
@@ -328,7 +328,7 @@ export default function TripDetailScreen() {
   useEffect(() => {
     if (!event || !id || !authToken) return;
     if (!isTripPast(event)) return;
-    fetch(`${API_BASE}/api/vault/photos?eventId=${id}`, { headers: buildAuthHeaders(authToken) })
+    fetchWithTimeout(`${API_BASE}/api/vault/photos?eventId=${id}`, { headers: buildAuthHeaders(authToken) })
       .then((r) => (r.ok ? r.json() : null))
       .then((data: { photos?: unknown[] } | null) => {
         if (data && Array.isArray(data.photos)) setRecapPhotoCount(data.photos.length);

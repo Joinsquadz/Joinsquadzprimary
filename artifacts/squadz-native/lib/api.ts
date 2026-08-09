@@ -58,6 +58,36 @@ export function buildAuthHeaders(token: string | null): Record<string, string> {
 }
 
 /**
+ * Wraps `fetch` with an automatic abort after `timeoutMs` (default 30 s).
+ * Callers that supply their own `signal` retain full control — no extra timeout
+ * is layered on top of theirs. External storage PUT requests (which can be
+ * large) should pass a longer timeout or their own signal.
+ */
+export function fetchWithTimeout(
+  url: string,
+  init?: RequestInit,
+  timeoutMs = 30_000,
+): Promise<Response> {
+  if (init?.signal) return fetch(url, init!);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...init, signal: controller.signal }).finally(() =>
+    clearTimeout(timer),
+  );
+}
+
+/**
+ * Maps an HTTP status code to a short user-friendly message.
+ * 429 gets a rate-limit hint; 5xx get a generic server-error hint.
+ * Never exposes raw server-supplied text to the user.
+ */
+export function friendlyHttpError(status: number): string {
+  if (status === 429) return "Too many requests — please wait a moment and try again.";
+  if (status >= 500) return "Server error — please try again shortly.";
+  return "Something went wrong. Please try again.";
+}
+
+/**
  * Asks the API server to send a manual organizer reminder for the given event.
  *
  * - type "general"  → notifies all going + maybe RSVPs (excludes sender).

@@ -34,7 +34,7 @@ import { UpgradeModal } from "@/components/UpgradeModal";
 import AttachmentVideo from "@/components/AttachmentVideo";
 import VaultMediaDetail, { type VaultDetailPhoto } from "@/components/VaultMediaDetail";
 import VaultShareComposer, { type VaultShareTarget } from "@/components/VaultShareComposer";
-import { API_BASE, buildAuthHeaders } from "@/lib/api";
+import { API_BASE, buildAuthHeaders, fetchWithTimeout } from "@/lib/api";
 import { buildSquadVaultSections, type VaultSectionPhoto } from "@/lib/vaultSections";
 import { stripMediaExif } from "@/lib/imageUtils";
 import {
@@ -393,7 +393,7 @@ export default function VaultScreen() {
 
     setPhotosLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/vault/photos?${params.toString()}`, {
+      const res = await fetchWithTimeout(`${API_BASE}/api/vault/photos?${params.toString()}`, {
         headers: authHeaders(),
       });
       // A 401 here almost always means the auth token hasn't finished restoring
@@ -438,7 +438,7 @@ export default function VaultScreen() {
   const fetchFavorites = useCallback(async () => {
     setFavoritesLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/vault/favorites`, { headers: authHeaders() });
+      const res = await fetchWithTimeout(`${API_BASE}/api/vault/favorites`, { headers: authHeaders() });
       // A 401 here almost always means the auth token hasn't finished restoring
       // yet (cold start / slow login / token-refresh race). Treat it as "still
       // loading" and schedule a retry instead of falling through to the empty
@@ -485,8 +485,8 @@ export default function VaultScreen() {
     });
     try {
       const res = wasFav
-        ? await fetch(`${API_BASE}/api/vault/favorites/${photoId}`, { method: "DELETE", headers: authHeaders() })
-        : await fetch(`${API_BASE}/api/vault/favorites`, {
+        ? await fetchWithTimeout(`${API_BASE}/api/vault/favorites/${photoId}`, { method: "DELETE", headers: authHeaders() })
+        : await fetchWithTimeout(`${API_BASE}/api/vault/favorites`, {
             method: "POST",
             headers: { ...authHeaders(), "Content-Type": "application/json" },
             body: JSON.stringify({ photoId }),
@@ -613,7 +613,7 @@ export default function VaultScreen() {
         throw new Error(`"${name}" is larger than 150 MB and can't be uploaded.`);
       }
 
-      const urlRes = await fetch(`${API_BASE}/api/storage/uploads/request-url`, {
+      const urlRes = await fetchWithTimeout(`${API_BASE}/api/storage/uploads/request-url`, {
         method: "POST",
         headers: { ...authHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ name, size, contentType }),
@@ -636,7 +636,7 @@ export default function VaultScreen() {
         throw new Error("Couldn't upload the file to storage. Please try again.");
       }
 
-      const createRes = await fetch(`${API_BASE}/api/vault/photos`, {
+      const createRes = await fetchWithTimeout(`${API_BASE}/api/vault/photos`, {
         method: "POST",
         headers: { ...authHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ url: objectPath, mediaType, ...extra }),
@@ -683,7 +683,7 @@ export default function VaultScreen() {
     if (!squadId) return;
     setSquadLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/squads/${squadId}/vault`, { headers: authHeaders() });
+      const res = await fetchWithTimeout(`${API_BASE}/api/squads/${squadId}/vault`, { headers: authHeaders() });
       // A 401 here almost always means the auth token hasn't finished restoring
       // yet (cold start / deep-link entry / token-refresh race). Treat it as
       // "still loading" and schedule a retry instead of falling through to the
@@ -784,7 +784,7 @@ export default function VaultScreen() {
     setPickerOpen(true);
     setPickerLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/vault/photos`, { headers: authHeaders() });
+      const res = await fetchWithTimeout(`${API_BASE}/api/vault/photos`, { headers: authHeaders() });
       if (!res.ok) return;
       const data = await res.json() as { photos: VaultPhoto[]; isPro?: boolean; requiresPro?: boolean };
       // The personal roll-up is SquadZ+ only — free users get an entrance gate
@@ -816,7 +816,7 @@ export default function VaultScreen() {
     setIsSharing(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
-      const res = await fetch(`${API_BASE}/api/squads/${squadId}/vault`, {
+      const res = await fetchWithTimeout(`${API_BASE}/api/squads/${squadId}/vault`, {
         method: "POST",
         headers: { ...authHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ photoIds: Array.from(pickerSelected) }),
@@ -837,7 +837,7 @@ export default function VaultScreen() {
     if (!squadId) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
-      const res = await fetch(`${API_BASE}/api/squads/${squadId}/vault/${photoId}`, {
+      const res = await fetchWithTimeout(`${API_BASE}/api/squads/${squadId}/vault/${photoId}`, {
         method: "DELETE",
         headers: authHeaders(),
       });

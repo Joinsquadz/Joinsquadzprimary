@@ -21,7 +21,7 @@ import { useUserCache } from "@/context/UserCacheContext";
 import { UserAvatar } from "@/components/UserAvatar";
 import { GradientButton } from "@/components/GradientButton";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
-import { API_BASE, buildAuthHeaders, resolveUploadedUrl } from "@/lib/api";
+import { API_BASE, buildAuthHeaders, resolveUploadedUrl, fetchWithTimeout } from "@/lib/api";
 import { stripImageExif } from "@/lib/imageUtils";
 
 function splitName(name: string): { first: string; last: string } {
@@ -58,7 +58,7 @@ export default function EditProfileScreen() {
     let active = true;
     void (async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/user/preferences`, { headers: authHeaders() });
+        const res = await fetchWithTimeout(`${API_BASE}/api/user/preferences`, { headers: authHeaders() });
         if (!res.ok) return;
         const data = (await res.json()) as {
           venmoHandle?: string | null;
@@ -105,7 +105,7 @@ export default function EditProfileScreen() {
       const { uri: strippedUri, mimeType: strippedMime } = await stripImageExif(uri, "image/jpeg");
       const resp = await fetch(strippedUri);
       const blob = await resp.blob();
-      const urlRes = await fetch(`${API_BASE}/api/storage/uploads/request-url`, {
+      const urlRes = await fetchWithTimeout(`${API_BASE}/api/storage/uploads/request-url`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ name: `avatar-${Date.now()}.jpg`, size: blob.size, contentType: strippedMime, isPublicAccess: true }),
@@ -152,7 +152,7 @@ export default function EditProfileScreen() {
       };
       if (profileImageUrl) body.profileImageUrl = profileImageUrl;
 
-      const res = await fetch(`${API_BASE}/api/user/profile`, {
+      const res = await fetchWithTimeout(`${API_BASE}/api/user/profile`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify(body),
