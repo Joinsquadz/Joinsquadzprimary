@@ -26,6 +26,8 @@ import { shareIcsFile } from "@/lib/shareIcs";
 import { findMyConflicts, getPlanSpan } from "@/lib/conflicts";
 import ConflictBanner from "@/components/ConflictBanner";
 import { scheduleRsvpReminder } from "@/lib/reminders";
+import { computeEvenShares, isWholeCent } from "@/lib/costSplit";
+import { BillDetailsFields, formatBillDetails, useBillDetailsForm } from "@/components/BillDetailsFields";
 import { sendManualReminder } from "@/lib/api";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -437,6 +439,7 @@ export default function EventDetailScreen() {
   const [costTotal, setCostTotal] = useState("");
   const [costShares, setCostShares] = useState<Record<string, string>>({});
   const [splitMode, setSplitMode] = useState<"even" | "manual">("even");
+  const bill = useBillDetailsForm();
   const [taskSaving, setTaskSaving] = useState(false);
   const [costSaving, setCostSaving] = useState(false);
   const [pollSaving, setPollSaving] = useState(false);
@@ -885,6 +888,7 @@ export default function EventDetailScreen() {
     setEditingCostId(null);
     setCostDesc("");
     setCostTotal("");
+    bill.reset();
     setCostShares({});
     setSplitMode("even");
     setSelectedParticipantIds(new Set(Object.keys(event.rsvps)));
@@ -898,6 +902,7 @@ export default function EventDetailScreen() {
     setEditingCostId(cost.id);
     setCostDesc(cost.description);
     setCostTotal(String(cost.amount));
+    bill.loadFrom(cost.billDetails);
     const shareMap: Record<string, string> = {};
     cost.shares.forEach((s) => { shareMap[s.userId] = String(s.amount); });
     setCostShares(shareMap);
@@ -931,7 +936,7 @@ export default function EventDetailScreen() {
     );
   };
 
-  const totalNum = parseFloat(costTotal) || 0;
+  const totalNum = bill.show ? bill.billTotal : parseFloat(costTotal) || 0;
 
   // Only include participants that the user has selected for this split
   const splitParticipants = costParticipants.filter((m) => selectedParticipantIds.has(m.id));
@@ -948,20 +953,7 @@ export default function EventDetailScreen() {
     });
   };
 
-  // Compute even-split shares inline so they stay in sync with the total
-  const evenShares: Record<string, string> = {};
-  if (totalNum > 0 && splitParticipants.length > 0) {
-    const per = Math.floor((totalNum / splitParticipants.length) * 100) / 100;
-    let running = 0;
-    splitParticipants.forEach((m, i) => {
-      if (i === splitParticipants.length - 1) {
-        evenShares[m.id] = (Math.round((totalNum - running) * 100) / 100).toFixed(2);
-      } else {
-        evenShares[m.id] = per.toFixed(2);
-        running += per;
-      }
-    });
-  }
+  const evenShares = computeEvenShares(totalNum, splitParticipants.map((member) => member.id));
 
   const activeShares = splitMode === "even" ? evenShares : costShares;
   const shareValues = splitParticipants.map((m) => parseFloat(activeShares[m.id] || "0") || 0);
@@ -994,6 +986,10 @@ export default function EventDetailScreen() {
       Alert.alert("Invalid amount", "Shares can't be negative. Enter $0 or more for each person.");
       return;
     }
+    if (!isWholeCent(totalNum) || shareValues.some((amount) => !isWholeCent(amount))) {
+      Alert.alert("Use cents", "Enter amounts with no more than two decimal places.");
+      return;
+    }
     if (!covered) {
       Alert.alert("Bill not covered", `Assign the full $${totalNum.toFixed(2)} across people. $${remaining.toFixed(2)} left.`);
       return;
@@ -1003,10 +999,10 @@ export default function EventDetailScreen() {
       .filter((s) => s.amount > 0);
     setCostSaving(true);
     try {
-      const payload = { description: costDesc.trim(), amount: totalNum, shares };
+      const payload = { description: costDesc.trim(), amount: totalNum, shares, billDetails: bill.billDetails };
       const result = editingCostId
         ? await updateCost(event.id, editingCostId, payload, event.version)
-        : await addCost(event.id, payload);
+        : await addCost(event.id, payload, event.version);
       if (result.error) {
         Alert.alert(
           "conflict" in result && result.conflict ? "Cost changed" : "Couldn't save expense",
@@ -2153,6 +2149,11 @@ export default function EventDetailScreen() {
                         <Text style={[styles.costPayer, { color: colors.mutedForeground }]} numberOfLines={2}>
                           Split with: {participantLabel}
                         </Text>
+                        {cost.billDetails && (
+                          <Text style={[styles.costPayer, { color: colors.mutedForeground }]} numberOfLines={2}>
+                            {formatBillDetails(cost.billDetails)}
+                          </Text>
+                        )}
                       </View>
                       <View style={styles.costRight}>
                         <Text style={[styles.costTotal, { color: colors.foreground }]}>${cost.amount.toFixed(2)}</Text>
@@ -2430,6 +2431,7 @@ export default function EventDetailScreen() {
                   style={[styles.amountInput, { color: colors.foreground }]}
                 />
               </View>
+              <BillDetailsFields form={bill} />
 
               {/* Participant picker — only show when there are 2+ RSVP'd guests */}
               {costParticipants.length > 1 && (

@@ -24,12 +24,24 @@ export type CostShare = {
   confirmedAt?: string | null;
 };
 
+/** Optional bill components that add up exactly to a cost's stored grand total. */
+export type CostBillDetails = {
+  baseAmount?: number;
+  taxAmount?: number;
+  /** The final dollar gratuity, including when originally entered as a percentage. */
+  tipAmount?: number;
+  /** Retained for transparent review when the tip was calculated as a percentage. */
+  tipPercent?: number;
+  feeAmount?: number;
+};
+
 export type Cost = {
   id: string;
   description: string;
   amount: number;
   paidById: string;
   shares: CostShare[];
+  billDetails?: CostBillDetails;
 };
 
 export type PollOption = {

@@ -1,0 +1,29 @@
+SquadZ — Phase 1: Fresh Whole-App Audit (Report-Only, Blocker vs. Enhancement Split)
+Context: significant work has landed since the last whole-app triage audit — four concurrency fixes (#575, #592, #593, #599), event-chat migration to pagination, media backup to R2 with restore verification, and monitoring. This is a fresh audit of the CURRENT state to catch anything changed or missed, and — critically — to cleanly separate genuine launch blockers from nice-to-have enhancements so launch scope stays controlled. Report-only: do NOT fix or build anything in this pass.
+The most important output: a clean two-bucket categorization
+Every finding must be labeled as exactly one of:
+	•	BLOCKER — would make the app broken, unsafe, non-compliant (app store policy / legal), or non-functional for real users. Must be fixed before submitting to stores.
+	•	ENHANCEMENT — makes a working app better, but the app is shippable without it. Deferred to post-launch unless trivially cheap.
+Be honest and disciplined about this split. The temptation is to label things BLOCKER to be safe — resist it. A genuinely shippable-without-it item is an ENHANCEMENT even if it’d be nice. When truly ambiguous, label it AMBIGUOUS and explain the tradeoff so the founder decides.
+What to examine
+Cover the full app, with fresh eyes on the current state:
+	1.	Every user-facing feature — squads, plans/events/trips, RSVPs, itineraries, ideas, availability polling, cost splitting, feed, moments, vault, DMs, packing lists, invites, report/block, calendar export, conflict detection, profile/account, paywall/entitlement. For each: does it actually work end-to-end, are there broken states, dead ends, or confusing flows?
+	2.	The recently-changed areas specifically (higher risk of new issues): the migrated event chat, the concurrency-fixed paths (membership, cost, vote, poll conversion), the backup system. Confirm these are working correctly in their new form, not just that they were built.
+	3.	Launch-compliance items (these are where real BLOCKERS often hide):
+	•	Age gating / minimum age enforcement (was flagged as absent earlier — is #577 done, or still open?)
+	•	Terms of Service / EULA presence
+	•	Privacy policy completeness
+	•	Any content-moderation gaps that app store review would flag for a UGC social app
+	•	Any place user data could leak across privacy boundaries
+	4.	Error handling and failure states — does the app handle backend errors, empty states, network failures gracefully, or are there raw errors / crashes / silent failures that would look broken to a real user? (Note: #576 mobile resilience may address some of this — confirm status.)
+	5.	Anything structurally concerning that doesn’t fit above — surface it, labeled appropriately.
+Ground rules
+	•	Report-only. No fixes, no enhancements, no cost-splitting (#583) work.
+	•	Use the [CODE]/[DB]/[TEST-EXISTS]/[INFER] evidence labeling from the prior triage audit — distinguish what you verified from what you inferred.
+	•	Do NOT re-report the concurrency issues already fixed (#575/#592/#593/#599) as open — confirm they’re resolved and move on.
+	•	If the app is too large to cover exhaustively in one run, prioritize BLOCKER-hunting in the compliance, recently-changed, and error-handling areas first, and clearly note what wasn’t reached.
+Output
+	1.	A categorized findings list: every item labeled BLOCKER / ENHANCEMENT / AMBIGUOUS with a one-line rationale.
+	2.	A short “launch-blocker summary” at the top — just the BLOCKERs, so the must-fix-before-submit list is immediately visible.
+	3.	The ENHANCEMENT items collected separately as a post-launch backlog.
+	4.	Confirmation of what’s genuinely solid and needs no work (so it’s clear what’s healthy, not just what’s flagged).

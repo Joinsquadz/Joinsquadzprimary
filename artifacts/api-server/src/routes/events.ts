@@ -261,11 +261,30 @@ const PatchTaskBody = z.object({
   version: z.number().int(),
 });
 
-const AddCostBody = z.object({
+// Money must land on a whole cent: floats like 10.005 can never be split
+// exactly, so they are rejected at the edge instead of rounded silently.
+const WHOLE_CENT_MESSAGE = "Money amounts must use no more than two decimal places";
+// Compared against the 2-decimal rendering, not `value * 100`: binary floats
+// turn 10.05 into 1004.9999999999999, which would reject a legitimate amount.
+const isWholeCentValue = (value: number): boolean => Number(value.toFixed(2)) === value;
+const NonNegativeMoney = z.number().finite().nonnegative().refine(isWholeCentValue, WHOLE_CENT_MESSAGE);
+const PositiveMoney = z.number().finite().positive().refine(isWholeCentValue, WHOLE_CENT_MESSAGE);
+const BillDetailsBody = z.object({
+  baseAmount: NonNegativeMoney.optional(),
+  taxAmount: NonNegativeMoney.optional(),
+  tipAmount: NonNegativeMoney.optional(),
+  tipPercent: z.number().finite().min(0).max(1000).optional(),
+  feeAmount: NonNegativeMoney.optional(),
+}).strict().optional();
+const CostFieldsBody = {
   description: z.string().min(1),
-  amount: z.number().positive(),
+  amount: PositiveMoney,
   paidById: z.string(),
-  shares: z.array(z.object({ userId: z.string(), amount: z.number() })),
+  shares: z.array(z.object({ userId: z.string(), amount: NonNegativeMoney })),
+  billDetails: BillDetailsBody,
+};
+const AddCostBody = z.object({
+  ...CostFieldsBody,
   // version is required so a concurrent add from a stale read yields 409 instead
   // of silently overwriting the expense list that was written concurrently.
   version: z.number().int(),
@@ -1455,9 +1474,7 @@ router.post("/events/:id/costs", requireAuth, async (req: Request, res: Response
     return;
   }
   const { amount, shares } = parsed.data;
-  const hasInvalid = shares.some((s: { amount: number }) => s.amount < 0);
-  const assigned = shares.reduce((sum: number, s: { amount: number }) => sum + s.amount, 0);
-  if (amount <= 0 || hasInvalid || Math.abs(amount - assigned) >= 0.01) {
+  if (!isValidCostAmounts(amount, shares, parsed.data.billDetails)) {
     res.status(400).json({ error: "Invalid cost: amount must be positive and shares must sum to total" });
     return;
   }
@@ -1527,7 +1544,35 @@ router.post("/events/:id/costs", requireAuth, async (req: Request, res: Response
 });
 
 type StoredShare = { userId: string; amount: number; paidAt?: string | null; confirmedAt?: string | null };
-type StoredCost = { id: string; description: string; amount: number; paidById: string; shares: StoredShare[] };
+type StoredBillDetails = { baseAmount?: number; taxAmount?: number; tipAmount?: number; tipPercent?: number; feeAmount?: number };
+type StoredCost = { id: string; description: string; amount: number; paidById: string; shares: StoredShare[]; billDetails?: StoredBillDetails };
+
+function toCents(amount: number): number {
+  return Math.round(amount * 100);
+}
+
+function isWholeCent(amount: number): boolean {
+  return Number.isFinite(amount) && isWholeCentValue(amount);
+}
+
+function isValidCostAmounts(
+  amount: number,
+  shares: Array<{ amount: number }>,
+  billDetails?: StoredBillDetails,
+): boolean {
+  if (!isWholeCent(amount) || amount <= 0 || shares.some((share) => !isWholeCent(share.amount) || share.amount < 0)) return false;
+  if (shares.reduce((sum, share) => sum + toCents(share.amount), 0) !== toCents(amount)) return false;
+  if (!billDetails) return true;
+  const { baseAmount = 0, taxAmount = 0, tipAmount, tipPercent, feeAmount = 0 } = billDetails;
+  if (![baseAmount, taxAmount, feeAmount].every((value) => isWholeCent(value) && value >= 0)) return false;
+  if (tipAmount !== undefined && (!isWholeCent(tipAmount) || tipAmount < 0)) return false;
+  if (tipPercent !== undefined && (!Number.isFinite(tipPercent) || tipPercent < 0 || tipPercent > 1000)) return false;
+  if (tipAmount !== undefined && tipPercent !== undefined) return false;
+  const tip = tipPercent !== undefined
+    ? Math.round((toCents(baseAmount) + toCents(taxAmount)) * tipPercent / 100)
+    : toCents(tipAmount ?? 0);
+  return toCents(amount) === toCents(baseAmount) + toCents(taxAmount) + tip + toCents(feeAmount);
+}
 
 const MarkPaidBody = z.object({ paid: z.boolean(), version: z.number().int().optional() });
 const ConfirmShareBody = z.object({ confirmed: z.boolean(), version: z.number().int().optional() });
@@ -1821,10 +1866,10 @@ function canEditCost(event: typeof eventsTable.$inferSelect, cost: StoredCost, u
   return cost.paidById === userId || event.hostId === userId;
 }
 
+// paidById is immutable on edit, so it is intentionally not accepted here.
+const { paidById: _paidByIdField, ...EditableCostFields } = CostFieldsBody;
 const EditCostBody = z.object({
-  description: z.string().min(1),
-  amount: z.number().positive(),
-  shares: z.array(z.object({ userId: z.string(), amount: z.number() })),
+  ...EditableCostFields,
   version: z.number().int().optional(),
 });
 
@@ -1841,9 +1886,7 @@ router.patch("/events/:id/costs/:costId", requireAuth, async (req: Request, res:
     return;
   }
   const { amount, shares } = parsed.data;
-  const hasInvalid = shares.some((s) => s.amount < 0);
-  const assigned = shares.reduce((sum, s) => sum + s.amount, 0);
-  if (amount <= 0 || hasInvalid || Math.abs(amount - assigned) >= 0.01) {
+  if (!isValidCostAmounts(amount, shares, parsed.data.billDetails)) {
     res.status(400).json({ error: "Invalid cost: amount must be positive and shares must sum to total" });
     return;
   }
@@ -1886,6 +1929,7 @@ router.patch("/events/:id/costs/:costId", requireAuth, async (req: Request, res:
     amount,
     paidById: cost.paidById, // immutable
     shares: shares.map((s) => ({ userId: s.userId, amount: s.amount })),
+    ...(parsed.data.billDetails ? { billDetails: parsed.data.billDetails } : {}),
   };
   const nextCosts = costs.map((c) => (c.id === costId ? updatedCost : c));
   const clientVersion = parsed.data.version;

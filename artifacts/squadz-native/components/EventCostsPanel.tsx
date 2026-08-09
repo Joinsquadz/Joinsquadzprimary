@@ -17,7 +17,8 @@ import { useData } from "@/context/AppContext";
 import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
 import { UserAvatar } from "@/components/UserAvatar";
 import { SettleUp } from "@/components/SettleUp";
-import { computeEvenShares } from "@/lib/costSplit";
+import { computeEvenShares, isWholeCent } from "@/lib/costSplit";
+import { BillDetailsFields, formatBillDetails, useBillDetailsForm } from "@/components/BillDetailsFields";
 import type { Event } from "@/types";
 
 type Props = {
@@ -59,6 +60,7 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
   const [editingCostId, setEditingCostId] = useState<string | null>(null);
   const [costDesc, setCostDesc] = useState("");
   const [costTotal, setCostTotal] = useState("");
+  const bill = useBillDetailsForm();
   const [costShares, setCostShares] = useState<Record<string, string>>({});
   const [splitMode, setSplitMode] = useState<"even" | "manual">("even");
   const [costSaving, setCostSaving] = useState(false);
@@ -91,7 +93,8 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
   const budgetOver = budgetRemaining < 0;
 
   // ---- Split derived ----
-  const totalNum = parseFloat(costTotal) || 0;
+  const billDetails = bill.billDetails;
+  const totalNum = bill.show ? bill.billTotal : parseFloat(costTotal) || 0;
   const splitParticipants = participants.filter((m) => selectedParticipantIds.has(m.id));
   const evenShares = computeEvenShares(totalNum, splitParticipants.map((m) => m.id));
   const activeShares = splitMode === "even" ? evenShares : costShares;
@@ -129,6 +132,7 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
     setEditingCostId(null);
     setCostDesc("");
     setCostTotal("");
+    bill.reset();
     setCostShares({});
     setSplitMode("even");
     setSelectedParticipantIds(new Set(participants.map((p) => p.id)));
@@ -139,6 +143,7 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
     setEditingCostId(cost.id);
     setCostDesc(cost.description);
     setCostTotal(String(cost.amount));
+    bill.loadFrom(cost.billDetails);
     const shareMap: Record<string, string> = {};
     cost.shares.forEach((s) => { shareMap[s.userId] = String(s.amount); });
     setCostShares(shareMap);
@@ -205,6 +210,10 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
       Alert.alert("Invalid amount", "Shares can't be negative. Enter $0 or more for each person.");
       return;
     }
+    if (!isWholeCent(totalNum) || shareValues.some((amount) => !isWholeCent(amount))) {
+      Alert.alert("Use cents", "Enter amounts with no more than two decimal places.");
+      return;
+    }
     if (!covered) {
       Alert.alert("Bill not covered", `Assign the full $${totalNum.toFixed(2)} across people. $${remaining.toFixed(2)} left.`);
       return;
@@ -214,7 +223,7 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
       .filter((s) => s.amount > 0);
     setCostSaving(true);
     try {
-      const payload = { description: costDesc.trim(), amount: totalNum, shares };
+      const payload = { description: costDesc.trim(), amount: totalNum, shares, billDetails };
       const result = editingCostId
         ? await updateCost(event.id, editingCostId, payload, event.version)
         : await addCost(event.id, payload, event.version);
@@ -346,6 +355,11 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
                   <Text style={[styles.costPayer, { color: colors.mutedForeground }]} numberOfLines={2}>
                     Split with: {participantLabel}
                   </Text>
+                  {cost.billDetails && (
+                    <Text style={[styles.costPayer, { color: colors.mutedForeground }]} numberOfLines={2}>
+                      {formatBillDetails(cost.billDetails)}
+                    </Text>
+                  )}
                 </View>
                 <View style={styles.costRight}>
                   <Text style={[styles.costTotal, { color: colors.foreground }]}>${cost.amount.toFixed(2)}</Text>
@@ -404,6 +418,7 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
                   style={[styles.amountInput, { color: colors.foreground }]}
                 />
               </View>
+              <BillDetailsFields form={bill} />
 
               {participants.length > 1 && (
                 <>
