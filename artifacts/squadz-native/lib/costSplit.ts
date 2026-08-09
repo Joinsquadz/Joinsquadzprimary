@@ -1,3 +1,17 @@
+/**
+ * Re-exports shared cent-exact money helpers from the @workspace/cost-math
+ * package so mobile screens and tests import from a single local path.
+ */
+export {
+  toCents,
+  fromCents,
+  isWholeCent,
+  calculateBillTotal,
+  computeEvenShares,
+  isValidCostAmounts,
+} from "@workspace/cost-math";
+
+import { toCents, fromCents } from "@workspace/cost-math";
 
 /**
  * Distributes `total` proportionally according to share weights.

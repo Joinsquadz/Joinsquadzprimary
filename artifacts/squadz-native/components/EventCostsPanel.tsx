@@ -17,7 +17,7 @@ import { useData } from "@/context/AppContext";
 import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
 import { UserAvatar } from "@/components/UserAvatar";
 import { SettleUp } from "@/components/SettleUp";
-import { computeEvenShares, computeWeightedShares, isWholeCent } from "@/lib/costSplit";
+import { computeEvenShares, computeWeightedShares, isWholeCent, isValidCostAmounts } from "@/lib/costSplit";
 import { BillDetailsFields, formatBillDetails, useBillDetailsForm } from "@/components/BillDetailsFields";
 import type { Event } from "@/types";
 
@@ -114,6 +114,21 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
   const covered =
     totalNum > 0 && splitParticipants.length > 0 && !hasNegative &&
     (splitMode === "weighted" ? totalWeight > 0 : Math.abs(remaining) < 0.01);
+
+  // Run the same predicate the server uses so mismatch errors surface on-device
+  // before the API call. In "even"/"weighted" modes the shares are computed and
+  // always reconcile; this primarily catches hand-edited manual amounts.
+  const sharesToValidate = splitParticipants
+    .map((m) => ({ amount: parseFloat(activeShares[m.id] || "0") || 0 }))
+    .filter((s) => s.amount > 0);
+  const splitValid =
+    totalNum > 0 && splitParticipants.length > 0 && !hasNegative &&
+    isValidCostAmounts(totalNum, sharesToValidate, billDetails ?? undefined);
+  // Human-readable mismatch description shown in the inline banner.
+  const splitMismatchMsg =
+    !splitValid && totalNum > 0 && splitParticipants.length > 0 && !hasNegative && assignedNum > 0
+      ? `Shares add up to $${assignedNum.toFixed(2)} but the total is $${totalNum.toFixed(2)}`
+      : null;
 
   const participantIdSet = new Set(participants.map((p) => p.id));
 
@@ -238,8 +253,11 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
       Alert.alert("Use cents", "Enter amounts with no more than two decimal places.");
       return;
     }
-    if (!covered) {
-      Alert.alert("Bill not covered", `Assign the full $${totalNum.toFixed(2)} across people. $${remaining.toFixed(2)} left.`);
+    if (!splitValid) {
+      Alert.alert(
+        "Split doesn't add up",
+        splitMismatchMsg ?? `Assign the full $${totalNum.toFixed(2)} across people. $${Math.abs(remaining).toFixed(2)} ${remaining > 0 ? "left" : "over"}.`,
+      );
       return;
     }
     const shares = splitParticipants
@@ -544,12 +562,12 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
               )}
             </ScrollView>
 
-            <View style={[styles.coverageBar, { borderColor: covered ? colors.green : colors.border, backgroundColor: (covered ? colors.green : colors.gold) + "15" }]}>
-              <Ionicons name={covered ? "checkmark-circle" : "alert-circle-outline"} size={16} color={covered ? colors.green : colors.gold} />
-              <Text style={[styles.coverageText, { color: covered ? colors.green : colors.gold }]}>
-                {covered
+            <View style={[styles.coverageBar, { borderColor: splitValid ? colors.green : colors.destructive + "60", backgroundColor: (splitValid ? colors.green : colors.destructive) + "12" }]}>
+              <Ionicons name={splitValid ? "checkmark-circle" : "alert-circle"} size={16} color={splitValid ? colors.green : colors.destructive} />
+              <Text style={[styles.coverageText, { color: splitValid ? colors.green : colors.destructive, flexShrink: 1 }]}>
+                {splitValid
                   ? `Covered · $${totalNum.toFixed(2)} assigned`
-                  : `$${assignedNum.toFixed(2)} of $${totalNum.toFixed(2)} · $${remaining.toFixed(2)} left`}
+                  : splitMismatchMsg ?? (totalNum > 0 ? `$${assignedNum.toFixed(2)} of $${totalNum.toFixed(2)} assigned — $${Math.abs(remaining).toFixed(2)} ${remaining > 0 ? "left" : "over"}` : "Enter a total and assign shares")}
               </Text>
             </View>
 
@@ -559,8 +577,8 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={saveCost}
-                disabled={totalNum <= 0 || !covered || costSaving}
-                style={[styles.modalBtn, { backgroundColor: covered ? colors.primary : colors.border, opacity: (totalNum <= 0 || !covered || costSaving) ? 0.45 : 1 }]}
+                disabled={totalNum <= 0 || !splitValid || costSaving}
+                style={[styles.modalBtn, { backgroundColor: splitValid ? colors.primary : colors.border, opacity: (totalNum <= 0 || !splitValid || costSaving) ? 0.45 : 1 }]}
               >
                 {costSaving ? (
                   <ActivityIndicator size="small" color="#fff" />
