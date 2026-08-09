@@ -173,7 +173,20 @@ router.post("/events/invites/:id/accept", requireAuth, async (req: Request, res:
     // All three writes are a single atomic unit: if any fails the others must
     // roll back. Without a transaction the status could flip to "accepted"
     // while the event's invitedUserIds was not updated (or vice versa).
+    //
+    // The invite status UPDATE deliberately includes a status='pending'
+    // predicate so that two simultaneous accepts are serialised at the DB
+    // level: exactly one UPDATE matches the row and the other gets 0 rows back,
+    // preventing duplicate side effects (duplicate invitedUserIds entries,
+    // duplicate activity records).
+    let acceptWon = false;
     await db.transaction(async (tx) => {
+      const [flipped] = await tx
+        .update(eventInvitesTable)
+        .set({ status: "accepted" })
+        .where(and(eq(eventInvitesTable.id, inviteId), eq(eventInvitesTable.status, "pending")))
+        .returning({ id: eventInvitesTable.id });
+      if (!flipped) return; // another concurrent accept already won — skip side effects
       await tx
         .update(eventsTable)
         .set({
@@ -186,9 +199,13 @@ router.post("/events/invites/:id/accept", requireAuth, async (req: Request, res:
           version: sql`${eventsTable.version} + 1`,
         })
         .where(eq(eventsTable.id, invite.eventId));
-      await tx.update(eventInvitesTable).set({ status: "accepted" }).where(eq(eventInvitesTable.id, inviteId));
       await tx.delete(activityTable).where(and(eq(activityTable.type, "event_invite"), eq(activityTable.subjectId, inviteId)));
+      acceptWon = true;
     });
+    if (!acceptWon) {
+      res.status(409).json({ error: "Invite was already accepted", conflict: true });
+      return;
+    }
     res.json({ ok: true, eventId: invite.eventId });
     emitEventUpdate(invite.eventId);
     emitActivityUpdate(userId);

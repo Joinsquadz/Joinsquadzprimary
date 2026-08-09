@@ -159,7 +159,7 @@ describe("PATCH /api/events/:id", () => {
     const app = await makeApp();
     const res = await request(app)
       .patch("/api/events/evt-1")
-      .send({ title: "Updated" });
+      .send({ title: "Updated", version: 0 });
     expect(res.status).toBe(401);
   });
 
@@ -168,7 +168,7 @@ describe("PATCH /api/events/:id", () => {
     const app = await makeApp({ id: STRANGER_ID });
     const res = await request(app)
       .patch("/api/events/evt-1")
-      .send({ title: "Updated" });
+      .send({ title: "Updated", version: 0 });
     expect(res.status).toBe(403);
   });
 
@@ -177,7 +177,7 @@ describe("PATCH /api/events/:id", () => {
     const app = await makeApp({ id: HOST_ID });
     const res = await request(app)
       .patch("/api/events/evt-1")
-      .send({ title: "Updated" });
+      .send({ title: "Updated", version: 0 });
     expect(res.status).toBe(200);
   });
 
@@ -186,7 +186,7 @@ describe("PATCH /api/events/:id", () => {
     const app = await makeApp({ id: HOST_ID });
     const res = await request(app)
       .patch("/api/events/evt-1")
-      .send({ title: "Updated" });
+      .send({ title: "Updated", version: 0 });
     expect(res.status).toBe(404);
   });
 });
@@ -246,18 +246,16 @@ describe("PATCH /api/events/:id — concurrent-edit version guard", () => {
     expect(deepContains(capturedUpdateWhere.arg, STALE_VERSION)).toBe(true);
   });
 
-  it("returns 200 without a version field (backwards-compatible omission, WHERE has no numeric version)", async () => {
+  it("returns 400 when version is omitted (version is now required for PATCH)", async () => {
     mockRows.value = [eventAtV3];
     mockUpdateRows.value = [updatedEvent];
     const app = await makeApp({ id: HOST_ID });
     const res = await request(app)
       .patch("/api/events/evt-1")
       .send({ title: "Updated" });
-    expect(res.status).toBe(200);
-    // When version is omitted the WHERE is the plain id-equality clause;
-    // no version number should appear in the predicate.
-    expect(deepContains(capturedUpdateWhere.arg, CLIENT_VERSION)).toBe(false);
-    expect(deepContains(capturedUpdateWhere.arg, STALE_VERSION)).toBe(false);
+    // version is now required by the schema — omitting it must be rejected
+    // before any DB call is made so concurrent edits are always version-checked.
+    expect(res.status).toBe(400);
   });
 });
 

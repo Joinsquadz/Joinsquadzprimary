@@ -197,12 +197,28 @@ async function seedEvent(
   hostId: string,
   rsvps: Record<string, string>,
   inviteCode: string,
+  extra?: { polls?: unknown[]; costs?: unknown[] },
 ): Promise<void> {
   await dbmod.pool.query(
-    `INSERT INTO events (id, title, date, location, host_id, invite_code, rsvps)
-     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)`,
-    [id, "Test Event", "2026-12-31", "Somewhere", hostId, inviteCode, JSON.stringify(rsvps)],
+    `INSERT INTO events (id, title, date, location, host_id, invite_code, rsvps, polls, costs)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb)`,
+    [
+      id, "Test Event", "2026-12-31", "Somewhere", hostId, inviteCode,
+      JSON.stringify(rsvps),
+      JSON.stringify(extra?.polls ?? []),
+      JSON.stringify(extra?.costs ?? []),
+    ],
   );
+}
+
+async function eventVersion(id: string): Promise<number> {
+  const { rows } = await dbmod.pool.query(`SELECT version FROM events WHERE id = $1`, [id]);
+  return rows[0]?.version ?? 0;
+}
+
+async function eventCosts(id: string): Promise<unknown[]> {
+  const { rows } = await dbmod.pool.query(`SELECT costs FROM events WHERE id = $1`, [id]);
+  return (rows[0]?.costs ?? []) as unknown[];
 }
 
 async function seedSquad(
@@ -497,5 +513,98 @@ describe("B9 — founding-spot race: only one concurrent winner at the cap", () 
     const losers = results.filter((r) => !r);
     // N - 1 attempts must have received the sold-out (false) result.
     expect(losers.length).toBe(N - 1);
+  });
+});
+
+// ── C1: concurrent cost adds — only the first writer at version N wins ────────
+//
+// Two or more members submit a cost at the same moment, both carrying version=N
+// in their request body. The compare-and-swap WHERE clause (version = N)
+// serialises them at the DB level: the first UPDATE bumps version to N+1 and
+// returns the updated row; every subsequent UPDATE finds no matching row
+// (version is now N+1) and gets 0 rows back → 409 Conflict. The final costs
+// array must contain exactly one new expense.
+
+describe("C1 — concurrent cost adds: only one write wins per version", () => {
+  it("5 concurrent cost adds at version 0: exactly 1 succeeds and 4 get 409", async () => {
+    const host = "cost-host";
+    await seedUser(host);
+    await seedEvent("evt-cost", host, { [host]: "going" }, "COSTCODE1");
+
+    const N = 5;
+    const results = await Promise.all(
+      Array.from({ length: N }, (_, i) =>
+        request(app)
+          .post("/api/events/evt-cost/costs")
+          .set("x-test-user", host)
+          .send({
+            description: `Concurrent expense ${i}`,
+            amount: 10,
+            paidById: host,
+            shares: [{ userId: host, amount: 10 }],
+            version: 0, // all carry the same base version
+          }),
+      ),
+    );
+
+    const succeeded = results.filter((r) => r.status === 200);
+    const conflicted = results.filter((r) => r.status === 409);
+    expect(succeeded.length).toBe(1);
+    expect(conflicted.length).toBe(N - 1);
+    conflicted.forEach((r) => expect(r.body.conflict).toBe(true));
+
+    // The DB must contain exactly one cost entry (no lost-update ghost writes).
+    const costs = await eventCosts("evt-cost");
+    expect(costs.length).toBe(1);
+
+    // Version must be exactly 1 — a single compare-and-swap won.
+    expect(await eventVersion("evt-cost")).toBe(1);
+  });
+});
+
+// ── P1: concurrent poll votes — only the first voter at version N wins ────────
+//
+// Multiple members vote on the same poll at the same moment, all supplying
+// version=N. The same compare-and-swap guarantee applies: exactly one vote is
+// persisted per concurrent batch, the rest receive 409 Conflict. The voter can
+// retry with the refreshed version (N+1) and will then succeed.
+
+describe("P1 — concurrent poll votes: only one write wins per version", () => {
+  it("5 concurrent votes at version 0: exactly 1 succeeds and 4 get 409", async () => {
+    const host = "vote-host";
+    const voters = ["vv1", "vv2", "vv3", "vv4", "vv5"];
+    await seedUser(host);
+    await Promise.all(voters.map(seedUser));
+
+    const poll = {
+      id: "poll-race",
+      question: "Tacos or Burritos?",
+      options: [
+        { id: "opt-tacos", label: "Tacos", voterIds: [] },
+        { id: "opt-burritos", label: "Burritos", voterIds: [] },
+      ],
+    };
+    // Pre-populate rsvps so all voters pass the membership gate.
+    const rsvps: Record<string, string> = { [host]: "going" };
+    for (const v of voters) rsvps[v] = "going";
+    await seedEvent("evt-vote", host, rsvps, "VOTECODE1", { polls: [poll] });
+
+    const results = await Promise.all(
+      voters.map((u) =>
+        request(app)
+          .post("/api/events/evt-vote/polls/poll-race/vote")
+          .set("x-test-user", u)
+          .send({ optionId: "opt-tacos", version: 0 }),
+      ),
+    );
+
+    const succeeded = results.filter((r) => r.status === 200);
+    const conflicted = results.filter((r) => r.status === 409);
+    expect(succeeded.length).toBe(1);
+    expect(conflicted.length).toBe(voters.length - 1);
+    conflicted.forEach((r) => expect(r.body.conflict).toBe(true));
+
+    // Version must be exactly 1 — one CAS write won.
+    expect(await eventVersion("evt-vote")).toBe(1);
   });
 });

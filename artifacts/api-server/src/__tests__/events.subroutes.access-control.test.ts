@@ -183,6 +183,7 @@ describe("POST /api/events/:id/costs", () => {
     amount: 30,
     paidById: HOST_ID,
     shares: [{ userId: HOST_ID, amount: 30 }],
+    version: 0,
   };
 
   it("returns 401 when unauthenticated", async () => {
@@ -214,7 +215,7 @@ describe("POST /api/events/:id/costs", () => {
 });
 
 describe("POST /api/events/:id/polls", () => {
-  const body = { question: "Where should we meet?", options: ["Park", "Cafe"] };
+  const body = { question: "Where should we meet?", options: ["Park", "Cafe"], version: 0 };
 
   it("returns 401 when unauthenticated", async () => {
     const app = await makeApp();
@@ -245,7 +246,7 @@ describe("POST /api/events/:id/polls", () => {
 });
 
 describe("POST /api/events/:id/polls/:pollId/vote", () => {
-  const body = { userId: HOST_ID, optionId: "opt-1" };
+  const body = { userId: HOST_ID, optionId: "opt-1", version: 0 };
 
   it("returns 401 when unauthenticated", async () => {
     const app = await makeApp();

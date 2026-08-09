@@ -30,8 +30,17 @@ vi.mock("@workspace/db", () => ({
     transaction: vi.fn().mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
       if (mockTransactionImpl.fn) return mockTransactionImpl.fn(fn);
       // Default: a well-behaved tx that runs all writes.
+      // The first update is the invite-status CAS (must return a row so the
+      // route knows it won the race); subsequent updates return [] (not checked).
+      let updateCallCount = 0;
       const tx = {
-        update: () => ({ set: () => ({ where: () => ({ returning: () => Promise.resolve([]) }) }) }),
+        update: () => ({
+          set: () => ({
+            where: () => ({
+              returning: () => Promise.resolve(++updateCallCount === 1 ? [{ id: "inv-1" }] : []),
+            }),
+          }),
+        }),
         delete: () => ({ where: () => Promise.resolve() }),
       };
       return fn(tx);
@@ -105,8 +114,17 @@ describe("POST /api/events/invites/:id/accept", () => {
 
     // Simulate partial failure: the transaction callback throws after 2 writes.
     mockTransactionImpl.fn = async (_fn: (tx: unknown) => Promise<unknown>) => {
+      // First update is the invite-status CAS — must return a row so the code
+      // proceeds past the early-return guard and reaches the delete that throws.
+      let updateCallCount = 0;
       const tx = {
-        update: () => ({ set: () => ({ where: () => ({ returning: () => Promise.resolve([]) }) }) }),
+        update: () => ({
+          set: () => ({
+            where: () => ({
+              returning: () => Promise.resolve(++updateCallCount === 1 ? [{ id: "inv-1" }] : []),
+            }),
+          }),
+        }),
         // tx.delete throws — simulates DB error after status+invitedUserIds are written.
         delete: () => ({
           where: () => {

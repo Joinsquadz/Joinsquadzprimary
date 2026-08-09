@@ -1743,7 +1743,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const currentVersion = explicitVersion ?? events.find((e) => e.id === eventId)?.version;
       // Optimistic update
       setEvents((prev) => prev.map((e) => (e.id === eventId ? { ...e, ...patch } : e)));
-      const body = currentVersion !== undefined ? { ...patch, version: currentVersion } : patch;
+      const body = { ...patch, version: currentVersion };
       void apiFetch(`/api/events/${eventId}`, { method: "PATCH", body: JSON.stringify(body) })
         .then(async (res) => {
           if (res.status === 409) {
@@ -2041,8 +2041,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         prev.map((e) => (e.id === eventId ? { ...e, costs: [...e.costs, cost] } : e)),
       );
       try {
-        const body: Record<string, unknown> = { ...input, paidById: userId };
-        if (currentVersion !== undefined) body.version = currentVersion;
+        const body: Record<string, unknown> = { ...input, paidById: userId, version: currentVersion };
         const res = await apiFetch(`/api/events/${eventId}/costs`, {
           method: "POST",
           body: JSON.stringify(body),
@@ -2375,9 +2374,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ),
       );
       try {
+        const pollVersion = events.find((e) => e.id === eventId)?.version;
         const res = await apiFetch(`/api/events/${eventId}/polls`, {
           method: "POST",
-          body: JSON.stringify({ question, options }),
+          body: JSON.stringify({ question, options, version: pollVersion }),
         });
         if (!res.ok) {
           setEvents((prev) =>
@@ -2435,8 +2435,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               },
         ),
       );
-      const body: Record<string, unknown> = { userId, optionId };
-      if (currentVersion !== undefined) body.version = currentVersion;
+      const body: Record<string, unknown> = { userId, optionId, version: currentVersion };
       void apiFetch(`/api/events/${eventId}/polls/${pollId}/vote`, {
         method: "POST",
         body: JSON.stringify(body),

@@ -262,7 +262,7 @@ describe("POST /api/events/:id/messages — version-based conflict protection", 
   });
 });
 
-// ─── Version field is optional — omitting it never triggers a conflict ────────
+// ─── Version field is optional for RSVP/messages but required for costs/polls ─
 
 describe("version field is optional — omitting it bypasses conflict protection", () => {
   it("POST /api/events/:id/rsvp without version always succeeds (no WHERE version clause)", async () => {
@@ -281,5 +281,87 @@ describe("version field is optional — omitting it bypasses conflict protection
       .post("/api/events/evt-1/messages")
       .send({ text: "Hey!" });
     expect(res.status).toBe(200);
+  });
+});
+
+// ─── Version is REQUIRED for cost adds, poll creates, and poll votes ──────────
+//
+// These endpoints write entire JSON arrays back. Without a version guard two
+// concurrent writers can both read the same baseline, mutate it independently,
+// and the second write silently discards the first write's change. Making
+// version required means the schema rejects requests that omit it (400), so
+// clients are forced to supply the current version and receive a 409 when a
+// concurrent write has already advanced it.
+
+describe("POST /api/events/:id/costs — version is required (400 when missing)", () => {
+  it("returns 400 when version is omitted from the cost body", async () => {
+    const app = makeApp({ id: HOST_ID });
+    const res = await request(app)
+      .post("/api/events/evt-1/costs")
+      .send({
+        description: "Drinks",
+        amount: 20,
+        paidById: HOST_ID,
+        shares: [{ userId: HOST_ID, amount: 20 }],
+        // version intentionally omitted
+      });
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("POST /api/events/:id/polls — version is required (400 when missing)", () => {
+  it("returns 400 when version is omitted from the poll body", async () => {
+    const app = makeApp({ id: HOST_ID });
+    const res = await request(app)
+      .post("/api/events/evt-1/polls")
+      .send({
+        question: "Where to eat?",
+        options: ["Pizza", "Sushi"],
+        // version intentionally omitted
+      });
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("POST /api/events/:id/polls/:pollId/vote — version is required (400 when missing)", () => {
+  it("returns 400 when version is omitted from the vote body", async () => {
+    const app = makeApp({ id: HOST_ID });
+    const res = await request(app)
+      .post("/api/events/evt-1/polls/poll-1/vote")
+      .send({
+        optionId: "opt-1",
+        // version intentionally omitted
+      });
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("PATCH /api/events/:id — version is required (400 when missing)", () => {
+  it("returns 400 when version is omitted from the patch body", async () => {
+    const app = makeApp({ id: HOST_ID });
+    const res = await request(app)
+      .patch("/api/events/evt-1")
+      .send({
+        title: "New Title",
+        // version intentionally omitted
+      });
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 200 when version matches, 409 when stale", async () => {
+    const app = makeApp({ id: HOST_ID });
+
+    mockUpdateRows.value = [baseEvent];
+    const ok = await request(app)
+      .patch("/api/events/evt-1")
+      .send({ title: "Updated Title", version: 0 });
+    expect(ok.status).toBe(200);
+
+    mockUpdateRows.value = [];
+    const conflict = await request(app)
+      .patch("/api/events/evt-1")
+      .send({ title: "Conflicting Title", version: 0 });
+    expect(conflict.status).toBe(409);
+    expect(conflict.body.conflict).toBe(true);
   });
 });

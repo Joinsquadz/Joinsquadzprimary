@@ -86,6 +86,7 @@ describe("POST /api/events/:id/costs — owe-push to debtors", () => {
           { userId: ALICE, amount: 10 },
           { userId: BOB, amount: 10 },
         ],
+        version: 0,
       })
       .expect(200);
 
@@ -167,6 +168,7 @@ describe("POST /api/events/:id/costs — owe-push to debtors", () => {
           { userId: ALICE, amount: 10 },
           { userId: BOB, amount: 0 },
         ],
+        version: 0,
       })
       .expect(200);
 

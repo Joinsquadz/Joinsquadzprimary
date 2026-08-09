@@ -98,8 +98,9 @@ describe("PATCH /api/events/:id — title validation", () => {
     expect(res.status).toBe(400);
   });
 
-  it("accepts omitting title entirely (partial update)", async () => {
-    const res = await request(authedApp).patch("/api/events/e1").send({ location: "New York" });
+  it("accepts omitting title entirely (partial update — version required)", async () => {
+    // version is required by the schema; a missing title is still valid for partial updates.
+    const res = await request(authedApp).patch("/api/events/e1").send({ location: "New York", version: 0 });
     expect(res.status).not.toBe(400);
   });
 });

@@ -108,7 +108,7 @@ describe("PATCH /api/events/:id — best-time-locked push", () => {
     storageMock.getPushTokensForUsers.mockResolvedValue(["ExponentPushToken[a]"]);
 
     const app = await makeApp({ id: HOST });
-    await request(app).patch("/api/events/evt-1").send({ date: "Sat, Jun 7 · 5:00 PM" });
+    await request(app).patch("/api/events/evt-1").send({ date: "Sat, Jun 7 · 5:00 PM", version: 0 });
 
     await vi.waitFor(() => expect(sendPushNotificationsMock).toHaveBeenCalled());
     const [recipientIds, opts] = storageMock.getPushTokensForUsers.mock.calls[0] as [string[], { requireNotifyEventInvites?: boolean }];
@@ -123,7 +123,7 @@ describe("PATCH /api/events/:id — best-time-locked push", () => {
     dbState.updateRows = [{ id: "evt-1", title: "BBQ", emoji: "🔥", hostId: HOST, date: "Sat, Jun 7 · 5:00 PM", rsvps: { [ALICE]: "going" } }];
 
     const app = await makeApp({ id: HOST });
-    await request(app).patch("/api/events/evt-1").send({ date: "Sat, Jun 7 · 5:00 PM" });
+    await request(app).patch("/api/events/evt-1").send({ date: "Sat, Jun 7 · 5:00 PM", version: 0 });
 
     await new Promise((r) => setTimeout(r, 50));
     expect(sendPushNotificationsMock).not.toHaveBeenCalled();
@@ -134,7 +134,7 @@ describe("PATCH /api/events/:id — best-time-locked push", () => {
     dbState.updateRows = [{ id: "evt-1", title: "BBQ", emoji: "🔥", hostId: HOST, date: "TBD", rsvps: { [ALICE]: "going" } }];
 
     const app = await makeApp({ id: HOST });
-    await request(app).patch("/api/events/evt-1").send({ date: "TBD" });
+    await request(app).patch("/api/events/evt-1").send({ date: "TBD", version: 0 });
 
     await new Promise((r) => setTimeout(r, 50));
     expect(sendPushNotificationsMock).not.toHaveBeenCalled();

@@ -154,7 +154,9 @@ const UpdateEventBody = z.object({
   // Cancel (or un-cancel) the event. Host-only — co-admins cannot cancel.
   cancelled: z.boolean().optional(),
   timezone: z.string().optional(),
-  version: z.number().int().optional(),
+  // version is required so concurrent edits are serialised via compare-and-swap
+  // rather than one edit silently overwriting the other.
+  version: z.number().int(),
   // Toggle the automated 3-day-out reminder on or off after creation.
   remind3DaysToggle: z.boolean().optional(),
 });
@@ -234,19 +236,24 @@ const AddCostBody = z.object({
   amount: z.number().positive(),
   paidById: z.string(),
   shares: z.array(z.object({ userId: z.string(), amount: z.number() })),
-  version: z.number().int().optional(),
+  // version is required so a concurrent add from a stale read yields 409 instead
+  // of silently overwriting the expense list that was written concurrently.
+  version: z.number().int(),
 });
 
 const AddPollBody = z.object({
   question: z.string().min(1),
   options: z.array(z.string().min(1)),
-  version: z.number().int().optional(),
+  // version is required so concurrent poll creates are serialised properly.
+  version: z.number().int(),
 });
 
 const VotePollBody = z.object({
   userId: z.string().optional(),
   optionId: z.string(),
-  version: z.number().int().optional(),
+  // version is required so concurrent votes from different users are serialised
+  // via compare-and-swap rather than silently losing one another's choices.
+  version: z.number().int(),
 });
 
 const SendMessageBody = z.object({
@@ -833,10 +840,10 @@ router.patch("/events/:id", requireAuth, async (req: Request, res: Response): Pr
   if (fieldsToUpdate.endAt !== undefined) {
     patch.endAt = fieldsToUpdate.endAt === null ? null : new Date(fieldsToUpdate.endAt);
   }
-  const updateWhere = clientVersion !== undefined
-    ? and(eq(eventsTable.id, id), eq(eventsTable.version, clientVersion))
-    : eq(eventsTable.id, id);
-  const [event] = await db.update(eventsTable).set(patch).where(updateWhere).returning();
+  const [event] = await db.update(eventsTable)
+    .set(patch)
+    .where(and(eq(eventsTable.id, id), eq(eventsTable.version, clientVersion)))
+    .returning();
   if (!event) {
     res.status(409).json({ error: "Someone else just updated this — refresh to see the latest", conflict: true });
     return;
@@ -1422,12 +1429,9 @@ router.post("/events/:id/costs", requireAuth, async (req: Request, res: Response
   const { version: clientVersion, ...costFields } = parsed.data;
   const newCost = { id: `c${Date.now()}`, ...costFields };
   const costs = [...(existing.costs as unknown[]), newCost];
-  const updateWhere = clientVersion !== undefined
-    ? and(eq(eventsTable.id, id), eq(eventsTable.version, clientVersion))
-    : eq(eventsTable.id, id);
   const [event] = await db.update(eventsTable)
     .set({ costs, version: sql`${eventsTable.version} + 1` })
-    .where(updateWhere)
+    .where(and(eq(eventsTable.id, id), eq(eventsTable.version, clientVersion)))
     .returning();
   if (!event) {
     res.status(409).json({ error: "Someone else just updated this — refresh to see the latest", conflict: true });
@@ -1647,12 +1651,9 @@ router.post("/events/:id/polls", requireAuth, async (req: Request, res: Response
       options: options.map((label: string, i: number) => ({ id: `po${Date.now()}${i}`, label, voterIds: [] })),
     },
   ];
-  const updateWhere = clientVersion !== undefined
-    ? and(eq(eventsTable.id, id), eq(eventsTable.version, clientVersion))
-    : eq(eventsTable.id, id);
   const [event] = await db.update(eventsTable)
     .set({ polls, version: sql`${eventsTable.version} + 1` })
-    .where(updateWhere)
+    .where(and(eq(eventsTable.id, id), eq(eventsTable.version, clientVersion)))
     .returning();
   if (!event) {
     res.status(409).json({ error: "Someone else just updated this — refresh to see the latest", conflict: true });
@@ -1700,12 +1701,9 @@ router.post("/events/:id/polls/:pollId/vote", requireAuth, async (req: Request, 
           })),
         },
   );
-  const updateWhere = clientVersion !== undefined
-    ? and(eq(eventsTable.id, id), eq(eventsTable.version, clientVersion))
-    : eq(eventsTable.id, id);
   const [event] = await db.update(eventsTable)
     .set({ polls, version: sql`${eventsTable.version} + 1` })
-    .where(updateWhere)
+    .where(and(eq(eventsTable.id, id), eq(eventsTable.version, clientVersion)))
     .returning();
   if (!event) {
     res.status(409).json({ error: "Someone else just updated this — refresh to see the latest", conflict: true });

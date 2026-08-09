@@ -34,6 +34,7 @@ export function makeBaseEvent(overrides: Record<string, unknown> = {}) {
     polls: [] as unknown[],
     messages: [] as unknown[],
     createdAt: new Date().toISOString(),
+    version: 0,
     ...overrides,
   };
 }
