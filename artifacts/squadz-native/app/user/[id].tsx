@@ -122,6 +122,24 @@ export default function UserProfileScreen() {
     }
   }
 
+  async function handleUnblock() {
+    if (!id) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    try {
+      const res = await fetch(`${API_BASE}/api/users/${id}/block`, {
+        method: "DELETE",
+        headers: buildAuthHeaders(authToken),
+      });
+      if (res.ok) {
+        setBlocked(false);
+      } else {
+        Alert.alert("Couldn't unblock user", "Please check your connection and try again.");
+      }
+    } catch {
+      Alert.alert("Couldn't unblock user", "Please check your connection and try again.");
+    }
+  }
+
   function handleBlock() {
     if (!id) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -324,7 +342,10 @@ export default function UserProfileScreen() {
                     <Text style={[styles.modBtnText, { color: colors.mutedForeground }]}>Block</Text>
                   </TouchableOpacity>
                 ) : (
-                  <Text style={[styles.modBtnText, { color: colors.mutedForeground }]}>Blocked</Text>
+                  <TouchableOpacity onPress={handleUnblock} hitSlop={6} style={styles.modBtn}>
+                    <Ionicons name="ban-outline" size={14} color={colors.mutedForeground} />
+                    <Text style={[styles.modBtnText, { color: colors.mutedForeground }]}>Unblock</Text>
+                  </TouchableOpacity>
                 )}
                 <Text style={[styles.modSep, { color: colors.mutedForeground }]}>·</Text>
                 <TouchableOpacity onPress={handleReportProfile} hitSlop={6} style={styles.modBtn}>
