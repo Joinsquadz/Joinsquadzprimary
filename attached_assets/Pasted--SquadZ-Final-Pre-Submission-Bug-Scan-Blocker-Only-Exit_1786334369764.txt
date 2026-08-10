@@ -1,0 +1,36 @@
+# SquadZ — Final Pre-Submission Bug Scan (Blocker-Only Exit Condition)
+
+Context: this is the FINAL bug scan before uploading to TestFlight and submitting to Apple and Google. The app has already been through multiple deep audits (whole-app triage, Phase 1 fresh audit, multi-user simulation + feature sweep + bug hunt) with all real bugs fixed and verified. The purpose here is a last confidence pass to catch anything genuinely launch-blocking before submission — NOT to generate more polish work.
+
+## Hard rule for this scan (read first)
+
+Findings must be sorted into exactly two buckets:
+
+- **SUBMIT-BLOCKER** — something actually broken, unsafe, privacy-leaking, crash-causing, or that would get the app REJECTED by Apple/Google review. Only genuine "real users would be harmed, or the store rejects this" issues qualify. These must be fixed before submission.
+- **POST-LAUNCH** — everything else. Enhancements, polish, low/medium-severity issues, "would be nicer if," inconsistencies that don't break anything. These go to the backlog and do NOT block submission.
+
+Be disciplined and honest about this split. Do NOT inflate polish items into blockers. The app has been thoroughly tested already — the expected and acceptable outcome of this scan is "few or no genuine blockers." If that's what you find, say so plainly; a clean result is a valid, expected result, not a sign the scan wasn't thorough.
+
+## What to scan (focus on genuine blocker territory)
+
+1. **Crash/error paths** — any unhandled exception, null-guard gap, or error state that would crash the app or show a broken screen to a real user. These are real blockers.
+2. **Privacy/security boundaries** — any way a user can access data they shouldn't (other users' private data, blocked/non-friend access to DMs or profiles, cross-squad leakage) via UI OR direct API. Real blockers. (Recent direct-API verification was clean — confirm nothing regressed and check any surface not yet covered: attachments, SSE paths.)
+3. **Store-rejection risks** — anything Apple/Google review would flag: the age gate actually enforcing, required legal links, IAP configuration correctness, permissions usage, content policy for a UGC social app. Real blockers.
+4. **Payment/IAP integrity** — any bug in the purchase/entitlement flow that would cause a paying user to not get access, or the founding-price/ledger logic to misbehave. Real blockers (money bugs).
+5. **Data-loss risks** — any path where user data could be silently lost or corrupted. Real blockers.
+6. **Anything else genuinely broken** — flag it as a blocker only if it truly qualifies per the rule above.
+
+## What NOT to do
+- Do not generate a long list of enhancements, optimizations, or nice-to-haves as if they were findings requiring action. Note them briefly for the backlog and move on.
+- Do not re-report already-fixed issues as open.
+- Do not treat "the code could be cleaner" or "this flow could be smoother" as a blocker.
+
+## Output
+
+1. **SUBMIT-BLOCKERS** — the short list (hopefully empty or near-empty) of things that genuinely must be fixed before submitting, each with repro and why it's a true blocker. Fix these inline with tests if they're code-level.
+2. **POST-LAUNCH backlog** — everything else, briefly, for later.
+3. **Clear verdict**: "No submit-blockers found — clear to submit" OR "N submit-blockers found, listed above, fix before submitting." State it plainly.
+4. Final test counts if any fixes were made.
+
+## After this scan
+If the verdict is clear (no genuine blockers, or blockers fixed), the next steps are: build the submission version, upload to TestFlight, and submit to Apple + Google. This scan is the gate — a clean result means proceed to submission, not run another scan.
