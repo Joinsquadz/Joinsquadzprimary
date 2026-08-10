@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { and, eq, or } from "drizzle-orm";
+import { and, eq, ne, or } from "drizzle-orm";
 import { z } from "zod";
 import {
   db,
@@ -138,14 +138,54 @@ router.post(
         return;
       }
 
-      // Insert the request
+      // Insert the request.
+      //
+      // (from_user_id, to_user_id) is UNIQUE regardless of status, so a plain
+      // insert throws whenever a row already exists for this pair — which is
+      // every re-request after a decline, and every re-request after two people
+      // unfriend. Both are legitimate and used to surface as a 500. Two
+      // simultaneous taps hit the same constraint.
+      //
+      // The upsert revives the existing row instead: it flips a resolved
+      // (declined/accepted-but-since-unfriended) request back to pending. The
+      // setWhere keeps an already-pending row untouched, so the second of two
+      // concurrent taps updates nothing, returns nothing, and is reported as
+      // the duplicate it is rather than crashing.
       const [inserted] = await db
         .insert(friendRequestsTable)
         .values({ fromUserId: userId, toUserId, status: "pending" })
+        .onConflictDoUpdate({
+          target: [friendRequestsTable.fromUserId, friendRequestsTable.toUserId],
+          set: { status: "pending", createdAt: new Date() },
+          setWhere: ne(friendRequestsTable.status, "pending"),
+        })
         .returning({ id: friendRequestsTable.id });
 
       if (!inserted) {
-        res.status(500).json({ error: "Failed to create request" });
+        res.status(409).json({ error: "Friend request already sent" });
+        return;
+      }
+
+      // A block committed while this request was in flight would otherwise
+      // leave a live pending request from someone the recipient has blocked.
+      // The block route's cancel pass can't see a row that wasn't committed
+      // yet, so the sender re-checks after writing and withdraws its own row.
+      const [raceBlock] = await db
+        .select({ id: userBlocksTable.id })
+        .from(userBlocksTable)
+        .where(
+          or(
+            and(eq(userBlocksTable.blockerId, userId), eq(userBlocksTable.blockedId, toUserId)),
+            and(eq(userBlocksTable.blockerId, toUserId), eq(userBlocksTable.blockedId, userId)),
+          ),
+        )
+        .limit(1);
+      if (raceBlock) {
+        await db
+          .update(friendRequestsTable)
+          .set({ status: "declined" })
+          .where(eq(friendRequestsTable.id, inserted.id));
+        res.status(403).json({ error: "Cannot send a friend request to this user" });
         return;
       }
 
@@ -234,6 +274,36 @@ router.post(
         );
       if (!request) {
         res.status(404).json({ error: "Friend request not found" });
+        return;
+      }
+
+      // A block outranks any request that predates it. The block route cancels
+      // the pending requests it can see, but a request committed in the same
+      // instant can survive that pass — and accepting one would manufacture a
+      // friendship between two people who have blocked each other. Re-check at
+      // the moment of acceptance and retire the stale row.
+      const [blockRow] = await db
+        .select({ id: userBlocksTable.id })
+        .from(userBlocksTable)
+        .where(
+          or(
+            and(
+              eq(userBlocksTable.blockerId, userId),
+              eq(userBlocksTable.blockedId, request.fromUserId),
+            ),
+            and(
+              eq(userBlocksTable.blockerId, request.fromUserId),
+              eq(userBlocksTable.blockedId, userId),
+            ),
+          ),
+        )
+        .limit(1);
+      if (blockRow) {
+        await db
+          .update(friendRequestsTable)
+          .set({ status: "declined" })
+          .where(eq(friendRequestsTable.id, requestId));
+        res.status(403).json({ error: "Cannot accept this friend request" });
         return;
       }
 

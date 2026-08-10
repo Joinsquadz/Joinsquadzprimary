@@ -94,5 +94,6 @@
 - [Load-test ceiling & Artillery pooling](load-test-ceiling.md) — prod ceiling ≈600–800 concurrent (p95>1.9s + timeouts at 900); use Artillery `http.pool` or the container's ~28k ports fail the test first.
 - [Media backup to R2](media-backup-r2.md) — private bucket is literally "Squadz storage bucket"; PutObject needs explicit ContentLength; durable writes inside the advisory-lock txn need COMMIT or rollback eats them.
 - [Cent-exact money](cent-exact-money.md) — whole-cent check MUST be `Number(v.toFixed(2))===v` (v*100 floats reject 10.05/47.11); splits reconcile in integer cents, no 0.01 tolerance.
+- [Friend request lifecycle](friend-request-lifecycle.md) — one row per (from,to) forever → sends MUST upsert (re-request after decline/unfriend 500s otherwise); blocks re-checked at send, post-insert AND accept.
 - [Privacy invariants: age gate, DMs, blocking](squadz-privacy-invariants.md) — 13+ enforced server-side (store marker+birth year only, no backfill); DMs need a LIVE friendship (squad ≠ friend); block severs friendship+requests both ways but never squad chat.
 - [Staging load-test setup](staging-load-test.md) — SKIP_SCHEMA_SYNC + SKIP_STRIPE_INIT env vars for staging; 429 from rate-limit token reuse (use order:sequence); Transaction pooler saturates at ~25 concurrent (600ms RTT × pool_max=25).

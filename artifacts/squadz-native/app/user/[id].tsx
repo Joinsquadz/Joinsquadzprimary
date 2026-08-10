@@ -15,6 +15,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useAuth, useData } from "@/context/AppContext";
+import { friendCtaFor } from "@/lib/profileActions";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { ProAvatar } from "@/components/ProAvatar";
 import { ImageViewerModal } from "@/components/ImageViewerModal";
@@ -64,6 +65,9 @@ export default function UserProfileScreen() {
   const isSelf = id === currentUser?.id;
   const isFriend = friends.includes(id ?? "");
   const isPending = !isFriend && sentRequests.includes(id ?? "");
+  // Blocking severs the friendship on the server, so the cached friends list
+  // goes stale the moment a block lands. friendCtaFor keeps the button honest.
+  const friendCta = friendCtaFor({ blocked, isFriend, isPending, isSelf });
 
   useEffect(() => {
     if (!id) return;
@@ -80,6 +84,20 @@ export default function UserProfileScreen() {
         }
         const data = (await res.json()) as UserProfile;
         if (active) setProfile(data);
+        // Seed the block state from the server so a profile opened AFTER a
+        // block (or from another device) doesn't offer friend actions that
+        // the server will refuse.
+        try {
+          const blockRes = await fetch(`${API_BASE}/api/users/${id}/block`, {
+            headers: buildAuthHeaders(authToken),
+          });
+          if (blockRes.ok) {
+            const blockData = (await blockRes.json()) as { blocked?: boolean };
+            if (active) setBlocked(Boolean(blockData.blocked));
+          }
+        } catch {
+          // Non-fatal: the server still enforces the block on every action.
+        }
       } catch {
         if (active) setError("Network error. Please try again.");
       } finally {
@@ -254,32 +272,51 @@ export default function UserProfileScreen() {
 
           {!isSelf && (
             <>
+              {friendCta !== "none" && (
               <TouchableOpacity
                 onPress={handleToggleFriend}
-                disabled={friendLoading || isPending}
+                disabled={friendLoading || friendCta === "pending"}
                 style={[
                   styles.friendBtn,
                   {
-                    backgroundColor: isFriend ? colors.card : isPending ? colors.muted : colors.primary,
-                    borderColor: isFriend ? colors.border : isPending ? colors.border : colors.primary,
+                    backgroundColor:
+                      friendCta === "remove" ? colors.card : friendCta === "pending" ? colors.muted : colors.primary,
+                    borderColor:
+                      friendCta === "remove" ? colors.border : friendCta === "pending" ? colors.border : colors.primary,
                   },
                 ]}
               >
                 {friendLoading ? (
-                  <ActivityIndicator size="small" color={isFriend ? colors.foreground : "#fff"} />
+                  <ActivityIndicator size="small" color={friendCta === "remove" ? colors.foreground : "#fff"} />
                 ) : (
                   <>
                     <Ionicons
-                      name={isFriend ? "person-remove-outline" : isPending ? "time-outline" : "person-add-outline"}
+                      name={
+                        friendCta === "remove"
+                          ? "person-remove-outline"
+                          : friendCta === "pending"
+                            ? "time-outline"
+                            : "person-add-outline"
+                      }
                       size={16}
-                      color={isFriend || isPending ? colors.foreground : "#fff"}
+                      color={friendCta === "add" ? "#fff" : colors.foreground}
                     />
-                    <Text style={[styles.friendBtnText, { color: isFriend || isPending ? colors.foreground : "#fff" }]}>
-                      {isFriend ? "Remove friend" : isPending ? "Request sent" : "Add friend"}
+                    <Text
+                      style={[
+                        styles.friendBtnText,
+                        { color: friendCta === "add" ? "#fff" : colors.foreground },
+                      ]}
+                    >
+                      {friendCta === "remove"
+                        ? "Remove friend"
+                        : friendCta === "pending"
+                          ? "Request sent"
+                          : "Add friend"}
                     </Text>
                   </>
                 )}
               </TouchableOpacity>
+              )}
               <View style={styles.modRow}>
                 {!blocked ? (
                   <TouchableOpacity onPress={handleBlock} hitSlop={6} style={styles.modBtn}>
