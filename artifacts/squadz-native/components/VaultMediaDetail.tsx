@@ -82,6 +82,12 @@ type Props = {
   /** When false the photo belongs to a squad/event vault (not the viewer's own
    *  uploads), so the bookmark action is surfaced as "Save to my vault". */
   isPersonalContext?: boolean;
+  /** Whether the viewer has already copied this photo into their own vault.
+   *  Distinct from `favorited`: a favorite is a bookmark that dies with the
+   *  original, a save is an independent copy that doesn't. */
+  savedToVault?: boolean;
+  /** Copy this photo into the viewer's personal vault (or undo that copy). */
+  onToggleSaveToVault?: (id: number) => void;
 };
 
 const displayName = (first?: string | null, last?: string | null): string => {
@@ -135,6 +141,8 @@ export default function VaultMediaDetail({
   onDelete,
   deleteLabel = "Delete",
   isPersonalContext = true,
+  savedToVault = false,
+  onToggleSaveToVault,
 }: Props) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -467,26 +475,37 @@ export default function VaultMediaDetail({
                 />
               </Bounceable>
               <TouchableOpacity
-                style={isPersonalContext ? styles.action : styles.saveAction}
+                style={styles.action}
                 onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onToggleFavorite(photo.id); }}
                 activeOpacity={0.7}
-                accessibilityLabel={
-                  isPersonalContext
-                    ? (favorited ? "Remove from favorites" : "Add to favorites")
-                    : (favorited ? "Saved to your vault" : "Save to my vault")
-                }
+                accessibilityLabel={favorited ? "Remove from favorites" : "Add to favorites"}
               >
                 <Ionicons
                   name={favorited ? "bookmark" : "bookmark-outline"}
-                  size={isPersonalContext ? 24 : 20}
+                  size={24}
                   color={favorited ? colors.gold : colors.foreground}
                 />
-                {!isPersonalContext && (
-                  <Text style={[styles.saveActionText, { color: favorited ? colors.gold : colors.foreground }]}>
-                    {favorited ? "Saved to your vault" : "Save to my vault"}
-                  </Text>
-                )}
               </TouchableOpacity>
+              {/* Save = an independent COPY in your own vault, so it survives
+                  the original being deleted. Only offered on media you didn't
+                  upload — saving your own upload to yourself is a no-op. */}
+              {!isUploader && onToggleSaveToVault && (
+                <TouchableOpacity
+                  style={styles.saveAction}
+                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onToggleSaveToVault(photo.id); }}
+                  activeOpacity={0.7}
+                  accessibilityLabel={savedToVault ? "Remove from my vault" : "Save to my vault"}
+                >
+                  <Ionicons
+                    name={savedToVault ? "checkmark-circle" : "download-outline"}
+                    size={20}
+                    color={savedToVault ? colors.green : colors.foreground}
+                  />
+                  <Text style={[styles.saveActionText, { color: savedToVault ? colors.green : colors.foreground }]}>
+                    {savedToVault ? "Saved to your vault" : "Save to my vault"}
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
 
             {/* Heart count → who-hearted */}

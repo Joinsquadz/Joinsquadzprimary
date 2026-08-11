@@ -161,7 +161,7 @@ beforeEach(() => {
 describe("W-02: orphaned quick-cancel events are excluded from the cap", () => {
   it("creates the event when counted slots are below the limit (exclusion in effect)", async () => {
     // Mock simulates the DB having excluded orphaned events: effective count = 4.
-    capState.countToReturn = 4; // below FREE_EVENT_LIMIT (5)
+    capState.countToReturn = 2; // below FREE_PLAN_LIMIT (3)
 
     const res = await request(makeApp(FREE_USER))
       .post("/api/events")
@@ -172,7 +172,7 @@ describe("W-02: orphaned quick-cancel events are excluded from the cap", () => {
   });
 
   it("returns 403 when effective count is at the limit (real events, none orphaned)", async () => {
-    capState.countToReturn = 5; // at FREE_EVENT_LIMIT
+    capState.countToReturn = 3; // at FREE_PLAN_LIMIT
 
     const res = await request(makeApp(FREE_USER))
       .post("/api/events")
@@ -180,8 +180,8 @@ describe("W-02: orphaned quick-cancel events are excluded from the cap", () => {
 
     expect(res.status).toBe(403);
     expect(res.body.requiresPro).toBe(true);
-    expect(res.body.count).toBe(5);
-    expect(res.body.limit).toBe(5);
+    expect(res.body.count).toBe(3);
+    expect(res.body.limit).toBe(3);
   });
 });
 
@@ -189,7 +189,7 @@ describe("W-02: orphaned quick-cancel events are excluded from the cap", () => {
 
 describe("W-02: nextSlotAvailableAt in the 403 cap response", () => {
   it("includes nextSlotAvailableAt as a valid ISO date approx 1 year after the oldest counted slot", async () => {
-    capState.countToReturn = 5;
+    capState.countToReturn = 3;
     capState.oldestCreatedAt = new Date("2026-01-01T10:00:00Z");
 
     const res = await request(makeApp(FREE_USER))
@@ -207,7 +207,7 @@ describe("W-02: nextSlotAvailableAt in the 403 cap response", () => {
   });
 
   it("returns nextSlotAvailableAt: null when the oldest-row query returns no rows", async () => {
-    capState.countToReturn = 5;
+    capState.countToReturn = 3;
     capState.noOldestRow = true; // oldest query returns []
 
     const res = await request(makeApp(FREE_USER))

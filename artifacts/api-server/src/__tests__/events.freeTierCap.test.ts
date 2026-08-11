@@ -1,17 +1,15 @@
 /**
- * Phase 3 — Free-tier event cap regression.
+ * Free-tier PLAN cap regression.
  *
- * Root cause confirmed: server enforces FREE_EVENT_LIMIT = 5 (correct).
- * The UI bug was profile.tsx hardcoding useState(3) instead of using the
- * server-returned limit from GET /api/events/count.
+ * The cap is 3 PLANS — events and trips combined — in a rolling 12-month
+ * window, counted off the append-only event_creations ledger. The client must
+ * never hardcode the number: it reads the limit from GET /api/events/count.
  *
  * Tests confirm:
- *  1. GET /api/events/count always returns { limit: 5 } — the server is the
- *     source of truth and the correct value is 5, not 3.
- *  2. A free user is blocked on their 6th event (POST /api/events → 403),
- *     and the error message references "5" (not "3").
+ *  1. GET /api/events/count returns the server's limit — the source of truth.
+ *  2. A free user is blocked on their 4th plan (POST /api/events → 403).
  *  3. A Pro user is never blocked by the cap.
- *  4. A user at count 3 is NOT blocked (3 is not the real cap).
+ *  4. Events and trips draw from the SAME pool (a trip is not a free extra).
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import request from "supertest";
@@ -115,7 +113,7 @@ vi.mock("../lib/pushNotifications", () => ({
 import eventsRouter from "../routes/events";
 import { makeTestApp, type TestUser } from "./helpers/makeTestApp";
 
-const FREE_EVENT_LIMIT = 5;
+const FREE_EVENT_LIMIT = 3;
 const FREE_USER: TestUser = { id: "user-free", email: "free@test.com" };
 const PRO_USER: TestUser = { id: "user-pro", email: "pro@test.com" };
 
@@ -148,7 +146,7 @@ beforeEach(() => {
 // GET /api/events/count — source of truth for UI display
 // ---------------------------------------------------------------------------
 describe("GET /api/events/count — returns server-enforced limit", () => {
-  it("returns limit: 5 (FREE_EVENT_LIMIT) regardless of current count", async () => {
+  it("returns limit: 3 (FREE_EVENT_LIMIT) regardless of current count", async () => {
     storageMock.countUserEventCreationsInWindow.mockResolvedValue(2);
 
     const res = await request(makeApp(FREE_USER)).get("/api/events/count");
@@ -158,7 +156,7 @@ describe("GET /api/events/count — returns server-enforced limit", () => {
     expect(res.body.count).toBe(2);
   });
 
-  it("returns { count: 0, limit: 5, nextSlotAvailableAt: null } for a brand-new user", async () => {
+  it("returns { count: 0, limit: 3, nextSlotAvailableAt: null } for a brand-new user", async () => {
     storageMock.countUserEventCreationsInWindow.mockResolvedValue(0);
     storageMock.getOldestEventCreationAt.mockResolvedValue(null);
 
@@ -168,7 +166,7 @@ describe("GET /api/events/count — returns server-enforced limit", () => {
     expect(res.body).toEqual({ count: 0, limit: FREE_EVENT_LIMIT, nextSlotAvailableAt: null });
   });
 
-  it("returns { count: 5, limit: 5 } when the user is at the cap", async () => {
+  it("returns { count: 3, limit: 3 } when the user is at the cap", async () => {
     storageMock.countUserEventCreationsInWindow.mockResolvedValue(FREE_EVENT_LIMIT);
 
     const res = await request(makeApp(FREE_USER)).get("/api/events/count");
@@ -179,18 +177,18 @@ describe("GET /api/events/count — returns server-enforced limit", () => {
   });
 
   // #519: nextSlotAvailableAt thread-through tests.
-  it("includes nextSlotAvailableAt when the user has event creations", async () => {
-    storageMock.countUserEventCreationsInWindow.mockResolvedValue(3);
+  it("includes nextSlotAvailableAt when the user has plan slots used", async () => {
+    storageMock.countUserEventCreationsInWindow.mockResolvedValue(2);
     storageMock.getOldestEventCreationAt.mockResolvedValue("2027-01-15T10:00:00.000Z");
 
     const res = await request(makeApp(FREE_USER)).get("/api/events/count");
 
     expect(res.status).toBe(200);
     expect(res.body.nextSlotAvailableAt).toBe("2027-01-15T10:00:00.000Z");
-    expect(res.body.count).toBe(3);
+    expect(res.body.count).toBe(2);
   });
 
-  it("returns nextSlotAvailableAt: null when the user has no event creations", async () => {
+  it("returns nextSlotAvailableAt: null when the user has no plan slots used", async () => {
     storageMock.countUserEventCreationsInWindow.mockResolvedValue(0);
     storageMock.getOldestEventCreationAt.mockResolvedValue(null);
 
@@ -200,13 +198,16 @@ describe("GET /api/events/count — returns server-enforced limit", () => {
     expect(res.body.nextSlotAvailableAt).toBeNull();
   });
 
-  it("limit is always 5, never 3 — regression for the UI display bug", async () => {
+  // #633: the free tier is now 3 COMBINED plans (events + trips). The reported
+  // limit must be the enforced one at every count — the old bug was a UI number
+  // that disagreed with the server.
+  it("limit is always 3, never the retired 5", async () => {
     for (let count = 0; count <= 6; count++) {
       storageMock.countUserEventCreationsInWindow.mockResolvedValue(count);
       const res = await request(makeApp(FREE_USER)).get("/api/events/count");
       expect(res.status).toBe(200);
-      expect(res.body.limit).toBe(5);
-      expect(res.body.limit).not.toBe(3);
+      expect(res.body.limit).toBe(3);
+      expect(res.body.limit).not.toBe(5);
     }
   });
 
@@ -217,20 +218,18 @@ describe("GET /api/events/count — returns server-enforced limit", () => {
 });
 
 // ---------------------------------------------------------------------------
-// POST /api/events — enforcement at exactly 5 (free users)
+// POST /api/events — enforcement at exactly 3 combined plans (free users)
 // ---------------------------------------------------------------------------
-describe("POST /api/events — free-tier cap enforcement at 5", () => {
+describe("POST /api/events — free-tier plan cap enforcement at 3", () => {
   const baseEvent = {
     title: "Test Event",
     eventAt: new Date(Date.now() + 86400000).toISOString(),
     type: "event",
   };
 
-  it("allows the 4th event (count 3 in window — old UI limit must not block)", async () => {
-    // Key regression: the old UI showed limit=3, but the server must allow
-    // events 4 and 5. Verifies 3 is NOT the enforcement boundary.
-    dbState.selectRows = [{ count: 3 }]; // 3 existing in window
-    dbState.insertRows = [{ id: "evt-4", hostId: FREE_USER.id, rsvps: {}, version: 0 }];
+  it("allows the 2nd plan (1 slot used in window)", async () => {
+    dbState.selectRows = [{ count: 1 }];
+    dbState.insertRows = [{ id: "evt-2", hostId: FREE_USER.id, rsvps: {}, version: 0 }];
 
     const res = await request(makeApp(FREE_USER))
       .post("/api/events")
@@ -239,9 +238,9 @@ describe("POST /api/events — free-tier cap enforcement at 5", () => {
     expect(res.status).not.toBe(403);
   });
 
-  it("allows the 5th event (count 4 in window)", async () => {
-    dbState.selectRows = [{ count: 4 }]; // 4 existing → 5th is OK
-    dbState.insertRows = [{ id: "evt-5", hostId: FREE_USER.id, rsvps: {}, version: 0 }];
+  it("allows the 3rd plan (2 slots used in window)", async () => {
+    dbState.selectRows = [{ count: 2 }];
+    dbState.insertRows = [{ id: "evt-3", hostId: FREE_USER.id, rsvps: {}, version: 0 }];
 
     const res = await request(makeApp(FREE_USER))
       .post("/api/events")
@@ -250,23 +249,36 @@ describe("POST /api/events — free-tier cap enforcement at 5", () => {
     expect(res.status).not.toBe(403);
   });
 
-  it("blocks the 6th event with 403 — cap is 5, not 3", async () => {
-    // When 5 events already exist in the 12-month window, the next create is blocked.
-    dbState.selectRows = [{ count: 5 }]; // at the limit
+  it("blocks the 4th plan with 403 — cap is 3, not the retired 5", async () => {
+    dbState.selectRows = [{ count: 3 }]; // at the limit
 
     const res = await request(makeApp(FREE_USER))
       .post("/api/events")
       .send(baseEvent);
 
     expect(res.status).toBe(403);
-    // The error must reference "5" (the real limit) — never "3"
-    expect(res.body.error).toMatch(/5/);
-    expect(res.body.error).not.toMatch(/\b3\b/);
+    // The error must reference "3" (the real limit) — never the retired "5".
+    expect(res.body.error).toMatch(/3/);
+    expect(res.body.error).not.toMatch(/\b5\b/);
     expect(res.body.requiresPro).toBe(true);
     expect(res.body.limit).toBe(FREE_EVENT_LIMIT);
   });
 
-  it("does NOT block a Pro user (stripeSubscriptionId + active sub) at count 5", async () => {
+  // #633: trips share the SAME allowance as events — a trip is a plan, so it
+  // must be blocked by an already-full combined budget, not get its own.
+  it("blocks a TRIP too — events and trips share one combined allowance", async () => {
+    dbState.selectRows = [{ count: 3 }];
+
+    const res = await request(makeApp(FREE_USER))
+      .post("/api/events")
+      .send({ ...baseEvent, type: "trip" });
+
+    expect(res.status).toBe(403);
+    expect(res.body.requiresPro).toBe(true);
+    expect(res.body.limit).toBe(FREE_EVENT_LIMIT);
+  });
+
+  it("does NOT block a Pro user (stripeSubscriptionId + active sub) at the cap", async () => {
     storageMock.getUser.mockResolvedValue({
       id: PRO_USER.id,
       email: "pro@test.com",
@@ -274,9 +286,9 @@ describe("POST /api/events — free-tier cap enforcement at 5", () => {
       stripeCustomerId: null,
     });
     storageMock.getSubscription.mockResolvedValue({ status: "active" });
-    // Even with 5 in the window, Pro users bypass the cap
-    dbState.selectRows = [{ count: 5 }];
-    dbState.insertRows = [{ id: "evt-6", hostId: PRO_USER.id, rsvps: {}, version: 0 }];
+    // Even at the free cap, Pro users bypass it entirely.
+    dbState.selectRows = [{ count: 3 }];
+    dbState.insertRows = [{ id: "evt-4", hostId: PRO_USER.id, rsvps: {}, version: 0 }];
 
     const res = await request(makeApp(PRO_USER))
       .post("/api/events")

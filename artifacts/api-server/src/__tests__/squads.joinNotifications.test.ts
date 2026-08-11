@@ -21,11 +21,16 @@ vi.mock("@workspace/db", () => ({
     }),
     delete: () => ({ where: () => Promise.resolve() }),
     insert: () => ({
-      values: () => ({ returning: () => Promise.resolve([]) }),
+      values: () => ({
+        returning: () => Promise.resolve([]),
+        // #633: squad history ledger writes use ON CONFLICT DO NOTHING.
+        onConflictDoNothing: () => Promise.resolve(undefined),
+      }),
     }),
   },
   squadsTable: { id: "id", memberIds: "member_ids", createdAt: "created_at" },
   usersTable: { id: "id", friendCode: "friend_code" },
+  squadMemberHistoryTable: { squadId: "squad_id", userId: "user_id", firstJoinedAt: "first_joined_at" },
 }));
 
 const mockGetPushTokensForUsers = vi.hoisted(() => vi.fn());

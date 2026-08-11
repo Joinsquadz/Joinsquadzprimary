@@ -10,6 +10,7 @@ import { shouldSendNotification } from "../lib/notificationDebounce";
 import { db, feedPostsTable } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { copyStorageObject } from "../services/objectStorage";
+import { deleteOwnedMediaObject } from "../lib/accountMediaCleanup";
 import { recordActivitySafe, removeActivity } from "../lib/activity";
 import { getBlockedAndBlockerIds } from "./moderation";
 
@@ -228,11 +229,233 @@ router.post("/vault/photos", requireAuth, async (req: Request, res: Response): P
       return;
     }
 
+    // Provenance alone is NOT enough for an event roll-up: it only proves the
+    // caller owns the bytes, not that they belong to the plan. Without this
+    // check any user could post their own media into a stranger's event vault
+    // (the GET side already gates on membership, so it would show up for
+    // everyone who can see that event). Mirrors the read rule exactly.
+    if (eventId) {
+      const event = await storage.getEvent(eventId);
+      if (!event) {
+        res.status(404).json({ error: "Event not found" });
+        return;
+      }
+      const canContribute = event.squadId
+        ? await storage.isSquadMemberPublic(event.squadId, userId)
+        : event.hostId === userId ||
+          ((event.invitedUserIds ?? []) as string[]).includes(userId);
+      if (!canContribute) {
+        res.status(403).json({ error: "Access denied" });
+        return;
+      }
+    }
+
     const photo = await storage.addPhoto(userId, url, eventId, { mediaType, caption: caption || null });
     res.status(201).json({ photo });
   } catch (err) {
     logger.error({ err }, "Error saving vault photo");
     res.status(500).json({ error: "Failed to save photo" });
+  }
+});
+
+const SaveToVaultBody = z.object({ photoId: z.number().int().positive() });
+
+/**
+ * Is this caller entitled to the PERSONAL vault?
+ *
+ * The personal vault (roll-up + saves) is the SquadZ+ entitlement; the shared
+ * squad vault is free for members. `GET /vault/photos` already gates the
+ * roll-up, so the save endpoints must apply the same check server-side — the
+ * mobile UI gate is trivially bypassable by calling the API directly, and a
+ * free user who could save would keep the copies until they upgraded.
+ */
+async function callerIsPro(req: Request): Promise<boolean> {
+  const { id, email } = req.user as { id: string; email?: string };
+  const user = (await storage.getUser(id)) ?? (await storage.upsertUser(id, email ?? ""));
+  return resolveProStatus(user);
+}
+
+/** The single entrance gate the personal-vault surfaces share. */
+function proRequired(res: Response): void {
+  res.status(403).json({
+    error: "Saving to your personal vault is a SquadZ+ feature.",
+    code: "PRO_REQUIRED",
+    requiresPro: true,
+  });
+}
+
+/**
+ * GET /api/vault/saves — the SOURCE photo ids this user has already copied into
+ * their personal vault. Lets a squad/event grid render "Saved" state without an
+ * N+1 lookup per tile.
+ *
+ * Free users get an empty list (not a 403): the grid simply renders nothing as
+ * saved, and the save action itself is what surfaces the upgrade prompt.
+ */
+router.get("/vault/saves", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req.user as { id: string }).id;
+    if (!(await callerIsPro(req))) {
+      res.json({ sourceIds: [], requiresPro: true });
+      return;
+    }
+    const sourceIds = await storage.getSavedSourcePhotoIds(userId);
+    res.json({ sourceIds });
+  } catch (err) {
+    logger.error({ err }, "Error listing vault saves");
+    res.status(500).json({ error: "Failed to load your saves" });
+  }
+});
+
+/**
+ * POST /api/vault/saves  { photoId }
+ *
+ * "Save to my vault" — make a DURABLE PERSONAL COPY of a photo/video the user
+ * can currently see (squad vault, trip roll-up, event vault).
+ *
+ * This is deliberately NOT a favorite. A favorite is a reference: it points at
+ * someone else's row and evaporates the moment they delete the media or the
+ * squad is torn down. A save copies the underlying storage object and inserts a
+ * fresh photo row owned by the saver, with no squad/event linkage — so the copy
+ * survives deletion of the source, of the event, and of the squad.
+ *
+ * Authorization is "can you see it right now" (canUserViewPhotoById), evaluated
+ * against LIVE membership — the same rule that lets the user view the media in
+ * the first place. A user who was removed from the squad can no longer save.
+ *
+ * Idempotent: saving the same source twice returns the existing copy
+ * (200 + alreadySaved) rather than duplicating bytes and rows.
+ */
+router.post("/vault/saves", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req.user as { id: string }).id;
+    const parsed = SaveToVaultBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid photoId" });
+      return;
+    }
+    const { photoId } = parsed.data;
+
+    // Entitlement before anything else: no copy, no bytes, no row for a free
+    // user calling the API directly around the mobile gate.
+    if (!(await callerIsPro(req))) {
+      proRequired(res);
+      return;
+    }
+
+    const source = await storage.getPhotoById(photoId);
+    if (!source || !(await storage.canUserViewPhotoById(photoId, userId))) {
+      res.status(403).json({ error: "You can only save media you have access to." });
+      return;
+    }
+    if (source.status === "hidden") {
+      res.status(403).json({ error: "This media isn't available." });
+      return;
+    }
+
+    // Idempotency first: re-saving must not burn another storage object.
+    const existing = await storage.getSavedCopy(userId, photoId);
+    if (existing) {
+      res.json({ photo: existing, alreadySaved: true });
+      return;
+    }
+
+    // A save must own INDEPENDENT bytes, and photos.url is globally unique — so
+    // "reuse the source URL" is not a legal fallback for anything. Vault media
+    // is private object storage, which we can copy. A public https URL (legacy
+    // rows, avatar-bucket assets) has no private object to copy, and inserting
+    // a second row at the same URL would violate the unique constraint, so it
+    // is refused explicitly rather than 500ing.
+    if (/^https?:\/\//i.test(source.url)) {
+      res.status(422).json({
+        error: "This media can't be saved to your vault.",
+        code: "UNSUPPORTED_MEDIA",
+      });
+      return;
+    }
+    const copiedUrl = await copyStorageObject(source.url);
+    if (!copiedUrl) {
+      res.status(503).json({ error: "Couldn't save this right now. Please try again." });
+      return;
+    }
+
+    // Record provenance BEFORE the row exists so the copy is never an orphan
+    // object: account deletion resolves media ownership from object_uploads,
+    // not from path prefixes, so an unrecorded copy would survive the saver's
+    // account purge forever.
+    await storage.recordUpload(userId, copiedUrl);
+
+    const photo = await storage.addSavedPhotoCopy(userId, source, copiedUrl);
+    if (!photo) {
+      // A concurrent save won the unique (uploader, source) race. Our copied
+      // object is now referenced by nothing, so release it here — otherwise
+      // every racing double-tap would leak a private object forever.
+      await storage.deleteUploadRecord(userId, copiedUrl);
+      await deleteOwnedMediaObject(userId, copiedUrl);
+      const winner = await storage.getSavedCopy(userId, photoId);
+      res.json({ photo: winner, alreadySaved: true });
+      return;
+    }
+    res.status(201).json({ photo, alreadySaved: false });
+  } catch (err) {
+    logger.error({ err }, "Error saving photo to personal vault");
+    res.status(500).json({ error: "Failed to save to your vault" });
+  }
+});
+
+/**
+ * DELETE /api/vault/saves/:photoId — remove the personal copy made from source
+ * `photoId` (the id the client already has on the item it is looking at).
+ * No-op if it was never saved.
+ *
+ * Un-saving must undo the WHOLE of the save, not just the row. A save allocates
+ * three things — a copied storage object, an object_uploads provenance row and
+ * a photo row — so dropping only the photo row would leak the bytes on every
+ * save/un-save cycle and leave a provenance row pointing at an object nothing
+ * references (which then misdirects account-deletion cleanup).
+ *
+ * Order matters: the row goes first (inside the user's request, so the UI is
+ * immediately truthful), then provenance, then the bytes. If the byte delete
+ * fails it is queued for the retry worker rather than failing the request —
+ * the user's intent has already been honoured.
+ */
+router.delete("/vault/saves/:photoId", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req.user as { id: string }).id;
+    const sourceId = parsePhotoId(req.params.photoId);
+    if (!Number.isInteger(sourceId) || sourceId <= 0) {
+      res.status(400).json({ error: "Invalid photoId" });
+      return;
+    }
+    const copy = await storage.getSavedCopy(userId, sourceId);
+    if (!copy) {
+      res.json({ ok: true, removed: false });
+      return;
+    }
+    const removed = await storage.deleteOwnPhoto(copy.id, userId);
+    if (!removed) {
+      // Scoped by uploaderId: someone else's row is never touched, and there is
+      // nothing of ours to clean up.
+      res.json({ ok: true, removed: false });
+      return;
+    }
+
+    const url = removed.url;
+    const isPublicUrl = /^https?:\/\//i.test(url);
+    if (!isPublicUrl) {
+      // Never delete bytes another row still points at. A save copies the
+      // object, so normally nothing else does — but a re-save racing this
+      // delete, or a copy made before copying existed, must not be broken.
+      const stillReferenced = await storage.countPhotosByUrl(url);
+      if (stillReferenced === 0) {
+        await storage.deleteUploadRecord(userId, url);
+        await deleteOwnedMediaObject(userId, url);
+      }
+    }
+    res.json({ ok: true, removed: true });
+  } catch (err) {
+    logger.error({ err }, "Error removing saved vault copy");
+    res.status(500).json({ error: "Failed to remove from your vault" });
   }
 });
 

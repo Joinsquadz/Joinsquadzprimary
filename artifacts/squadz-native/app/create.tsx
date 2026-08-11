@@ -506,7 +506,7 @@ export default function CreateEventScreen() {
         <View style={[styles.limitBanner, { backgroundColor: colors.primary + "18", borderBottomColor: colors.primary + "40" }]}>
           <Ionicons name="flash" size={14} color={colors.primary} />
           <Text style={[styles.limitBannerText, { color: colors.primary }]}>
-            Free plan: {myEventCount}/{eventLimit} events used in the last 12 months — upgrade for unlimited
+            Free plan: {myEventCount}/{eventLimit} plans used in the last 12 months (events + trips, created or joined) — upgrade for unlimited
           </Text>
           <TouchableOpacity onPress={() => setShowUpgradeModal(true)} style={[styles.limitBannerBtn, { borderColor: colors.primary + "60" }]}>
             <Text style={[styles.limitBannerBtnText, { color: colors.primary }]}>Upgrade</Text>
@@ -975,7 +975,7 @@ export default function CreateEventScreen() {
         )}
         {!isPro && eventLimit !== null && !atLimit && (
           <Text style={[styles.allowanceCaption, { color: colors.textDim }]}>
-            {myEventCount}/{eventLimit} events used this year
+            {myEventCount}/{eventLimit} free plans used this year · events + trips, created or joined
           </Text>
         )}
         <TouchableOpacity

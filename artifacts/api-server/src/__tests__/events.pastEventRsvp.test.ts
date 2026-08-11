@@ -42,6 +42,7 @@ vi.mock("@workspace/db", () => ({
     id: "id", eventId: "event_id", inviterUserId: "inviter_user_id",
     invitedUserId: "invited_user_id", status: "status", createdAt: "created_at",
   },
+  eventCreationsTable: { id: "id", userId: "user_id", eventId: "event_id", source: "source", createdAt: "created_at" },
 }));
 
 vi.mock("../storage", () => ({

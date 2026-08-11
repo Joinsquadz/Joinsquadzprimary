@@ -187,6 +187,11 @@ export default function VaultScreen() {
   const [dateFilter, setDateFilter] = useState<string | null>(null);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [favoriteIds, setFavoriteIds] = useState<Set<number>>(new Set());
+  // SOURCE photo ids the user has copied into their own vault. A save is a
+  // durable copy (survives the original being deleted), unlike a favorite,
+  // which is only a bookmark pointing at someone else's row.
+  const [savedSourceIds, setSavedSourceIds] = useState<Set<number>>(new Set());
+  const [savingIds, setSavingIds] = useState<Set<number>>(new Set());
   const [favoritePhotos, setFavoritePhotos] = useState<VaultPhoto[]>([]);
   const [favoritesLoading, setFavoritesLoading] = useState(false);
   // Auth-race guards for the Favorites sub-section — same class of bug as the
@@ -514,6 +519,87 @@ export default function VaultScreen() {
       }
     }
   }, [favoriteIds, authHeaders, showToast]);
+
+  // Which source photos this user already copied into their own vault. Drives
+  // the "Saved to your vault" state without an extra request per tile.
+  const fetchSaves = useCallback(async () => {
+    if (!authToken) return;
+    try {
+      const res = await fetchWithTimeout(`${API_BASE}/api/vault/saves`, { headers: authHeaders() });
+      if (!res.ok) return;
+      const data = await res.json() as { sourceIds?: number[] };
+      setSavedSourceIds(new Set(data.sourceIds ?? []));
+    } catch {
+      // Best-effort: a failed fetch only means the badge starts unset; the save
+      // endpoint is idempotent, so a duplicate tap still can't double-save.
+    }
+  }, [authHeaders, authToken]);
+
+  useEffect(() => {
+    void fetchSaves();
+  }, [fetchSaves]);
+
+  /**
+   * Save (or un-save) a photo into the personal vault. Unlike favoriting, this
+   * asks the server to COPY the media, so the result survives the original
+   * being deleted. Optimistic, with rollback on failure.
+   */
+  const toggleSaveToVault = useCallback(async (sourcePhotoId: number) => {
+    if (savingIds.has(sourcePhotoId)) return;
+    const wasSaved = savedSourceIds.has(sourcePhotoId);
+    setSavingIds(prev => new Set(prev).add(sourcePhotoId));
+    setSavedSourceIds(prev => {
+      const next = new Set(prev);
+      if (wasSaved) next.delete(sourcePhotoId);
+      else next.add(sourcePhotoId);
+      return next;
+    });
+    try {
+      const res = wasSaved
+        ? await fetchWithTimeout(`${API_BASE}/api/vault/saves/${sourcePhotoId}`, {
+            method: "DELETE",
+            headers: authHeaders(),
+          })
+        : await fetchWithTimeout(`${API_BASE}/api/vault/saves`, {
+            method: "POST",
+            headers: { ...authHeaders(), "Content-Type": "application/json" },
+            body: JSON.stringify({ photoId: sourcePhotoId }),
+          });
+      if (!res.ok) {
+        // The personal vault is the SquadZ+ entitlement and the server enforces
+        // it, so a free user reaching here gets the upgrade prompt rather than
+        // a dead-end "try again" toast.
+        const requiresPro =
+          res.status === 403 &&
+          (await res.json().catch(() => ({}))).code === "PRO_REQUIRED";
+        throw Object.assign(new Error("save failed"), { requiresPro });
+      }
+      showToast(
+        wasSaved ? "Removed from your vault." : "Saved to your vault — it's yours to keep.",
+        { durationMs: 2500 },
+      );
+      // The personal grid now has one more/fewer item.
+      if (!isContextual) void fetchPhotos();
+    } catch (err) {
+      setSavedSourceIds(prev => {
+        const next = new Set(prev);
+        if (wasSaved) next.add(sourcePhotoId);
+        else next.delete(sourcePhotoId);
+        return next;
+      });
+      if ((err as { requiresPro?: boolean }).requiresPro) {
+        setUpgradeModalVisible(true);
+      } else {
+        showToast("Couldn't update your vault. Please try again.", { durationMs: 2500 });
+      }
+    } finally {
+      setSavingIds(prev => {
+        const next = new Set(prev);
+        next.delete(sourcePhotoId);
+        return next;
+      });
+    }
+  }, [savedSourceIds, savingIds, authHeaders, showToast, isContextual, fetchPhotos]);
 
   useEffect(() => {
     if (isPro !== null) fetchPhotos();
@@ -1559,6 +1645,13 @@ export default function VaultScreen() {
           : undefined}
         deleteLabel="Remove from squad vault"
         isPersonalContext={!isSquadVault && !isContextual}
+        savedToVault={detailPhoto ? savedSourceIds.has(detailPhoto.id) : false}
+        onToggleSaveToVault={(id) => {
+          // The personal vault itself is the SquadZ+ gate, so saving INTO it
+          // follows the same rule as opening it.
+          if (isPro === false) { setUpgradeModalVisible(true); return; }
+          void toggleSaveToVault(id);
+        }}
       />
 
       <VaultShareComposer

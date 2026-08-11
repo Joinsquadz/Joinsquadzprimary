@@ -98,3 +98,5 @@
 - [Friend request lifecycle](friend-request-lifecycle.md) — one row per (from,to) forever → sends MUST upsert (re-request after decline/unfriend 500s otherwise); blocks re-checked at send, post-insert AND accept.
 - [Privacy invariants: age gate, DMs, blocking](squadz-privacy-invariants.md) — 13+ enforced server-side (store marker+birth year only, no backfill); DMs need a LIVE friendship (squad ≠ friend); block severs friendship+requests both ways but never squad chat.
 - [Staging load-test setup](staging-load-test.md) — SKIP_SCHEMA_SYNC + SKIP_STRIPE_INIT env vars for staging; 429 from rate-limit token reuse (use order:sequence); Transaction pooler saturates at ~25 concurrent (600ms RTT × pool_max=25).
+- [Free-tier cap ledgers](free-tier-cap-ledgers.md) — squad/plan caps count APPEND-ONLY ledgers (leaving never refunds); claim slot before the write, same tx, no-op re-claims must pass even over-cap.
+- [Vault durable saves](vault-durable-saves.md) — "save" copies bytes + inserts an unlinked personal row (no FK, no squad/event) so it survives source deletion; provenance BEFORE insert.

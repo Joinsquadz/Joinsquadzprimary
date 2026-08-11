@@ -384,6 +384,46 @@ export async function deleteAccountMedia(
   return summary;
 }
 
+/**
+ * Delete the bytes of ONE private object the app knows the caller owns, plus
+ * its R2 backup mirror.
+ *
+ * Used by lifecycle deletes that happen while the account is very much alive —
+ * un-saving a vault copy, for example. Same durability contract as account
+ * cleanup: never throws, and anything that fails is queued for the retry
+ * worker rather than leaking silently. The CALLER is responsible for proving
+ * ownership and for making sure no surviving row still references the object.
+ */
+export async function deleteOwnedMediaObject(
+  userId: string,
+  objectPath: string,
+): Promise<{ deleted: boolean; queued: boolean }> {
+  const key = parsePrivateObjectKey(objectPath);
+  // Public URLs and legacy paths have no private object to remove.
+  if (!key) return { deleted: false, queued: false };
+
+  const target: CleanupItem = { store: "supabase", bucket: PRIVATE_BUCKET, key };
+  try {
+    const { deleted, failed } = await processItems([target, ...r2ItemsFor([target])]);
+    if (failed.length > 0) {
+      await enqueueFailures(userId, failed);
+      logger.warn(
+        { userId, key, failed: failed.length },
+        "[media-delete] could not delete media bytes; queued for retry",
+      );
+      return { deleted: deleted.length > 0, queued: true };
+    }
+    return { deleted: deleted.length > 0, queued: false };
+  } catch (err) {
+    logger.error({ err, userId, key }, "[media-delete] media delete failed outright");
+    captureException(err, { scope: "owned-media-delete", userId, key });
+    await enqueueFailures(userId, [
+      { item: target, error: err instanceof Error ? err.message : String(err) },
+    ]);
+    return { deleted: false, queued: true };
+  }
+}
+
 type QueueRow = {
   id: string;
   user_id: string;

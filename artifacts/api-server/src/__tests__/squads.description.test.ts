@@ -19,8 +19,13 @@ vi.mock("@workspace/db", () => ({
     }),
     insert: () => ({
       values: (v: Record<string, unknown>) => {
-        captured.insertValues = v;
-        return { returning: () => Promise.resolve(mockInsertRows.value) };
+        // #633: the squad insert is followed by a squad_member_history ledger
+        // insert (ON CONFLICT DO NOTHING) — capture only the first (squad) row.
+        captured.insertValues ??= v;
+        return {
+          returning: () => Promise.resolve(mockInsertRows.value),
+          onConflictDoNothing: () => Promise.resolve(undefined),
+        };
       },
     }),
     update: () => ({
@@ -47,8 +52,11 @@ vi.mock("@workspace/db", () => ({
         }),
         insert: () => ({
           values: (v: Record<string, unknown>) => {
-            captured.insertValues = v;
-            return { returning: () => Promise.resolve(mockInsertRows.value) };
+            captured.insertValues ??= v;
+            return {
+              returning: () => Promise.resolve(mockInsertRows.value),
+              onConflictDoNothing: () => Promise.resolve(undefined),
+            };
           },
         }),
         update: () => ({
@@ -87,9 +95,11 @@ vi.mock("@workspace/db", () => ({
     squadId: "squad_id",
     seenAt: "seen_at",
   },
+  squadMemberHistoryTable: { squadId: "squad_id", userId: "user_id", firstJoinedAt: "first_joined_at" },
+  eventCreationsTable: { id: "id", userId: "user_id", eventId: "event_id", source: "source", createdAt: "created_at" },
 }));
 
-vi.mock("../lib/logger");
+vi.mock("../lib/logger", () => ({ logger: { error: (...a: unknown[]) => console.error("LOGERR", ...a), info: () => {}, warn: () => {}, debug: () => {}, child: () => ({ error: () => {}, info: () => {}, warn: () => {}, debug: () => {} }) } }));
 
 import squadsRouter from "../routes/squads";
 import { makeTestApp, type TestUser } from "./helpers/makeTestApp";

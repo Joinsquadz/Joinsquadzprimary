@@ -133,6 +133,7 @@ async function createMissingTables(): Promise<void> {
       "id" text PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
       "user_id" text NOT NULL,
       "event_id" text,
+      "source" text DEFAULT 'create' NOT NULL,
       "created_at" timestamp with time zone DEFAULT now() NOT NULL
     )
   `);
@@ -424,6 +425,11 @@ async function addMissingColumns(): Promise<void> {
     `ALTER TABLE "photos" ADD COLUMN IF NOT EXISTS "media_type" text DEFAULT 'image' NOT NULL`,
     `ALTER TABLE "photos" ADD COLUMN IF NOT EXISTS "caption" text`,
     `ALTER TABLE "photos" ADD COLUMN IF NOT EXISTS "status" text DEFAULT 'active' NOT NULL`,
+    // Personal "Save to my vault" copies point back at their source photo.
+    // Deliberately NO foreign key: the copy must survive the source's deletion.
+    `ALTER TABLE "photos" ADD COLUMN IF NOT EXISTS "saved_from_photo_id" integer`,
+    // event_creations now records JOINS as well as creations.
+    `ALTER TABLE "event_creations" ADD COLUMN IF NOT EXISTS "source" text DEFAULT 'create' NOT NULL`,
     // events
     `ALTER TABLE "events" ADD COLUMN IF NOT EXISTS "reminder_sent_at" timestamp with time zone`,
     `ALTER TABLE "events" ADD COLUMN IF NOT EXISTS "version" integer DEFAULT 1 NOT NULL`,
@@ -479,6 +485,16 @@ async function createIndexes(): Promise<void> {
     `CREATE INDEX IF NOT EXISTS "idx_push_tickets_created_at" ON "push_tickets"("created_at")`,
     `CREATE INDEX IF NOT EXISTS "squad_member_history_user_idx" ON "squad_member_history"("user_id")`,
     `CREATE INDEX IF NOT EXISTS "event_creations_user_created_idx" ON "event_creations"("user_id","created_at")`,
+    // Makes a plan slot idempotent per (user, plan): re-accepting an invite or
+    // re-RSVPing never charges twice. The join-side ON CONFLICT depends on it.
+    `CREATE UNIQUE INDEX IF NOT EXISTS "event_creations_user_event_unique" ON "event_creations"("user_id","event_id")`,
+    // Personal vault saves: "have I already saved this source photo?" — UNIQUE
+    // so two simultaneous saves (which both pass the "already saved?" probe)
+    // cannot insert two copies; the save's ON CONFLICT targets it. NULLs are
+    // distinct in Postgres, so ordinary uploads are unaffected. Duplicates are
+    // collapsed just above before this runs.
+    `CREATE UNIQUE INDEX IF NOT EXISTS "photos_uploader_saved_from_uq" ON "photos"("uploader_id","saved_from_photo_id")`,
+    `DROP INDEX IF EXISTS "photos_uploader_saved_from_idx"`,
     `CREATE UNIQUE INDEX IF NOT EXISTS "vault_hearts_photo_user_unique" ON "vault_hearts"("photo_id","user_id")`,
     `CREATE INDEX IF NOT EXISTS "vault_comments_photo_idx" ON "vault_comments"("photo_id")`,
     `CREATE UNIQUE INDEX IF NOT EXISTS "favorites_user_photo_unique" ON "favorites"("user_id","photo_id")`,
@@ -561,6 +577,94 @@ async function createForeignKeys(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// One-time data backfills (idempotent — safe to re-run every boot)
+// ---------------------------------------------------------------------------
+
+/**
+ * The free-tier caps changed from "live membership / creations only" to
+ * "append-only slots". Two ledgers therefore need seeding from the state that
+ * predates them. Both statements are idempotent: ON CONFLICT DO NOTHING plus a
+ * NOT EXISTS guard means re-running on every boot is a cheap no-op once the
+ * rows are in place.
+ */
+async function backfillLimitLedgers(): Promise<void> {
+  // 1. squad_member_history — every CURRENT membership must have a history row,
+  //    otherwise existing members would look like they had spent zero slots.
+  //    (History rows for squads people already left cannot be recovered; those
+  //    users simply keep the slot they no longer occupy, which is the generous
+  //    direction and matches "existing users keep what they have".)
+  await safeExec(`
+    INSERT INTO "squad_member_history" ("squad_id", "user_id")
+    SELECT s."id", m."user_id"
+    FROM "squads" s
+    CROSS JOIN LATERAL jsonb_array_elements_text(COALESCE(s."member_ids", '[]'::jsonb)) AS m("user_id")
+    ON CONFLICT DO NOTHING
+  `);
+
+  // 2. event_creations — the ledger only ever recorded CREATES. Joining now
+  //    consumes a slot too, so seed accepted invites and "going" RSVPs that
+  //    already happened. Without this an existing user's usage would read low
+  //    and then jump the first time they touch a plan.
+  //    The unique (user_id, event_id) index makes both inserts idempotent, and
+  //    a creator who also RSVP'd keeps exactly one row.
+  await safeExec(`
+    INSERT INTO "event_creations" ("user_id", "event_id", "source", "created_at")
+    SELECT i."invited_user_id", i."event_id", 'join', i."created_at"
+    FROM "event_invites" i
+    WHERE i."status" = 'accepted'
+    ON CONFLICT ("user_id", "event_id") DO NOTHING
+  `);
+  await safeExec(`
+    INSERT INTO "event_creations" ("user_id", "event_id", "source", "created_at")
+    SELECT r."user_id", e."id", 'join', COALESCE(e."created_at", now())
+    FROM "events" e
+    CROSS JOIN LATERAL jsonb_each_text(COALESCE(e."rsvps", '{}'::jsonb)) AS r("user_id", "status")
+    WHERE r."status" = 'going'
+    ON CONFLICT ("user_id", "event_id") DO NOTHING
+  `);
+}
+
+/**
+ * The (user_id, event_id) unique index can only be created once any pre-existing
+ * duplicates are collapsed. Duplicates should not exist (creation wrote one row
+ * per event) but a NULL event_id row or a legacy double-create would block the
+ * index and silently break every ON CONFLICT that depends on it.
+ */
+async function dedupeEventCreations(): Promise<void> {
+  await safeExec(`
+    DELETE FROM "event_creations" a
+    USING "event_creations" b
+    WHERE a."event_id" IS NOT NULL
+      AND a."user_id" = b."user_id"
+      AND a."event_id" = b."event_id"
+      AND a."created_at" > b."created_at"
+  `);
+}
+
+/**
+ * Same story for the personal-vault saves index: the unique
+ * (uploader_id, saved_from_photo_id) index cannot be created while duplicate
+ * copies exist. Duplicates are only possible from saves that raced before the
+ * constraint existed; keep the OLDEST copy of each pair (the one whose id the
+ * client is most likely already showing) and drop the rest.
+ *
+ * Only the ROWS go here. The losing rows' storage objects stay put — their
+ * object_uploads provenance still names the saver, so account deletion and the
+ * media-cleanup queue can still reach them. Deleting bytes from a schema
+ * migration would be the wrong place to risk it.
+ */
+async function dedupeSavedPhotoCopies(): Promise<void> {
+  await safeExec(`
+    DELETE FROM "photos" a
+    USING "photos" b
+    WHERE a."saved_from_photo_id" IS NOT NULL
+      AND a."uploader_id" = b."uploader_id"
+      AND a."saved_from_photo_id" = b."saved_from_photo_id"
+      AND a."id" > b."id"
+  `);
+}
+
+// ---------------------------------------------------------------------------
 // Public entry point
 // ---------------------------------------------------------------------------
 
@@ -575,8 +679,13 @@ export async function ensureSchema(): Promise<void> {
     logger.info('[schemaSync] Running startup schema sync…');
     await createMissingTables();
     await addMissingColumns();
+    // Duplicates must go before createIndexes(), which adds the unique
+    // (user_id, event_id) index the plan-slot ledger's ON CONFLICT relies on.
+    await dedupeEventCreations();
+    await dedupeSavedPhotoCopies();
     await createIndexes();
     await createForeignKeys();
+    await backfillLimitLedgers();
     logger.info('[schemaSync] Schema sync complete');
     // Heal any counter drift caused by webhooks that fired before the
     // founding_member_counter / founding_member_redemptions tables existed.

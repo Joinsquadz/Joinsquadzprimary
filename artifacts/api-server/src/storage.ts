@@ -32,7 +32,7 @@ import {
   type DbEvent,
   type MessageAttachment,
 } from '@workspace/db/schema';
-import { eq, sql, count, and, or, gte, lt, lte, desc, asc, inArray, ne, isNull } from 'drizzle-orm';
+import { eq, sql, count, and, or, gte, lt, lte, desc, asc, inArray, ne, isNull, isNotNull } from 'drizzle-orm';
 import { db } from '@workspace/db';
 import {
   canUserAccessEventRecord,
@@ -96,6 +96,7 @@ const enrichedPhotoColumns = {
   mediaType: photosTable.mediaType,
   caption: photosTable.caption,
   status: photosTable.status,
+  savedFromPhotoId: photosTable.savedFromPhotoId,
   uploadedAt: photosTable.uploadedAt,
   eventTitle: eventsTable.title,
   eventEmoji: eventsTable.emoji,
@@ -235,47 +236,30 @@ export class Storage {
   }
 
   /**
-   * Count events a user created within the trailing 12-month window, read from
-   * the append-only `event_creations` ledger. Because ledger rows are never
-   * deleted, deleting an event does NOT free a slot — a slot only frees once its
-   * ledger row ages out past 12 months. This backs the free-tier event cap.
+   * Plan slots a user has consumed in the trailing 12-month window: events AND
+   * trips, created AND joined, read from the append-only `event_creations`
+   * ledger. Because ledger rows are never deleted, deleting or leaving a plan
+   * does NOT free a slot — a slot only frees once its row ages out past 12
+   * months. This backs the free-tier plan cap.
+   *
+   * Delegates to lib/planLimit so this read-only surface (GET /events/count)
+   * can never drift from the rule the create/join paths actually enforce — a
+   * user must never be told "2 of 3 used" and then be refused.
    */
   async countUserEventCreationsInWindow(userId: string): Promise<number> {
-    const windowStart = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
-    const [row] = await db
-      .select({ total: count() })
-      .from(eventCreationsTable)
-      .where(
-        and(
-          eq(eventCreationsTable.userId, userId),
-          gte(eventCreationsTable.createdAt, windowStart),
-        ),
-      );
-    return row?.total ?? 0;
+    const { countPlanSlotsUsed } = await import("./lib/planLimit");
+    return countPlanSlotsUsed(db, userId);
   }
 
   /**
-   * Returns the ISO timestamp when the user's oldest event-creation ledger
-   * slot in the trailing 12-month window will expire, or null if there are
-   * no slots yet.  Used by GET /events/count so the UpgradeModal can show
-   * "Your oldest slot frees up [date]" before a create attempt is made.
+   * Returns the ISO timestamp when the user's oldest counted plan slot in the
+   * trailing 12-month window will expire, or null if there are no slots yet.
+   * Used by GET /events/count so the UpgradeModal can show "Your oldest slot
+   * frees up [date]" before a create attempt is made.
    */
   async getOldestEventCreationAt(userId: string): Promise<string | null> {
-    const windowStart = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
-    const windowMs = 365 * 24 * 60 * 60 * 1000;
-    const [oldest] = await db
-      .select({ createdAt: eventCreationsTable.createdAt })
-      .from(eventCreationsTable)
-      .where(
-        and(
-          eq(eventCreationsTable.userId, userId),
-          gte(eventCreationsTable.createdAt, windowStart),
-        ),
-      )
-      .orderBy(asc(eventCreationsTable.createdAt))
-      .limit(1);
-    if (!oldest?.createdAt) return null;
-    return new Date(new Date(oldest.createdAt).getTime() + windowMs).toISOString();
+    const { nextPlanSlotAvailableAt } = await import("./lib/planLimit");
+    return nextPlanSlotAvailableAt(db, userId);
   }
 
   async createEvent(hostId: string, title: string, date: string, location: string, inviteCode: string) {
@@ -347,6 +331,79 @@ export class Storage {
   }
 
   /**
+   * The personal copy this user has already made of `sourcePhotoId`, if any.
+   * Makes "Save to my vault" idempotent: tapping save twice must not create a
+   * second copy (nor a second storage object).
+   */
+  async getSavedCopy(userId: string, sourcePhotoId: number): Promise<Photo | null> {
+    const [row] = await db
+      .select()
+      .from(photosTable)
+      .where(
+        and(
+          eq(photosTable.uploaderId, userId),
+          eq(photosTable.savedFromPhotoId, sourcePhotoId),
+        ),
+      );
+    return row ?? null;
+  }
+
+  /** Source photo ids this user has already copied into their personal vault. */
+  async getSavedSourcePhotoIds(userId: string): Promise<number[]> {
+    const rows = await db
+      .select({ sourceId: photosTable.savedFromPhotoId })
+      .from(photosTable)
+      .where(
+        and(
+          eq(photosTable.uploaderId, userId),
+          isNotNull(photosTable.savedFromPhotoId),
+        ),
+      );
+    return rows.map((r) => r.sourceId).filter((id): id is number => id !== null);
+  }
+
+  /**
+   * Create the personal-vault copy of a photo the user can view.
+   *
+   * The copy is a first-class photo row OWNED BY THE SAVER, with no eventId,
+   * no squadId and sharedToSquad = false — it is not part of any shared vault,
+   * so it neither leaks into the source squad/event roll-ups nor dies with
+   * them. `savedFromPhotoId` is a bare integer (no FK) precisely so deleting
+   * the source cannot cascade the copy away.
+   *
+   * `url` must already point at an INDEPENDENT storage object (the caller
+   * copies the bytes first) — pointing both rows at the same object would put
+   * the copy one source-deletion away from a broken image.
+   */
+  async addSavedPhotoCopy(
+    userId: string,
+    sourcePhoto: Photo,
+    url: string,
+  ): Promise<Photo | null> {
+    const [photo] = await db
+      .insert(photosTable)
+      .values({
+        uploaderId: userId,
+        url,
+        eventId: null,
+        squadId: null,
+        sharedToSquad: false,
+        mediaType: sourcePhoto.mediaType === "video" ? "video" : "image",
+        caption: sourcePhoto.caption ?? null,
+        savedFromPhotoId: sourcePhoto.id,
+      })
+      // Two simultaneous saves both pass the "already saved?" probe, so the
+      // unique (uploader_id, saved_from_photo_id) index is what actually
+      // enforces one copy per source. The loser gets no row back (rather than
+      // a 500) and its caller cleans up the object it copied for nothing.
+      .onConflictDoNothing({
+        target: [photosTable.uploaderId, photosTable.savedFromPhotoId],
+      })
+      .returning();
+    return photo ?? null;
+  }
+
+  /**
    * The curated squad vault roll-up the vault SCREEN reads
    * (GET /api/squads/:id/vault): every photo shared into this squad's vault
    * (`squadId = X AND sharedToSquad = true`), including event-less photos added
@@ -379,6 +436,20 @@ export class Storage {
       .set({ sharedToSquad: true, squadId })
       .where(and(inArray(photosTable.id, photoIds), eq(photosTable.uploaderId, uploaderId)))
       .returning();
+  }
+
+  /**
+   * Hard-delete a photo row the user OWNS. Used by "remove from my vault" for
+   * personal saved copies (the row and its object exist only for the saver, so
+   * there is nothing shared to preserve). Returns the deleted row, or null when
+   * the id isn't theirs.
+   */
+  async deleteOwnPhoto(photoId: number, uploaderId: string): Promise<Photo | null> {
+    const [photo] = await db
+      .delete(photosTable)
+      .where(and(eq(photosTable.id, photoId), eq(photosTable.uploaderId, uploaderId)))
+      .returning();
+    return photo ?? null;
   }
 
   async unsharePhotoFromSquad(photoId: number, uploaderId: string, squadId: string) {
@@ -1970,6 +2041,38 @@ export class Storage {
       .insert(objectUploadsTable)
       .values({ ownerId, objectPath })
       .onConflictDoNothing({ target: objectUploadsTable.objectPath });
+  }
+
+  /**
+   * Drop an upload-provenance row, but ONLY if the given user owns it.
+   *
+   * The mirror of recordUpload: when the object it points at is deleted, the
+   * row must go too. A provenance row outliving its bytes makes account
+   * deletion chase an object that is already gone, and (worse) keeps claiming
+   * ownership of a path the storage layer is free to hand out again.
+   */
+  async deleteUploadRecord(ownerId: string, objectPath: string): Promise<void> {
+    await db
+      .delete(objectUploadsTable)
+      .where(
+        and(
+          eq(objectUploadsTable.objectPath, objectPath),
+          eq(objectUploadsTable.ownerId, ownerId),
+        ),
+      );
+  }
+
+  /**
+   * How many photo rows still point at this exact object path. Guards
+   * byte-deletion: an object referenced by any surviving row must never be
+   * removed, no matter who owns the provenance.
+   */
+  async countPhotosByUrl(url: string): Promise<number> {
+    const [row] = await db
+      .select({ value: count() })
+      .from(photosTable)
+      .where(eq(photosTable.url, url));
+    return Number(row?.value ?? 0);
   }
 
   /** Returns the user who uploaded the given object path, or null if unknown. */

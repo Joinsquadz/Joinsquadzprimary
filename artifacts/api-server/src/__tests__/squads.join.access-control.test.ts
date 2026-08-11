@@ -25,6 +25,8 @@ vi.mock("@workspace/db", () => ({
     insert: () => ({
       values: () => ({
         returning: () => Promise.resolve([]),
+        // #633: squad history ledger writes use ON CONFLICT DO NOTHING.
+        onConflictDoNothing: () => Promise.resolve(undefined),
       }),
     }),
     delete: () => ({
@@ -48,6 +50,7 @@ vi.mock("@workspace/db", () => ({
   },
   squadRemovalNoticesTable: { id: "id", userId: "user_id", seenAt: "seen_at" },
   squadMutesTable: { userId: "user_id", squadId: "squad_id" },
+  squadMemberHistoryTable: { squadId: "squad_id", userId: "user_id", firstJoinedAt: "first_joined_at" },
 }));
 
 vi.mock("../storage", () => ({

@@ -51,6 +51,8 @@ vi.mock("@workspace/db", () => ({
         insert: () => ({
           values: () => ({
             returning: () => Promise.resolve(dbInsertRows.value),
+            // #633: squad_member_history ledger write shares this tx.
+            onConflictDoNothing: () => Promise.resolve(undefined),
           }),
         }),
         update: () => ({
@@ -95,6 +97,8 @@ vi.mock("@workspace/db", () => ({
   },
   squadMutesTable: { userId: "user_id", squadId: "squad_id" },
   conversationsTable: {},
+  squadMemberHistoryTable: { squadId: "squad_id", userId: "user_id", firstJoinedAt: "first_joined_at" },
+  eventCreationsTable: { id: "id", userId: "user_id", eventId: "event_id", source: "source", createdAt: "created_at" },
 }));
 
 const storageMock = vi.hoisted(() => ({
@@ -107,7 +111,7 @@ const storageMock = vi.hoisted(() => ({
 }));
 
 vi.mock("../storage", () => ({ storage: storageMock }));
-vi.mock("../lib/logger");
+vi.mock("../lib/logger", () => ({ logger: { error: (...a: unknown[]) => console.error("LOGERR", ...a), info: () => {}, warn: () => {}, debug: () => {}, child: () => ({ error: () => {}, info: () => {}, warn: () => {}, debug: () => {} }) } }));
 vi.mock("../lib/pushNotifications", () => ({ sendPushNotifications: vi.fn() }));
 vi.mock("../lib/proStatus", () => ({ resolveProStatus: vi.fn().mockResolvedValue(false) }));
 vi.mock("../lib/squadLimit", async (importOriginal) => {

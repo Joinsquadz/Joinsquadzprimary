@@ -61,7 +61,11 @@ export default function ProfileScreen() {
   const [avatarViewerOpen, setAvatarViewerOpen] = useState(false);
   const [showSuccessBanner, setShowSuccessBanner] = useState(didCheckoutSuccess);
   const [eventCount, setEventCount] = useState<number | null>(null);
-  const [eventLimit, setEventLimit] = useState(5);
+  // Server is the source of truth for both caps (GET /api/events/count and
+  // GET /api/squads/count) — these initial values are only placeholders shown
+  // before the first response lands, never a hardcoded product rule.
+  const [eventLimit, setEventLimit] = useState(3);
+  const [squadUsage, setSquadUsage] = useState<{ count: number; limit: number } | null>(null);
   // Auth-race guard for the on-mount event-count fetch (see lib/vaultAuthRace.ts).
   const [countLoading, setCountLoading] = useState(true);
   const [countAuth, setCountAuth] = useState<AuthRaceState>(INITIAL_AUTH_RACE_STATE);
@@ -134,6 +138,27 @@ export default function ProfileScreen() {
   useEffect(() => {
     void fetchEventCount();
   }, [fetchEventCount]);
+
+  // Squad-slot usage. Best-effort and independent of the plan count: if it
+  // fails the squad usage bar simply doesn't render (the server still enforces
+  // the cap), so a failed fetch never blocks or misinforms.
+  useEffect(() => {
+    if (!authToken) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/squads/count`, { headers: authHeaders() });
+        if (!res.ok) return;
+        const data = await res.json() as { count: number; limit: number };
+        if (!cancelled && typeof data?.count === "number" && typeof data?.limit === "number") {
+          setSquadUsage({ count: data.count, limit: data.limit });
+        }
+      } catch {
+        // best-effort
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [authHeaders, authToken, squads.length]);
 
   // Retry driver: while the count fetch is auth-pending, re-run on a short
   // cadence until an authenticated fetch lands, then give up into an error.
@@ -713,7 +738,7 @@ export default function ProfileScreen() {
             <View style={[styles.eventUsageBar, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <View style={styles.eventUsageRow}>
                 <Text style={[styles.eventUsageLabel, { color: colors.mutedForeground }]}>
-                  {eventCount} / {eventLimit} free events used in the last 12 months
+                  {eventCount} / {eventLimit} free plans used in the last 12 months
                 </Text>
                 <Text style={[styles.eventUsageRemaining, { color: eventCount >= eventLimit ? colors.destructive : colors.mutedForeground }]}>
                   {eventCount >= eventLimit ? "Limit reached" : `${eventLimit - eventCount} left`}
@@ -730,6 +755,37 @@ export default function ProfileScreen() {
                   ]}
                 />
               </View>
+              <Text style={[styles.usageExplainer, { color: colors.textDim }]}>
+                Events and trips count together, whether you created them or joined them.
+              </Text>
+            </View>
+          )}
+          {squadUsage !== null && !isPro && (
+            <View style={[styles.eventUsageBar, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <View style={styles.eventUsageRow}>
+                <Text style={[styles.eventUsageLabel, { color: colors.mutedForeground }]}>
+                  {squadUsage.count} / {squadUsage.limit} free squads used
+                </Text>
+                <Text style={[styles.eventUsageRemaining, { color: squadUsage.count >= squadUsage.limit ? colors.destructive : colors.mutedForeground }]}>
+                  {squadUsage.count >= squadUsage.limit
+                    ? "Limit reached"
+                    : `${squadUsage.limit - squadUsage.count} left`}
+                </Text>
+              </View>
+              <View style={[styles.eventUsageTrack, { backgroundColor: colors.border }]}>
+                <View
+                  style={[
+                    styles.eventUsageFill,
+                    {
+                      backgroundColor: squadUsage.count >= squadUsage.limit ? colors.destructive : colors.primary,
+                      width: `${Math.min(100, (squadUsage.count / squadUsage.limit) * 100)}%` as `${number}%`,
+                    },
+                  ]}
+                />
+              </View>
+              <Text style={[styles.usageExplainer, { color: colors.textDim }]}>
+                A slot is used when you create or join a squad. Leaving one doesn't give the slot back.
+              </Text>
             </View>
           )}
         </View>
@@ -1154,6 +1210,7 @@ const styles = StyleSheet.create({
   eventUsageRemaining: { fontSize: 11, fontWeight: "700" },
   eventUsageTrack: { height: 5, borderRadius: 3, overflow: "hidden" },
   eventUsageFill: { height: "100%", borderRadius: 3 },
+  usageExplainer: { fontSize: 11, marginTop: 6, lineHeight: 15 },
   devSectionTitle: { fontSize: 11, fontWeight: "700", letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 8 },
   devTokenLabel: { fontSize: 10, fontWeight: "600", letterSpacing: 0.4, textTransform: "uppercase" },
   devTokenValue: { fontSize: 12, fontFamily: "monospace", letterSpacing: 0.3 },

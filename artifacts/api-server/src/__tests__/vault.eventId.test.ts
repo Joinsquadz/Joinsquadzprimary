@@ -10,6 +10,7 @@ vi.mock("../storage", () => ({
     getPhotosByUploaderId: vi.fn().mockResolvedValue([]),
     getPhotosBySquadId: vi.fn().mockResolvedValue({ authorized: true, photos: [] }),
     getEvent: vi.fn().mockResolvedValue(null),
+    isSquadMemberPublic: vi.fn().mockResolvedValue(false),
     getPhotosByEventId: vi.fn().mockResolvedValue([]),
     addPhoto: vi.fn(),
     getUploadOwner: vi.fn(),
@@ -50,6 +51,14 @@ describe("POST /api/vault/photos eventId handling", () => {
     vi.mocked(storage.getUser).mockResolvedValue(proUserRow as never);
     vi.mocked(storage.getSubscription).mockResolvedValue({ status: "active" } as never);
     vi.mocked(storage.getUploadOwner).mockResolvedValue(PRO_USER_ID);
+    // #633: provenance alone no longer authorizes an event roll-up — the
+    // uploader must also have access to the event. Host access here.
+    vi.mocked(storage.getEvent).mockResolvedValue({
+      id: "evt-1",
+      hostId: PRO_USER_ID,
+      squadId: null,
+      invitedUserIds: [],
+    } as never);
   });
 
   it("passes the eventId through to storage and returns the saved row with it", async () => {

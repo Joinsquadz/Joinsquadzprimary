@@ -21,6 +21,14 @@ import { recordActivitySafe, removeActivity } from "../lib/activity";
 import { parseEventStart, calendarDaysUntil } from "../lib/eventDate";
 import { resolveProStatus } from "../lib/proStatus";
 import {
+  FREE_PLAN_LIMIT,
+  withPlanSlot,
+  type Executor as PlanExecutor,
+  countPlanSlotsUsed,
+  nextPlanSlotAvailableAt,
+  planLimitResponse,
+} from "../lib/planLimit";
+import {
   isWholeCent,
   isValidCostAmounts,
   WHOLE_CENT_MESSAGE,
@@ -95,11 +103,13 @@ const RSVP_LABEL: Record<string, string> = {
   notgoing: "can't make it",
 };
 
-const FREE_EVENT_LIMIT = 5;
-// Free users may create up to FREE_EVENT_LIMIT events within this trailing
-// window. Enforced against the append-only event_creations ledger, so deleting
-// an event does not free a slot until its ledger row ages out of the window.
-const EVENT_WINDOW_MS = 365 * 24 * 60 * 60 * 1000;
+// Free users may take part in up to FREE_EVENT_LIMIT PLANS — events and trips
+// combined, whether they created them or joined them — within a trailing
+// 12-month window. Enforced against the append-only event_creations ledger, so
+// deleting an event or leaving one does not free a slot until its ledger row
+// ages out of the window. The counting rules live in lib/planLimit.ts and are
+// shared with every join path (invite accept, RSVP going, invite-code join).
+const FREE_EVENT_LIMIT = FREE_PLAN_LIMIT;
 
 type EventExecutor = Parameters<Parameters<typeof db.transaction>[0]>[0] | typeof db;
 
@@ -468,6 +478,7 @@ router.get("/events/count", requireAuth, async (req: Request, res: Response): Pr
       storage.countUserEventCreationsInWindow(userId),
       storage.getOldestEventCreationAt(userId),
     ]);
+    // `count` covers plans created AND joined — the ledger records both.
     res.json({ count: total, limit: FREE_EVENT_LIMIT, nextSlotAvailableAt });
   } catch (err) {
     logger.error({ err }, "Error fetching event count");
@@ -615,44 +626,25 @@ router.post("/events", requireAuth, async (req: Request, res: Response): Promise
     > => {
       if (!isPro && inTransaction) {
         await executor.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${hostId}))`);
-        const windowStart = new Date(Date.now() - EVENT_WINDOW_MS);
-        // W-02: Exclude "orphaned quick-cancels" from the cap. An event is
-        // orphaned when it was cancelled within 1 hour of its ledger entry AND
-        // had no invites and no RSVPs — a pure mis-tap with zero impact on
-        // other users. NULL from the LEFT JOIN (deleted event) stays counted.
-        const quickCancelCutoff = new Date(Date.now() - 60 * 60 * 1000);
-        const orphanFilter = sql`NOT (
-          ${eventsTable.cancelled} IS TRUE
-          AND ${eventCreationsTable.createdAt} >= ${quickCancelCutoff}
-          AND ${eventsTable.invitedUserIds} = '[]'::jsonb
-          AND ${eventsTable.rsvps} = '{}'::jsonb
-        )`;
-        const [row] = await executor
-          .select({ count: sql<number>`count(*)::int` })
-          .from(eventCreationsTable)
-          .leftJoin(eventsTable, eq(eventCreationsTable.eventId, eventsTable.id))
-          .where(and(eq(eventCreationsTable.userId, hostId), gte(eventCreationsTable.createdAt, windowStart), orphanFilter));
-        const used = row?.count ?? 0;
+        // Shared with the JOIN side (lib/planLimit.ts) so creating and joining
+        // draw from the SAME pool of free plan slots. The count excludes
+        // "orphaned quick-cancels" — an event cancelled within an hour of its
+        // ledger entry with no invites and no RSVPs is a pure mis-tap.
+        const used = await countPlanSlotsUsed(executor, hostId);
         if (used >= FREE_EVENT_LIMIT) {
-          // W-02: Surface when the oldest counted slot frees up so the client
-          // can show "try again after <date>" without an extra API call.
-          const [oldest] = await executor
-            .select({ createdAt: eventCreationsTable.createdAt })
-            .from(eventCreationsTable)
-            .leftJoin(eventsTable, eq(eventCreationsTable.eventId, eventsTable.id))
-            .where(and(eq(eventCreationsTable.userId, hostId), gte(eventCreationsTable.createdAt, windowStart), orphanFilter))
-            .orderBy(asc(eventCreationsTable.createdAt))
-            .limit(1);
-          const nextSlotAvailableAt = oldest?.createdAt
-            ? new Date(new Date(oldest.createdAt).getTime() + EVENT_WINDOW_MS).toISOString()
-            : null;
-          return { ok: false, count: used, nextSlotAvailableAt };
+          // Surface when the oldest counted slot frees up so the client can
+          // show "try again after <date>" without an extra API call.
+          return {
+            ok: false,
+            count: used,
+            nextSlotAvailableAt: await nextPlanSlotAvailableAt(executor, hostId),
+          };
         }
       }
       const [created] = await executor.insert(eventsTable).values(insertValues).returning();
       await executor
         .insert(eventCreationsTable)
-        .values({ userId: hostId, eventId: created.id });
+        .values({ userId: hostId, eventId: created.id, source: "create" });
 
       // Exactly-once poll conversion. The claim lives in the SAME transaction
       // as the insert: stamping the poll only while converted_event_id IS NULL
@@ -688,13 +680,13 @@ router.post("/events", requireAuth, async (req: Request, res: Response): Promise
         : await runCreate(db, false);
 
     if (!result.ok) {
-      res.status(403).json({
-        error: `Free plan is limited to ${FREE_EVENT_LIMIT} events in a 12-month window. Upgrade to SquadZ+ to create unlimited events.`,
-        requiresPro: true,
-        count: result.count,
-        limit: FREE_EVENT_LIMIT,
-        nextSlotAvailableAt: result.nextSlotAvailableAt, // W-02: when the oldest slot expires
-      });
+      res.status(403).json(
+        planLimitResponse({
+          count: result.count,
+          limit: FREE_EVENT_LIMIT,
+          nextSlotAvailableAt: result.nextSlotAvailableAt,
+        }),
+      );
       return;
     }
 
@@ -790,16 +782,36 @@ router.post("/events/join", requireAuth, async (req: Request, res: Response): Pr
     return;
   }
 
-  // Atomic per-user merge (see /events/:id/rsvp): write only this user's key so
-  // concurrent invite-link joins can't clobber each other's RSVP.
-  const [event] = await db
-    .update(eventsTable)
-    .set({
-      rsvps: sql`COALESCE(${eventsTable.rsvps}, '{}'::jsonb) || ${JSON.stringify({ [userId]: "going" })}::jsonb`,
-      version: sql`${eventsTable.version} + 1`,
-    })
-    .where(eq(eventsTable.id, existing.id))
-    .returning();
+  // Joining a plan consumes a free-tier plan slot, exactly like creating one.
+  // The RSVP write runs INSIDE the claim's transaction so the ledger row and
+  // the join commit together — a failed or zero-row update must not burn a slot.
+  const slot = await withPlanSlot(
+    userId,
+    existing.id,
+    // Atomic per-user merge (see /events/:id/rsvp): write only this user's key
+    // so concurrent invite-link joins can't clobber each other's RSVP.
+    (tx) =>
+      tx
+        .update(eventsTable)
+        .set({
+          rsvps: sql`COALESCE(${eventsTable.rsvps}, '{}'::jsonb) || ${JSON.stringify({ [userId]: "going" })}::jsonb`,
+          version: sql`${eventsTable.version} + 1`,
+        })
+        .where(eq(eventsTable.id, existing.id))
+        .returning(),
+    // Zero rows = the plan was deleted between the lookup and the write; the
+    // user never joined, so they must not be charged.
+    (rows) => rows.length > 0,
+  );
+  if (!slot.ok) {
+    res.status(403).json(planLimitResponse(slot));
+    return;
+  }
+  const [event] = slot.value;
+  if (!event) {
+    res.status(404).json({ error: "Event not found" });
+    return;
+  }
 
   res.json(event);
   emitEventUpdate(existing.id);
@@ -1197,13 +1209,38 @@ router.post("/events/:id/rsvp", requireAuth, async (req: Request, res: Response)
   // read-modify-write of the whole object. This removes the whole-row version
   // gate that made concurrent RSVPs from different users spuriously 409 (a
   // disjoint-key "conflict") and also closes the lost-update window.
-  const [event] = await db.update(eventsTable)
-    .set({
-      rsvps: sql`COALESCE(${eventsTable.rsvps}, '{}'::jsonb) || ${JSON.stringify({ [userId]: status })}::jsonb`,
-      version: sql`${eventsTable.version} + 1`,
-    })
-    .where(eq(eventsTable.id, id))
-    .returning();
+  const rsvpWrite = (executor: PlanExecutor) =>
+    executor
+      .update(eventsTable)
+      .set({
+        rsvps: sql`COALESCE(${eventsTable.rsvps}, '{}'::jsonb) || ${JSON.stringify({ [userId]: status })}::jsonb`,
+        version: sql`${eventsTable.version} + 1`,
+      })
+      .where(eq(eventsTable.id, id))
+      .returning();
+
+  let event;
+  if (status === "going") {
+    // RSVPing "going" is how you take part in a plan you were invited to, so it
+    // consumes a free-tier plan slot (idempotent per plan — changing your mind
+    // and coming back never charges twice, and the host's create already claimed
+    // their own row). The RSVP write runs inside the claim transaction so a
+    // failed write can't leave a slot spent on a plan they never joined.
+    // maybe/notgoing are not participation and cost nothing.
+    const slot = await withPlanSlot(
+      userId,
+      id,
+      (tx) => rsvpWrite(tx),
+      (rows) => rows.length > 0,
+    );
+    if (!slot.ok) {
+      res.status(403).json(planLimitResponse(slot));
+      return;
+    }
+    [event] = slot.value;
+  } else {
+    [event] = await rsvpWrite(db);
+  }
   if (!event) {
     res.status(404).json({ error: "Event not found" });
     return;

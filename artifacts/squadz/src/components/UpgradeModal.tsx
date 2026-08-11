@@ -3,8 +3,8 @@ import { T, font, fontMono } from "@/lib/data";
 import { startProCheckout } from "@/lib/checkout";
 
 const PRO_FEATURES = [
-  "Unlimited events per year",
-  "Permanent photo vault",
+  "Unlimited plans — events and trips",
+  "Permanent personal photo vault",
   "Calendar sync & AI best-time finder",
   "Custom invite codes",
   "Priority support",
@@ -21,17 +21,17 @@ const TRIGGER_COPY: Record<UpgradeTrigger, { icon: string; title: string; body: 
   events: {
     icon: "🎉",
     title: "You're on a roll!",
-    body: "You've planned 5 events this year — the free plan limit. Upgrade to keep the momentum going.",
+    body: "You've used all 3 plans in your free year — events and trips count together, whether you created them or joined them. Upgrade to keep the momentum going.",
   },
   photos: {
     icon: "📸",
     title: "Keep your memories",
-    body: "The personal photo vault is a Pro feature. Upgrade for a permanent, unlimited photo vault.",
+    body: "The personal photo vault is a Pro feature. Save any photo into your own vault and keep your copy even if the original is deleted.",
   },
   general: {
     icon: "⚡",
     title: "Unlock the full experience",
-    body: "Unlimited events, photo vault, calendar sync, and custom invite codes — for just $29.99/year.",
+    body: "Unlimited plans, personal photo vault, calendar sync, and custom invite codes — for just $29.99/year.",
   },
 };
 

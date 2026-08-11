@@ -148,6 +148,7 @@ beforeAll(async () => {
   const conversationsRouter = (await import("../../routes/conversations")).default;
   const squadsRouter = (await import("../../routes/squads")).default;
   const eventsRouter = (await import("../../routes/events")).default;
+  const invitesRouter = (await import("../../routes/invites")).default;
   app = buildApp(
     authRouter,
     usersRouter,
@@ -156,6 +157,7 @@ beforeAll(async () => {
     conversationsRouter,
     squadsRouter,
     eventsRouter,
+    invitesRouter,
   );
   storage = (await import("../../storage")).storage;
 
@@ -202,6 +204,37 @@ async function seedSquad(id: string, creator: string, memberIds: string[], isPub
   );
 }
 
+async function seedSquadInvite(
+  id: string,
+  squadId: string,
+  inviterId: string,
+  invitedId: string,
+): Promise<void> {
+  await dbmod.pool.query(
+    `INSERT INTO squad_invites (id, squad_id, inviter_user_id, invited_user_id, status)
+     VALUES ($1,$2,$3,$4,'pending')`,
+    [id, squadId, inviterId, invitedId],
+  );
+}
+
+async function squadSlotsUsed(userId: string): Promise<number> {
+  const { rows } = await dbmod.pool.query(
+    `SELECT count(*)::int AS c FROM squad_member_history WHERE user_id = $1`,
+    [userId],
+  );
+  return rows[0].c;
+}
+
+async function squadMembers(squadId: string): Promise<string[]> {
+  const { rows } = await dbmod.pool.query(`SELECT member_ids FROM squads WHERE id = $1`, [squadId]);
+  return (rows[0]?.member_ids ?? []) as string[];
+}
+
+async function inviteStatus(table: "squad_invites" | "event_invites", id: string): Promise<string> {
+  const { rows } = await dbmod.pool.query(`SELECT status FROM ${table} WHERE id = $1`, [id]);
+  return rows[0].status;
+}
+
 async function seedEvent(
   id: string,
   hostId: string,
@@ -222,6 +255,27 @@ async function seedEvent(
       JSON.stringify(opts.invited ?? []),
     ],
   );
+}
+
+async function seedEventInvite(
+  id: string,
+  eventId: string,
+  inviterId: string,
+  invitedId: string,
+): Promise<void> {
+  await dbmod.pool.query(
+    `INSERT INTO event_invites (id, event_id, inviter_user_id, invited_user_id, status)
+     VALUES ($1,$2,$3,$4,'pending')`,
+    [id, eventId, inviterId, invitedId],
+  );
+}
+
+async function planSlotsUsed(userId: string): Promise<number> {
+  const { rows } = await dbmod.pool.query(
+    `SELECT count(*)::int AS c FROM event_creations WHERE user_id = $1`,
+    [userId],
+  );
+  return rows[0].c;
 }
 
 async function makeFriends(a: string, b: string): Promise<void> {
@@ -986,9 +1040,363 @@ describe("SIM-9 — free-tier caps hold when a user fires everything at once", (
       [free],
     );
 
-    expect(created).toBe(5);
-    expect(rows[0].c).toBe(5);
-    expect(refused).toHaveLength(4);
-    expect(refused.every((r) => r.body.limit === 5)).toBe(true);
+    // #633: the free cap is 3 plans (events AND trips share one ledger), so 9
+    // simultaneous creates must settle at exactly 3 — the per-user advisory
+    // lock + in-transaction re-count is what stops a burst from racing past it.
+    expect(created).toBe(3);
+    expect(rows[0].c).toBe(3);
+    expect(refused).toHaveLength(6);
+    expect(refused.every((r) => r.body.limit === 3)).toBe(true);
+  });
+
+  it("two simultaneous accepts of the same invite charge exactly ONE slot", async () => {
+    // The loser of the race writes nothing and returns 409. Before the claim
+    // was moved inside the accept transaction, it still burned a slot — the
+    // user paid twice for one plan out of a budget of three.
+    const joiner = "accept-race";
+    await seedUser(joiner);
+    await seedUser("accept-host");
+    await seedEvent("evt-accept-race", "accept-host");
+    await seedEventInvite("inv-race", "evt-accept-race", "accept-host", joiner);
+
+    const results = await Promise.all(
+      Array.from({ length: 2 }, () =>
+        request(app).post("/api/events/invites/inv-race/accept").set("x-test-user", joiner),
+      ),
+    );
+
+    const ok = results.filter((r) => r.status === 200);
+    const conflicted = results.filter((r) => r.status === 409 || r.status === 404);
+    expect(ok).toHaveLength(1);
+    expect(conflicted).toHaveLength(1);
+    expect(await planSlotsUsed(joiner)).toBe(1);
+  });
+
+  it("an accept that loses the race leaves the invite accepted exactly once", async () => {
+    const joiner = "accept-once";
+    await seedUser(joiner);
+    await seedUser("accept-host2");
+    await seedEvent("evt-accept-once", "accept-host2");
+    await seedEventInvite("inv-once", "evt-accept-once", "accept-host2", joiner);
+
+    await Promise.all(
+      Array.from({ length: 4 }, () =>
+        request(app).post("/api/events/invites/inv-once/accept").set("x-test-user", joiner),
+      ),
+    );
+
+    const { rows } = await dbmod.pool.query(
+      `SELECT status, invited_user_ids FROM event_invites
+       JOIN events ON events.id = event_invites.event_id
+       WHERE event_invites.id = $1`,
+      ["inv-once"],
+    );
+    expect(rows[0].status).toBe("accepted");
+    // Access granted exactly once — no duplicate ids in the jsonb array.
+    expect(rows[0].invited_user_ids).toEqual([joiner]);
+    expect(await planSlotsUsed(joiner)).toBe(1);
+  });
+
+  it("a capped user's accept leaves the invite pending and spends nothing", async () => {
+    const capped = "accept-capped";
+    await seedUser(capped);
+    await seedUser("accept-host3");
+
+    // Burn all three slots on creates.
+    for (let i = 0; i < 3; i++) {
+      const res = await request(app)
+        .post("/api/events")
+        .set("x-test-user", capped)
+        .send({ title: `Filler ${i}`, date: "2026-12-31", location: "X" });
+      expect(res.status).toBeLessThan(300);
+    }
+    expect(await planSlotsUsed(capped)).toBe(3);
+
+    await seedEvent("evt-capped-invite", "accept-host3");
+    await seedEventInvite("inv-capped", "evt-capped-invite", "accept-host3", capped);
+
+    const res = await request(app)
+      .post("/api/events/invites/inv-capped/accept")
+      .set("x-test-user", capped);
+
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe("PLAN_LIMIT");
+    // Nothing was written: the invite is still acceptable the moment they
+    // upgrade or a slot ages out.
+    const { rows } = await dbmod.pool.query(
+      `SELECT status FROM event_invites WHERE id = $1`,
+      ["inv-capped"],
+    );
+    expect(rows[0].status).toBe("pending");
+    expect(await planSlotsUsed(capped)).toBe(3);
+  });
+
+  it("re-RSVPing 'going' to a plan you already joined never charges twice", async () => {
+    const repeat = "rsvp-repeat";
+    await seedUser(repeat);
+    await seedUser("rsvp-host");
+    await seedEvent("evt-rsvp-repeat", "rsvp-host", { invited: [repeat] });
+
+    for (const status of ["going", "notgoing", "going", "maybe", "going"]) {
+      const res = await request(app)
+        .post("/api/events/evt-rsvp-repeat/rsvp")
+        .set("x-test-user", repeat)
+        .send({ status });
+      expect(res.status).toBe(200);
+    }
+
+    // One plan = one slot, no matter how many times they change their mind.
+    expect(await planSlotsUsed(repeat)).toBe(1);
+  });
+
+  it("an over-cap user can still re-RSVP to a plan they already hold a slot for", async () => {
+    const grandfathered = "rsvp-overcap";
+    await seedUser(grandfathered);
+    await seedUser("rsvp-host2");
+    await seedEvent("evt-overcap", "rsvp-host2", { invited: [grandfathered] });
+
+    // Take the slot for this plan first, then push the account over the cap.
+    const first = await request(app)
+      .post("/api/events/evt-overcap/rsvp")
+      .set("x-test-user", grandfathered)
+      .send({ status: "going" });
+    expect(first.status).toBe(200);
+    for (let i = 0; i < 3; i++) {
+      await request(app)
+        .post("/api/events")
+        .set("x-test-user", grandfathered)
+        .send({ title: `Over ${i}`, date: "2026-12-31", location: "X" });
+    }
+
+    const again = await request(app)
+      .post("/api/events/evt-overcap/rsvp")
+      .set("x-test-user", grandfathered)
+      .send({ status: "going" });
+
+    // A no-op re-claim must pass even at/over the cap, otherwise changing your
+    // mind twice starts failing for grandfathered users.
+    expect(again.status).toBe(200);
+  });
+
+  it("accepting an invite to a plan deleted mid-flight leaves nothing behind", async () => {
+    // Access to a plan is granted ONLY through events.invited_user_ids. If the
+    // event vanishes between the invite lookup and the accept, an accept that
+    // ignored the zero-row update would mark the invite accepted and spend one
+    // of three free slots on a plan the user can never open.
+    const joiner = "accept-gone";
+    await seedUser(joiner);
+    await seedUser("accept-host4");
+    await seedEvent("evt-accept-gone", "accept-host4");
+    await seedEventInvite("inv-gone", "evt-accept-gone", "accept-host4", joiner);
+    await dbmod.pool.query(`DELETE FROM events WHERE id = $1`, ["evt-accept-gone"]);
+
+    const res = await request(app)
+      .post("/api/events/invites/inv-gone/accept")
+      .set("x-test-user", joiner);
+
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(await planSlotsUsed(joiner)).toBe(0);
+  });
+
+  it("concurrent re-RSVPs from the same user settle on one slot", async () => {
+    // Exercises the lock-before-probe ordering: a claim that probed first would
+    // see no row, block, and then be judged against a count its own twin had
+    // just incremented — rejecting what should be a no-op.
+    const burst = "rsvp-burst";
+    await seedUser(burst);
+    await seedUser("rsvp-host3");
+    await seedEvent("evt-rsvp-burst", "rsvp-host3", { invited: [burst] });
+
+    const results = await Promise.all(
+      Array.from({ length: 6 }, () =>
+        request(app)
+          .post("/api/events/evt-rsvp-burst/rsvp")
+          .set("x-test-user", burst)
+          .send({ status: "going" }),
+      ),
+    );
+
+    expect(results.every((r) => r.status === 200)).toBe(true);
+    expect(await planSlotsUsed(burst)).toBe(1);
+  });
+});
+
+describe("SIM-9b — personal vault saves are idempotent under concurrency", () => {
+  async function seedPhoto(id: number, uploader: string, url: string): Promise<void> {
+    await dbmod.pool.query(
+      `INSERT INTO photos (id, uploader_id, url, media_type) VALUES ($1,$2,$3,'image')`,
+      [id, uploader, url],
+    );
+  }
+
+  it("two simultaneous saves of the same source create exactly ONE copy", async () => {
+    // Both requests pass the "already saved?" probe before either inserts, so
+    // only the unique (uploader_id, saved_from_photo_id) index can stop a
+    // duplicate copy. The loser gets null back and releases the bytes it
+    // copied for nothing — without the constraint it would insert a second row
+    // and leak a private object on every racing double-tap.
+    const saver = "vault-race-saver";
+    await seedUser(saver);
+    await seedPhoto(9001, "u01", "/objects/supabase/uploads/vault-src.jpg");
+    const source = await storage.getPhotoById(9001);
+    expect(source).toBeTruthy();
+
+    const results = await Promise.all([
+      storage.addSavedPhotoCopy(saver, source!, "/objects/supabase/uploads/copy-a.jpg"),
+      storage.addSavedPhotoCopy(saver, source!, "/objects/supabase/uploads/copy-b.jpg"),
+    ]);
+
+    expect(results.filter(Boolean)).toHaveLength(1);
+    const { rows } = await dbmod.pool.query(
+      `SELECT count(*)::int AS c FROM photos WHERE uploader_id = $1 AND saved_from_photo_id = $2`,
+      [saver, 9001],
+    );
+    expect(rows[0].c).toBe(1);
+    // The winner is discoverable, so the loser's request can return it.
+    expect(await storage.getSavedCopy(saver, 9001)).toBeTruthy();
+  });
+
+  it("the unique index does not constrain ordinary (non-saved) uploads", async () => {
+    // saved_from_photo_id is NULL for normal uploads and Postgres treats NULLs
+    // as distinct, so a user can keep uploading freely.
+    const uploader = "vault-plain-uploader";
+    await seedUser(uploader);
+    await seedPhoto(9101, uploader, "/objects/supabase/uploads/plain-1.jpg");
+    await seedPhoto(9102, uploader, "/objects/supabase/uploads/plain-2.jpg");
+
+    const { rows } = await dbmod.pool.query(
+      `SELECT count(*)::int AS c FROM photos WHERE uploader_id = $1`,
+      [uploader],
+    );
+    expect(rows[0].c).toBe(2);
+  });
+});
+
+describe("SIM-10 — squad invite acceptance is one atomic unit", () => {
+  it("accepting an invite charges exactly one squad slot", async () => {
+    const joiner = "sq-accept-one";
+    await seedUser(joiner);
+    await seedSquad("sq-accept-1", "u01", ["u01"]);
+    await seedSquadInvite("sqinv-1", "sq-accept-1", "u01", joiner);
+
+    const res = await request(app)
+      .post("/api/squads/invites/sqinv-1/accept")
+      .set("x-test-user", joiner);
+
+    expect(res.status).toBe(200);
+    expect(await squadMembers("sq-accept-1")).toContain(joiner);
+    expect(await squadSlotsUsed(joiner)).toBe(1);
+    expect(await inviteStatus("squad_invites", "sqinv-1")).toBe("accepted");
+  });
+
+  it("simultaneous accepts add the member once and charge one slot", async () => {
+    const joiner = "sq-accept-race";
+    await seedUser(joiner);
+    await seedSquad("sq-accept-2", "u01", ["u01"]);
+    await seedSquadInvite("sqinv-2", "sq-accept-2", "u01", joiner);
+
+    const results = await Promise.all(
+      Array.from({ length: 4 }, () =>
+        request(app).post("/api/squads/invites/sqinv-2/accept").set("x-test-user", joiner),
+      ),
+    );
+
+    expect(results.filter((r) => r.status === 200)).toHaveLength(1);
+    // The losers write nothing: no duplicate member id, no second ledger row.
+    const members = await squadMembers("sq-accept-2");
+    expect(members.filter((m) => m === joiner)).toHaveLength(1);
+    expect(await squadSlotsUsed(joiner)).toBe(1);
+  });
+
+  it("a capped user's accept leaves the invite pending and spends nothing", async () => {
+    const capped = "sq-accept-capped";
+    await seedUser(capped);
+
+    // Burn all three squad slots.
+    for (let i = 0; i < 3; i++) {
+      const res = await request(app)
+        .post("/api/squads")
+        .set("x-test-user", capped)
+        .send({ name: `Filler ${i}` });
+      expect(res.status).toBe(201);
+    }
+    expect(await squadSlotsUsed(capped)).toBe(3);
+
+    await seedSquad("sq-accept-3", "u01", ["u01"]);
+    await seedSquadInvite("sqinv-3", "sq-accept-3", "u01", capped);
+
+    const res = await request(app)
+      .post("/api/squads/invites/sqinv-3/accept")
+      .set("x-test-user", capped);
+
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe("SQUAD_LIMIT");
+    // Every write rolled back together: still pending, not a member, no slot.
+    expect(await inviteStatus("squad_invites", "sqinv-3")).toBe("pending");
+    expect(await squadMembers("sq-accept-3")).not.toContain(capped);
+    expect(await squadSlotsUsed(capped)).toBe(3);
+  });
+
+  it("an already-member re-accept does not charge a second slot", async () => {
+    const member = "sq-accept-member";
+    await seedUser(member);
+    await seedSquad("sq-accept-4", "u01", ["u01", member]);
+    await seedSquadInvite("sqinv-4", "sq-accept-4", "u01", member);
+    await dbmod.pool.query(
+      `INSERT INTO squad_member_history (squad_id, user_id) VALUES ($1,$2)
+       ON CONFLICT DO NOTHING`,
+      ["sq-accept-4", member],
+    );
+
+    const res = await request(app)
+      .post("/api/squads/invites/sqinv-4/accept")
+      .set("x-test-user", member);
+
+    expect(res.status).toBe(200);
+    // Idempotent: the membership append matches zero rows, and the ledger's
+    // unique key means the existing row stands. Still exactly one slot.
+    expect(await squadSlotsUsed(member)).toBe(1);
+    expect((await squadMembers("sq-accept-4")).filter((m) => m === member)).toHaveLength(1);
+  });
+
+  it("accepting into a squad deleted mid-flight leaves nothing behind", async () => {
+    const joiner = "sq-accept-gone";
+    await seedUser(joiner);
+    await seedSquad("sq-accept-5", "u01", ["u01"]);
+    await seedSquadInvite("sqinv-5", "sq-accept-5", "u01", joiner);
+    // Delete the squad after the invite lookup would have succeeded.
+    await dbmod.pool.query(`DELETE FROM squads WHERE id = $1`, ["sq-accept-5"]);
+
+    const res = await request(app)
+      .post("/api/squads/invites/sqinv-5/accept")
+      .set("x-test-user", joiner);
+
+    expect(res.status).toBe(404);
+    // The invite must NOT be left accepted into a squad that no longer exists,
+    // and no slot may be spent on it.
+    expect(await inviteStatus("squad_invites", "sqinv-5")).toBe("pending");
+    expect(await squadSlotsUsed(joiner)).toBe(0);
+  });
+
+  it("an over-cap user can still accept an invite to a squad they're already in", async () => {
+    const grandfathered = "sq-accept-overcap";
+    await seedUser(grandfathered);
+    await seedSquad("sq-accept-6", "u01", ["u01", grandfathered]);
+    await seedSquadInvite("sqinv-6", "sq-accept-6", "u01", grandfathered);
+    // Push them well over the cap.
+    for (let i = 0; i < 5; i++) {
+      await dbmod.pool.query(
+        `INSERT INTO squad_member_history (squad_id, user_id) VALUES ($1,$2)
+         ON CONFLICT DO NOTHING`,
+        [`sq-overcap-${i}`, grandfathered],
+      );
+    }
+
+    const res = await request(app)
+      .post("/api/squads/invites/sqinv-6/accept")
+      .set("x-test-user", grandfathered);
+
+    // enforce=false for already-members, so the no-op accept still succeeds.
+    expect(res.status).toBe(200);
   });
 });

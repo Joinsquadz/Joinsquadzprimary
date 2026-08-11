@@ -27,7 +27,11 @@ vi.mock("@workspace/db", () => ({
     }),
     delete: () => ({ where: () => Promise.resolve() }),
     insert: () => ({
-      values: () => ({ returning: () => Promise.resolve([mockInsertRow.value]) }),
+      values: () => ({
+        returning: () => Promise.resolve([mockInsertRow.value]),
+        // #633: squad history ledger writes use ON CONFLICT DO NOTHING.
+        onConflictDoNothing: () => Promise.resolve(undefined),
+      }),
     }),
   },
   squadsTable: { id: "id", memberIds: "member_ids", isPublic: "is_public", inviteCode: "invite_code", createdAt: "created_at", creatorId: "creator_id", membersCanInvite: "members_can_invite" },
@@ -35,6 +39,7 @@ vi.mock("@workspace/db", () => ({
   squadMutesTable: { userId: "user_id", squadId: "squad_id" },
   squadRemovalNoticesTable: {},
   squadInvitesTable: { id: "id", squadId: "squad_id", invitedUserId: "invited_user_id", status: "status" },
+  squadMemberHistoryTable: { squadId: "squad_id", userId: "user_id", firstJoinedAt: "first_joined_at" },
 }));
 
 vi.mock("../storage", () => ({

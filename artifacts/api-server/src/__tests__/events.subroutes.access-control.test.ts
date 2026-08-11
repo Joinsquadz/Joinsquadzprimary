@@ -25,6 +25,8 @@ vi.mock("@workspace/db", () => ({
     insert: () => ({
       values: () => ({
         returning: () => Promise.resolve(mockUpdateRows.value),
+        // #633: plan-slot ledger writes use ON CONFLICT DO NOTHING.
+        onConflictDoNothing: () => Promise.resolve(undefined),
       }),
     }),
   },
@@ -35,6 +37,7 @@ vi.mock("@workspace/db", () => ({
     createdAt: "created_at",
     inviteCode: "invite_code",
   },
+  eventCreationsTable: { id: "id", userId: "user_id", eventId: "event_id", source: "source", createdAt: "created_at" },
 }));
 
 vi.mock("../storage", () => ({

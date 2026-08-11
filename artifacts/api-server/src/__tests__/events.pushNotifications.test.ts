@@ -16,7 +16,11 @@ vi.mock("@workspace/db", () => ({
       }),
     }),
     insert: () => ({
-      values: () => ({ returning: () => Promise.resolve(dbState.insertRows) }),
+      values: () => ({
+        returning: () => Promise.resolve(dbState.insertRows),
+        // #633: plan-slot ledger writes use ON CONFLICT DO NOTHING.
+        onConflictDoNothing: () => Promise.resolve(undefined),
+      }),
     }),
     update: () => ({
       set: () => ({ where: () => ({ returning: () => Promise.resolve(dbState.updateRows) }) }),

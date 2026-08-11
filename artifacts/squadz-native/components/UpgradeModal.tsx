@@ -70,15 +70,15 @@ const FOUNDING_STATUS_TIMEOUT = 1000;
 const TRIGGER_COPY: Record<UpgradeTrigger, { headline: string; sub: string }> = {
   squad_limit: {
     headline: "Unlock unlimited squads",
-    sub: "Free accounts are capped at 2 squads. SquadZ+ lets you create and join as many as you want.",
+    sub: "Free accounts get 3 squads. Slots are used when you create or join a squad, and leaving one doesn't give the slot back. SquadZ+ lets you create and join as many as you want.",
   },
   photos: {
     headline: "Keep your memories forever",
-    sub: "Your personal vault and saved favorites are a SquadZ+ feature. Keep all your uploads in one place and save photos from any squad forever.",
+    sub: "Your personal vault is a SquadZ+ feature. Save any photo from any squad into your own vault — your copy stays yours even if the original is deleted.",
   },
   events: {
     headline: "Plan without limits",
-    sub: "Free accounts can create up to 5 events per year. SquadZ+ unlocks unlimited events so you keep the momentum going.",
+    sub: "Free accounts get 3 plans a year — events and trips combined, whether you created them or joined them. SquadZ+ unlocks unlimited plans so you keep the momentum going.",
   },
   general: {
     headline: "Upgrade to SquadZ+",
@@ -88,15 +88,15 @@ const TRIGGER_COPY: Record<UpgradeTrigger, { headline: string; sub: string }> = 
 
 // What free accounts get (shown for comparison).
 const FREE_FEATURES = [
-  "Up to 2 squads",
-  "Up to 5 events per year",
+  "Up to 3 squads",
+  "Up to 3 plans a year (events + trips)",
   "Group chat, Vibe Feed & Moments",
 ];
 
 // Benefits unlocked by SquadZ+.
 const PRO_BENEFITS: Array<{ icon: string; label: string; gold?: boolean }> = [
-  { icon: "people", label: "Unlimited squads & events" },
-  { icon: "images", label: "Personal vault + saved favorites" },
+  { icon: "people", label: "Unlimited squads & plans" },
+  { icon: "images", label: "Personal vault — save photos forever" },
   { icon: "ribbon", label: "Gold Ring Indicator", gold: true },
 ];
 

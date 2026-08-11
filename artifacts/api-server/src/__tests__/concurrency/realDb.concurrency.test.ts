@@ -25,7 +25,7 @@ import request from "supertest";
  *   A2  POST /events/join      — concurrent invite-code joins all persist.
  *   E1  POST /squads + /squads/:id/join — the free-plan squad cap is enforced
  *       atomically (advisory-lock re-count), so concurrent creates/joins can
- *       never push a free user past FREE_SQUAD_LIMIT (= 2).
+ *       never push a free user past FREE_SQUAD_LIMIT (= 3).
  *
  * SAFETY: this test refuses to run against any Supabase/remote database. It
  * deletes every Supabase env var, points DATABASE_URL exclusively at the
@@ -37,7 +37,7 @@ import request from "supertest";
  * test:concurrency`.
  */
 
-const FREE_SQUAD_LIMIT = 2;
+const FREE_SQUAD_LIMIT = 3;
 
 let baseDir = "";
 let dataDir = "";
@@ -236,6 +236,15 @@ async function seedSquad(
      VALUES ($1, $2, $3::jsonb, $4, $5)`,
     [id, `Squad ${id}`, JSON.stringify(memberIds), isPublic, code ?? `CODE-${id}`],
   );
+  // #633: the free cap counts the append-only history ledger, not live
+  // member_ids, so a seeded membership only counts if its history row exists.
+  for (const userId of memberIds) {
+    await dbmod.pool.query(
+      `INSERT INTO squad_member_history (squad_id, user_id)
+       VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [id, userId],
+    );
+  }
 }
 
 async function eventRsvps(id: string): Promise<Record<string, string>> {
@@ -244,9 +253,11 @@ async function eventRsvps(id: string): Promise<Record<string, string>> {
 }
 
 async function squadCountFor(userId: string): Promise<number> {
+  // #633: slots consumed = append-only history rows (what withSquadLimit
+  // counts), not live memberships.
   const { rows } = await dbmod.pool.query(
-    `SELECT count(*)::int AS c FROM squads WHERE member_ids @> $1::jsonb`,
-    [JSON.stringify([userId])],
+    `SELECT count(*)::int AS c FROM squad_member_history WHERE user_id = $1`,
+    [userId],
   );
   return rows[0]?.c ?? 0;
 }
@@ -335,7 +346,7 @@ describe("E1 — squad cap holds under concurrency", () => {
   it("concurrent CREATEs never exceed the free squad limit", async () => {
     const user = "cap-create";
     await seedUser(user);
-    // Already in 1 squad → exactly ONE more create is allowed (limit = 2).
+    // Already in 1 squad → exactly TWO more creates are allowed (limit = 3).
     await seedSquad("seed-create", [user], false);
 
     const results = await Promise.all(
@@ -349,15 +360,15 @@ describe("E1 — squad cap holds under concurrency", () => {
 
     const created = results.filter((r) => r.status === 201).length;
     const blocked = results.filter((r) => r.status === 403).length;
-    expect(created).toBe(1);
-    expect(blocked).toBe(5);
+    expect(created).toBe(2);
+    expect(blocked).toBe(4);
     expect(await squadCountFor(user)).toBe(FREE_SQUAD_LIMIT);
   });
 
   it("concurrent JOINs never exceed the free squad limit", async () => {
     const user = "cap-join";
     await seedUser(user);
-    await seedSquad("seed-join", [user], false); // already in 1 squad
+    await seedSquad("seed-join", [user], false); // already in 1 squad (limit = 3)
 
     const targets = ["pub1", "pub2", "pub3", "pub4", "pub5", "pub6"];
     await Promise.all(targets.map((id) => seedSquad(id, [`owner-${id}`], true)));
@@ -370,15 +381,15 @@ describe("E1 — squad cap holds under concurrency", () => {
 
     const joined = results.filter((r) => r.status === 201).length;
     const blocked = results.filter((r) => r.status === 403).length;
-    expect(joined).toBe(1);
-    expect(blocked).toBe(5);
+    expect(joined).toBe(2);
+    expect(blocked).toBe(4);
     expect(await squadCountFor(user)).toBe(FREE_SQUAD_LIMIT);
   });
 
   it("concurrent JOIN-VIA-CODE never exceeds the free squad limit", async () => {
     const user = "cap-code";
     await seedUser(user);
-    await seedSquad("seed-code", [user], false); // already in 1 squad
+    await seedSquad("seed-code", [user], false); // already in 1 squad (limit = 3)
 
     // Invite codes are matched after trim().toUpperCase(), so seed them uppercase.
     const codes = ["JVC1", "JVC2", "JVC3", "JVC4", "JVC5", "JVC6"];
@@ -392,8 +403,8 @@ describe("E1 — squad cap holds under concurrency", () => {
 
     const joined = results.filter((r) => r.status === 201).length;
     const blocked = results.filter((r) => r.status === 403).length;
-    expect(joined).toBe(1);
-    expect(blocked).toBe(5);
+    expect(joined).toBe(2);
+    expect(blocked).toBe(4);
     expect(await squadCountFor(user)).toBe(FREE_SQUAD_LIMIT);
   });
 });

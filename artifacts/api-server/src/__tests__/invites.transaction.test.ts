@@ -34,10 +34,43 @@ vi.mock("@workspace/db", () => ({
       // route knows it won the race); subsequent updates return [] (not checked).
       let updateCallCount = 0;
       const tx = {
+        // #633: accepting an invite also claims a plan slot / squad-history row
+        // inside this same tx (advisory lock + ON CONFLICT DO NOTHING insert).
+        execute: () => Promise.resolve(),
+        select: () => ({
+          from: () => {
+            // The plan-slot count LEFT JOINs events onto the ledger, and the
+            // "already claimed?" probe is a plain where().limit() — support both.
+            const where = () => {
+              const rows: unknown[] = [{ count: 0 }];
+              return Object.assign(Promise.resolve(rows), {
+                limit: () => Promise.resolve([]),
+                orderBy: () => ({ limit: () => Promise.resolve([]) }),
+              });
+            };
+            return { where, leftJoin: () => ({ where }) };
+          },
+        }),
+        insert: () => ({
+          values: () => ({
+            returning: () => Promise.resolve([]),
+            onConflictDoNothing: () => Promise.resolve(undefined),
+          }),
+        }),
         update: () => ({
           set: () => ({
             where: () => ({
-              returning: () => Promise.resolve(++updateCallCount === 1 ? [{ id: "inv-1" }] : []),
+              // 1 = invite-status CAS (must win the race), 2 = the events
+              // access grant (must match a row, else the route aborts because
+              // the plan was deleted mid-flight).
+              returning: () =>
+                Promise.resolve(
+                  ++updateCallCount === 1
+                    ? [{ id: "inv-1" }]
+                    : updateCallCount === 2
+                      ? [{ id: "event-1" }]
+                      : [],
+                ),
             }),
           }),
         }),
@@ -62,6 +95,7 @@ vi.mock("@workspace/db", () => ({
   },
   usersTable: { id: "id", isSquadzPlus: "is_squadz_plus" },
   squadMemberHistoryTable: { userId: "user_id", squadId: "squad_id", joinedAt: "joined_at", leftAt: "left_at" },
+  eventCreationsTable: { id: "id", userId: "user_id", eventId: "event_id", source: "source", createdAt: "created_at" },
 }));
 
 vi.mock("../storage", () => ({
@@ -71,7 +105,7 @@ vi.mock("../storage", () => ({
     filterUnmutedForSquad: vi.fn().mockImplementation(async (ids: string[]) => ids),
   },
 }));
-vi.mock("../lib/logger");
+vi.mock("../lib/logger", () => ({ logger: { error: (...a: unknown[]) => console.error("LOGERR", ...a), info: () => {}, warn: () => {}, debug: () => {}, child: () => ({ error: () => {}, info: () => {}, warn: () => {}, debug: () => {} }) } }));
 vi.mock("../lib/pushNotifications", () => ({ sendPushNotifications: vi.fn() }));
 vi.mock("../lib/squadLimit", async (importOriginal) => importOriginal());
 
@@ -109,6 +143,58 @@ describe("POST /api/events/invites/:id/accept", () => {
     expect(res.status).toBe(404);
   });
 
+  it("rolls back when the plan was deleted between lookup and accept", async () => {
+    mockSelectRows.value = [PENDING_INVITE];
+    let rolledBack = false;
+
+    // The invite-status CAS wins, but the events update matches ZERO rows —
+    // the plan is gone. Access lives only in events.invited_user_ids, so an
+    // accept that shrugged this off would leave the invite marked accepted and
+    // burn one of three free plan slots on a plan the user can never open.
+    mockTransactionImpl.fn = async (fn: (tx: unknown) => Promise<unknown>) => {
+      let updateCallCount = 0;
+      const tx = {
+        execute: () => Promise.resolve(),
+        select: () => ({
+          from: () => {
+            const where = () =>
+              Object.assign(Promise.resolve([{ count: 0 }]), {
+                limit: () => Promise.resolve([]),
+                orderBy: () => ({ limit: () => Promise.resolve([]) }),
+              });
+            return { where, leftJoin: () => ({ where }) };
+          },
+        }),
+        insert: () => ({
+          values: () => ({
+            returning: () => Promise.resolve([]),
+            onConflictDoNothing: () => Promise.resolve(undefined),
+          }),
+        }),
+        update: () => ({
+          set: () => ({
+            where: () => ({
+              returning: () =>
+                Promise.resolve(++updateCallCount === 1 ? [{ id: "inv-1" }] : []),
+            }),
+          }),
+        }),
+        delete: () => ({ where: () => Promise.resolve() }),
+      };
+      try {
+        return await fn(tx);
+      } catch (err) {
+        rolledBack = true; // the throw is what makes Postgres roll the tx back
+        throw err;
+      }
+    };
+
+    const res = await request(app).post("/api/events/invites/inv-1/accept");
+
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(rolledBack).toBe(true);
+  });
+
   it("returns 500 and rolls back when the 3rd write (delete activity) throws", async () => {
     mockSelectRows.value = [PENDING_INVITE];
 
@@ -121,7 +207,17 @@ describe("POST /api/events/invites/:id/accept", () => {
         update: () => ({
           set: () => ({
             where: () => ({
-              returning: () => Promise.resolve(++updateCallCount === 1 ? [{ id: "inv-1" }] : []),
+              // 1 = invite-status CAS (must win the race), 2 = the events
+              // access grant (must match a row, else the route aborts because
+              // the plan was deleted mid-flight).
+              returning: () =>
+                Promise.resolve(
+                  ++updateCallCount === 1
+                    ? [{ id: "inv-1" }]
+                    : updateCallCount === 2
+                      ? [{ id: "event-1" }]
+                      : [],
+                ),
             }),
           }),
         }),

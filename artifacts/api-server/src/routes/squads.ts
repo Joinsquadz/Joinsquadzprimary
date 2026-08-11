@@ -24,7 +24,7 @@ import { sendPushNotifications } from "../lib/pushNotifications";
 import { emitSquadUpdate, onSquadUpdate } from "../lib/squadEvents";
 import { recordActivitySafe } from "../lib/activity";
 import { resolveProStatusForIds } from "../lib/proStatus";
-import { FREE_SQUAD_LIMIT, withSquadLimit } from "../lib/squadLimit";
+import { FREE_SQUAD_LIMIT, countSquadSlotsUsed, withSquadLimit } from "../lib/squadLimit";
 
 function generateInviteCode(): string {
   return randomBytes(5).toString("hex").toUpperCase();
@@ -160,6 +160,9 @@ router.post("/squads/:id/join", requireAuth, async (req: Request, res: Response)
         ),
       )
       .returning(),
+    // Ledger row commits with the join. 0 rows = already a member (their row
+    // already exists), so nothing to write.
+    (rows) => (rows.length > 0 ? id : null),
   );
   if (!outcome.ok) {
     res.status(403).json({
@@ -184,11 +187,7 @@ router.post("/squads/:id/join", requireAuth, async (req: Request, res: Response)
     res.json({ squad: current, alreadyMember: true });
     return;
   }
-  // W-01: Record membership history for DM eligibility (non-fatal).
-  void (async () => {
-    try { await db.insert(squadMemberHistoryTable).values({ squadId: id, userId }).onConflictDoNothing(); }
-    catch { /* non-fatal */ }
-  })();
+  // W-01 membership history is written inside withSquadLimit's transaction.
   res.status(201).json({ squad: updated, alreadyMember: false });
   emitSquadUpdate(id);
   if (squad.creatorId) {
@@ -288,6 +287,7 @@ router.post("/squads/join-via-code", requireAuth, async (req: Request, res: Resp
         ),
       )
       .returning(),
+    (rows) => (rows.length > 0 ? squad.id : null),
   );
   if (!outcome.ok) {
     res.status(403).json({
@@ -310,11 +310,7 @@ router.post("/squads/join-via-code", requireAuth, async (req: Request, res: Resp
     res.json({ squad: current, alreadyMember: true });
     return;
   }
-  // W-01: Record membership history for DM eligibility (non-fatal).
-  void (async () => {
-    try { await db.insert(squadMemberHistoryTable).values({ squadId: squad.id, userId }).onConflictDoNothing(); }
-    catch { /* non-fatal */ }
-  })();
+  // W-01 membership history is written inside withSquadLimit's transaction.
   res.status(201).json({ squad: updated, alreadyMember: false });
   emitSquadUpdate(squad.id);
 
@@ -410,6 +406,27 @@ router.get("/squads", requireAuth, async (req: Request, res: Response): Promise<
   }
 });
 
+/**
+ * GET /squads/count — the user's squad-slot usage vs the free-plan cap, so the
+ * client can show "2 of 3 used" BEFORE a create/join attempt instead of only
+ * discovering the cap through a 403.
+ *
+ * `count` comes from the append-only membership ledger, so it includes squads
+ * the user has since left (leaving does not refund a slot). It can legitimately
+ * exceed `limit` for users who were over the cap when it changed — they keep
+ * what they have and simply can't add more.
+ */
+router.get("/squads/count", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const userId = (req.user as { id: string }).id;
+  try {
+    const count = await countSquadSlotsUsed(userId);
+    res.json({ count, limit: FREE_SQUAD_LIMIT });
+  } catch (err) {
+    logger.error({ err }, "Error fetching squad count");
+    res.status(500).json({ error: "Failed to fetch squad count" });
+  }
+});
+
 router.post("/squads", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const parsed = CreateSquadBody.safeParse(req.body);
   if (!parsed.success) {
@@ -449,6 +466,9 @@ router.post("/squads", requireAuth, async (req: Request, res: Response): Promise
         inviteCodeExpiresAt,
       })
       .returning(),
+    // The creator's own membership consumes a slot, so its ledger row must
+    // commit with the squad insert.
+    (rows) => rows[0]?.id ?? null,
   );
   if (!outcome.ok) {
     res.status(403).json({
@@ -459,11 +479,7 @@ router.post("/squads", requireAuth, async (req: Request, res: Response): Promise
     return;
   }
   const [squad] = outcome.value;
-  // W-01: Record creator's membership history for DM eligibility (non-fatal).
-  void (async () => {
-    try { await db.insert(squadMemberHistoryTable).values({ squadId: squad.id, userId }).onConflictDoNothing(); }
-    catch { /* non-fatal */ }
-  })();
+  // W-01 membership history is written inside withSquadLimit's transaction.
 
   // Create pending invites for the picked friends (only for users that exist).
   let invitedUserIds: string[] = [];

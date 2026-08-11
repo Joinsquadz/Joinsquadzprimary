@@ -60,7 +60,11 @@ vi.mock("@workspace/db", () => ({
           }),
         }),
         insert: () => ({
-          values: () => ({ returning: () => Promise.resolve(mockInsertRows.value) }),
+          values: () => ({
+            returning: () => Promise.resolve(mockInsertRows.value),
+            // #633: squad_member_history ledger write shares this tx.
+            onConflictDoNothing: () => Promise.resolve(undefined),
+          }),
         }),
         update: () => ({
           set: () => ({
@@ -98,6 +102,8 @@ vi.mock("@workspace/db", () => ({
   conversationsTable: { id: "id", squadId: "squad_id" },
   photosTable: { squadId: "squad_id", sharedToSquad: "shared_to_squad" },
   availabilityPollsTable: { squadId: "squad_id" },
+  squadMemberHistoryTable: { squadId: "squad_id", userId: "user_id", firstJoinedAt: "first_joined_at" },
+  eventCreationsTable: { id: "id", userId: "user_id", eventId: "event_id", source: "source", createdAt: "created_at" },
 }));
 
 const mockGetPushTokensForUsers = vi.hoisted(() => vi.fn());
@@ -120,7 +126,7 @@ vi.mock("../lib/pushNotifications", () => ({
   sendPushNotifications: mockSendPushNotifications,
 }));
 
-vi.mock("../lib/logger");
+vi.mock("../lib/logger", () => ({ logger: { error: (...a: unknown[]) => console.error("LOGERR", ...a), info: () => {}, warn: () => {}, debug: () => {}, child: () => ({ error: () => {}, info: () => {}, warn: () => {}, debug: () => {} }) } }));
 
 import squadsRouter from "../routes/squads";
 import { makeTestApp, type TestUser } from "./helpers/makeTestApp";
