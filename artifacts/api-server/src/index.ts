@@ -20,6 +20,7 @@ import {
 } from './lib/eventReminders';
 import { runPoolHealthCheck, POOL_MONITOR_INTERVAL_MS } from './lib/poolMonitor';
 import { scheduleMediaBackup, scheduleMediaBackupFreshnessCheck } from './lib/mediaBackup';
+import { scheduleAccountMediaCleanupRetries } from './lib/accountMediaCleanup';
 import { db, squadsTable } from '@workspace/db';
 import { isNull } from 'drizzle-orm';
 
@@ -199,3 +200,7 @@ setInterval(() => {
 // one autoscale instance perform the copy.
 scheduleMediaBackup();
 scheduleMediaBackupFreshnessCheck();
+
+// Retry storage deletions that failed while purging a deleted account, so a
+// Supabase/R2 outage during deletion never leaves that user's media behind.
+scheduleAccountMediaCleanupRetries();

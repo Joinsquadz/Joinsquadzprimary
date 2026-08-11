@@ -368,6 +368,25 @@ async function createMissingTables(): Promise<void> {
     )
   `);
 
+  // Retry queue for storage objects that could not be deleted during account
+  // deletion. The DB purge commits regardless of storage availability, so this
+  // is what stops a Supabase/R2 outage from silently leaking a deleted user's
+  // media. The unique key is the object itself so re-queuing is idempotent.
+  await exec(`
+    CREATE TABLE IF NOT EXISTS "account_media_cleanup" (
+      "id" text PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+      "user_id" text NOT NULL,
+      "store" text NOT NULL,
+      "bucket" text NOT NULL,
+      "object_key" text NOT NULL,
+      "attempts" integer DEFAULT 0 NOT NULL,
+      "last_error" text,
+      "next_attempt_at" timestamp with time zone DEFAULT now() NOT NULL,
+      "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+      CONSTRAINT "account_media_cleanup_object_unique" UNIQUE("store","bucket","object_key")
+    )
+  `);
+
   // Single-row table tracking the last fully-successful (zero-failure) media
   // backup run. The CHECK constraint guarantees at most one row so there is
   // nothing to paginate or reconcile; UPSERT stamps it on every clean run.
@@ -488,6 +507,8 @@ async function createIndexes(): Promise<void> {
     `CREATE INDEX IF NOT EXISTS "IDX_reports_status" ON "reports"("status")`,
     `CREATE INDEX IF NOT EXISTS "IDX_user_blocks_blocker_id" ON "user_blocks"("blocker_id")`,
     `CREATE INDEX IF NOT EXISTS "IDX_user_blocks_blocked_id" ON "user_blocks"("blocked_id")`,
+    `CREATE INDEX IF NOT EXISTS "IDX_account_media_cleanup_next_attempt" ON "account_media_cleanup"("next_attempt_at")`,
+    `CREATE INDEX IF NOT EXISTS "IDX_object_uploads_owner_id" ON "object_uploads"("owner_id")`,
     // Hot-path query indexes added post-launch (scale hardening).
     // squads.member_ids: @> containment operator used by getSquadIdsForUser and
     // GET /squads; without GIN this is a full sequential scan.

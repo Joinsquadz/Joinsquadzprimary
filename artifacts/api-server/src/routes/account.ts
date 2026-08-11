@@ -32,6 +32,7 @@ import { insertTombstones } from "../lib/accountTombstones";
 import { logger } from "../lib/logger";
 import { getUncachableStripeClient } from "../stripeClient";
 import { cancelPlaySubscriptionBestEffort } from "../lib/playBilling";
+import { collectAccountMediaTargets, deleteAccountMedia } from "../lib/accountMediaCleanup";
 
 const router: IRouter = Router();
 
@@ -80,6 +81,22 @@ router.delete("/account", requireAuth, async (req: Request, res: Response): Prom
       } catch (err) {
         logger.warn({ err, userId }, "Could not resolve bearer auth subject during account deletion");
       }
+    }
+
+    // 0b. Resolve every storage object this user owns BEFORE the purge — the
+    // transaction deletes the object_uploads provenance rows that prove
+    // ownership, so after it commits there is no safe way to tell their media
+    // apart from anyone else's in the shared `uploads/` namespace.
+    let mediaTargets: Awaited<ReturnType<typeof collectAccountMediaTargets>> = {
+      targets: [],
+      skippedLegacy: 0,
+      skippedExternalAvatar: false,
+    };
+    try {
+      mediaTargets = await collectAccountMediaTargets(userId, user.profileImageUrl);
+    } catch (err) {
+      // Never block deletion on this read; the user's right to be deleted wins.
+      logger.error({ err, userId }, "Could not resolve owned media before account deletion");
     }
 
     // 1a. Best-effort cancel an active Google Play subscription (external;
@@ -312,6 +329,12 @@ router.delete("/account", requireAuth, async (req: Request, res: Response): Prom
       await insertTombstones(tx, authSubjectIds, userId);
     });
 
+    // 2b. Delete the media BYTES (private Supabase objects, the app-owned
+    // public avatar, and their R2 backup copies). Runs after the commit so a
+    // storage outage cannot roll back a completed purge; deleteAccountMedia
+    // never throws — it queues failures for retry and reports to Sentry.
+    const mediaSummary = await deleteAccountMedia(userId, mediaTargets);
+
     // 3. Delete the Supabase auth subject(s) so the same credentials can't
     // sign in again. Best-effort AFTER the tx commits: a failure here is
     // logged loudly but cannot resurrect the account — the tombstones written
@@ -340,7 +363,7 @@ router.delete("/account", requireAuth, async (req: Request, res: Response): Prom
       }
     }
 
-    logger.info({ userId, authSubjectIds }, "Account permanently deleted");
+    logger.info({ userId, authSubjectIds, media: mediaSummary }, "Account permanently deleted");
     res.json({ ok: true });
   } catch (err) {
     logger.error({ err, userId }, "Error deleting account");
