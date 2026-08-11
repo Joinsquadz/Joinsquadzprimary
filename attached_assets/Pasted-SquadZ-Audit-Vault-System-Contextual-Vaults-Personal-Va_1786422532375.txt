@@ -1,0 +1,35 @@
+SquadZ — Audit: Vault System (Contextual Vaults, Personal Vault, Move Flow, Entry Point)
+
+Context: need to verify the vault system is built correctly before launch. There appear to be two distinct vault concepts, and there's uncertainty about whether one of them works and whether users can even reach it. AUDIT FIRST — report what actually exists and how it works before changing anything. Only after the audit is reviewed will fixes be scoped.
+
+The two vault concepts to verify (confirm this understanding against the actual code)
+Contextual vaults — a vault attached to each event, trip, and squad, holding photos shared within that specific context. These are the free-tier "squad vault" type.
+Personal vault — the user's OWN private vault (the Squadz+ gated one), where a user can save/move pictures FROM the contextual vaults (event/trip/squad) into their personal collection, and view them there.
+
+If the actual architecture differs from this description, report what it actually is — don't force it to match.
+
+What to audit and report
+A. Architecture — is it built correctly?
+How are contextual vaults (event/trip/squad) actually implemented? Do all three exist and work, or only some?
+Does the personal vault exist as a distinct thing from the contextual vaults? How is it stored/modeled?
+Is the personal vault correctly Squadz+ gated (free users can't access it), consistent with the product model? Confirm the gating is server-enforced, not just UI.
+B. The move/save flow — does it actually work?
+Can a user take a picture from a contextual vault (event/trip/squad) and move or save it into their personal vault?
+Trace this flow end-to-end: is there a working API + UI path for it, or is it partially built / broken / missing?
+When a picture is moved/saved to the personal vault: is it copied or moved? Does the original stay in the contextual vault? Does the personal-vault copy persist if the source event/squad is later deleted (the orphaned-media question)? Report the actual behavior.
+Does EXIF stripping / privacy handling apply correctly to pictures entering the personal vault?
+C. The entry point — can users even reach their personal vault?
+Is there ANY UI entry point for a user to open/view their personal vault? (Suspected missing.)
+Check the profile screen, settings, navigation, and anywhere else a "My Vault" / "Personal Vault" button would logically live.
+Report plainly: does a working entry point exist, and if so where? If not, confirm it's genuinely missing.
+D. Anything broken or confusing
+Dead ends, broken states, gated content that errors instead of prompting upgrade, or flows that are half-built.
+Output
+A clear description of what the vault system ACTUALLY is today (both types, how they relate).
+Answers to: does the move-to-personal-vault flow work? Is there a personal vault entry point? — with evidence labels (verified/inspected/inferred).
+A list of what's missing or broken vs. what works correctly.
+A recommendation for what needs fixing/building — but do NOT build anything yet. Report first; fixes get scoped after review.
+Required
+Report-only this pass. No code changes.
+Use verified/inspected/inferred labeling.
+Do not touch the account-deletion work or other in-flight tasks.
