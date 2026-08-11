@@ -1,0 +1,36 @@
+SquadZ — Fix: Account Deletion Must Delete User Media (Storage + Backup) — Compliance Blocker
+
+Context: the final pre-submission scan found that account deletion does NOT remove the user's media. This is a privacy-compliance blocker (GDPR/CCPA-style "delete my account = delete my data" expectation), especially for a social app handling user photos. The database records get deleted (the resurrection bug was fixed earlier), but the actual media files persist. Fix the media cleanup so deletion is genuinely complete.
+
+The gaps (from the scan)
+Live media objects in Supabase Storage are NOT deleted during account deletion.
+The R2 backup copies of that media are not reconciled/removed.
+Public avatars are not tracked/deleted consistently.
+What to build
+
+When a user deletes their account, in addition to the existing database cascade:
+
+Delete their media from Supabase Storage — every object the user owns across all buckets in use (the private media bucket, the avatars bucket, and any others confirmed in use). Identify the user's objects reliably (by path/prefix convention or an ownership record — confirm how media ownership is actually tracked before implementing, and report it).
+Public avatars: ensure the avatar bucket objects for the deleted user are removed consistently, not left orphaned.
+R2 backup copies: decide and implement the right behavior for the backup. Two reasonable approaches — pick and justify:
+(a) Delete the user's objects from the R2 backup as part of deletion, so "deleted" truly means gone everywhere, OR
+(b) Let the backup retention naturally age them out, but document this clearly so it's a known, intentional behavior rather than an accidental gap. Given this is a privacy-deletion requirement, lean toward (a) — actually removing backup copies — unless there's a strong operational reason not to. Whatever you choose, it must be a deliberate, documented decision, not silent.
+Important safety requirements for this fix
+Deletion must be resilient: if a storage-delete call fails partway (e.g. some objects deleted, then an error), the account deletion should not be left in a broken half-state. Handle partial failures — either make it retryable, or ensure the DB cascade and storage cleanup are coordinated so a failure is recoverable and logged, not silent. Report through Sentry on failure (a deletion that silently half-completes is a real problem).
+Do NOT delete other users' data: be precise about identifying only the deleting user's objects. A bug here that over-deletes would be catastrophic. The ownership-identification logic (step 1) must be exact — confirm it carefully and test it.
+Do not touch the R2 restore-drill safety guards or the backup job itself beyond adding the deletion-cleanup path.
+Also from the scan — confirm status (fix if still open, skip if already handled)
+
+The scan mentioned two payment-adjacent items it may have already fixed. Confirm current state and fix only if still open:
+
+Subscription cancellation failure being non-blocking during deletion (a user deleting their account with an active sub — is the Apple/Google cancellation handled or at least surfaced? The BUS-01 fix earlier added an iOS acknowledgment; confirm that interaction with deletion is sane).
+Founding-price checkout concurrency / package-fallback risk — confirm whether this was already addressed or is still open; if open, note it but do NOT necessarily fix in this pass (it's separate from deletion — flag it for a decision rather than expanding this task).
+Test
+Create a user with media (moments, vault, avatar), delete the account, confirm: all their Storage objects are gone (all buckets), their DB records are gone (existing cascade still works), and — per your chosen approach — their R2 backup copies are handled correctly.
+Confirm a partial-failure scenario (simulate a storage-delete error mid-way) doesn't leave a silent broken state — it's logged/retryable.
+Confirm deleting user A's account does NOT touch user B's media (the over-deletion safety test).
+Required for this pass
+Report how media ownership is identified before implementing (so the "only this user's objects" logic is verifiably correct).
+Real tests for the cleanup, the partial-failure path, and the over-deletion safety check.
+Confirm existing suites (1,194 API / 392 mobile) unaffected; report final counts.
+This is the last known launch blocker — after this, the app is clear to build and submit. Note in the summary whether anything else surfaced that should block submission.
