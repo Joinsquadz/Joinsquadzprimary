@@ -1,0 +1,48 @@
+SquadZ — Build: Full Vault System + New Free-Tier Caps (3 squads / 3 plans) + Transparency UI
+
+Context: three coordinated changes, built together because the caps and the transparency UI are interdependent, and the vault work touches the same media/gating surfaces. This is a real feature build (not a small fix). The vault audit already mapped the current state — reference docs/audit/ findings: personal vault backend exists but has NO entry point; squad→personal save works; event/trip "vaults" are really media feeds with no save-to-vault path.
+
+Note on scope/timing: this is being built before an imminent App Store submission. Build it correctly and completely — a half-built vault visible to users/reviewers is worse than none. If any part can't be done cleanly, flag it rather than shipping a broken half.
+
+PART 1 — Full vault buildout
+
+Reference the vault audit findings. Build the vault system to work as intended:
+
+Personal vault entry point — add a clear, discoverable way for a user to open their personal vault (a "My Vault" / "Personal Vault" button in the profile screen, and/or wherever is most natural in the app's navigation). The personal vault backend already exists and is Squadz+ gated — this exposes it. Free users tapping it should hit the upgrade prompt (confirm the gate is server-enforced, not just UI-hidden).
+Event vaults + Trip vaults — build these as real vaults (matching how the squad vault works), OR add a proper "save to my personal vault" action within the existing event/trip media experience — whichever is more consistent with the existing architecture (confirm which approach fits before building, and report the choice). The end state: a user can save a photo from an event or a trip into their personal vault, the same way squad→personal already works.
+Confirm squad→personal still works end-to-end after these changes (don't regress the one path that works today).
+Move/save semantics — when saving to personal vault: confirm copy-vs-move behavior is sensible (the source should typically stay; the personal copy should persist even if the source event/squad is later deleted — the orphaned-media handling). Confirm EXIF stripping applies to media entering the personal vault. Report the actual behavior chosen.
+PART 2 — New free-tier caps (server-enforced)
+
+Change the free-tier limits:
+
+Squads: up to 3 (was 2)
+Trips/events: up to 3 total combined (was 5) — still trips + events combined in one count, still the rolling 12-month window, still the append-only ledger mechanism (just the number changes 5→3).
+
+Counting rules (this is the important logic — implement precisely):
+
+Created a trip/event → counts (always, even if later cancelled/deleted — matches existing anti-abuse behavior; a user can't create-cancel-repeat to dodge the cap).
+Joined/accepted a squad or trip/event → counts.
+Joined then left → STILL counts (the slot is not returned — prevents leave/rejoin gaming). Match the current squad-leave behavior which already works this way.
+Invited but not accepted → does NOT count. An outstanding invitation the user hasn't accepted must not consume a slot. Confirm this is handled correctly for both squads and trips/events.
+
+Existing over-limit users (grandfather, don't punish):
+
+Users who currently exceed the new limits (e.g. an account with 4 plans under the old cap of 5) must NOT lose access to their existing squads/plans. They keep everything they have, but cannot create/join NEW ones until they're back under the new limit. The enforcement logic must handle "already over" gracefully (no errors, no data loss, no hidden content) — it blocks new creation/joining, not existing access.
+
+Enforcement must be server-side (the source of truth), with the client display matching. Confirm all entry points that create/join squads and plans route through the server-side check.
+
+PART 3 — Transparency UI
+Count display — show the user their current usage on both limits, e.g. "2 of 3 squads" and "1 of 3 trips/events used." Place these where a user encounters the limits (creation screens, profile, wherever natural).
+Info "ⓘ" button next to each count — tapping it opens a clear, plain-language explainer of what counts and how it's measured:
+Squads: creating or joining a squad counts; leaving does not give the slot back; being invited (not yet accepted) doesn't count.
+Trips/events: creating or accepting counts; cancelled/deleted still count if you created them; leaving doesn't give the slot back; invites you haven't accepted don't count.
+Keep it clear and non-punitive in tone — the goal is the user understanding the system, not feeling nickel-and-dimed.
+Free vs. Squadz+ comparison screen — update the app's existing "what's included" comparison (the paywall/upgrade screen and anywhere else it appears) to reflect: the new 3 squads / 3 plans free limits, and the vault features (personal vault as a Squadz+ benefit). Make sure every place that states the free-tier numbers is updated consistently — no screen left saying "5 plans" or "2 squads."
+Required for this pass
+Confirm the event/trip vault approach (real vaults vs. save-action-in-feed) before building; report the choice.
+Server-side enforcement for all caps; client display must match server truth.
+Grandfather existing over-limit users — no data loss, graceful handling.
+Search the whole app for every place the old free-tier numbers (5 plans / 2 squads) appear and update ALL of them — paywall, comparison screens, upsell copy, in-app hints. Report what you found and updated.
+Regression tests: the new counting rules (created/joined/left/invited cases), the grandfather case, the vault save flows, and confirm existing suites (1,144 API / 392 mobile) otherwise pass. Report final counts.
+This is a real feature build before submission — if any part is incomplete, flag it clearly rather than marking done.
