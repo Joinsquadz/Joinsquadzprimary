@@ -77,7 +77,10 @@ function calcWeeklyStreak(weeks: Date[]): number {
  *  - monthlyPlan: consecutive calendar months with ≥1 event hosted or attended
  *  - stayInTouch: consecutive calendar weeks with ≥1 message sent OR event joined
  */
-router.get("/api/streaks", requireAuth, async (req: Request, res: Response): Promise<void> => {
+// NOTE: this router is mounted under "/api" (see app.ts), so the path here must
+// NOT repeat the prefix — "/api/streaks" would resolve to "/api/api/streaks"
+// and every client call to /api/streaks would 404.
+router.get("/streaks", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const userId = (req.user as { id: string }).id;
 
   try {

@@ -24,6 +24,8 @@ function makeStop(overrides: Partial<ItineraryStop> = {}): ItineraryStop {
     cost: null,
     paidById: null,
     assigneeId: null,
+    createdBy: "u1",
+    votes: [],
     sortOrder: 0,
     ...overrides,
   };

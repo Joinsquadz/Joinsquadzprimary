@@ -297,7 +297,15 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess, head
   // ---- Celebration screen (full-screen) -----------------------------------
   if (phase === "celebrate") {
     return (
-      <Modal visible={visible} transparent animationType="fade" statusBarTranslucent>
+      <Modal
+        visible={visible}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        // Without this, Android hardware-back does nothing on the celebration
+        // screen and the only way out is the CTA — an inescapable modal.
+        onRequestClose={handleCelebrateDone}
+      >
         <View style={[styles.celebrateRoot, { backgroundColor: colors.background }]}>
           <View style={styles.celebrateInner}>
             <ProAvatar

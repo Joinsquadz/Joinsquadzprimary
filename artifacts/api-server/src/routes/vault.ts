@@ -866,6 +866,15 @@ router.post("/vault/photos/:id/share", requireAuth, async (req: Request, res: Re
     const copiedUrl = await copyStorageObject(photo.url);
     const mediaUrl = copiedUrl ?? photo.url;
 
+    // Record provenance for the COPY before it is referenced by a post. Media
+    // ownership is resolved from object_uploads (never a path prefix), so an
+    // unrecorded copy would survive the sharer's account purge forever as an
+    // orphan private object. Only the copy gets a record — when the copy fails
+    // we fall back to the original path, which is already owned by its uploader.
+    if (copiedUrl) {
+      await storage.recordUpload(userId, copiedUrl);
+    }
+
     const [post] = await db
       .insert(feedPostsTable)
       .values({

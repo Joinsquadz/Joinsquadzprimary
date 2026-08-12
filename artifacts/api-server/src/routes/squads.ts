@@ -594,6 +594,35 @@ router.get("/squads/stream", requireAuth, async (req: Request, res: Response): P
   });
 });
 
+// Removal notices MUST be declared before "/squads/:id" — Express matches in
+// declaration order, so the parameterised route would otherwise swallow
+// "removal-notices" as an id and parseId would 404 every poll for them.
+// Return all unseen removal notices for the authenticated user.
+router.get("/squads/removal-notices", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const userId = (req.user as { id: string }).id;
+  const notices = await db
+    .select()
+    .from(squadRemovalNoticesTable)
+    .where(and(eq(squadRemovalNoticesTable.userId, userId), isNull(squadRemovalNoticesTable.seenAt)));
+  res.json(notices);
+});
+
+// Dismiss (mark as seen) a single removal notice.
+router.delete("/squads/removal-notices/:noticeId", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const noticeId = parseId(req.params.noticeId);
+  const userId = (req.user as { id: string }).id;
+  const [notice] = await db.select().from(squadRemovalNoticesTable).where(eq(squadRemovalNoticesTable.id, noticeId));
+  if (!notice || notice.userId !== userId) {
+    res.status(404).json({ error: "Notice not found" });
+    return;
+  }
+  await db
+    .update(squadRemovalNoticesTable)
+    .set({ seenAt: new Date() })
+    .where(eq(squadRemovalNoticesTable.id, noticeId));
+  res.sendStatus(204);
+});
+
 router.get("/squads/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const id = parseId(req.params.id);
   const userId = (req.user as { id: string }).id;
@@ -1432,32 +1461,6 @@ router.delete("/squads/:id/members/:userId", requireAuth, async (req: Request, r
       }
     })();
   }
-});
-
-// Return all unseen removal notices for the authenticated user.
-router.get("/squads/removal-notices", requireAuth, async (req: Request, res: Response): Promise<void> => {
-  const userId = (req.user as { id: string }).id;
-  const notices = await db
-    .select()
-    .from(squadRemovalNoticesTable)
-    .where(and(eq(squadRemovalNoticesTable.userId, userId), isNull(squadRemovalNoticesTable.seenAt)));
-  res.json(notices);
-});
-
-// Dismiss (mark as seen) a single removal notice.
-router.delete("/squads/removal-notices/:noticeId", requireAuth, async (req: Request, res: Response): Promise<void> => {
-  const noticeId = parseId(req.params.noticeId);
-  const userId = (req.user as { id: string }).id;
-  const [notice] = await db.select().from(squadRemovalNoticesTable).where(eq(squadRemovalNoticesTable.id, noticeId));
-  if (!notice || notice.userId !== userId) {
-    res.status(404).json({ error: "Notice not found" });
-    return;
-  }
-  await db
-    .update(squadRemovalNoticesTable)
-    .set({ seenAt: new Date() })
-    .where(eq(squadRemovalNoticesTable.id, noticeId));
-  res.sendStatus(204);
 });
 
 router.post("/squads/:id/invite/regenerate", requireAuth, async (req: Request, res: Response): Promise<void> => {

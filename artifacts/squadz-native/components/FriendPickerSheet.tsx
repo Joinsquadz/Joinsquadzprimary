@@ -46,7 +46,8 @@ export default function FriendPickerSheet({
 }: Props) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { friends, fetchFriends } = useData();
+  const { friends, fetchFriends, friendsLoading, friendsAuthPending, friendsAuthError, retryFriends } =
+    useData();
   const { resolveUser, prefetchUsers } = useUserCache();
 
   const [selected, setSelected] = useState<string[]>([]);
@@ -78,6 +79,13 @@ export default function FriendPickerSheet({
       .filter(({ user }) => (q ? user.name.toLowerCase().includes(q) : true))
       .sort((a, b) => a.user.name.localeCompare(b.user.name));
   }, [friends, exclude, query, resolveUser]);
+
+  // A friends fetch that is still in flight (or 401ing during a cold-start auth
+  // race) must not render "Add friends to invite them directly." — that falsely
+  // tells the user they have no friends. Only a settled, authenticated,
+  // zero-friend response is a real empty state.
+  const showLoading = friends.length === 0 && (friendsLoading || friendsAuthPending);
+  const showError = friends.length === 0 && !showLoading && friendsAuthError;
 
   const toggle = (id: string) => {
     Haptics.selectionAsync();
@@ -119,7 +127,7 @@ export default function FriendPickerSheet({
             <View style={styles.cancelBtn} />
           </View>
 
-          {friends.length > 0 && (
+          {friends.length > 0 && !showLoading && !showError && (
             <View style={[styles.searchRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <Ionicons name="search" size={16} color={colors.mutedForeground} />
               <TextInput
@@ -134,7 +142,33 @@ export default function FriendPickerSheet({
           )}
 
           <ScrollView style={styles.list} keyboardShouldPersistTaps="handled">
-            {candidates.length === 0 ? (
+            {showLoading ? (
+              <View style={styles.empty}>
+                <ActivityIndicator color={colors.primary} />
+                <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
+                  Loading your friends…
+                </Text>
+              </View>
+            ) : showError ? (
+              <View style={styles.empty}>
+                <Ionicons name="cloud-offline-outline" size={32} color={colors.mutedForeground} />
+                <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
+                  Couldn&apos;t load your friends.
+                </Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    retryFriends();
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Try loading your friends again"
+                  style={[styles.retryBtn, { borderColor: colors.border }]}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.retryText, { color: colors.primary }]}>Try again</Text>
+                </TouchableOpacity>
+              </View>
+            ) : candidates.length === 0 ? (
               <View style={styles.empty}>
                 <Ionicons name="people-outline" size={32} color={colors.mutedForeground} />
                 <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
@@ -225,6 +259,8 @@ const styles = StyleSheet.create({
   name: { flex: 1, fontSize: 15, fontFamily: "Inter_500Medium" },
   empty: { alignItems: "center", gap: 10, paddingVertical: 36, paddingHorizontal: 24 },
   emptyText: { fontSize: 14, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 20 },
+  retryBtn: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8, marginTop: 2 },
+  retryText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
   ctaBtn: { borderRadius: 14, height: 50, alignItems: "center", justifyContent: "center" },
   ctaText: { fontSize: 16, fontWeight: "700", fontFamily: "Inter_700Bold" },
 });

@@ -26,12 +26,12 @@ function makeResponse(
 
 describe("createNotificationResponseHandler – dedup logic", () => {
   let handledIds: Set<string>;
-  let route: ReturnType<typeof vi.fn>;
+  let route: ReturnType<typeof vi.fn<(data: Record<string, string> | undefined) => void>>;
   let handler: ReturnType<typeof createNotificationResponseHandler>;
 
   beforeEach(() => {
     handledIds = new Set();
-    route = vi.fn();
+    route = vi.fn<(data: Record<string, string> | undefined) => void>();
     handler = createNotificationResponseHandler(handledIds, route);
   });
 

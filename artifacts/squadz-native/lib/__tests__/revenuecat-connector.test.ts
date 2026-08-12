@@ -52,7 +52,7 @@ vi.mock("@/lib/api", () => ({
 }));
 
 import { RC_ENTITLEMENT_ID, configureRevenueCat } from "@/lib/revenuecat";
-import { reconcileRcEntitlement } from "@/lib/rcReconcile";
+import { reconcileRcEntitlement, type ReconcileDeps } from "@/lib/rcReconcile";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -69,6 +69,18 @@ function mockResponse(body: unknown, ok = true) {
   return { ok, json: async () => body } as Response;
 }
 
+/**
+ * Test doubles keep the loose `vi.fn()` mock type (so `.mockResolvedValue` /
+ * `toHaveBeenCalledWith` stay ergonomic) while the returned object is typed as
+ * the real `ReconcileDeps`, which is what the production function requires.
+ */
+type MockFn = ReturnType<typeof vi.fn>;
+type TestDeps = ReconcileDeps & {
+  fetchFn: MockFn;
+  syncFn: MockFn;
+  refreshUsers: MockFn;
+};
+
 /** Standard set of injectable test doubles for one test scenario. */
 function makeDeps({
   authToken = "tok",
@@ -81,14 +93,14 @@ function makeDeps({
   authToken?: string | null;
   userId?: string;
   serverIsPro: boolean;
-  fetchMock?: ReturnType<typeof vi.fn>;
-  syncMock?: ReturnType<typeof vi.fn>;
-  refreshUsers?: ReturnType<typeof vi.fn>;
-}) {
+  fetchMock?: MockFn;
+  syncMock?: MockFn;
+  refreshUsers?: MockFn;
+}): TestDeps {
   const fetchFn = fetchMock ?? vi.fn().mockResolvedValue(mockResponse({ isPro: serverIsPro }));
   const syncFn = syncMock ?? vi.fn().mockResolvedValue(true);
   const refresh = refreshUsers ?? vi.fn();
-  return { authToken, userId, refreshUsers: refresh, fetchFn, syncFn };
+  return { authToken, userId, refreshUsers: refresh, fetchFn, syncFn } as unknown as TestDeps;
 }
 
 // ---------------------------------------------------------------------------

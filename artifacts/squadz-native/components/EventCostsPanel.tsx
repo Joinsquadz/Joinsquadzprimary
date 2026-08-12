@@ -23,6 +23,7 @@ import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { useData, useAuth } from "@/context/AppContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
+import { stripMediaExif } from "@/lib/imageUtils";
 
 type Props = {
   event: Event;
