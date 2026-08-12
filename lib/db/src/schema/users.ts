@@ -43,6 +43,15 @@ export const usersTable = pgTable("users", {
   // the one already applied is stale and must not overwrite a newer state.
   // Null = no period-bearing event applied yet (or a legacy/Stripe write).
   squadzPlusPeriodEndMs: text("squadz_plus_period_end_ms"),
+  // Which Squadz+ tier the entitlement was bought at: 'founding' | 'standard'.
+  // Null = unknown (legacy row, or an event that carried no product id). This is
+  // display/provenance state only — `isSquadzPlus` alone decides ACCESS, so a
+  // null tier can never gate a paying subscriber out of a feature. Deliberately
+  // NOT cleared on revoke: the founding ledger is keyed by transaction and a
+  // lapsed founding member is still historically a founding member. Endpoints
+  // report `tier: 'none'` whenever `isSquadzPlus` is false, so a stale value
+  // here is never surfaced as an active tier.
+  squadzPlusTier: text("squadz_plus_tier"),
   calendarSyncEnabled: boolean("calendar_sync_enabled").notNull().default(false),
   calendarToken: text("calendar_token"),
   notifyEventInvites: boolean("notify_event_invites").notNull().default(true),

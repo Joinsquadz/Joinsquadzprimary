@@ -230,7 +230,12 @@ export class Storage {
    * /iap/sync path, which reads RevenueCat's live subscriber state). For webhook
    * events, prefer `setSquadzPlusForPeriod`, which cannot be reordered.
    */
-  async setSquadzPlus(userId: string, isSquadzPlus: boolean, periodEndMs?: number | null) {
+  async setSquadzPlus(
+    userId: string,
+    isSquadzPlus: boolean,
+    periodEndMs?: number | null,
+    tier?: "founding" | "standard" | null,
+  ) {
     const [user] = await db
       .update(usersTable)
       .set({
@@ -240,6 +245,12 @@ export class Storage {
         ...(periodEndMs === undefined
           ? {}
           : { squadzPlusPeriodEndMs: periodEndMs === null ? null : String(periodEndMs) }),
+        // Tier is provenance, not access. Only ever written when we actually
+        // know it (`undefined`/`null` = "no information in this event"), so a
+        // product-id-less event can't erase a known founding tier. Callers must
+        // not pass null to mean "revoked" — revocation is `isSquadzPlus=false`,
+        // and readers report tier 'none' whenever the flag is false.
+        ...(tier ? { squadzPlusTier: tier } : {}),
       })
       .where(eq(usersTable.id, userId))
       .returning();
@@ -262,17 +273,21 @@ export class Storage {
     userId: string,
     isSquadzPlus: boolean,
     periodEndMs: number | null,
+    tier?: "founding" | "standard" | null,
   ): Promise<{ applied: boolean }> {
     // No period on the event (some types omit it): fall back to an unconditional
     // write — we have nothing to order it by.
     if (periodEndMs == null) {
-      await this.setSquadzPlus(userId, isSquadzPlus);
+      await this.setSquadzPlus(userId, isSquadzPlus, undefined, tier);
       return { applied: true };
     }
     const next = String(periodEndMs);
     const [row] = await db
       .update(usersTable)
-      .set({ isSquadzPlus, squadzPlusPeriodEndMs: next })
+      // Tier rides the SAME period-guarded write as the flag, so a stale event
+      // can't rewrite the tier of a newer period it lost the race to. Omitted
+      // when unknown so a product-id-less event leaves the stored tier intact.
+      .set({ isSquadzPlus, squadzPlusPeriodEndMs: next, ...(tier ? { squadzPlusTier: tier } : {}) })
       .where(
         and(
           eq(usersTable.id, userId),

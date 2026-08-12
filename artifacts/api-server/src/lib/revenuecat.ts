@@ -9,6 +9,27 @@ export const RC_ENTITLEMENT_ID = "squadz_plus";
 export const RC_FOUNDING_PRODUCT_ID = "squadz_plus_founding_yearly";
 export const RC_STANDARD_PRODUCT_ID = "squadz_plus_standard_yearly";
 
+/** Which price tier a Squadz+ entitlement was purchased at. */
+export type SquadzPlusTier = "founding" | "standard";
+
+/**
+ * Map a store product identifier to its Squadz+ tier, or null when the id isn't
+ * one of ours (or is absent — several webhook event types omit product_id).
+ *
+ * Google Play reports a subscription product as `"{subscriptionId}:{basePlanId}"`
+ * while the App Store reports the bare product id, so compare only the part
+ * before the first ":" — the same normalization the mobile client uses.
+ */
+export function tierForProductId(
+  productId: string | null | undefined,
+): SquadzPlusTier | null {
+  if (!productId) return null;
+  const base = productId.split(":")[0];
+  if (base === RC_FOUNDING_PRODUCT_ID) return "founding";
+  if (base === RC_STANDARD_PRODUCT_ID) return "standard";
+  return null;
+}
+
 export interface RevenueCatEvent {
   type: string;
   app_user_id?: string | null;

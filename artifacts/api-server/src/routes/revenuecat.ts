@@ -8,6 +8,7 @@ import {
   decideEntitlement,
   shouldRedeemFounding,
   foundingLedgerKey,
+  tierForProductId,
   type RevenueCatWebhookBody,
 } from "../lib/revenuecat";
 
@@ -35,16 +36,35 @@ router.post("/iap/sync", requireAuth, async (req: Request, res: Response): Promi
       return;
     }
     const body = (await rcRes.json()) as {
-      subscriber?: { entitlements?: Record<string, { expires_date?: string | null }> };
+      subscriber?: {
+        entitlements?: Record<
+          string,
+          { expires_date?: string | null; product_identifier?: string | null }
+        >;
+      };
     };
     const ent = body.subscriber?.entitlements?.[RC_ENTITLEMENT_ID];
     const expiresMs = ent?.expires_date != null ? new Date(ent.expires_date).getTime() : null;
     const active = !!ent && (expiresMs === null || expiresMs > Date.now());
+    // Tier comes from the entitlement's product identifier. Null when RevenueCat
+    // didn't report one (or it isn't one of ours) — `setSquadzPlus` then leaves
+    // any previously-known tier untouched rather than erasing it.
+    const tier = active ? tierForProductId(ent?.product_identifier) : null;
     // Authoritative full-state read from RevenueCat, so this write is
     // unconditional — but it also advances the period marker, otherwise the next
     // webhook would compare against a stale period and could be wrongly dropped.
-    await storage.setSquadzPlus(userId, active, expiresMs);
-    res.json({ ok: true, isSquadzPlus: active });
+    const updated = await storage.setSquadzPlus(userId, active, expiresMs, tier);
+    // Return the resolved entitlement so the client can adopt it directly after a
+    // purchase/restore instead of polling /api/subscription for the webhook to
+    // land. Mirrors /api/subscription's contract: tier is 'none' unless entitled,
+    // and an entitled user with no observed tier reads as 'standard'.
+    const storedTier = updated?.squadzPlusTier ?? tier;
+    res.json({
+      ok: true,
+      isSquadzPlus: active,
+      isPro: active,
+      tier: active ? (storedTier === "founding" ? "founding" : "standard") : "none",
+    });
   } catch (err) {
     logger.error({ err, userId }, "IAP sync failed");
     res.status(500).json({ error: "Failed to sync purchases" });
@@ -93,10 +113,16 @@ router.post("/revenuecat/webhook", async (req, res): Promise<void> => {
         // dropped, because its period is older than the one already applied.
         const periodEndMs =
           typeof event.expiration_at_ms === "number" ? event.expiration_at_ms : null;
+        // Only stamp a tier on a grant, and only when the event names one of our
+        // products. On a revoke we leave the stored tier alone — access is off
+        // via the flag, and readers report tier 'none' while `isSquadzPlus` is
+        // false, so the historical tier is preserved without leaking.
+        const tier = decision === "grant" ? tierForProductId(event.product_id) : null;
         const { applied } = await storage.setSquadzPlusForPeriod(
           user.id,
           decision === "grant",
           periodEndMs,
+          tier,
         );
         if (applied) {
           logger.info(

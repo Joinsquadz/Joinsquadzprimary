@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
@@ -8,24 +8,18 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AppContext";
 import { UpgradeModal } from "@/components/UpgradeModal";
-import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { TRIP_TEMPLATES } from "@/lib/tripTemplates";
 import { coverFor } from "@/lib/tripUtils";
 
 export default function TripStartScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { authToken } = useAuth();
-  const [isPro, setIsPro] = useState(false);
+  // Entitlement comes from the global store — this screen used to fetch its own
+  // copy of /api/subscription, which meant a purchase made elsewhere in the app
+  // (or from its own UpgradeModal) never unlocked the templates here.
+  const { isPro } = useAuth();
   const [showUpgrade, setShowUpgrade] = useState(false);
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
-
-  useEffect(() => {
-    fetch(`${API_BASE}/api/subscription`, { headers: buildAuthHeaders(authToken) })
-      .then((r) => (r.ok ? r.json() : { isPro: false }))
-      .then((data: { isPro?: boolean }) => setIsPro(data.isPro ?? false))
-      .catch(() => setIsPro(false));
-  }, [authToken]);
 
   const startBlank = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -129,7 +123,6 @@ export default function TripStartScreen() {
         visible={showUpgrade}
         trigger="events"
         onClose={() => setShowUpgrade(false)}
-        onUpgradeSuccess={() => setIsPro(true)}
       />
     </View>
   );

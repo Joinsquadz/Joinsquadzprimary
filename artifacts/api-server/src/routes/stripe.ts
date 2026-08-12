@@ -149,7 +149,7 @@ router.get('/subscription', requireAuth, async (req, res): Promise<void> => {
 
     const user = await storage.getUser(userId);
     if (!user) {
-      res.json({ subscription: null, isPro: false });
+      res.json({ subscription: null, isPro: false, tier: 'none' });
       return;
     }
 
@@ -157,7 +157,12 @@ router.get('/subscription', requireAuth, async (req, res): Promise<void> => {
     // This is now the primary purchase surface, so check it first. There is no
     // Stripe subscription object for IAP users.
     if (user.isSquadzPlus) {
-      res.json({ subscription: null, isPro: true, source: 'revenuecat' });
+      // `tier` is provenance for the badge, never the access decision. A
+      // subscriber whose tier we've never observed (legacy row, or an event
+      // without a product id) still reports isPro:true and falls back to
+      // 'standard' so the client never has to render an "unknown tier" state.
+      const tier = user.squadzPlusTier === 'founding' ? 'founding' : 'standard';
+      res.json({ subscription: null, isPro: true, source: 'revenuecat', tier });
       return;
     }
 
@@ -166,7 +171,11 @@ router.get('/subscription', requireAuth, async (req, res): Promise<void> => {
     if (user.stripeSubscriptionId) {
       const subscription = await storage.getSubscription(user.stripeSubscriptionId);
       const isPro = subscription?.status === 'active' || subscription?.status === 'trialing';
-      res.json({ subscription, isPro: !!isPro });
+      res.json({
+        subscription,
+        isPro: !!isPro,
+        tier: isPro ? (user.squadzPlusTier === 'founding' ? 'founding' : 'standard') : 'none',
+      });
       return;
     }
 
@@ -179,12 +188,16 @@ router.get('/subscription', requireAuth, async (req, res): Promise<void> => {
         await storage.updateUserStripeInfo(userId, {
           stripeSubscriptionId: subscription.id as string,
         });
-        res.json({ subscription, isPro: true });
+        res.json({
+          subscription,
+          isPro: true,
+          tier: user.squadzPlusTier === 'founding' ? 'founding' : 'standard',
+        });
         return;
       }
     }
 
-    res.json({ subscription: null, isPro: false });
+    res.json({ subscription: null, isPro: false, tier: 'none' });
   } catch (err) {
     logger.error({ err }, 'Error fetching subscription');
     res.status(500).json({ error: 'Failed to fetch subscription' });

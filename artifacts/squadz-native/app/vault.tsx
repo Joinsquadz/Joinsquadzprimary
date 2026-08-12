@@ -167,7 +167,7 @@ function VaultImage({ uri, style, headers }: { uri: string; style: object; heade
 export default function VaultScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { authToken, currentUser, isPro, setIsPro } = useAuth();
+  const { authToken, currentUser, isPro, setEntitlement } = useAuth();
   const currentUserId = currentUser?.id ?? null;
   const { events } = useData();
   const [selected, setSelected] = useState<number | null>(null);
@@ -419,7 +419,18 @@ export default function VaultScreen() {
       const data = await res.json() as { photos: VaultPhoto[]; isPro?: boolean };
       setPhotos(data.photos ?? []);
       syncFavorites(data.photos ?? []);
-      if (data.isPro !== undefined) setIsPro(data.isPro);
+      // The vault endpoints report the server's view of the entitlement. Feed it
+      // into the global store (as a server-sourced reading) rather than keeping a
+      // screen-local copy — applyEntitlement will ignore it if it would downgrade
+      // a purchase RevenueCat has already confirmed on this device.
+      if (data.isPro !== undefined) {
+        setEntitlement({
+          resolved: true,
+          entitled: !!data.isPro,
+          tier: data.isPro ? "standard" : "none",
+          source: "server",
+        });
+      }
       setPhotosAuth(prev => applyVaultFetchOutcome(prev, { kind: "ok" }));
     } catch {
       // Network error. Same as above: don't strand an in-flight auth retry.
@@ -427,7 +438,7 @@ export default function VaultScreen() {
     } finally {
       setPhotosLoading(false);
     }
-  }, [authToken, squadId, eventId, authHeaders, syncFavorites]);
+  }, [authToken, squadId, eventId, authHeaders, syncFavorites, setEntitlement]);
 
   // Manual retry after the auth-race retries were exhausted. Clears the error,
   // resets the attempt counter, and kicks off a fresh fetch (which re-arms the
@@ -461,7 +472,18 @@ export default function VaultScreen() {
       const data = await res.json() as { photos: VaultPhoto[]; isPro?: boolean };
       setFavoritePhotos(data.photos ?? []);
       syncFavorites(data.photos ?? []);
-      if (data.isPro !== undefined) setIsPro(data.isPro);
+      // The vault endpoints report the server's view of the entitlement. Feed it
+      // into the global store (as a server-sourced reading) rather than keeping a
+      // screen-local copy — applyEntitlement will ignore it if it would downgrade
+      // a purchase RevenueCat has already confirmed on this device.
+      if (data.isPro !== undefined) {
+        setEntitlement({
+          resolved: true,
+          entitled: !!data.isPro,
+          tier: data.isPro ? "standard" : "none",
+          source: "server",
+        });
+      }
       setFavoritesAuth(prev => applyVaultFetchOutcome(prev, { kind: "ok" }));
     } catch {
       // Network error. Same as above: don't strand an in-flight auth retry.
@@ -469,7 +491,7 @@ export default function VaultScreen() {
     } finally {
       setFavoritesLoading(false);
     }
-  }, [authHeaders, syncFavorites]);
+  }, [authHeaders, syncFavorites, setEntitlement]);
 
   // Manual retry after the favorites auth-race retries were exhausted.
   const retryFavorites = useCallback(() => {
@@ -1613,7 +1635,8 @@ export default function VaultScreen() {
         trigger="photos"
         onClose={() => setUpgradeModalVisible(false)}
         onUpgradeSuccess={() => {
-          setIsPro(true);
+          // Global entitlement is set by UpgradeModal; refetch the vault now that
+          // the full (previously gated) set of photos is visible.
           void fetchPhotos();
           showToast("Welcome to SquadZ+! Your full vault is unlocked.", { durationMs: 4000 });
         }}

@@ -48,7 +48,7 @@ function photoFilename(photo: LivePhoto): string {
 export default function PhotosTab() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { authToken, isPro, setIsPro } = useAuth();
+  const { authToken, isPro } = useAuth();
   const {
     photos,
     loading: photosLoading,
@@ -204,7 +204,9 @@ export default function PhotosTab() {
             visible={upgradeVisible}
             trigger="photos"
             onClose={() => setUpgradeVisible(false)}
-            onUpgradeSuccess={() => { setIsPro(true); void loadPhotos(); }}
+            // Entitlement itself is updated globally by UpgradeModal; this callback
+            // only does the screen-specific refetch.
+            onUpgradeSuccess={() => { void loadPhotos(); }}
           />
         </ScrollView>
       ) : viewablePhotos.length === 0 ? (

@@ -18,7 +18,7 @@ interface Props {
  * screen without the parent tracking subscription state.
  */
 export function SquadzPlusBanner({ trigger, message, style }: Props) {
-  const { isPro, setIsPro } = useAuth();
+  const { isPro } = useAuth();
   const [showUpgrade, setShowUpgrade] = useState(false);
 
   // Hide until we positively know the user is NOT pro (null = still loading).
@@ -47,7 +47,6 @@ export function SquadzPlusBanner({ trigger, message, style }: Props) {
         visible={showUpgrade}
         trigger={trigger}
         onClose={() => setShowUpgrade(false)}
-        onUpgradeSuccess={() => setIsPro(true)}
       />
     </>
   );

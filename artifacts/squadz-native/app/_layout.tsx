@@ -34,7 +34,7 @@ import { TipCoachMark } from "@/components/TipCoachMark";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { installWebAlert } from "@/lib/webAlert";
 import { installWebShare } from "@/lib/webShare";
-import { logOutRevenueCat } from "@/lib/revenuecat";
+import { logOutRevenueCat, addEntitlementListener } from "@/lib/revenuecat";
 import { reconcileRcEntitlement } from "@/lib/rcReconcile";
 import { routeFromNotificationData } from "@/lib/routeFromNotificationData";
 import { createNotificationResponseHandler } from "@/lib/notificationResponseHandler";
@@ -313,18 +313,69 @@ function PushNotificationHandler() {
 // purchases and entitlements are tied to the account, and detach on logout.
 // No-op on web / without SDK keys.
 function RevenueCatConnector() {
-  const { isLoggedIn, currentUser, authToken } = useAuth();
+  const { isLoggedIn, currentUser, authToken, setEntitlement } = useAuth();
   const { refreshUsers } = useUserCache();
+
+  // Keep the newest callbacks in a ref so the listener effect below can depend
+  // ONLY on the signed-in user. Otherwise every render with a new callback
+  // identity would tear down and re-register the RevenueCat listener.
+  const handlersRef = useRef({ setEntitlement, refreshUsers, userId: currentUser.id });
+  handlersRef.current = { setEntitlement, refreshUsers, userId: currentUser.id };
+
   useEffect(() => {
     if (isLoggedIn && currentUser.id) {
       const userId = currentUser.id;
-      // On launch, reconcile the on-device RC entitlement with the server.
+      // On launch, reconcile the on-device RC entitlement with the server, and
+      // publish the result into the global entitlement store.
       // See lib/rcReconcile.ts for the full algorithm (Cases 1 & 2).
-      void reconcileRcEntitlement({ authToken, userId, refreshUsers });
+      void reconcileRcEntitlement({
+        authToken,
+        userId,
+        refreshUsers,
+        onEntitlement: (next) => handlersRef.current.setEntitlement(next),
+      });
     } else {
       void logOutRevenueCat();
     }
   }, [isLoggedIn, currentUser.id, authToken]);
+
+  // Exactly ONE app-wide RevenueCat customer-info listener, owned here.
+  //
+  // This is what makes entitlement changes that originate outside a purchase
+  // flow land in the UI: renewals, expiries, Ask-to-Buy approvals, family
+  // sharing, and purchases completed on another device. It is scoped to the
+  // signed-in user and torn down on logout so a listener from a previous session
+  // can never write another account's entitlement into the store.
+  useEffect(() => {
+    if (!isLoggedIn || !currentUser.id) return;
+    const boundUserId = currentUser.id;
+    let unsubscribe: (() => void) | null = null;
+    let cancelled = false;
+
+    void (async () => {
+      const off = await addEntitlementListener((ent) => {
+        // Late delivery after a logout / account switch must not leak across.
+        if (handlersRef.current.userId !== boundUserId) return;
+        handlersRef.current.setEntitlement({
+          resolved: true,
+          entitled: ent.entitled,
+          tier: ent.tier,
+          source: "revenuecat",
+        });
+        // Refresh the cached copy of this user so the gold ring follows.
+        handlersRef.current.refreshUsers([boundUserId]);
+      });
+      // The subscription resolved after this effect was already cleaned up.
+      if (cancelled) off();
+      else unsubscribe = off;
+    })();
+
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
+  }, [isLoggedIn, currentUser.id]);
+
   return null;
 }
 

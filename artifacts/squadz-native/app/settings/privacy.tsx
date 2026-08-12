@@ -32,7 +32,7 @@ const ROWS: { key: keyof Prefs; icon: keyof typeof Ionicons.glyphMap; label: str
 export default function PrivacyScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { authToken, deleteAccount } = useAuth();
+  const { authToken, deleteAccount, isPro } = useAuth();
 
   const [prefs, setPrefs] = useState<Prefs | null>(null);
   const [loading, setLoading] = useState(true);
@@ -71,21 +71,13 @@ export default function PrivacyScreen() {
     void load();
   }, [load]);
 
+  // Entitlement comes from the global store (AppContext) instead of a screen-local
+  // fetch, so this warning reflects a purchase made anywhere in the app. Unresolved
+  // (isPro === null) reads as "no warning", matching the previous fail-quiet behaviour.
   useEffect(() => {
     if (Platform.OS !== "ios") return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch(`${API_BASE}/api/subscription`, { headers: authHeaders() });
-        if (!res.ok) return;
-        const d = await res.json() as { isPro?: boolean };
-        if (!cancelled) setHasPlus(!!d.isPro);
-      } catch {
-        // Unknown → don't show the subscription warning.
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [authHeaders]);
+    setHasPlus(isPro === true);
+  }, [isPro]);
 
   async function toggle(key: keyof Prefs, value: boolean) {
     if (!prefs) return;

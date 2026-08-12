@@ -98,7 +98,9 @@ function makeDeps({
   refreshUsers?: MockFn;
 }): TestDeps {
   const fetchFn = fetchMock ?? vi.fn().mockResolvedValue(mockResponse({ isPro: serverIsPro }));
-  const syncFn = syncMock ?? vi.fn().mockResolvedValue(true);
+  const syncFn =
+    syncMock ??
+    vi.fn().mockResolvedValue({ ok: true, entitlement: { entitled: true, tier: "standard" } });
   const refresh = refreshUsers ?? vi.fn();
   return { authToken, userId, refreshUsers: refresh, fetchFn, syncFn } as unknown as TestDeps;
 }
@@ -149,7 +151,7 @@ describe("reconcileRcEntitlement: RC=true, server=false (reinstall scenario)", (
     });
     const syncMock = vi.fn().mockImplementation(async () => {
       callOrder.push("syncFn");
-      return true;
+      return { ok: true, entitlement: { entitled: true, tier: "standard" } };
     });
     const deps = makeDeps({ serverIsPro: false, syncMock });
 
@@ -295,5 +297,94 @@ describe("reconcileRcEntitlement: edge cases", () => {
     const deps = makeDeps({ serverIsPro: false, fetchMock });
 
     await expect(reconcileRcEntitlement(deps)).resolves.not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Publishing into the global entitlement store
+//
+// Reconciliation used to write only the server and the user cache, so AppContext
+// kept whatever it read at startup and gated screens stayed stale until the app
+// was restarted. It must now report what it resolved.
+// ---------------------------------------------------------------------------
+describe("reconcileRcEntitlement: publishes to the global entitlement store", () => {
+  it("publishes the on-device reading BEFORE consulting the server", async () => {
+    // Ordering is what protects a fresh purchase: the local positive lands first,
+    // so a lagging server 'no' is rejected by applyEntitlement rather than
+    // re-locking the app.
+    const order: string[] = [];
+    getCustomerInfo.mockResolvedValue(customerInfoWith(true));
+    restorePurchases.mockResolvedValue(customerInfoWith(true));
+    const onEntitlement = vi.fn().mockImplementation((e: { source: string }) => {
+      order.push(`entitlement:${e.source}`);
+    });
+    const fetchMock = vi.fn().mockImplementation(async () => {
+      order.push("fetch:/api/subscription");
+      return mockResponse({ isPro: false });
+    });
+    const deps = { ...makeDeps({ serverIsPro: false, fetchMock }), onEntitlement };
+
+    await reconcileRcEntitlement(deps as unknown as ReconcileDeps);
+
+    expect(order[0]).toBe("entitlement:revenuecat");
+    expect(order[1]).toBe("fetch:/api/subscription");
+  });
+
+  it("publishes the tier resolved from the store product id", async () => {
+    getCustomerInfo.mockResolvedValue({
+      entitlements: {
+        active: { [RC_ENTITLEMENT_ID]: { productIdentifier: "squadz_plus_founding_yearly" } },
+      },
+    });
+    const onEntitlement = vi.fn();
+    const deps = { ...makeDeps({ serverIsPro: true }), onEntitlement };
+
+    await reconcileRcEntitlement(deps as unknown as ReconcileDeps);
+
+    expect(onEntitlement).toHaveBeenCalledWith(
+      expect.objectContaining({ entitled: true, tier: "founding", source: "revenuecat" }),
+    );
+  });
+
+  it("adopts the post-sync server answer after a reinstall restore", async () => {
+    getCustomerInfo.mockResolvedValue(customerInfoWith(true));
+    restorePurchases.mockResolvedValue(customerInfoWith(true));
+    const syncMock = vi
+      .fn()
+      .mockResolvedValue({ ok: true, entitlement: { entitled: true, tier: "founding" } });
+    const onEntitlement = vi.fn();
+    const deps = { ...makeDeps({ serverIsPro: false, syncMock }), onEntitlement };
+
+    await reconcileRcEntitlement(deps as unknown as ReconcileDeps);
+
+    // The server is authoritative once it has re-read RevenueCat, and it carries
+    // the tier the receipt actually resolved to.
+    expect(onEntitlement).toHaveBeenLastCalledWith(
+      expect.objectContaining({ entitled: true, tier: "founding", source: "server" }),
+    );
+  });
+
+  it("publishes a negative reading when the store has no entitlement", async () => {
+    getCustomerInfo.mockResolvedValue(customerInfoWith(false));
+    const onEntitlement = vi.fn();
+    const deps = { ...makeDeps({ serverIsPro: true }), onEntitlement };
+
+    await reconcileRcEntitlement(deps as unknown as ReconcileDeps);
+
+    expect(onEntitlement).toHaveBeenCalledWith(
+      expect.objectContaining({ entitled: false, source: "revenuecat" }),
+    );
+  });
+
+  it("publishes nothing on web, where the SDK can't report an entitlement", async () => {
+    platform.OS = "web" as typeof platform.OS;
+    const onEntitlement = vi.fn();
+    const deps = { ...makeDeps({ serverIsPro: false }), onEntitlement };
+
+    await reconcileRcEntitlement(deps as unknown as ReconcileDeps);
+
+    // Silence is correct here: publishing "not entitled" would wrongly downgrade
+    // a subscriber using the web preview.
+    expect(onEntitlement).not.toHaveBeenCalled();
   });
 });

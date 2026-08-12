@@ -109,7 +109,7 @@ describe("POST /api/revenuecat/webhook — entitlement grant/revoke", () => {
       },
     });
     expect(res.status).toBe(200);
-    expect(hoisted.setSquadzPlusForPeriod).toHaveBeenCalledWith("u1", true, null);
+    expect(hoisted.setSquadzPlusForPeriod).toHaveBeenCalledWith("u1", true, null, "standard");
     // Standard tier never consumes a founding spot.
     expect(hoisted.redeemFoundingSpot).not.toHaveBeenCalled();
   });
@@ -124,7 +124,7 @@ describe("POST /api/revenuecat/webhook — entitlement grant/revoke", () => {
       },
     });
     expect(res.status).toBe(200);
-    expect(hoisted.setSquadzPlusForPeriod).toHaveBeenCalledWith("u1", false, null);
+    expect(hoisted.setSquadzPlusForPeriod).toHaveBeenCalledWith("u1", false, null, null);
   });
 
   it("does not touch entitlement for CANCELLATION (access continues until expiry)", async () => {
@@ -168,7 +168,7 @@ describe("POST /api/revenuecat/webhook — founding spot redemption", () => {
       },
     });
     expect(res.status).toBe(200);
-    expect(hoisted.setSquadzPlusForPeriod).toHaveBeenCalledWith("u1", true, null);
+    expect(hoisted.setSquadzPlusForPeriod).toHaveBeenCalledWith("u1", true, null, "founding");
     expect(hoisted.redeemFoundingSpot).toHaveBeenCalledTimes(1);
     expect(hoisted.redeemFoundingSpot).toHaveBeenCalledWith("rc:1000000123");
   });

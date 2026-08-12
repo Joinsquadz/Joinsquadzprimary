@@ -1,0 +1,80 @@
+SquadZ — Entitlement Propagation: PHASE 2 GO-AHEAD (revised per Phase 1 audit)
+
+Phase 1 audit is approved. The hypothesis is confirmed with refinements. This supersedes the Phase 2 section of the original prompt — implement what follows, not the earlier draft.
+
+Consolidate the existing systems. Do not build a parallel one. The systems to extend or absorb are: AppContext.isPro / fetchProStatus(), RevenueCatConnector in app/_layout.tsx, reconcileRcEntitlement() in lib/rcReconcile.ts, syncIapEntitlement() + server POST /api/iap/sync, UserCacheContext.refreshUsers(), and UpgradeModal's post-purchase polling loop.
+
+1. One entitlement store, extended from AppContext
+
+Keep AppContext as the home. Replace the isPro: boolean | null shape with a resolved entitlement object carrying at minimum:
+
+resolution state (unresolved / resolved)
+entitled (boolean)
+tier (founding / standard / none) — the audit confirms tier is currently lost after package selection at lib/revenuecat.ts:142-144 and in the server response
+source of the current value (RevenueCat local / server / optimistic post-purchase), for debugging
+
+Every gated surface reads from this. null-as-unresolved must remain distinguishable from false-as-free so no screen renders a free-tier paywall during startup before resolution.
+
+2. Register the customer-info listener
+
+Register addCustomerInfoUpdateListener exactly once, inside RevenueCatConnector (app/_layout.tsx:312-328) alongside the existing configure/login logic. Every emission writes to the entitlement store.
+
+Scope the listener to the authenticated user and remove it on logout and on auth-token change, before logOutRevenueCat() runs. The audit found logout teardown is already correct (AppContext.tsx:832-850, 1501-1532, UserCacheContext.tsx:174-184) — do not regress it. A rapid logout → login as a different user must not leak the previous user's tier.
+
+3. Eliminate the optional-callback pattern — this is the primary fix
+
+UpgradeModal.onEntitled() (components/UpgradeModal.tsx:204-227) must write entitlement to the global store itself, unconditionally, before invoking any caller-provided callback.
+
+Then remove the manual AppContext.isPro = true writes from all six call sites that currently have them (app/create.tsx:1130-1135, app/(tabs)/photos.tsx:203-208, app/vault.tsx:1611-1618, app/profile.tsx:1139-1144, app/trip/start.tsx:128-133, components/SquadzPlusBanner.tsx:46-51). They become redundant once the modal owns the write.
+
+The six call sites with no callback at all (app/onboarding.tsx:383-388, app/squad/discover.tsx:336-341, app/squad/join.tsx:296-302, app/squad/create.tsx:235-240, app/squad/join-public.tsx:237-241, app/(tabs)/index.tsx:1395-1399) then work correctly with no change required at the call site. Verify each and report.
+
+onUpgradeSuccess remains available for screen-specific side effects only (navigation, refetching that screen's data) — never for entitlement state.
+
+4. Make /api/iap/sync authoritative and awaited
+
+lib/api.ts:124-140 currently discards the resolved entitlement and returns only request success. Change it to return the resolved entitlement payload.
+
+In the post-purchase path, await the sync call and write its resolved value to the store. Per the audit this endpoint does a direct RevenueCat REST subscriber lookup (routes/revenuecat.ts:16-52), so it closes the webhook race without polling.
+
+Then delete the 0/1/3/6/10-second polling loop in UpgradeModal (:64-66, 188-202). It is a duplicated, non-global reconciliation mechanism that the awaited sync makes unnecessary.
+
+Retain a bounded retry with backoff around the awaited sync for transient network failure only. Log to Sentry when entitlement resolves only after a retry, so real convergence latency is measured rather than assumed. Do not invent latency figures — report only what the telemetry shows.
+
+5. Optimistic write must not be reverted by an early negative
+
+On a successful StoreKit result, write entitled: true from the returned customerInfo immediately, before the server round-trip. A subsequent negative answer from GET /api/subscription must not downgrade the user while a confirmed local RevenueCat entitlement exists. Only a negative from RevenueCat itself, or a completed /api/iap/sync that authoritatively reports no entitlement, may clear it.
+
+6. Sever the Vault → AppContext write
+
+Remove the write at app/vault.tsx:419-425, 461-465 where the Vault API response sets global entitlement. A feature endpoint must not be a global entitlement authority. Vault reads from the store like every other surface.
+
+Same treatment for the independent local copies: app/trip/start.tsx:19-27, app/settings/privacy.tsx:42-84, hooks/useVaultPhotos.ts:27-75. Each reads from the store instead of holding its own fetched copy.
+
+UserCacheContext.isPro (:5-12, 29-54, 75-110) is a cosmetic per-user field for gold rings on other users' avatars — leave it as a user-record property. But the current user's own ring must derive from the entitlement store, not the cache, so it updates immediately on purchase.
+
+7. Fix the startup race
+
+fetchProStatus() is called after /api/auth/me (AppContext.tsx:968-970) and can read the server before reconcileRcEntitlement() completes, leaving context false. Sequence these so reconciliation resolves before or feeds into the startup entitlement value, and keep the store unresolved rather than false until one of them has actually answered.
+
+8. Server: persist the tier
+
+users.is_squadz_plus is a boolean. Add durable storage of which product/tier resolved (founding vs standard), written by the RevenueCat webhook (routes/revenuecat.ts:54-138) and by /api/iap/sync, and return it from GET /api/subscription (routes/stripe.ts:146-192).
+
+Preserve the existing period-end guard (storage.ts:2224-2289) against stale or unordered webhook events — do not weaken it. Write a proper migration; existing Squadz+ rows with unknown tier backfill as standard unless the founding-spot ledger says otherwise. Do not modify the founding-spot ledger or its idempotency keys.
+
+9. Invalidate tier-dependent state on change
+
+On any entitlement change, refresh: plan-cap and squad-cap state, Vault access state, paywall copy, and the current user's cosmetic record via the existing UserCacheContext.refreshUsers(). The audit found no centralized invalidation exists — add one hook, not per-screen listeners.
+
+Constraints
+Do not break existing tests. Baseline 972 API / 351 mobile, all green. List every new or changed test file with a one-line reason.
+Do not upgrade dependencies. Do not change RevenueCat product IDs, entitlement identifiers, or App Store Connect configuration.
+Do not weaken the existing logout teardown or the stale-token rejection at UserCacheContext.tsx:97-106.
+Do not remove the dormant Stripe checks in lib/proStatus.ts:5-25 — legacy web billing reactivation stays intact.
+Keep the 30-second founding-spot availability cache (routes/stripe.ts:14-39) as-is; it is pricing data, not entitlement.
+Post-build verification
+API suite vs 972 baseline. 2. Mobile suite vs 351 baseline. 3. Type check and lint clean.
+New tests: listener emission updates the store; logout clears it and removes the listener; optimistic write survives an early negative server read; awaited sync writes the resolved value; tier persists and round-trips through the API; all twelve paywall call sites update global state after purchase.
+Every file changed, one-line reason each.
+What still requires physical-device verification.

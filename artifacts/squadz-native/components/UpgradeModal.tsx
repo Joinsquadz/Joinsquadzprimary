@@ -16,7 +16,13 @@ import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AppContext";
 import { useUserCache } from "@/context/UserCacheContext";
 import { API_BASE, buildAuthHeaders, syncIapEntitlement } from "@/lib/api";
-import { purchaseSquadzPlus, restoreSquadzPlus, getSquadzPlusPrices } from "@/lib/revenuecat";
+import {
+  purchaseSquadzPlus,
+  restoreSquadzPlus,
+  getSquadzPlusPrices,
+  type RcEntitlement,
+} from "@/lib/revenuecat";
+import { Sentry } from "@/lib/monitoring";
 import { ProAvatar } from "@/components/ProAvatar";
 
 export type UpgradeTrigger =
@@ -61,9 +67,6 @@ const FOUNDING_PRICE = "$19.99";
 const CTA_GRADIENT = ["#FF6B2C", "#FF8050"] as const;
 // Gold gradient for the founding badge + celebration ring.
 const GOLD_GRADIENT = ["#FFE08A", "#F5C242", "#C8941A"] as const;
-// Backoff delays (ms) for polling the server after a purchase, so the Pro gold
-// ring resolves once the RevenueCat webhook flips users.is_squadz_plus.
-const POLL_DELAYS = [0, 1000, 2000, 3000, 4000];
 // Max time we'll wait on founding-status before falling back to standard price.
 const FOUNDING_STATUS_TIMEOUT = 1000;
 
@@ -107,7 +110,7 @@ const welcomeSeenKey = (userId: string) => `hasSeenUpgradeWelcome_${userId}`;
 
 export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess, headline, nextSlotAvailableAt }: Props) {
   const colors = useColors();
-  const { authToken, currentUser } = useAuth();
+  const { authToken, currentUser, setEntitlement } = useAuth();
   const { refreshUsers } = useUserCache();
   const insets = useSafeAreaInsets();
   const [phase, setPhase] = useState<Phase>("idle");
@@ -185,46 +188,95 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess, head
     }
   }, [authToken]);
 
-  // Best-effort: nudge the server-side entitlement to catch up. The RevenueCat
-  // webhook flips users.is_squadz_plus a moment after purchase, so poll a few
-  // times and bust the user cache once it lands (Pro gold ring across the app).
-  // The upgrade UX itself does NOT block on this — RevenueCat already confirmed
-  // the entitlement on-device.
-  const refreshServerState = useCallback(async () => {
-    for (const delay of POLL_DELAYS) {
-      if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
-      const isPro = await fetchSubscription();
-      if (isPro) {
+  /**
+   * Reconcile the server with live RevenueCat state and adopt its answer.
+   *
+   * This replaced a 5-step polling loop over /api/subscription. /api/iap/sync is
+   * a synchronous read of RevenueCat's subscriber record, so it does not depend
+   * on webhook delivery — one successful call is authoritative. We retry only
+   * TRANSIENT failures (network / 5xx), and only a couple of times: a permanent
+   * failure (expired token) will never succeed, and the purchase is already safe
+   * because the optimistic local entitlement is in the store either way.
+   */
+  const syncServerEntitlement = useCallback(async () => {
+    const RETRY_DELAYS_MS = [400, 1200];
+    let attempt = 0;
+    for (;;) {
+      const result = await syncIapEntitlement(authToken);
+      if (result.ok) {
+        if (attempt > 0) {
+          // Worth knowing about: the first sync after a purchase failed and only
+          // succeeded on retry. Silent today, so a degraded path stayed invisible.
+          Sentry.captureMessage("iap_sync_succeeded_after_retry", {
+            level: "info",
+            extra: { attempts: attempt + 1 },
+          });
+        }
+        setEntitlement({
+          resolved: true,
+          entitled: result.entitlement.entitled,
+          tier: result.entitlement.tier,
+          source: "server",
+        });
         if (currentUser.id) refreshUsers([currentUser.id]);
         return;
       }
+      if (!result.retryable || attempt >= RETRY_DELAYS_MS.length) {
+        // Give up quietly: the user keeps access via the local entitlement, and
+        // launch reconciliation will retry the server on the next cold start.
+        Sentry.captureMessage("iap_sync_failed", {
+          level: "warning",
+          extra: { attempts: attempt + 1, status: result.status ?? null, retryable: result.retryable },
+        });
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[attempt]));
+      attempt += 1;
     }
-  }, [fetchSubscription, refreshUsers, currentUser.id]);
+  }, [authToken, currentUser.id, refreshUsers, setEntitlement]);
 
   // Shared success path once RevenueCat confirms an active entitlement (fresh
   // purchase or restore).
-  const onEntitled = useCallback(async () => {
-    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    // B4: authoritative server-side reconciliation with live RC state.
-    void syncIapEntitlement(authToken);
-    if (currentUser.id) refreshUsers([currentUser.id]);
-    onUpgradeSuccess?.();
-    void refreshServerState();
-    // Celebrate once per user.
-    try {
-      const key = welcomeSeenKey(currentUser.id ?? "me");
-      const seen = await AsyncStorage.getItem(key);
-      if (!seen) {
-        await AsyncStorage.setItem(key, "1");
-        setPhase("celebrate");
-        return;
+  //
+  // `entitlement` is what the store told us on THIS device. We write it to the
+  // global store immediately (source "optimistic") so every gated screen unlocks
+  // the moment the purchase completes — the previous implementation depended on
+  // each caller's optional onUpgradeSuccess callback to do this, so the six
+  // callers without one left the app locked until a restart.
+  const onEntitled = useCallback(
+    async (entitlement: RcEntitlement) => {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setEntitlement({
+        resolved: true,
+        entitled: true,
+        tier: entitlement.tier === "none" ? "standard" : entitlement.tier,
+        source: "optimistic",
+      });
+      if (currentUser.id) refreshUsers([currentUser.id]);
+      // Screen-specific side effects only (refetch a list, show a toast). Global
+      // entitlement state is no longer this callback's responsibility.
+      onUpgradeSuccess?.();
+      // B4: authoritative server-side reconciliation with live RC state. Awaited
+      // so a failure is observable, but it can only UPGRADE the local reading —
+      // applyEntitlement refuses to downgrade a device-confirmed purchase.
+      await syncServerEntitlement();
+      // Celebrate once per user.
+      try {
+        const key = welcomeSeenKey(currentUser.id ?? "me");
+        const seen = await AsyncStorage.getItem(key);
+        if (!seen) {
+          await AsyncStorage.setItem(key, "1");
+          setPhase("celebrate");
+          return;
+        }
+      } catch {
+        // Storage failure → skip celebration, just close.
       }
-    } catch {
-      // Storage failure → skip celebration, just close.
-    }
-    setPhase("idle");
-    onClose();
-  }, [authToken, currentUser.id, refreshUsers, onUpgradeSuccess, refreshServerState, onClose]);
+      setPhase("idle");
+      onClose();
+    },
+    [currentUser.id, refreshUsers, onUpgradeSuccess, syncServerEntitlement, setEntitlement, onClose],
+  );
 
   // Reset transient state whenever the parent closes the modal. Clearing
   // `founding`/`rcPrices` means each fresh open re-fetches, and if that's slow or
@@ -252,36 +304,44 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess, head
       return;
     }
     if (result.isPro) {
-      await onEntitled();
+      await onEntitled(result.entitlement);
       return;
     }
     // Store confirmed the purchase but the entitlement isn't active on-device
-    // yet — fall back to briefly polling the server.
+    // yet (deferred / Ask-to-Buy). Ask the server to read RevenueCat directly
+    // rather than waiting on a webhook, then check once.
     setPhase("confirming");
-    await refreshServerState();
+    await syncServerEntitlement();
     if (await fetchSubscription()) {
-      await onEntitled();
+      await onEntitled({ entitled: true, tier: isFounding ? "founding" : "standard" });
     } else {
       setPhase("failed");
       setError("Almost there — if your purchase completed, tap Restore purchases.");
     }
-  }, [phase, isFounding, onEntitled, refreshServerState, fetchSubscription]);
+  }, [phase, isFounding, onEntitled, syncServerEntitlement, fetchSubscription]);
 
   const handleRestore = useCallback(async () => {
     if (phase === "checkout" || phase === "confirming") return;
     setPhase("confirming");
     setError(null);
     const result = await restoreSquadzPlus();
-    // B4: sync the server entitlement after every restore attempt (sets OR
-    // clears is_squadz_plus based on live RevenueCat state; idempotent).
-    if (result.ok) void syncIapEntitlement(authToken);
     if (result.ok && result.isPro) {
-      await onEntitled();
+      // onEntitled runs the server sync itself (sets is_squadz_plus from live
+      // RevenueCat state), so don't fire a second, unawaited one here.
+      await onEntitled(result.entitlement);
       return;
+    }
+    if (result.ok) {
+      // Restore succeeded and found NOTHING. The store is authoritative about
+      // the absence of a purchase, so record that rather than leaving a stale
+      // "entitled" reading in place (e.g. after a refund on another device).
+      setEntitlement({ resolved: true, entitled: false, tier: "none", source: "revenuecat" });
+      // Still sync so the server clears any stale flag of its own.
+      await syncServerEntitlement();
     }
     setPhase("idle");
     setError(result.ok ? "No active SquadZ+ purchase found to restore." : result.error);
-  }, [phase, authToken, onEntitled]);
+  }, [phase, onEntitled, setEntitlement, syncServerEntitlement]);
 
   const busy = phase === "checkout" || phase === "confirming";
   // While a purchase is in flight, block dismissal.

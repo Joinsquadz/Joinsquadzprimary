@@ -1,0 +1,16 @@
+-- Squadz+ tier provenance ('founding' | 'standard'); null = unknown/legacy.
+--
+-- Access is still decided solely by `is_squadz_plus`; this column only records
+-- WHICH tier the entitlement was bought at, so the client can show the founding
+-- badge without a second RevenueCat round-trip. Nullable with no default: an
+-- existing subscriber whose tier we've never observed must stay distinguishable
+-- from one we know is standard. Backfill happens naturally — the next webhook or
+-- /iap/sync for that user stamps the real tier.
+--
+-- NOTE: this project bootstraps and repairs schema at startup via
+-- artifacts/api-server/src/lib/schemaSync.ts (`ensureSchema`), which carries the
+-- matching `ADD COLUMN IF NOT EXISTS "squadz_plus_tier"` statement. This file is
+-- deliberately scoped to that one column: `drizzle-kit generate` also emitted the
+-- backlog of objects schemaSync already creates, and replaying those against a
+-- live database would fail on the first existing table.
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "squadz_plus_tier" text;

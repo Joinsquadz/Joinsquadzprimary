@@ -121,20 +121,54 @@ export async function sendManualReminder(
   return { ok: true, sent: typeof data.sent === "number" ? data.sent : undefined };
 }
 
+/** Entitlement as resolved by the server (`/api/iap/sync`, `/api/subscription`). */
+export type ServerEntitlement = { entitled: boolean; tier: "founding" | "standard" | "none" };
+
+export type SyncIapResult =
+  /** The server reached RevenueCat and returned an authoritative entitlement. */
+  | { ok: true; entitlement: ServerEntitlement }
+  /**
+   * The sync did not produce an authoritative answer. `retryable` distinguishes a
+   * transient fault (network blip, 5xx, RevenueCat unreachable) from a permanent
+   * one (401/403/404) so callers can bound their retries instead of hammering a
+   * request that will never succeed. A failure here must NEVER be read as
+   * "not entitled" — it carries no entitlement at all.
+   */
+  | { ok: false; retryable: boolean; status?: number };
+
 /**
  * B4: Reconcile the server-side Squadz+ entitlement with the live RevenueCat
  * subscriber state. Called after purchase/restore and on launch when the
- * on-device entitlement disagrees with the server. Best-effort + idempotent.
+ * on-device entitlement disagrees with the server. Idempotent.
+ *
+ * Returns the resolved entitlement so a caller that just completed a purchase can
+ * adopt server truth directly rather than polling /api/subscription until the
+ * webhook lands.
  */
-export async function syncIapEntitlement(token: string | null): Promise<boolean> {
+export async function syncIapEntitlement(token: string | null): Promise<SyncIapResult> {
   try {
     const res = await fetch(`${API_BASE}/api/iap/sync`, {
       method: "POST",
       headers: buildAuthHeaders(token),
       credentials: "include",
     });
-    return res.ok;
+    if (!res.ok) {
+      // 4xx (bad/expired token, route missing) will fail identically on retry;
+      // 5xx and 503 "not configured" are worth a bounded retry.
+      return { ok: false, retryable: res.status >= 500, status: res.status };
+    }
+    const data = (await res.json()) as { isSquadzPlus?: boolean; isPro?: boolean; tier?: string };
+    const entitled = !!(data.isSquadzPlus ?? data.isPro);
+    const tier =
+      data.tier === "founding" || data.tier === "standard" || data.tier === "none"
+        ? data.tier
+        : // Older server build without `tier`: entitled users read as standard so
+          // the badge degrades gracefully instead of blocking the entitlement.
+          entitled
+          ? "standard"
+          : "none";
+    return { ok: true, entitlement: { entitled, tier: entitled ? tier : "none" } };
   } catch {
-    return false;
+    return { ok: false, retryable: true };
   }
 }

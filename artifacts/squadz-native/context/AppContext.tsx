@@ -10,6 +10,13 @@ import { API_BASE } from "@/lib/api";
 // a device. expo/fetch returns a real streaming body on both native and web.
 import { fetch as streamFetch } from "expo/fetch";
 import { clearProfileCache } from "@/hooks/useUserProfiles";
+import {
+  UNRESOLVED_ENTITLEMENT,
+  applyEntitlement,
+  type Entitlement,
+  type EntitlementTier,
+  type ResolvedEntitlement,
+} from "@/lib/entitlement";
 import { ME } from "@/data/mock";
 import type { Event, Squad, RsvpStatus, Cost, CostShare, ItineraryStop } from "@/types";
 import { track, identify, reset as analyticsReset } from "@/lib/analytics";
@@ -232,6 +239,19 @@ export type ConflictSnapshot = {
 
 type AuthResult = { ok: boolean; error?: string };
 
+// Squadz+ entitlement model lives in lib/entitlement.ts (no React / react-native
+// imports) so the precedence rules can be unit-tested under plain node. Re-exported
+// here because every consumer already imports it from the context.
+export {
+  UNRESOLVED_ENTITLEMENT,
+  applyEntitlement,
+  type Entitlement,
+  type EntitlementSource,
+  type EntitlementTier,
+  type ResolvedEntitlement,
+  type UnresolvedEntitlement,
+} from "@/lib/entitlement";
+
 type AppContextType = {
   isLoggedIn: boolean;
   /** True while the startup AsyncStorage check is still running. AuthGuard must
@@ -349,10 +369,23 @@ type AppContextType = {
   outstandingBalancesCount: number;
   squadStreamStatus: "connected" | "reconnecting" | "error";
   retrySquadStream: () => void;
-  /** null = not yet fetched; false = free; true = active Squadz+ subscriber. */
+  /**
+   * The single source of truth for the CURRENT user's Squadz+ entitlement.
+   * Every gated surface must read this rather than fetching its own copy —
+   * screen-local fetches were how a completed purchase failed to propagate.
+   */
+  entitlement: Entitlement;
+  /**
+   * Convenience view of `entitlement`: null while unresolved, else entitled.
+   * Screens gating a spinner on `isPro === null` keep working unchanged.
+   */
   isPro: boolean | null;
-  setIsPro: (v: boolean) => void;
-  /** Re-fetch pro status from the server (e.g. after a restore-purchase flow). */
+  /**
+   * Adopt a newly-observed entitlement (purchase, restore, RevenueCat listener,
+   * server sync). Precedence is handled internally — see `applyEntitlement`.
+   */
+  setEntitlement: (next: ResolvedEntitlement) => void;
+  /** Re-fetch entitlement from the server (e.g. after a restore-purchase flow). */
   refreshIsPro: () => Promise<void>;
 };
 
@@ -445,8 +478,9 @@ const AppContext = createContext<AppContextType>({
   outstandingBalancesCount: 0,
   squadStreamStatus: "reconnecting",
   retrySquadStream: noop,
+  entitlement: UNRESOLVED_ENTITLEMENT,
   isPro: null,
-  setIsPro: noop,
+  setEntitlement: noop,
   refreshIsPro: async () => {},
 });
 
@@ -516,8 +550,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [apiUser, setApiUser] = useState<ApiUser | null>(null);
   const [emailVerified, setEmailVerified] = useState(false);
   const [phone, setPhone] = useState<string | null>(null);
-  // null = subscription status not yet fetched; false = free; true = Squadz+.
-  const [isPro, setIsPro] = useState<boolean | null>(null);
+  // The single Squadz+ entitlement store (see the Entitlement types above).
+  // Starts unresolved — distinct from "free" — so gated screens can show a
+  // spinner instead of briefly flashing a paywall at a paying subscriber.
+  const [entitlement, setEntitlementState] = useState<Entitlement>(UNRESOLVED_ENTITLEMENT);
+  const isPro = entitlement.resolved ? entitlement.entitled : null;
+
+  // Guards against a late server read overwriting a newer local one: all writes
+  // funnel through applyEntitlement, which owns the precedence rules.
+  const setEntitlement = useCallback((next: ResolvedEntitlement) => {
+    setEntitlementState((current) => applyEntitlement(current, next));
+  }, []);
   const [inviteCtx, setInviteCtx] = useState<InviteCtx | null>(null);
   const [events, setEvents] = useState<Event[]>([]);
   const [squads, setSquads] = useState<Squad[]>([]);
@@ -845,7 +888,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setIsLoggedIn(false);
     setPendingOnboarding(false);
     setOwnPaymentHandles({ venmo: null, cashapp: null, zelle: null });
-    setIsPro(null);
+    // Back to unresolved, never to "free": the next account to sign in must not
+    // inherit this one's entitlement, and must not be shown a paywall before its
+    // own entitlement has been read.
+    setEntitlementState(UNRESOLVED_ENTITLEMENT);
     currentUserIdRef.current = ME.id;
   }, []);
 
@@ -872,7 +918,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   });
 
-  /** Re-fetch subscription status using the current auth token. */
+  /**
+   * Re-fetch entitlement from the server using the current auth token.
+   *
+   * The result is merged through `applyEntitlement`, so a "not entitled" answer
+   * that arrives while RevenueCat has already confirmed a purchase on this device
+   * is ignored rather than re-locking the app while the webhook is in flight.
+   */
   const fetchProStatus = useCallback(async () => {
     const token = authTokenRef.current;
     if (!token) return;
@@ -881,13 +933,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (r.ok) {
-        const d = (await r.json()) as { isPro?: boolean };
-        setIsPro(!!d.isPro);
+        const d = (await r.json()) as { isPro?: boolean; tier?: string };
+        const entitled = !!d.isPro;
+        const tier: EntitlementTier =
+          !entitled ? "none" : d.tier === "founding" ? "founding" : "standard";
+        setEntitlement({ resolved: true, entitled, tier, source: "server" });
       }
     } catch {
-      // Network error — leave isPro unchanged
+      // Network error — leave the entitlement unchanged (an unresolved store
+      // stays unresolved; we must never infer "free" from a failed request).
     }
-  }, []);
+  }, [setEntitlement]);
 
   const fetchApiUser = useCallback(async (token: string) => {
     const applyMe = async (res: Response) => {
@@ -1527,7 +1583,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setIsLoggedIn(false);
     setPendingOnboarding(false);
     setOwnPaymentHandles({ venmo: null, cashapp: null, zelle: null });
-    setIsPro(null);
+    // Back to unresolved, never to "free": the next account to sign in must not
+    // inherit this one's entitlement, and must not be shown a paywall before its
+    // own entitlement has been read.
+    setEntitlementState(UNRESOLVED_ENTITLEMENT);
     currentUserIdRef.current = ME.id;
   }, [authToken]);
 
@@ -1569,7 +1628,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setIsLoggedIn(false);
     setPendingOnboarding(false);
     setOwnPaymentHandles({ venmo: null, cashapp: null, zelle: null });
-    setIsPro(null);
+    // Back to unresolved, never to "free": the next account to sign in must not
+    // inherit this one's entitlement, and must not be shown a paywall before its
+    // own entitlement has been read.
+    setEntitlementState(UNRESOLVED_ENTITLEMENT);
     currentUserIdRef.current = ME.id;
     return { ok: true };
   }, [authToken]);
@@ -2850,8 +2912,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       outstandingBalancesCount,
       squadStreamStatus,
       retrySquadStream,
+      entitlement,
       isPro,
-      setIsPro,
+      setEntitlement,
       refreshIsPro: fetchProStatus,
     }),
     [
@@ -2935,8 +2998,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       outstandingBalancesCount,
       squadStreamStatus,
       retrySquadStream,
+      entitlement,
       isPro,
-      setIsPro,
+      setEntitlement,
       fetchProStatus,
     ],
   );

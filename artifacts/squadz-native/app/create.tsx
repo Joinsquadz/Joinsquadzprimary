@@ -129,7 +129,7 @@ export default function CreateEventScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { addEvent, squads, events, currentUser } = useData();
-  const { authToken, isPro, setIsPro } = useAuth();
+  const { authToken, isPro } = useAuth();
   const { resolveUser } = useUserCache();
   const prefill = useLocalSearchParams<{ prefillDate?: string; prefillEventAt?: string; prefillSquad?: string; prefillTitle?: string; prefillEmoji?: string; prefillPollId?: string; prefillTripStart?: string; mode?: string; templateId?: string }>();
   const [findTimeOpen, setFindTimeOpen] = useState(false);
@@ -1131,7 +1131,6 @@ export default function CreateEventScreen() {
         visible={showUpgradeModal}
         trigger="events"
         onClose={() => setShowUpgradeModal(false)}
-        onUpgradeSuccess={() => setIsPro(true)}
         nextSlotAvailableAt={nextSlotAvailableAt}
       />
     </View>

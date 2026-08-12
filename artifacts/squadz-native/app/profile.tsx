@@ -50,7 +50,7 @@ type SettingItem = {
 export default function ProfileScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { currentUser, logout, authToken, isAuthRestoring, isPro, setIsPro } = useAuth();
+  const { currentUser, logout, authToken, isAuthRestoring, isPro } = useAuth();
   const { events, squads, friendCode, updateOwnPaymentHandles } = useData();
   const params = useLocalSearchParams<{ checkout?: string }>();
 
@@ -1140,7 +1140,6 @@ export default function ProfileScreen() {
         visible={upgradeModalVisible}
         trigger="general"
         onClose={() => setUpgradeModalVisible(false)}
-        onUpgradeSuccess={() => setIsPro(true)}
       />
     </View>
   );

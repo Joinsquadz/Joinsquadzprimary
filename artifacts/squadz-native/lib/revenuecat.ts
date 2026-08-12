@@ -139,8 +139,51 @@ export async function getSquadzPlusPrices(): Promise<RcPrices> {
   }
 }
 
+/** Which price tier an active entitlement was purchased at. */
+export type SquadzPlusTier = "founding" | "standard" | "none";
+
+/**
+ * A resolved read of the on-device RevenueCat entitlement.
+ *
+ * `tier` is provenance for the founding badge, never the access decision —
+ * `entitled` alone decides access. An entitled user whose product id RevenueCat
+ * didn't report (or that isn't one of ours) reads as "standard" rather than
+ * "none", so an unknown product can never present as un-entitled.
+ */
+export type RcEntitlement = { entitled: boolean; tier: SquadzPlusTier };
+
+const NOT_ENTITLED: RcEntitlement = { entitled: false, tier: "none" };
+
+/** Map a store product identifier to its tier (handles the Android "id:basePlan" form). */
+export function tierForProductId(identifier: string | null | undefined): SquadzPlusTier {
+  if (productMatches(identifier, RC_FOUNDING_PRODUCT_ID)) return "founding";
+  if (productMatches(identifier, RC_STANDARD_PRODUCT_ID)) return "standard";
+  return "none";
+}
+
+// The shape we need off a CustomerInfo without importing the native types into
+// the web bundle. Structural, so the real SDK type satisfies it.
+type CustomerInfoLike = {
+  entitlements: {
+    active: Record<string, { productIdentifier?: string | null } | undefined>;
+  };
+};
+
+/**
+ * Derive the entitlement from a RevenueCat CustomerInfo. Shared by purchase,
+ * restore, the launch read and the customer-info listener so every path agrees
+ * on what "entitled" means.
+ */
+export function entitlementFromCustomerInfo(info: CustomerInfoLike): RcEntitlement {
+  const ent = info.entitlements.active[RC_ENTITLEMENT_ID];
+  if (!ent) return NOT_ENTITLED;
+  const tier = tierForProductId(ent.productIdentifier);
+  // Entitled but unrecognized product → treat as standard, never as "none".
+  return { entitled: true, tier: tier === "none" ? "standard" : tier };
+}
+
 export type PurchaseOutcome =
-  | { ok: true; isPro: boolean }
+  | { ok: true; isPro: boolean; entitlement: RcEntitlement }
   | { ok: false; cancelled?: boolean; error: string };
 
 /**
@@ -171,7 +214,8 @@ export async function purchaseSquadzPlus(preferFounding: boolean): Promise<Purch
       pkgs.find((p) => productMatches(p.product.identifier, RC_STANDARD_PRODUCT_ID)) ??
       pkgs[0];
     const { customerInfo } = await Purchases.purchasePackage(pkg);
-    return { ok: true, isPro: !!customerInfo.entitlements.active[RC_ENTITLEMENT_ID] };
+    const entitlement = entitlementFromCustomerInfo(customerInfo);
+    return { ok: true, isPro: entitlement.entitled, entitlement };
   } catch (err) {
     const e = err as { userCancelled?: boolean; message?: string };
     if (e?.userCancelled) return { ok: false, cancelled: true, error: "Purchase cancelled." };
@@ -185,16 +229,60 @@ export async function purchaseSquadzPlus(preferFounding: boolean): Promise<Purch
  * configured) so callers can distinguish "no" from "unknown".
  */
 export async function getLocalEntitlementActive(): Promise<boolean | null> {
+  const ent = await getLocalEntitlement();
+  return ent === null ? null : ent.entitled;
+}
+
+/**
+ * Tier-aware version of `getLocalEntitlementActive`. Null = unknown (web / SDK
+ * unavailable), which callers must NOT collapse into "not entitled".
+ */
+export async function getLocalEntitlement(): Promise<RcEntitlement | null> {
   if (Platform.OS === "web") return null;
   await ensureConfigured();
   const Purchases = await getPurchases();
   if (!Purchases || !_configured) return null;
   try {
     const info = await Purchases.getCustomerInfo();
-    return !!info.entitlements.active[RC_ENTITLEMENT_ID];
+    return entitlementFromCustomerInfo(info);
   } catch {
     return null;
   }
+}
+
+/**
+ * Subscribe to RevenueCat customer-info updates (renewals, expiries, Ask-to-Buy
+ * approvals, purchases made on another device). Returns an unsubscribe function;
+ * a no-op one on web / when the SDK is unavailable, so callers can always call it
+ * from a cleanup without branching.
+ *
+ * Exactly ONE listener should be registered app-wide — see RevenueCatConnector.
+ */
+export async function addEntitlementListener(
+  onChange: (entitlement: RcEntitlement) => void,
+): Promise<() => void> {
+  if (Platform.OS === "web") return () => {};
+  const Purchases = await getPurchases();
+  if (!Purchases) return () => {};
+  const listener = (info: CustomerInfoLike) => {
+    try {
+      onChange(entitlementFromCustomerInfo(info));
+    } catch {
+      // A throwing subscriber must never break the SDK's listener chain.
+    }
+  };
+  try {
+    Purchases.addCustomerInfoUpdateListener(listener);
+  } catch {
+    return () => {};
+  }
+  return () => {
+    try {
+      Purchases.removeCustomerInfoUpdateListener(listener);
+    } catch {
+      // Already torn down — nothing to do.
+    }
+  };
 }
 
 /** Restore previous purchases (e.g. after reinstall / new device). */
@@ -209,7 +297,8 @@ export async function restoreSquadzPlus(): Promise<PurchaseOutcome> {
   }
   try {
     const info = await Purchases.restorePurchases();
-    return { ok: true, isPro: !!info.entitlements.active[RC_ENTITLEMENT_ID] };
+    const entitlement = entitlementFromCustomerInfo(info);
+    return { ok: true, isPro: entitlement.entitled, entitlement };
   } catch (err) {
     const e = err as { message?: string };
     return { ok: false, error: e?.message ?? "Couldn't restore purchases." };

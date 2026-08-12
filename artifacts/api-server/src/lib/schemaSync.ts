@@ -421,6 +421,9 @@ async function addMissingColumns(): Promise<void> {
     // delivery. Text (not bigint) so it round-trips as a JS string without
     // precision surprises; null = no period-bearing event applied yet.
     `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "squadz_plus_period_end_ms" text`,
+    // Squadz+ tier provenance ('founding' | 'standard'); null = unknown/legacy.
+    // Never gates access on its own — `is_squadz_plus` remains the access flag.
+    `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "squadz_plus_tier" text`,
     // Age gate (13+). Nullable on purpose: existing accounts predate the gate,
     // so NULL = "never age-checked" and must stay distinguishable from false.
     `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "meets_min_age" boolean`,

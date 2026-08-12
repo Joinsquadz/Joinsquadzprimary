@@ -2,7 +2,15 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // vi.mock factories are hoisted above module code, so anything they close over
 // must be created via vi.hoisted (also hoisted) rather than a plain const.
-const { platform, purchasePackage, getOfferings, restorePurchases, getCustomerInfo } = vi.hoisted(() => ({
+const {
+  platform,
+  purchasePackage,
+  getOfferings,
+  restorePurchases,
+  getCustomerInfo,
+  addCustomerInfoUpdateListener,
+  removeCustomerInfoUpdateListener,
+} = vi.hoisted(() => ({
   // react-native's Platform.OS drives which SDK key/path is used. Keep it
   // mutable so tests can flip between "android" and "ios".
   platform: { OS: "android" as "android" | "ios" | "web" },
@@ -10,6 +18,8 @@ const { platform, purchasePackage, getOfferings, restorePurchases, getCustomerIn
   getOfferings: vi.fn(),
   restorePurchases: vi.fn(),
   getCustomerInfo: vi.fn(),
+  addCustomerInfoUpdateListener: vi.fn(),
+  removeCustomerInfoUpdateListener: vi.fn(),
 }));
 
 vi.mock("react-native", () => ({ Platform: platform }));
@@ -25,6 +35,10 @@ vi.mock("react-native-purchases", () => ({
     purchasePackage: (...args: unknown[]) => purchasePackage(...args),
     restorePurchases: (...args: unknown[]) => restorePurchases(...args),
     getCustomerInfo: (...args: unknown[]) => getCustomerInfo(...args),
+    addCustomerInfoUpdateListener: (...args: unknown[]) =>
+      addCustomerInfoUpdateListener(...args),
+    removeCustomerInfoUpdateListener: (...args: unknown[]) =>
+      removeCustomerInfoUpdateListener(...args),
   },
 }));
 
@@ -35,6 +49,7 @@ import {
   configureRevenueCat,
   getLocalEntitlementActive,
   restoreSquadzPlus,
+  addEntitlementListener,
   RC_FOUNDING_PRODUCT_ID,
   RC_STANDARD_PRODUCT_ID,
   RC_ENTITLEMENT_ID,
@@ -87,8 +102,15 @@ describe("purchaseSquadzPlus on Android (Play subId:basePlanId identifiers)", ()
     const foundingPkg = pkg(ANDROID_FOUNDING_ID, "$19.99");
     const standardPkg = pkg(ANDROID_STANDARD_ID, "$29.99");
     getOfferings.mockResolvedValue(offeringsWith(standardPkg, foundingPkg));
+    // The entitlement reports the Play-style "subId:basePlanId" identifier, which
+    // is what the tier is derived from — a bare {} would resolve to "standard"
+    // and silently hide a founding purchase behind the standard badge.
     purchasePackage.mockResolvedValue({
-      customerInfo: { entitlements: { active: { [RC_ENTITLEMENT_ID]: {} } } },
+      customerInfo: {
+        entitlements: {
+          active: { [RC_ENTITLEMENT_ID]: { productIdentifier: ANDROID_FOUNDING_ID } },
+        },
+      },
     });
 
     const res = await purchaseSquadzPlus(true);
@@ -96,7 +118,7 @@ describe("purchaseSquadzPlus on Android (Play subId:basePlanId identifiers)", ()
     expect(purchasePackage).toHaveBeenCalledTimes(1);
     // The bug: exact === match would fall through to standard on Android.
     expect(purchasePackage).toHaveBeenCalledWith(foundingPkg);
-    expect(res).toEqual({ ok: true, isPro: true });
+    expect(res).toEqual({ ok: true, isPro: true, entitlement: { entitled: true, tier: "founding" } });
   });
 
   it("selects the STANDARD package when founding is not preferred", async () => {
@@ -121,7 +143,7 @@ describe("purchaseSquadzPlus on Android (Play subId:basePlanId identifiers)", ()
     });
 
     const res = await purchaseSquadzPlus(true);
-    expect(res).toEqual({ ok: true, isPro: false });
+    expect(res).toEqual({ ok: true, isPro: false, entitlement: { entitled: false, tier: "none" } });
   });
 });
 
@@ -180,7 +202,7 @@ describe("restoreSquadzPlus", () => {
     restorePurchases.mockResolvedValue(customerInfoWith(true));
 
     const result = await restoreSquadzPlus();
-    expect(result).toEqual({ ok: true, isPro: true });
+    expect(result).toEqual({ ok: true, isPro: true, entitlement: { entitled: true, tier: "standard" } });
   });
 
   it("returns ok:true with isPro:false when there is nothing to restore", async () => {
@@ -188,7 +210,7 @@ describe("restoreSquadzPlus", () => {
     restorePurchases.mockResolvedValue(customerInfoWith(false));
 
     const result = await restoreSquadzPlus();
-    expect(result).toEqual({ ok: true, isPro: false });
+    expect(result).toEqual({ ok: true, isPro: false, entitlement: { entitled: false, tier: "none" } });
   });
 
   it("returns ok:false with the error message on SDK failure", async () => {
@@ -221,7 +243,7 @@ describe("auto-restore flow: server=false, RC=true → restore fires → entitle
     if (local && !serverPro) {
       const restoreResult = await restoreSquadzPlus();
       restoreCalled = true;
-      expect(restoreResult).toEqual({ ok: true, isPro: true });
+      expect(restoreResult).toEqual({ ok: true, isPro: true, entitlement: { entitled: true, tier: "standard" } });
     }
 
     expect(restoreCalled).toBe(true);
@@ -256,5 +278,91 @@ describe("auto-restore flow: server=false, RC=true → restore fires → entitle
     }
 
     expect(restorePurchases).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// addEntitlementListener
+//
+// This is the only path by which an entitlement change that did NOT originate in
+// a purchase flow reaches the UI: renewals, expiries, refunds, Ask-to-Buy
+// approvals, family sharing, and purchases made on another device.
+// ---------------------------------------------------------------------------
+describe("addEntitlementListener", () => {
+  /** Hand back the callback the SDK was registered with. */
+  function registeredListener() {
+    const call = addCustomerInfoUpdateListener.mock.calls[0] as [
+      (info: unknown) => void,
+    ];
+    return call[0];
+  }
+
+  it("reports an entitlement change as a mapped RcEntitlement, not raw customer info", async () => {
+    await configureRevenueCat("user-1");
+    const onChange = vi.fn();
+
+    await addEntitlementListener(onChange);
+    registeredListener()(customerInfoWith(true));
+
+    expect(onChange).toHaveBeenCalledWith({ entitled: true, tier: "standard" });
+  });
+
+  it("carries the tier through from the store product id (founding renewal)", async () => {
+    await configureRevenueCat("user-1");
+    const onChange = vi.fn();
+
+    await addEntitlementListener(onChange);
+    registeredListener()({
+      entitlements: {
+        active: { [RC_ENTITLEMENT_ID]: { productIdentifier: RC_FOUNDING_PRODUCT_ID } },
+      },
+    });
+
+    expect(onChange).toHaveBeenCalledWith({ entitled: true, tier: "founding" });
+  });
+
+  it("reports a lapsed entitlement (expiry / refund arriving via the SDK)", async () => {
+    await configureRevenueCat("user-1");
+    const onChange = vi.fn();
+
+    await addEntitlementListener(onChange);
+    registeredListener()(customerInfoWith(false));
+
+    expect(onChange).toHaveBeenCalledWith({ entitled: false, tier: "none" });
+  });
+
+  it("unsubscribing removes the SAME listener reference it registered", async () => {
+    // Passing a different function to remove* silently leaves the listener
+    // attached, which is how a previous account's listener would keep writing
+    // entitlement after a logout.
+    await configureRevenueCat("user-1");
+
+    const off = await addEntitlementListener(vi.fn());
+    off();
+
+    expect(removeCustomerInfoUpdateListener).toHaveBeenCalledTimes(1);
+    expect(removeCustomerInfoUpdateListener).toHaveBeenCalledWith(registeredListener());
+  });
+
+  it("a throwing subscriber does not break the SDK listener chain", async () => {
+    await configureRevenueCat("user-1");
+    const onChange = vi.fn().mockImplementation(() => {
+      throw new Error("render error");
+    });
+
+    await addEntitlementListener(onChange);
+
+    expect(() => registeredListener()(customerInfoWith(true))).not.toThrow();
+  });
+
+  it("is an inert no-op on web, where there is no SDK to listen to", async () => {
+    platform.OS = "web";
+    const onChange = vi.fn();
+
+    const off = await addEntitlementListener(onChange);
+
+    expect(addCustomerInfoUpdateListener).not.toHaveBeenCalled();
+    // The returned unsubscribe must still be safely callable.
+    expect(() => off()).not.toThrow();
   });
 });

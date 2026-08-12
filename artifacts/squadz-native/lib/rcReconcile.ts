@@ -14,14 +14,25 @@
  *   Skip restore (nothing to restore), just sync to let the server clear
  *   the stale Pro flag. No cache bust needed (user is losing Pro, not gaining).
  *
+ * In BOTH cases — and in the agreeing case — the entitlement we resolve is
+ * published to the global store via `onEntitlement`. Reconciliation used to only
+ * write the server and the user cache, so AppContext kept whatever it had read
+ * at startup and gated screens stayed stale until an app restart.
+ *
+ * Ordering matters: the local (store) reading is published BEFORE the server is
+ * consulted. `applyEntitlement` in AppContext then refuses to downgrade a
+ * device-confirmed entitlement on a server "no", so a launch that races the
+ * webhook can't briefly re-lock a paying subscriber.
+ *
  * Dependencies are injected so the caller (or a test) can supply mocks:
  *   - fetchFn    — defaults to global fetch; tests pass a vi.fn()
  *   - syncFn     — defaults to syncIapEntitlement; tests pass a vi.fn()
  *   - refreshFn  — the refreshUsers callback from useUserCache
  */
 
-import { getLocalEntitlementActive, restoreSquadzPlus, configureRevenueCat } from "@/lib/revenuecat";
+import { getLocalEntitlement, restoreSquadzPlus, configureRevenueCat } from "@/lib/revenuecat";
 import { API_BASE, buildAuthHeaders, syncIapEntitlement } from "@/lib/api";
+import type { ResolvedEntitlement, EntitlementTier } from "@/context/AppContext";
 
 export type ReconcileDeps = {
   /** Auth token for the signed-in user. */
@@ -30,6 +41,12 @@ export type ReconcileDeps = {
   userId: string;
   /** Callback to bust the user cache so the Pro ring refreshes. */
   refreshUsers: (ids: string[]) => void;
+  /**
+   * Publish a resolved entitlement to the global store (AppContext.setEntitlement).
+   * Optional so existing callers/tests that only care about the server side keep
+   * working.
+   */
+  onEntitlement?: (next: ResolvedEntitlement) => void;
   /** Override fetch (injectable for tests). Defaults to global fetch. */
   fetchFn?: typeof fetch;
   /** Override syncIapEntitlement (injectable for tests). */
@@ -46,13 +63,24 @@ export async function reconcileRcEntitlement({
   authToken,
   userId,
   refreshUsers,
+  onEntitlement,
   fetchFn = fetch,
   syncFn = syncIapEntitlement,
 }: ReconcileDeps): Promise<void> {
   await configureRevenueCat(userId);
   try {
-    const local = await getLocalEntitlementActive();
-    if (local === null) return; // web or SDK unavailable — nothing to do
+    const localEnt = await getLocalEntitlement();
+    if (localEnt === null) return; // web or SDK unavailable — nothing to do
+    const local = localEnt.entitled;
+
+    // Publish the device reading first. This is the value that protects a fresh
+    // purchase from a server that hasn't seen the webhook yet.
+    onEntitlement?.({
+      resolved: true,
+      entitled: local,
+      tier: localEnt.tier,
+      source: "revenuecat",
+    });
 
     const r = await fetchFn(`${API_BASE}/api/subscription`, {
       headers: buildAuthHeaders(authToken),
@@ -60,19 +88,45 @@ export async function reconcileRcEntitlement({
     });
     if (!r.ok) return;
 
-    const d = (await r.json()) as { isPro?: boolean };
+    const d = (await r.json()) as { isPro?: boolean; tier?: string };
     const serverPro = !!d.isPro;
+    const serverTier: EntitlementTier = !serverPro
+      ? "none"
+      : d.tier === "founding"
+        ? "founding"
+        : "standard";
 
     if (local && !serverPro) {
       // RC says entitled but server doesn't know — restore purchases
       // (re-validates receipt with the store) then sync the server.
       await restoreSquadzPlus();
-      await syncFn(authToken);
+      const synced = await syncFn(authToken);
+      // Adopt the server's post-sync answer when it produced one; it is now the
+      // authoritative record and carries the tier the receipt actually resolved to.
+      if (synced && typeof synced === "object" && synced.ok) {
+        onEntitlement?.({
+          resolved: true,
+          entitled: synced.entitlement.entitled,
+          tier: synced.entitlement.tier,
+          source: "server",
+        });
+      }
       // Bust the user cache so the Pro ring shows without a manual refresh.
       refreshUsers([userId]);
     } else if (!local && serverPro) {
-      // Server thinks Pro but RC doesn't — sync to let the server correct.
+      // Server thinks Pro but RC doesn't. The store is authoritative about the
+      // absence of a purchase, so we've already published the negative reading
+      // above; sync lets the server correct its own record.
       void syncFn(authToken);
+    } else {
+      // Agreement. Publish the server reading too so the tier recorded
+      // server-side (founding vs standard) wins over a local guess.
+      onEntitlement?.({
+        resolved: true,
+        entitled: serverPro,
+        tier: serverTier,
+        source: "server",
+      });
     }
   } catch {
     // Best-effort reconciliation only — never block launch on billing.

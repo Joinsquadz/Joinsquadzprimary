@@ -100,4 +100,5 @@
 - [Staging load-test setup](staging-load-test.md) — SKIP_SCHEMA_SYNC + SKIP_STRIPE_INIT env vars for staging; 429 from rate-limit token reuse (use order:sequence); Transaction pooler saturates at ~25 concurrent (600ms RTT × pool_max=25).
 - [Free-tier cap ledgers](free-tier-cap-ledgers.md) — squad/plan caps count APPEND-ONLY ledgers (leaving never refunds); claim slot before the write, same tx, no-op re-claims must pass even over-cap.
 - [Express route shadowing](express-route-shadowing.md) — silent 404s with a handler that exists: literal path declared after `/:id`, or a route file repeating the `/api` mount prefix; verify a fix by curling for 401 not 404.
+- [Squadz+ entitlement precedence](squadz-entitlement-precedence.md) — one global store w/ a `source` per reading; a server "not entitled" must NEVER overwrite a device-confirmed purchase (webhook lag re-locks paying users).
 - [Vault durable saves](vault-durable-saves.md) — "save" copies bytes + inserts an unlinked personal row (no FK, no squad/event) so it survives source deletion; provenance BEFORE insert.

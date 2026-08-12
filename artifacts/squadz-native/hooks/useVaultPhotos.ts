@@ -5,8 +5,13 @@ import { API_BASE, buildAuthHeaders } from "@/lib/api";
 /**
  * Shared fetcher for the personal photo vault (`/api/vault/photos`). Both the
  * Photos tab and the full vault screen render this same endpoint, so the fetch
- * + auth-header + isPro/requiresPro bookkeeping lives here once instead of being
+ * + auth-header + requiresPro bookkeeping lives here once instead of being
  * copied into each screen.
+ *
+ * This hook deliberately does NOT own an entitlement flag. It used to expose its
+ * own `isPro`, which made it one more competing source of truth; callers read
+ * `isPro` from AppContext instead. `requiresPro` stays because it is a property
+ * of THIS response (the roll-up was gated), not of the user.
  *
  * The item type is a generic because callers type the row differently (the
  * Photos tab tracks `locked`, the vault screen tracks favorites/hearts) — the
@@ -28,7 +33,6 @@ export function useVaultPhotos<T = unknown>(opts: UseVaultPhotosOptions) {
   const { authToken, squadId, eventId, enabled = true, autoFetch = true } = opts;
 
   const [photos, setPhotos] = useState<T[]>([]);
-  const [isPro, setIsPro] = useState<boolean | null>(null);
   const [requiresPro, setRequiresPro] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -45,24 +49,15 @@ export function useVaultPhotos<T = unknown>(opts: UseVaultPhotosOptions) {
         `${API_BASE}/api/vault/photos${qs ? `?${qs}` : ""}`,
         { headers: buildAuthHeaders(authToken) },
       );
-      if (!res.ok) {
-        // Resolve isPro out of its initial null so callers gating a loading
-        // spinner on `isPro === null` don't hang forever on a failed request.
-        setIsPro((prev) => (prev === null ? false : prev));
-        return;
-      }
+      if (!res.ok) return;
       const data = (await res.json()) as {
         photos?: T[];
-        isPro?: boolean;
         requiresPro?: boolean;
       };
       setPhotos(data.photos ?? []);
-      if (data.isPro !== undefined) setIsPro(!!data.isPro);
       setRequiresPro(!!data.requiresPro);
     } catch {
-      // network hiccup — leave the last-known photos in place, but un-stick the
-      // loading gate if we never resolved a subscription state.
-      setIsPro((prev) => (prev === null ? false : prev));
+      // network hiccup — leave the last-known photos in place.
     } finally {
       setLoading(false);
     }
@@ -72,5 +67,5 @@ export function useVaultPhotos<T = unknown>(opts: UseVaultPhotosOptions) {
     if (autoFetch && enabled) void refetch();
   }, [autoFetch, enabled, refetch]);
 
-  return { photos, setPhotos, isPro, setIsPro, requiresPro, loading, refetch };
+  return { photos, setPhotos, requiresPro, loading, refetch };
 }
