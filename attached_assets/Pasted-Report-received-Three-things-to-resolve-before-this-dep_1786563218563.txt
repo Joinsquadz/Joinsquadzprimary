@@ -1,0 +1,33 @@
+Report received. Three things to resolve before this deploys. Report only —
+no code changes.
+
+1. API typecheck discrepancy. You state the 15 API typecheck errors are now zero,
+   fixed before final merge. But none of the files that carried them appear in your
+   changed-file list — auth.logoutPushToken tests, events.closedPoll tests,
+   src/lib/pgPubSub.ts, or routes/ideas.ts for the ActivityMeta planType errors.
+   Explain the discrepancy. Specifically: were they fixed in this build, fixed in a
+   separate pass, or is the typecheck command you ran different from the one that
+   produced the original 15? If they were fixed inside this build, list those changes
+   separately — I scoped them out as #644 and did not review them.
+
+2. Migration 0007 upgrade path. Your validator proved a fresh database builds
+   correctly from migrations alone. It did not test applying 0007 to an existing
+   populated database. 0007 adds missing schema objects and canonical named
+   constraints, which on production means constraint and index changes against live
+   tables, possibly renaming existing constraints.
+
+   Do a dry run of 0007 against a clone of the production database and report:
+   every statement executed, any constraint or index renamed or dropped, whether
+   any statement locks a table and for how long, and whether the migration is
+   idempotent if partially applied. Do not run it against production.
+
+3. Founding backfill branch is unexercised. The dev backfill updated one entitled
+   user and resolved founding: 0. That is correct — the TestFlight purchase was
+   unpaid, so no founding ledger redemption exists. But it means the ledger-lookup
+   branch has never run against real data.
+
+   In dev only, seed a synthetic founding ledger redemption and re-run the backfill
+   dry run. Confirm that user resolves to founding, not standard. Report the result.
+   Do not modify the production founding ledger, its counter, or its idempotency keys.
+
+Confirmed for the record: new test floor is 1247 API / 452 mobile.
