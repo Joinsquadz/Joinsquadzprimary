@@ -54,6 +54,8 @@ export type ActivityMeta = {
   thumbUrl?: string;
   /** idea_threshold / idea_confirmed: the idea's title for action text. */
   ideaTitle?: string;
+  /** idea_threshold / idea_confirmed: the event/trip type ('event' | 'trip'). */
+  planType?: string;
 };
 
 export const activityTable = pgTable(

@@ -85,9 +85,7 @@ async function connect(): Promise<void> {
   });
 
   client.on("error", (err) => {
-    logger.error("[pgPubSub] LISTEN client error — scheduling reconnect", {
-      message: (err as Error).message,
-    });
+    logger.error({ message: (err as Error).message }, "[pgPubSub] LISTEN client error — scheduling reconnect");
     void scheduleReconnect();
   });
 
@@ -104,9 +102,7 @@ async function connect(): Promise<void> {
   }
 
   listenClient = client;
-  logger.info("[pgPubSub] LISTEN client connected", {
-    channels: CHANNELS.join(", "),
-  });
+  logger.info({ channels: CHANNELS.join(", ") }, "[pgPubSub] LISTEN client connected");
 }
 
 let reconnecting = false;
@@ -120,9 +116,7 @@ async function scheduleReconnect(): Promise<void> {
   reconnectTimer = setTimeout(() => {
     reconnecting = false;
     connect().catch((err) => {
-      logger.error("[pgPubSub] Reconnect attempt failed", {
-        message: (err as Error).message,
-      });
+      logger.error({ message: (err as Error).message }, "[pgPubSub] Reconnect attempt failed");
       void scheduleReconnect();
     });
   }, delay);
@@ -159,11 +153,7 @@ export function pgNotify(channel: PgChannel, payload: string): void {
   p
     .query("SELECT pg_notify($1, $2)", [channel, payload])
     .catch((err: unknown) => {
-      logger.error("[pgPubSub] pg_notify failed", {
-        channel,
-        payload,
-        message: (err as Error).message,
-      });
+      logger.error({ channel, payload, message: (err as Error).message }, "[pgPubSub] pg_notify failed");
     });
 }
 

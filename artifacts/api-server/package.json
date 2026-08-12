@@ -44,6 +44,7 @@
   },
   "devDependencies": {
     "@types/compression": "^1.8.1",
+    "@types/pg": "^8.20.0",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",

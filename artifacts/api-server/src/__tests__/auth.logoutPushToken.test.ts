@@ -8,7 +8,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import request from "supertest";
 
 const sessionStore = vi.hoisted(() => ({
-  sessions: {} as Record<string, { user: { id: string; email: string } }>,
+  sessions: {} as Record<string, { user: { id: string; email: string | null; firstName: string | null; lastName: string | null; profileImageUrl: string | null } }>,
 }));
 
 vi.mock("../lib/auth", () => ({
@@ -91,7 +91,7 @@ beforeEach(() => {
 describe("C8 — POST /api/auth/logout clears push token server-side", () => {
   it("calls clearPushTokenForUser with the session's userId before deleting the session", async () => {
     sessionStore.sessions["session-abc"] = {
-      user: { id: "user-1", email: "alice@example.com" },
+      user: { id: "user-1", email: "alice@example.com", firstName: null, lastName: null, profileImageUrl: null },
     };
     vi.mocked(getSession).mockImplementation(async (sid) =>
       sessionStore.sessions[sid] ?? null,
@@ -108,7 +108,7 @@ describe("C8 — POST /api/auth/logout clears push token server-side", () => {
 
   it("deletes the session after clearing the push token", async () => {
     sessionStore.sessions["session-abc"] = {
-      user: { id: "user-1", email: "alice@example.com" },
+      user: { id: "user-1", email: "alice@example.com", firstName: null, lastName: null, profileImageUrl: null },
     };
     vi.mocked(getSession).mockImplementation(async (sid) =>
       sessionStore.sessions[sid] ?? null,

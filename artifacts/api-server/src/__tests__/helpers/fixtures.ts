@@ -31,7 +31,7 @@ export function makeBaseEvent(overrides: Record<string, unknown> = {}) {
     rsvps: { [RSVP_USER_ID]: "going" },
     tasks: [] as unknown[],
     costs: [] as unknown[],
-    polls: [] as unknown[],
+    polls: [] as Record<string, unknown>[],
     messages: [] as unknown[],
     createdAt: new Date().toISOString(),
     version: 0,
