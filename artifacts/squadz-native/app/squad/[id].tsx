@@ -30,6 +30,7 @@ import { runSquadPoll, squadSignature } from "@/lib/squadLiveRefresh";
 import { useData, useAuth, type FoundUser } from "@/context/AppContext";
 import { FindTimeChooser } from "@/components/FindTimeChooser";
 import { useMutedSquads } from "@/context/MutedSquadsContext";
+import { useToast } from "@/context/ToastContext";
 import { useMessages } from "@/context/MessagesContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -483,6 +484,7 @@ export default function SquadDetailScreen() {
   }, [squadMemberCount, squad?.id]);
 
   const { mutedSquadIds, setSquadMuted } = useMutedSquads();
+  const { showToast } = useToast();
 
   // First-run welcome tips tour (anchored coach marks).
   const { activeIndex, tips, setSquadAnchor, clearSquadAnchors, maybeStartTour } = useTips();
@@ -714,16 +716,21 @@ export default function SquadDetailScreen() {
     // reflects the change immediately, regardless of navigation path.
     setSquadMuted(squad.id, value);
     try {
-      await fetch(`${API_BASE}/api/squads/${squad.id}/mute`, {
+      const res = await fetch(`${API_BASE}/api/squads/${squad.id}/mute`, {
         method: "PUT",
         headers: authHeaders(),
         body: JSON.stringify({ muted: value }),
       });
+      // A rejected mute (403 after being removed from the squad, 404, 5xx) still
+      // resolves the promise — without this check the switch stays flipped and
+      // the user believes a squad is muted while the server keeps notifying them.
+      if (!res.ok) throw new Error(`mute failed: ${res.status}`);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch {
       // Roll back both the local and shared state on failure
       setMuted(!value);
       setSquadMuted(squad.id, !value);
+      showToast("Couldn't update notifications — please try again");
     } finally {
       setMuteLoading(false);
     }

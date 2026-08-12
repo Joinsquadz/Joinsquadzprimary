@@ -47,6 +47,52 @@ endpoint must return display data (name + photo) inline — a Settings screen ca
 fan out per-profile fetches that are themselves block-gated. Settings → Blocked
 Users is the only unblock path, so a silent failure there traps the user.
 
+## A block must remove the person from DISCOVERY, not just from their profile
+
+Every surface that can *find* a user has to filter both block directions: name
+search, friend-code lookup, the friends list, and the discover feed (which works
+off the friend set, so filtering that set covers its squad AND event queries).
+
+**Why:** an early pass gated only the profile route. A blocked user still appeared
+in search and still resolved by friend code, complete with an add affordance —
+tapping through 403'd, so the UI dead-ended, and the row itself confirmed the
+account exists. That is precisely what a block is meant to deny.
+
+**How to apply:** exclude in the QUERY, never by post-filtering a page of results,
+or blocked matches silently eat result slots. Denial copy stays neutral (a blocked
+friend code returns the same "no user found" as a bad one) — never disclose that a
+block is the reason. The both-directions lookup lives in `lib/blocks` rather than
+the moderation router precisely so discovery routes can import it without pulling
+in that router's dependency graph.
+
+**The deliberate exception:** bulk user hydration is NOT block-filtered. Blocking
+leaves shared squad group chat intact, so filtering there would blank out names for
+everyone in the squad. Adding a filter there is a regression, not a hardening.
+
+## Hidden content must be unreachable by id, not just absent from lists
+
+Auto-hide (3+ distinct reporters) sets `status = "hidden"`. Filtering that in the
+list query is only half the job — per-id paths (react, comment, read comments,
+mark viewed) load the row directly.
+
+**Why:** anyone holding an id from a screenshot, a push notification, or their own
+earlier scroll could keep interacting with reported content, and each reaction kept
+generating fresh activity rows and push notifications for the author.
+
+**How to apply:** put the check inside the shared audience helper (`canViewPost` /
+`canViewMoment`) so every per-id path inherits it at once, and keep the author
+allowed through — they must still see and delete their own hidden post. Any new
+list surface needs the `ne(status, "hidden")` predicate too; the squad moments list
+shipped without one.
+
+**Blocks belong in the same helper, and filtering the LIST is not enough.** Squad-
+audience posts/moments are authorized by membership, and blocking deliberately
+leaves shared squads intact — so a blocked user holding an id could still mark a
+moment viewed or react to it, pushing a notification straight to the person who
+blocked them. The block check has to sit beside the hidden check in the audience
+helper, not only in the list query. Also make sure per-id reads reject soft-deleted
+rows (`deletedAt`) for the author too, not just for other viewers.
+
 ## A shared squad is not a DM key, and membership is not consent
 
 A private thread is open only while the two people are currently friends and neither

@@ -63,7 +63,7 @@ describe("B4 — POST /api/iap/sync — idempotent set/clear of is_squadz_plus",
     const res = await request(makeApp()).post("/api/iap/sync");
     expect(res.status).toBe(200);
     expect(res.body.isSquadzPlus).toBe(true);
-    expect(setSquadzPlusMock).toHaveBeenCalledWith(USER_ID, true);
+    expect(setSquadzPlusMock).toHaveBeenCalledWith(USER_ID, true, expect.any(Number));
   });
 
   it("calling /iap/sync again with active entitlement is idempotent (no flip)", async () => {
@@ -84,7 +84,7 @@ describe("B4 — POST /api/iap/sync — idempotent set/clear of is_squadz_plus",
     const res = await request(makeApp()).post("/api/iap/sync");
     expect(res.status).toBe(200);
     expect(res.body.isSquadzPlus).toBe(false);
-    expect(setSquadzPlusMock).toHaveBeenCalledWith(USER_ID, false);
+    expect(setSquadzPlusMock).toHaveBeenCalledWith(USER_ID, false, null);
   });
 
   it("sets isSquadzPlus false when the entitlement has expired", async () => {
@@ -92,7 +92,7 @@ describe("B4 — POST /api/iap/sync — idempotent set/clear of is_squadz_plus",
     const res = await request(makeApp()).post("/api/iap/sync");
     expect(res.status).toBe(200);
     expect(res.body.isSquadzPlus).toBe(false);
-    expect(setSquadzPlusMock).toHaveBeenCalledWith(USER_ID, false);
+    expect(setSquadzPlusMock).toHaveBeenCalledWith(USER_ID, false, expect.any(Number));
   });
 
   it("calling /iap/sync after entitlement expires clears the flag (idempotent)", async () => {
@@ -104,7 +104,7 @@ describe("B4 — POST /api/iap/sync — idempotent set/clear of is_squadz_plus",
     const res = await request(makeApp()).post("/api/iap/sync");
     expect(res.status).toBe(200);
     expect(res.body.isSquadzPlus).toBe(false);
-    expect(setSquadzPlusMock).toHaveBeenLastCalledWith(USER_ID, false);
+    expect(setSquadzPlusMock).toHaveBeenLastCalledWith(USER_ID, false, null);
   });
 
   it("returns 503 when REVENUECAT_API_KEY is not configured", async () => {

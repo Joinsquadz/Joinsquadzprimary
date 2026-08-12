@@ -3,6 +3,7 @@ import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { db, eventsTable, squadsTable, usersTable, friendshipsTable } from "@workspace/db";
 import { requireAuth } from "../middleware/currentUser";
 import { logger } from "../lib/logger";
+import { getBlockedAndBlockerIds } from "../lib/blocks";
 
 const router: IRouter = Router();
 
@@ -41,11 +42,19 @@ router.get("/discover", requireAuth, async (req: Request, res: Response): Promis
     const userId = (req.user as { id: string }).id;
 
     // Friendships are stored bidirectionally; ownerId row gives all of this user's friends.
-    const friendRows = await db
-      .select({ friendId: friendshipsTable.friendId })
-      .from(friendshipsTable)
-      .where(eq(friendshipsTable.ownerId, userId));
-    const friendIds = friendRows.map((r) => r.friendId);
+    const [friendRows, blockedIds] = await Promise.all([
+      db
+        .select({ friendId: friendshipsTable.friendId })
+        .from(friendshipsTable)
+        .where(eq(friendshipsTable.ownerId, userId)),
+      getBlockedAndBlockerIds(userId),
+    ]);
+    // The friend set is what drives BOTH queries below — a squad surfaces
+    // because a friend is in it, an event because a friend RSVP'd. Dropping
+    // blocked users here removes them from discovery wholesale, rather than
+    // recommending the viewer a squad on the strength of someone they blocked.
+    const blocked = new Set(blockedIds);
+    const friendIds = friendRows.map((r) => r.friendId).filter((id) => !blocked.has(id));
 
     if (friendIds.length === 0) {
       res.json({ events: [], squads: [] });

@@ -57,6 +57,16 @@ async function canViewPost(
   post: typeof feedPostsTable.$inferSelect,
 ): Promise<boolean> {
   if (post.authorId === userId) return true;
+  // Auto-hidden (3+ distinct reporters) content is already excluded from the
+  // list query, but per-id paths (react, comment, read comments) load the row
+  // directly. Gating here covers all of them at once, so a saved/deep-linked
+  // post id can't be used to keep interacting with reported content.
+  if (post.status === "hidden") return false;
+  // Blocks apply on the per-id paths too. A blocked user who still shares a
+  // squad stays a member, so the squad check below would otherwise let them
+  // react to / comment on the post of someone who blocked them.
+  const blockedIds = await getBlockedAndBlockerIds(userId);
+  if (blockedIds.includes(post.authorId)) return false;
   if (post.audience === "friends") {
     const friendIds = await getFriendIds(userId);
     return friendIds.includes(post.authorId);

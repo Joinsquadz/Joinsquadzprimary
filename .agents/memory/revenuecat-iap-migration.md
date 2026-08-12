@@ -31,6 +31,20 @@ can't diverge from RevenueCat.
 - Webhook rethrows on redemption failure → 500 → RevenueCat retries (at-least-once);
   idempotency makes the retry safe.
 - CANCELLATION / BILLING_ISSUE do NOT revoke (access continues to EXPIRATION).
+- **Revoke on PERIOD, not on event type — and a wall-clock check is NOT enough.**
+  Webhook delivery is unordered and retried, so an EXPIRATION for an old period
+  routinely lands AFTER the RENEWAL that superseded it. That stale event's
+  `expiration_at_ms` is *already in the past*, so it is indistinguishable from a
+  genuine lapse by timestamp alone — the only way to tell them apart is to compare
+  against the period you last applied. `users.squadz_plus_period_end_ms` stores it;
+  webhook writes go through `setSquadzPlusForPeriod`, which applies only when the
+  event's period is not older. Compare numerically (`::bigint`) — the column is text
+  and string ordering ranks a 13-digit ms timestamp above a 14-digit one. Events
+  with no period apply unconditionally (nothing to order by). `/iap/sync` is a
+  full-state read from RC so it writes unconditionally, but MUST still advance the
+  period marker or the next webhook compares against a stale period and gets dropped.
+  Getting this wrong bills a subscriber while locking them out — verify it against a
+  real Postgres (SIM-11), since the guard is in SQL.
 
 **Client web-safety:** `react-native-purchases` is lazy `await import`-ed behind a
 `Platform.OS==="web"` guard so web preview never crashes; web is a no-op purchase

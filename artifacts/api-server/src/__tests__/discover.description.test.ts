@@ -50,6 +50,14 @@ vi.mock("@workspace/db", () => ({
 
 vi.mock("../lib/logger");
 
+// Discovery filters out blocked users (see discover.blocked.test.ts). Stub the
+// lookup so its own db queries don't consume entries from this file's FIFO
+// select queue, which asserts a strict query order.
+vi.mock("../lib/blocks", () => ({
+  getBlockedAndBlockerIds: vi.fn().mockResolvedValue([]),
+  isBlockedEitherWay: vi.fn().mockResolvedValue(false),
+}));
+
 import discoverRouter from "../routes/discover";
 import { makeTestApp, type TestUser } from "./helpers/makeTestApp";
 import { STRANGER_ID, CREATOR_ID, makeBaseSquad } from "./helpers/fixtures";

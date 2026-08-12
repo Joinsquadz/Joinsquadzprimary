@@ -1,9 +1,10 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { and, eq, inArray, or, sql } from "drizzle-orm";
+import { and, eq, inArray, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, usersTable, friendshipsTable, squadsTable, userBlocksTable } from "@workspace/db";
 import { requireAuth } from "../middleware/currentUser";
 import { logger } from "../lib/logger";
+import { getBlockedAndBlockerIds } from "../lib/blocks";
 import { storage } from "../storage";
 import { sendPushNotifications } from "../lib/pushNotifications";
 import { resolveProStatus } from "../lib/proStatus";
@@ -27,6 +28,7 @@ router.get("/users/by-friend-code/:code", requireAuth, async (req: Request, res:
       res.status(400).json({ error: "code is required" });
       return;
     }
+    const currentUserId = (req.user as { id: string }).id;
     const [user] = await db
       .select({
         id: usersTable.id,
@@ -41,6 +43,18 @@ router.get("/users/by-friend-code/:code", requireAuth, async (req: Request, res:
     if (!user) {
       res.status(404).json({ error: "No user found with that friend code." });
       return;
+    }
+    // A block hides the person from discovery in BOTH directions. Knowing a
+    // friend code must not resolve a blocked account into an add-able profile
+    // (the profile route is already block-gated, so a hit here would only
+    // dead-end anyway — and it would confirm the account exists).
+    // Neutral copy: never disclose that a block is the reason.
+    if (user.id !== currentUserId) {
+      const blockedIds = await getBlockedAndBlockerIds(currentUserId);
+      if (blockedIds.includes(user.id)) {
+        res.status(404).json({ error: "No user found with that friend code." });
+        return;
+      }
     }
     res.json(user);
   } catch (err) {
@@ -106,6 +120,10 @@ router.get("/users/search", requireAuth, async (req: Request, res: Response): Pr
     }
     const currentUserId = (req.user as { id: string }).id;
     const pattern = `%${q}%`;
+    // A block removes the person from discovery in BOTH directions: the blocker
+    // shouldn't stumble on them, and the blocked user shouldn't be able to find
+    // the blocker to start a new approach from a fresh angle.
+    const blockedIds = await getBlockedAndBlockerIds(currentUserId);
     const rows = await db
       .select({
         id: usersTable.id,
@@ -120,6 +138,7 @@ router.get("/users/search", requireAuth, async (req: Request, res: Response): Pr
         and(
           sql`${usersTable.id} != ${currentUserId}`,
           eq(usersTable.moderationHidden, false),
+          blockedIds.length > 0 ? notInArray(usersTable.id, blockedIds) : undefined,
           sql`(${usersTable.firstName} ILIKE ${pattern} OR
             ${usersTable.lastName} ILIKE ${pattern} OR
             COALESCE(${usersTable.firstName}, '') || ' ' || COALESCE(${usersTable.lastName}, '') ILIKE ${pattern}
@@ -142,11 +161,19 @@ const addFriendSchema = z.object({ friendId: z.string().min(1) });
 router.get("/users/friends", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = (req.user as { id: string }).id;
-    const rows = await db
-      .select({ friendId: friendshipsTable.friendId })
-      .from(friendshipsTable)
-      .where(eq(friendshipsTable.ownerId, userId));
-    const ids = rows.map((r) => r.friendId);
+    const [rows, blockedIds] = await Promise.all([
+      db
+        .select({ friendId: friendshipsTable.friendId })
+        .from(friendshipsTable)
+        .where(eq(friendshipsTable.ownerId, userId)),
+      getBlockedAndBlockerIds(userId),
+    ]);
+    // Blocking severs the friendship rows, but a friendship written in the same
+    // instant as a block (or a legacy row from before that rule) would leave a
+    // blocked person sitting in the friends list — where they're DM-able in the
+    // UI even though every DM surface would then reject them. Filter defensively.
+    const blocked = new Set(blockedIds);
+    const ids = rows.map((r) => r.friendId).filter((id) => !blocked.has(id));
     if (ids.length === 0) {
       res.json([]);
       return;

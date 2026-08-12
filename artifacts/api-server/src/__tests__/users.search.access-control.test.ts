@@ -24,6 +24,13 @@ vi.mock("@workspace/db", () => ({
 
 vi.mock("../lib/logger");
 
+// Search excludes users in a block relationship (see users.blockDiscovery.test.ts).
+// Stub the lookup here so this file keeps testing only the search query shape.
+vi.mock("../lib/blocks", () => ({
+  getBlockedAndBlockerIds: vi.fn().mockResolvedValue([]),
+  isBlockedEitherWay: vi.fn().mockResolvedValue(false),
+}));
+
 import usersRouter from "../routes/users";
 import { makeTestApp, type TestUser } from "./helpers/makeTestApp";
 

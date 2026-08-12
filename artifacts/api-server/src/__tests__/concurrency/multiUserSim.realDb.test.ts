@@ -1400,3 +1400,105 @@ describe("SIM-10 — squad invite acceptance is one atomic unit", () => {
     expect(res.status).toBe(200);
   });
 });
+
+describe("SIM-11 — RevenueCat entitlement writes survive unordered webhook delivery", () => {
+  // RevenueCat delivers webhooks out of order and retries them. The dangerous
+  // case is an EXPIRATION for an OLD period landing AFTER the RENEWAL that
+  // replaced it: on the wire it is just "an expiry whose timestamp has passed",
+  // indistinguishable from a genuine lapse. Only comparing it against the period
+  // already applied can tell them apart, so this is enforced in SQL and has to be
+  // proven against a real Postgres.
+  const DAY = 24 * 60 * 60 * 1000;
+
+  async function entitlementRow(userId: string) {
+    const { rows } = await dbmod.pool.query(
+      `SELECT is_squadz_plus, squadz_plus_period_end_ms FROM users WHERE id = $1`,
+      [userId],
+    );
+    return rows[0] as { is_squadz_plus: boolean; squadz_plus_period_end_ms: string | null };
+  }
+
+  it("a delayed EXPIRATION for the old period does not revoke a renewed subscriber", async () => {
+    const u = "rc-late-expiry";
+    await seedUser(u);
+    const oldPeriodEnd = Date.now() - 2 * DAY; // period that already lapsed
+    const newPeriodEnd = Date.now() + 363 * DAY; // the renewal that replaced it
+
+    // 1) The renewal is processed first and grants through the new period.
+    const renewal = await storage.setSquadzPlusForPeriod(u, true, newPeriodEnd);
+    expect(renewal.applied).toBe(true);
+    expect((await entitlementRow(u)).is_squadz_plus).toBe(true);
+
+    // 2) The stale EXPIRATION for the OLD period arrives afterwards. Its
+    //    timestamp is in the past, so a wall-clock rule would revoke here.
+    const stale = await storage.setSquadzPlusForPeriod(u, false, oldPeriodEnd);
+
+    expect(stale.applied).toBe(false);
+    const row = await entitlementRow(u);
+    expect(row.is_squadz_plus).toBe(true); // still paid up
+    expect(row.squadz_plus_period_end_ms).toBe(String(newPeriodEnd));
+  });
+
+  it("a genuine EXPIRATION for the CURRENT period still revokes", async () => {
+    const u = "rc-real-expiry";
+    await seedUser(u);
+    const periodEnd = Date.now() - 60_000;
+
+    await storage.setSquadzPlusForPeriod(u, true, periodEnd);
+    const revoked = await storage.setSquadzPlusForPeriod(u, false, periodEnd);
+
+    expect(revoked.applied).toBe(true);
+    expect((await entitlementRow(u)).is_squadz_plus).toBe(false);
+  });
+
+  it("re-delivery of the same event is an idempotent no-op", async () => {
+    const u = "rc-redelivery";
+    await seedUser(u);
+    const periodEnd = Date.now() + 30 * DAY;
+
+    await storage.setSquadzPlusForPeriod(u, true, periodEnd);
+    await storage.setSquadzPlusForPeriod(u, true, periodEnd);
+    await storage.setSquadzPlusForPeriod(u, true, periodEnd);
+
+    const row = await entitlementRow(u);
+    expect(row.is_squadz_plus).toBe(true);
+    expect(row.squadz_plus_period_end_ms).toBe(String(periodEnd));
+  });
+
+  it("periods are ranked numerically, not as text", async () => {
+    // 9999999999999 (13 chars) is LATER than 10000000000000 (14 chars) under
+    // string ordering, so a text comparison would wrongly accept a stale event.
+    const u = "rc-numeric-rank";
+    await seedUser(u);
+    const newer = 10_000_000_000_000;
+    const older = 9_999_999_999_999;
+
+    await storage.setSquadzPlusForPeriod(u, true, newer);
+    const stale = await storage.setSquadzPlusForPeriod(u, false, older);
+
+    expect(stale.applied).toBe(false);
+    expect((await entitlementRow(u)).is_squadz_plus).toBe(true);
+  });
+
+  it("an event with no period still applies (nothing to order it by)", async () => {
+    const u = "rc-no-period";
+    await seedUser(u);
+    await storage.setSquadzPlusForPeriod(u, true, Date.now() + 30 * DAY);
+
+    const res = await storage.setSquadzPlusForPeriod(u, false, null);
+
+    expect(res.applied).toBe(true);
+    expect((await entitlementRow(u)).is_squadz_plus).toBe(false);
+  });
+
+  it("a first-ever event applies even though no period was recorded", async () => {
+    const u = "rc-first-event";
+    await seedUser(u);
+    expect((await entitlementRow(u)).squadz_plus_period_end_ms).toBeNull();
+
+    const res = await storage.setSquadzPlusForPeriod(u, true, Date.now() + 30 * DAY);
+
+    expect(res.applied).toBe(true);
+    expect((await entitlementRow(u)).is_squadz_plus).toBe(true);
+  });
+});

@@ -43,6 +43,14 @@ vi.mock("@workspace/db", () => {
 
 vi.mock("../lib/logger");
 
+// The friends list is block-filtered (see users.blockDiscovery.test.ts). Stub
+// the lookup so it doesn't consume an entry from this file's select queue —
+// the block behaviour itself is asserted in that dedicated suite.
+vi.mock("../lib/blocks", () => ({
+  getBlockedAndBlockerIds: vi.fn().mockResolvedValue([]),
+  isBlockedEitherWay: vi.fn().mockResolvedValue(false),
+}));
+
 import usersRouter from "../routes/users";
 import { makeTestApp, type TestUser } from "./helpers/makeTestApp";
 

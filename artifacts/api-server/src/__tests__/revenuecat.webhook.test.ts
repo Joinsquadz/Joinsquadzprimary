@@ -12,11 +12,18 @@ import request from "supertest";
 const hoisted = vi.hoisted(() => ({
   getUser: vi.fn(),
   setSquadzPlus: vi.fn().mockResolvedValue(undefined),
+  // Webhook entitlement writes go through the period-guarded variant so that
+  // unordered delivery can't apply a stale event; see revenuecat.outOfOrder.
+  setSquadzPlusForPeriod: vi.fn().mockResolvedValue({ applied: true }),
   redeemFoundingSpot: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock("../storage", () => ({
-  storage: { getUser: hoisted.getUser, setSquadzPlus: hoisted.setSquadzPlus },
+  storage: {
+    getUser: hoisted.getUser,
+    setSquadzPlus: hoisted.setSquadzPlus,
+    setSquadzPlusForPeriod: hoisted.setSquadzPlusForPeriod,
+  },
 }));
 
 vi.mock("../lib/founding", () => ({ redeemFoundingSpot: hoisted.redeemFoundingSpot }));
@@ -49,6 +56,7 @@ beforeEach(() => {
   process.env.REVENUECAT_WEBHOOK_AUTH = AUTH;
   hoisted.getUser.mockResolvedValue(USER as never);
   hoisted.setSquadzPlus.mockResolvedValue(undefined);
+  hoisted.setSquadzPlusForPeriod.mockResolvedValue({ applied: true });
   hoisted.redeemFoundingSpot.mockResolvedValue(true);
 });
 
@@ -65,7 +73,7 @@ describe("POST /api/revenuecat/webhook — auth gating", () => {
       null,
     );
     expect(res.status).toBe(503);
-    expect(hoisted.setSquadzPlus).not.toHaveBeenCalled();
+    expect(hoisted.setSquadzPlusForPeriod).not.toHaveBeenCalled();
   });
 
   it("401s on a wrong Authorization header", async () => {
@@ -74,7 +82,7 @@ describe("POST /api/revenuecat/webhook — auth gating", () => {
       "Bearer nope",
     );
     expect(res.status).toBe(401);
-    expect(hoisted.setSquadzPlus).not.toHaveBeenCalled();
+    expect(hoisted.setSquadzPlusForPeriod).not.toHaveBeenCalled();
   });
 
   it("400s on a body with no event", async () => {
@@ -85,7 +93,7 @@ describe("POST /api/revenuecat/webhook — auth gating", () => {
   it("acks (200) an event without an app_user_id and does nothing", async () => {
     const res = await post({ event: { type: "INITIAL_PURCHASE", product_id: STANDARD } });
     expect(res.status).toBe(200);
-    expect(hoisted.setSquadzPlus).not.toHaveBeenCalled();
+    expect(hoisted.setSquadzPlusForPeriod).not.toHaveBeenCalled();
     expect(hoisted.redeemFoundingSpot).not.toHaveBeenCalled();
   });
 });
@@ -101,7 +109,7 @@ describe("POST /api/revenuecat/webhook — entitlement grant/revoke", () => {
       },
     });
     expect(res.status).toBe(200);
-    expect(hoisted.setSquadzPlus).toHaveBeenCalledWith("u1", true);
+    expect(hoisted.setSquadzPlusForPeriod).toHaveBeenCalledWith("u1", true, null);
     // Standard tier never consumes a founding spot.
     expect(hoisted.redeemFoundingSpot).not.toHaveBeenCalled();
   });
@@ -116,7 +124,7 @@ describe("POST /api/revenuecat/webhook — entitlement grant/revoke", () => {
       },
     });
     expect(res.status).toBe(200);
-    expect(hoisted.setSquadzPlus).toHaveBeenCalledWith("u1", false);
+    expect(hoisted.setSquadzPlusForPeriod).toHaveBeenCalledWith("u1", false, null);
   });
 
   it("does not touch entitlement for CANCELLATION (access continues until expiry)", async () => {
@@ -129,7 +137,7 @@ describe("POST /api/revenuecat/webhook — entitlement grant/revoke", () => {
       },
     });
     expect(res.status).toBe(200);
-    expect(hoisted.setSquadzPlus).not.toHaveBeenCalled();
+    expect(hoisted.setSquadzPlusForPeriod).not.toHaveBeenCalled();
   });
 
   it("acks (200) without writing for an unknown user", async () => {
@@ -143,7 +151,7 @@ describe("POST /api/revenuecat/webhook — entitlement grant/revoke", () => {
       },
     });
     expect(res.status).toBe(200);
-    expect(hoisted.setSquadzPlus).not.toHaveBeenCalled();
+    expect(hoisted.setSquadzPlusForPeriod).not.toHaveBeenCalled();
   });
 });
 
@@ -160,7 +168,7 @@ describe("POST /api/revenuecat/webhook — founding spot redemption", () => {
       },
     });
     expect(res.status).toBe(200);
-    expect(hoisted.setSquadzPlus).toHaveBeenCalledWith("u1", true);
+    expect(hoisted.setSquadzPlusForPeriod).toHaveBeenCalledWith("u1", true, null);
     expect(hoisted.redeemFoundingSpot).toHaveBeenCalledTimes(1);
     expect(hoisted.redeemFoundingSpot).toHaveBeenCalledWith("rc:1000000123");
   });

@@ -38,9 +38,12 @@ router.post("/iap/sync", requireAuth, async (req: Request, res: Response): Promi
       subscriber?: { entitlements?: Record<string, { expires_date?: string | null }> };
     };
     const ent = body.subscriber?.entitlements?.[RC_ENTITLEMENT_ID];
-    const active =
-      !!ent && (ent.expires_date == null || new Date(ent.expires_date).getTime() > Date.now());
-    await storage.setSquadzPlus(userId, active);
+    const expiresMs = ent?.expires_date != null ? new Date(ent.expires_date).getTime() : null;
+    const active = !!ent && (expiresMs === null || expiresMs > Date.now());
+    // Authoritative full-state read from RevenueCat, so this write is
+    // unconditional — but it also advances the period marker, otherwise the next
+    // webhook would compare against a stale period and could be wrongly dropped.
+    await storage.setSquadzPlus(userId, active, expiresMs);
     res.json({ ok: true, isSquadzPlus: active });
   } catch (err) {
     logger.error({ err, userId }, "IAP sync failed");
@@ -85,11 +88,27 @@ router.post("/revenuecat/webhook", async (req, res): Promise<void> => {
     if (decision === "grant" || decision === "revoke") {
       const user = await storage.getUser(userId);
       if (user) {
-        await storage.setSquadzPlus(user.id, decision === "grant");
-        logger.info(
-          { userId: user.id, type: event.type, decision },
-          "RevenueCat entitlement updated",
+        // Period-guarded so unordered delivery can't revoke a paid-up user: a
+        // delayed EXPIRATION for an old period arriving after its RENEWAL is
+        // dropped, because its period is older than the one already applied.
+        const periodEndMs =
+          typeof event.expiration_at_ms === "number" ? event.expiration_at_ms : null;
+        const { applied } = await storage.setSquadzPlusForPeriod(
+          user.id,
+          decision === "grant",
+          periodEndMs,
         );
+        if (applied) {
+          logger.info(
+            { userId: user.id, type: event.type, decision, periodEndMs },
+            "RevenueCat entitlement updated",
+          );
+        } else {
+          logger.info(
+            { userId: user.id, type: event.type, decision, periodEndMs },
+            "RevenueCat event describes an older period than the one applied — ignoring as stale",
+          );
+        }
       } else {
         logger.warn({ userId, type: event.type }, "RevenueCat event for unknown user — acking");
       }

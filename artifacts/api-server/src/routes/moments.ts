@@ -47,6 +47,15 @@ function liveCondition() {
  */
 async function canViewMoment(userId: string, moment: MomentRow): Promise<boolean> {
   if (moment.authorId === userId) return true;
+  // Same rule as the feed: hidden moments stay reachable by id for the author
+  // only. Every per-id path (views, reactions) routes through here.
+  if (moment.status === "hidden") return false;
+  // Blocks apply on the per-id paths too, not just in the list queries. A
+  // blocked user who still shares a squad remains a member, so the squad check
+  // below would pass — letting them mark a moment viewed or react to it, which
+  // pushes a notification straight to the author who blocked them.
+  const blockedIds = await getBlockedAndBlockerIds(userId);
+  if (blockedIds.includes(moment.authorId)) return false;
   if (moment.audience === "friends") {
     const friendIds = await getFriendIds(userId);
     return friendIds.includes(moment.authorId);
@@ -270,10 +279,21 @@ router.get(
         res.status(403).json({ error: "Access denied" });
         return;
       }
+      const blockedIds = await getBlockedAndBlockerIds(userId);
       const moments = await db
         .select()
         .from(momentsTable)
-        .where(and(liveCondition(), eq(momentsTable.audience, squadId)))
+        .where(
+          and(
+            liveCondition(),
+            // Auto-hidden (3+ distinct reporters) moments must drop out of this
+            // list exactly like they do from the friends/feed lists — otherwise
+            // reported content stays visible on the squad surface.
+            ne(momentsTable.status, "hidden"),
+            eq(momentsTable.audience, squadId),
+            blockedIds.length > 0 ? notInArray(momentsTable.authorId, blockedIds) : undefined,
+          ),
+        )
         .orderBy(desc(momentsTable.createdAt));
       const rings = await buildRings(moments, userId);
       rings.sort((a, b) => {
@@ -324,7 +344,9 @@ router.get(
       const id = parseId(req.params.id);
       const userId = (req.user as { id: string }).id;
       const [moment] = await db.select().from(momentsTable).where(eq(momentsTable.id, id));
-      if (!moment) {
+      // Deleted moments are gone for everyone, the author included — every other
+      // per-id path already 404s on deletedAt and this one was the exception.
+      if (!moment || moment.deletedAt) {
         res.status(404).json({ error: "Moment not found" });
         return;
       }

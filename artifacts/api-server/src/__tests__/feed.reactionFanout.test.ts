@@ -63,6 +63,12 @@ vi.mock("@workspace/db", () => {
 });
 
 vi.mock("../lib/pushNotifications", () => ({ sendPushNotifications: () => Promise.resolve([]) }));
+// canViewPost consults blocks on every per-id path (see
+// feed.hiddenPerIdAccess.test.ts); stub it so this fan-out test doesn't need
+// the blocks table in its minimal db mock.
+vi.mock("../routes/moderation", () => ({
+  getBlockedAndBlockerIds: vi.fn().mockResolvedValue([]),
+}));
 vi.mock("../lib/logger");
 
 import feedRouter from "../routes/feed";

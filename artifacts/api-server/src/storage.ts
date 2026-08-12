@@ -225,14 +225,68 @@ export class Storage {
    * Set the unified Squadz+ entitlement flag. Called by the RevenueCat webhook
    * (mobile IAP) — and, when reactivated, the dormant Stripe webhook — so all
    * Pro gating reads one field. Idempotent: writing the same value is a no-op.
+   *
+   * Unconditional: use this for authoritative full-state reconciliation (the
+   * /iap/sync path, which reads RevenueCat's live subscriber state). For webhook
+   * events, prefer `setSquadzPlusForPeriod`, which cannot be reordered.
    */
-  async setSquadzPlus(userId: string, isSquadzPlus: boolean) {
+  async setSquadzPlus(userId: string, isSquadzPlus: boolean, periodEndMs?: number | null) {
     const [user] = await db
       .update(usersTable)
-      .set({ isSquadzPlus })
+      .set({
+        isSquadzPlus,
+        // Keep the marker in step so a later webhook compares against the state
+        // sync just established, rather than a stale period.
+        ...(periodEndMs === undefined
+          ? {}
+          : { squadzPlusPeriodEndMs: periodEndMs === null ? null : String(periodEndMs) }),
+      })
       .where(eq(usersTable.id, userId))
       .returning();
     return user;
+  }
+
+  /**
+   * Apply a webhook-driven entitlement change ONLY if the event describes a
+   * period at least as new as the one already applied.
+   *
+   * RevenueCat delivery is unordered and retried, so a delayed EXPIRATION for an
+   * old period routinely arrives AFTER the RENEWAL that replaced it. Both look
+   * like "a past expiry" on the wire — the only way to tell them apart is to
+   * compare against the period we last acted on. Without this, a paying
+   * subscriber silently loses Squadz+ while still being billed.
+   *
+   * Returns whether the write was applied, so the caller can log stale drops.
+   */
+  async setSquadzPlusForPeriod(
+    userId: string,
+    isSquadzPlus: boolean,
+    periodEndMs: number | null,
+  ): Promise<{ applied: boolean }> {
+    // No period on the event (some types omit it): fall back to an unconditional
+    // write — we have nothing to order it by.
+    if (periodEndMs == null) {
+      await this.setSquadzPlus(userId, isSquadzPlus);
+      return { applied: true };
+    }
+    const next = String(periodEndMs);
+    const [row] = await db
+      .update(usersTable)
+      .set({ isSquadzPlus, squadzPlusPeriodEndMs: next })
+      .where(
+        and(
+          eq(usersTable.id, userId),
+          // Apply when we've never recorded a period, or this event's period is
+          // not older than the applied one. Compared numerically: the column is
+          // text so string ordering would misrank different-length timestamps.
+          or(
+            isNull(usersTable.squadzPlusPeriodEndMs),
+            sql`${usersTable.squadzPlusPeriodEndMs}::bigint <= ${periodEndMs}`,
+          ),
+        ),
+      )
+      .returning();
+    return { applied: !!row };
   }
 
   /**

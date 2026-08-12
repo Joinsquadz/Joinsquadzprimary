@@ -417,6 +417,10 @@ async function addMissingColumns(): Promise<void> {
     `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "activity_last_read_at" timestamp with time zone`,
     `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "moderation_hidden" boolean DEFAULT false NOT NULL`,
     `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "is_squadz_plus" boolean DEFAULT false NOT NULL`,
+    // Makes RevenueCat entitlement writes monotonic against unordered webhook
+    // delivery. Text (not bigint) so it round-trips as a JS string without
+    // precision surprises; null = no period-bearing event applied yet.
+    `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "squadz_plus_period_end_ms" text`,
     // Age gate (13+). Nullable on purpose: existing accounts predate the gate,
     // so NULL = "never age-checked" and must stay distinguishable from false.
     `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "meets_min_age" boolean`,

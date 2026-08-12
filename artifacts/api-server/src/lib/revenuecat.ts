@@ -65,10 +65,23 @@ const REVOKE_TYPES = new Set(["EXPIRATION"]);
  */
 export function decideEntitlement(event: RevenueCatEvent, nowMs = Date.now()): EntitlementDecision {
   if (!eventTargetsSquadzPlus(event)) return "ignore";
-  if (REVOKE_TYPES.has(event.type)) return "revoke";
 
   const expired =
     typeof event.expiration_at_ms === "number" && event.expiration_at_ms <= nowMs;
+
+  if (REVOKE_TYPES.has(event.type)) {
+    // An EXPIRATION whose own expiry is still in the FUTURE has been superseded
+    // (renewal / resubscribe / extension), so acting on it would revoke a
+    // subscriber who is currently paid up.
+    //
+    // NOTE: this alone does NOT make delivery-order safe. The common bad case is
+    // an EXPIRATION for an OLD period (its timestamp already in the past)
+    // arriving AFTER the renewal that replaced it — that looks identical to a
+    // legitimate expiry here. `reconcileEntitlement` handles it by comparing
+    // against the period we last applied; this function is period-agnostic.
+    if (typeof event.expiration_at_ms === "number" && !expired) return "ignore";
+    return "revoke";
+  }
 
   if (GRANT_TYPES.has(event.type)) return expired ? "revoke" : "grant";
   if (event.type === "TRANSFER") return expired ? "revoke" : "grant";

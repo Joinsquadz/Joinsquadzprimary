@@ -353,25 +353,10 @@ router.get(
 );
 
 /**
- * Returns all user IDs that are in a block relationship with `userId`
- * (both directions). Used by feed / moments queries to suppress content
- * from blocked users in both directions.
+ * Re-exported for existing callers (feed / moments queries suppress content
+ * from blocked users in both directions). The implementation lives in
+ * lib/blocks so discovery surfaces can use it without importing this router.
  */
-export async function getBlockedAndBlockerIds(userId: string): Promise<string[]> {
-  const [blockedByUser, blockersOfUser] = await Promise.all([
-    db
-      .select({ id: userBlocksTable.blockedId })
-      .from(userBlocksTable)
-      .where(eq(userBlocksTable.blockerId, userId)),
-    db
-      .select({ id: userBlocksTable.blockerId })
-      .from(userBlocksTable)
-      .where(eq(userBlocksTable.blockedId, userId)),
-  ]);
-  const ids = new Set<string>();
-  for (const r of blockedByUser) ids.add(r.id);
-  for (const r of blockersOfUser) ids.add(r.id);
-  return [...ids];
-}
+export { getBlockedAndBlockerIds } from "../lib/blocks";
 
 export default router;

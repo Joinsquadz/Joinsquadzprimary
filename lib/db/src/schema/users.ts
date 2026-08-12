@@ -37,6 +37,12 @@ export const usersTable = pgTable("users", {
   // limits, vault) is a single fast DB read. The dormant Stripe webhook writes the
   // same field, so a future web purchase path can reactivate without schema churn.
   isSquadzPlus: boolean("is_squadz_plus").notNull().default(false),
+  // Expiry of the subscription period that last drove `isSquadzPlus`, as epoch
+  // millis. RevenueCat webhooks are unordered and retried, so this is what makes
+  // the entitlement write monotonic: an event describing an OLDER period than
+  // the one already applied is stale and must not overwrite a newer state.
+  // Null = no period-bearing event applied yet (or a legacy/Stripe write).
+  squadzPlusPeriodEndMs: text("squadz_plus_period_end_ms"),
   calendarSyncEnabled: boolean("calendar_sync_enabled").notNull().default(false),
   calendarToken: text("calendar_token"),
   notifyEventInvites: boolean("notify_event_invites").notNull().default(true),
