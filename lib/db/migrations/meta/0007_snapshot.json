@@ -1,6 +1,6 @@
 {
-  "id": "7c77027c-6115-4936-bab6-4afb2bfb9c29",
-  "prevId": "c1129e16-29cf-49dd-bb60-278b883d61e8",
+  "id": "7f2c1e64-9b3a-4d18-8f5b-2a6c0d4e7b91",
+  "prevId": "7c77027c-6115-4936-bab6-4afb2bfb9c29",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -294,6 +294,18 @@
           "notNull": true,
           "default": false
         },
+        "meets_min_age": {
+          "name": "meets_min_age",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "birth_year": {
+          "name": "birth_year",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
         "stripe_customer_id": {
           "name": "stripe_customer_id",
           "type": "text",
@@ -312,6 +324,18 @@
           "primaryKey": false,
           "notNull": true,
           "default": false
+        },
+        "squadz_plus_period_end_ms": {
+          "name": "squadz_plus_period_end_ms",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "squadz_plus_tier": {
+          "name": "squadz_plus_tier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "calendar_sync_enabled": {
           "name": "calendar_sync_enabled",
@@ -457,12 +481,6 @@
           "primaryKey": false,
           "notNull": false,
           "default": "now()"
-        },
-        "squadz_plus_tier": {
-          "name": "squadz_plus_tier",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {},
@@ -614,7 +632,7 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'🎉'"
+          "default": "'\ud83c\udf89'"
         },
         "title": {
           "name": "title",
@@ -852,7 +870,53 @@
           "default": 1
         }
       },
-      "indexes": {},
+      "indexes": {
+        "IDX_events_squad_id": {
+          "name": "IDX_events_squad_id",
+          "columns": [
+            {
+              "expression": "squad_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "IDX_events_host_id": {
+          "name": "IDX_events_host_id",
+          "columns": [
+            {
+              "expression": "host_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "IDX_events_event_at": {
+          "name": "IDX_events_event_at",
+          "columns": [
+            {
+              "expression": "event_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
@@ -883,6 +947,13 @@
           "primaryKey": false,
           "notNull": false
         },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'create'"
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -909,6 +980,27 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "event_creations_user_event_unique": {
+          "name": "event_creations_user_event_unique",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "event_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -1045,7 +1137,7 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'👥'"
+          "default": "'\ud83d\udc65'"
         },
         "color": {
           "name": "color",
@@ -1192,6 +1284,12 @@
           "notNull": true,
           "default": "'active'"
         },
+        "saved_from_photo_id": {
+          "name": "saved_from_photo_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
         "uploaded_at": {
           "name": "uploaded_at",
           "type": "timestamp with time zone",
@@ -1200,7 +1298,29 @@
           "default": "now()"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "photos_uploader_saved_from_uq": {
+          "name": "photos_uploader_saved_from_uq",
+          "columns": [
+            {
+              "expression": "uploader_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "saved_from_photo_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "photos_event_id_events_id_fk": {
           "name": "photos_event_id_events_id_fk",
@@ -1972,6 +2092,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "event_id": {
+          "name": "event_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_by": {
           "name": "created_by",
           "type": "text",
@@ -2037,9 +2163,38 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "conversations_event_id_unique": {
+          "name": "conversations_event_id_unique",
+          "columns": [
+            {
+              "expression": "event_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "conversations_event_id_events_id_fk": {
+          "name": "conversations_event_id_events_id_fk",
+          "tableFrom": "conversations",
+          "tableTo": "events",
+          "columnsFrom": [
+            "event_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -2969,7 +3124,7 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'👥'"
+          "default": "'\ud83d\udc65'"
         },
         "created_at": {
           "name": "created_at",
@@ -3044,7 +3199,7 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'🗓️'"
+          "default": "'\ud83d\uddd3\ufe0f'"
         },
         "created_at": {
           "name": "created_at",
@@ -3310,6 +3465,283 @@
       },
       "policies": {},
       "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.idea_votes": {
+      "name": "idea_votes",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "idea_id": {
+          "name": "idea_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idea_votes_idea_user_unique": {
+          "name": "idea_votes_idea_user_unique",
+          "columns": [
+            {
+              "expression": "idea_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idea_votes_idea_idx": {
+          "name": "idea_votes_idea_idx",
+          "columns": [
+            {
+              "expression": "idea_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "idea_votes_idea_id_plan_ideas_id_fk": {
+          "name": "idea_votes_idea_id_plan_ideas_id_fk",
+          "tableFrom": "idea_votes",
+          "tableTo": "plan_ideas",
+          "columnsFrom": [
+            "idea_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.plan_ideas": {
+      "name": "plan_ideas",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "plan_id": {
+          "name": "plan_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "submitted_by_user_id": {
+          "name": "submitted_by_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "category": {
+          "name": "category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'activity'"
+        },
+        "link_url": {
+          "name": "link_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "estimated_cost": {
+          "name": "estimated_cost",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "suggested_date": {
+          "name": "suggested_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "pinned_at": {
+          "name": "pinned_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sort_order": {
+          "name": "sort_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "nudge_sent_at": {
+          "name": "nudge_sent_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "plan_ideas_plan_status_date_idx": {
+          "name": "plan_ideas_plan_status_date_idx",
+          "columns": [
+            {
+              "expression": "plan_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "suggested_date",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "plan_ideas_plan_id_events_id_fk": {
+          "name": "plan_ideas_plan_id_events_id_fk",
+          "tableFrom": "plan_ideas",
+          "tableTo": "events",
+          "columnsFrom": [
+            "plan_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.media_backup_status": {
+      "name": "media_backup_status",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "default": 1
+        },
+        "last_success_at": {
+          "name": "last_success_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_summary": {
+          "name": "last_summary",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "media_backup_status_single_row": {
+          "name": "media_backup_status_single_row",
+          "value": "\"media_backup_status\".\"id\" = 1"
+        }
+      },
       "isRLSEnabled": false
     }
   },

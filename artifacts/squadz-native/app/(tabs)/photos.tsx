@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -48,12 +48,23 @@ function photoFilename(photo: LivePhoto): string {
 export default function PhotosTab() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { authToken, isPro } = useAuth();
+  const { authToken, isPro, onEntitlementInvalidate } = useAuth();
   const {
     photos,
     loading: photosLoading,
     refetch: loadPhotos,
   } = useVaultPhotos<LivePhoto>({ authToken });
+
+  // The roll-up is gated server-side, so its payload (and `requiresPro`) is
+  // stale after an unlock or a lapse. Subscribing to the shared invalidation
+  // boundary means an upgrade completed on ANY screen refreshes this grid.
+  useEffect(
+    () =>
+      onEntitlementInvalidate((targets) => {
+        if (targets.includes("vault-access")) void loadPhotos();
+      }),
+    [onEntitlementInvalidate, loadPhotos],
+  );
   const [upgradeVisible, setUpgradeVisible] = useState(false);
   const [selected, setSelected] = useState<number | null>(null);
   const [activeFilter, setActiveFilter] = useState("All");

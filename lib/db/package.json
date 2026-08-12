@@ -10,7 +10,9 @@
   "scripts": {
     "generate": "drizzle-kit generate --config ./drizzle.config.ts",
     "push": "drizzle-kit push --config ./drizzle.config.ts",
-    "push-force": "drizzle-kit push --force --config ./drizzle.config.ts"
+    "push-force": "drizzle-kit push --force --config ./drizzle.config.ts",
+    "validate-migrations": "node ./scripts/validate-migrations.mjs",
+    "test:schema-diff": "node --test ./scripts/lib/schema-diff.test.mjs"
   },
   "dependencies": {
     "drizzle-orm": "catalog:",

@@ -17,7 +17,7 @@
 import { describe, it, expect } from "vitest";
 import { decideEntitlement, type RevenueCatEvent } from "../lib/revenuecat";
 
-const STANDARD = "squadz_plus_standard_yearly";
+const STANDARD = "com.squadz.app.squadzplus.standard.annual";
 const NOW = Date.UTC(2026, 0, 1);
 const HOUR = 60 * 60 * 1000;
 

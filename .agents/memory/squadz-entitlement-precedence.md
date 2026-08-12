@@ -41,6 +41,28 @@ than special-casing it.
   Late deliveries check the bound id first — otherwise a previous account's
   listener writes its entitlement into the next account's session.
 
+## Change invalidation: one boundary, not per-screen watchers
+
+Deciding WHAT the entitlement is (`lib/entitlement.ts`) is separate from deciding
+what must be re-read WHEN it changes (`lib/entitlementInvalidation.ts`). Screens
+subscribe through the context; they must not watch `isPro` themselves.
+
+**Why:** the server computes the free-plan cap, the squad cap, and vault gating,
+so those answers are stale the instant entitlement changes — and the change
+usually originates on a DIFFERENT screen than the one holding the stale value
+(buy from the Photos tab, and the create screen still says "3/3 free plans
+used"). A local `isPro` effect only fires while that screen is mounted, so the
+staleness survives until app restart. The mirror case is a lapse leaving an
+unlocked vault on screen.
+
+**How to apply:** a change is only worth broadcasting when the ACCESS ANSWER
+changes — unresolved→resolved, an entitled flip, or a tier change while entitled.
+A `source` change alone (server confirming what the store already reported) is
+NOT a change; treating it as one turns every foreground into a refetch storm,
+because the RC listener, launch reconciliation and every vault response all
+publish an entitlement. Any new gated surface joins the boundary by adding a
+target rather than inventing its own watcher.
+
 ## Debugging trap
 
 Expo/Metro logs can report `ReferenceError: Property 'X' doesn't exist` for a

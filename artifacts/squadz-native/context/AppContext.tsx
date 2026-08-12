@@ -17,6 +17,15 @@ import {
   type EntitlementTier,
   type ResolvedEntitlement,
 } from "@/lib/entitlement";
+// One invalidation boundary for everything that goes stale when the entitlement
+// changes (plan cap, squad cap, vault access, paywall copy). See
+// lib/entitlementInvalidation.ts for why this is centralized.
+import {
+  ALL_ENTITLEMENT_TARGETS,
+  createEntitlementInvalidator,
+  shouldInvalidateForEntitlement,
+  type EntitlementInvalidationListener,
+} from "@/lib/entitlementInvalidation";
 import { ME } from "@/data/mock";
 import type { Event, Squad, RsvpStatus, Cost, CostShare, ItineraryStop } from "@/types";
 import { track, identify, reset as analyticsReset } from "@/lib/analytics";
@@ -387,6 +396,16 @@ type AppContextType = {
   setEntitlement: (next: ResolvedEntitlement) => void;
   /** Re-fetch entitlement from the server (e.g. after a restore-purchase flow). */
   refreshIsPro: () => Promise<void>;
+  /**
+   * Subscribe to entitlement-change invalidations — the ONE boundary that tells
+   * tier-sensitive surfaces (plan cap, squad cap, vault access, paywall copy) to
+   * re-read after an unlock or a lapse. Returns an unsubscribe function.
+   *
+   * Screens must use this instead of watching `isPro` themselves: a screen-local
+   * effect only fires while that screen is mounted, which is exactly how a
+   * purchase made elsewhere left a stale "3/3 free plans used" behind.
+   */
+  onEntitlementInvalidate: (listener: EntitlementInvalidationListener) => () => void;
 };
 
 const noop = () => {};
@@ -480,6 +499,7 @@ const AppContext = createContext<AppContextType>({
   retrySquadStream: noop,
   entitlement: UNRESOLVED_ENTITLEMENT,
   isPro: null,
+  onEntitlementInvalidate: () => noop,
   setEntitlement: noop,
   refreshIsPro: async () => {},
 });
@@ -556,11 +576,47 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [entitlement, setEntitlementState] = useState<Entitlement>(UNRESOLVED_ENTITLEMENT);
   const isPro = entitlement.resolved ? entitlement.entitled : null;
 
+  // The single place that fans an entitlement change out to tier-sensitive
+  // caches. Created once per provider; subscribers register their own refetch.
+  const entitlementInvalidatorRef = useRef(createEntitlementInvalidator());
+  // Targets to notify after the state update commits. Set inside the updater
+  // (which must stay pure) and drained by the effect below.
+  const pendingInvalidationRef = useRef(false);
+
   // Guards against a late server read overwriting a newer local one: all writes
   // funnel through applyEntitlement, which owns the precedence rules.
+  //
+  // A write that actually CHANGES the access answer also invalidates every
+  // tier-sensitive cache. Same-value re-reports (the RC listener, app-open
+  // reconciliation, each vault response) are ignored so foregrounding the app
+  // doesn't trigger a refetch storm.
   const setEntitlement = useCallback((next: ResolvedEntitlement) => {
-    setEntitlementState((current) => applyEntitlement(current, next));
+    setEntitlementState((current) => {
+      const applied = applyEntitlement(current, next);
+      if (shouldInvalidateForEntitlement(current, applied)) {
+        pendingInvalidationRef.current = true;
+      }
+      return applied;
+    });
   }, []);
+
+  // Fan out after commit, so subscribers refetch against the new entitlement
+  // rather than the one being replaced.
+  useEffect(() => {
+    if (!pendingInvalidationRef.current) return;
+    pendingInvalidationRef.current = false;
+    entitlementInvalidatorRef.current.notify(ALL_ENTITLEMENT_TARGETS);
+  }, [entitlement]);
+
+  /**
+   * Subscribe to entitlement-change invalidations. Returns an unsubscribe
+   * function; screens call this from an effect and refetch whatever they own.
+   */
+  const onEntitlementInvalidate = useCallback(
+    (listener: EntitlementInvalidationListener) =>
+      entitlementInvalidatorRef.current.subscribe(listener),
+    [],
+  );
   const [inviteCtx, setInviteCtx] = useState<InviteCtx | null>(null);
   const [events, setEvents] = useState<Event[]>([]);
   const [squads, setSquads] = useState<Squad[]>([]);
@@ -1199,6 +1255,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
     return () => sub.remove();
   }, [isLoggedIn, refreshSquads]);
+
+  // Squad-cap invalidation. The cap is enforced server-side (a 403 SQUAD_LIMIT
+  // on create/join), so what changes on an unlock is which squads the user can
+  // actually see and act on. Re-reading the list here means every screen that
+  // renders squads from this context reflects the new entitlement at once,
+  // rather than each of the six SQUAD_LIMIT call sites re-deriving it.
+  useEffect(
+    () =>
+      onEntitlementInvalidate((targets) => {
+        if (isLoggedIn && targets.includes("squad-limit")) void refreshSquads();
+      }),
+    [onEntitlementInvalidate, isLoggedIn, refreshSquads],
+  );
 
   // Global squad stream — one SSE connection per session covering all of the
   // user's squads. Any mutation on any squad (PATCH, join, leave, add/remove
@@ -2916,6 +2985,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       isPro,
       setEntitlement,
       refreshIsPro: fetchProStatus,
+      onEntitlementInvalidate,
     }),
     [
       isLoggedIn,
@@ -3002,6 +3072,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       isPro,
       setEntitlement,
       fetchProStatus,
+      onEntitlementInvalidate,
     ],
   );
 

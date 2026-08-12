@@ -9,6 +9,28 @@
  * Keep this file in sync with lib/db/src/schema/**. When you add a new table
  * or column to the schema, add the corresponding IF NOT EXISTS statement here
  * as well so it gets applied on the next deploy without a manual migration run.
+ *
+ * ---------------------------------------------------------------------------
+ * Relationship to lib/db/migrations (deliberate duplication)
+ * ---------------------------------------------------------------------------
+ * Nothing in this service runs the Drizzle migrator — `ensureSchema()` below is
+ * the ONLY thing that touches live schema at boot. The files in
+ * lib/db/migrations are therefore the source of truth for building a database
+ * from scratch, while this file is what actually repairs dev and production.
+ * Every statement here is duplicated by a migration on purpose; the two must be
+ * kept in step.
+ *
+ * That duplication is what let the two drift: objects added only here were
+ * later baked into a regenerated snapshot, so migrations alone produced an
+ * incomplete database (repaired by 0007_repair_schema_drift). Guard against a
+ * repeat with `pnpm --filter @workspace/db run validate-migrations` against an
+ * empty throwaway database — it applies migrations only and diffs the result
+ * against the newest snapshot.
+ *
+ * Removal plan: this file can be deleted once a migrator runs on boot (or in a
+ * deploy step) and every environment's `__drizzle_migrations` table is at the
+ * head of the journal. Until then, dropping statements from here would leave
+ * live databases un-repaired, so they stay.
  */
 
 import { sql } from 'drizzle-orm';
@@ -138,10 +160,14 @@ async function createMissingTables(): Promise<void> {
     )
   `);
 
+  // The foreign keys below are declared as NAMED constraints matching Drizzle's
+  // "<table>_<column>_<target>_<targetcol>_fk" convention. Inline `REFERENCES`
+  // lets Postgres auto-name them "<table>_<column>_fkey", which made every
+  // schemaSync-bootstrapped database disagree with the migration snapshot.
   await exec(`
     CREATE TABLE IF NOT EXISTS "plan_ideas" (
       "id" text PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-      "plan_id" text NOT NULL REFERENCES "events"("id") ON DELETE CASCADE,
+      "plan_id" text NOT NULL,
       "submitted_by_user_id" text NOT NULL,
       "title" text NOT NULL,
       "description" text,
@@ -154,18 +180,52 @@ async function createMissingTables(): Promise<void> {
       "sort_order" integer,
       "nudge_sent_at" timestamp with time zone,
       "created_at" timestamp with time zone DEFAULT now() NOT NULL,
-      "updated_at" timestamp with time zone DEFAULT now() NOT NULL
+      "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+      CONSTRAINT "plan_ideas_plan_id_events_id_fk"
+        FOREIGN KEY ("plan_id") REFERENCES "events"("id") ON DELETE CASCADE
     )
   `);
 
   await exec(`
     CREATE TABLE IF NOT EXISTS "idea_votes" (
       "id" text PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-      "idea_id" text NOT NULL REFERENCES "plan_ideas"("id") ON DELETE CASCADE,
+      "idea_id" text NOT NULL,
       "user_id" text NOT NULL,
       "created_at" timestamp with time zone DEFAULT now() NOT NULL,
-      CONSTRAINT "idea_votes_idea_user_unique" UNIQUE("idea_id","user_id")
+      CONSTRAINT "idea_votes_idea_user_unique" UNIQUE("idea_id","user_id"),
+      CONSTRAINT "idea_votes_idea_id_plan_ideas_id_fk"
+        FOREIGN KEY ("idea_id") REFERENCES "plan_ideas"("id") ON DELETE CASCADE
     )
+  `);
+
+  // Databases created before the naming was standardized carry the auto-named
+  // constraints; rename them in place so live and fresh schemas converge.
+  //
+  // Each lookup is scoped to the OWNING TABLE (conrelid). Constraint names are
+  // only unique per table, so a bare `WHERE conname = ...` can match an
+  // unrelated table and send this block down the wrong branch.
+  await exec(`
+    DO $$
+    BEGIN
+      IF EXISTS (SELECT 1 FROM pg_constraint
+                  WHERE conrelid = 'public.plan_ideas'::regclass
+                    AND conname = 'plan_ideas_plan_id_fkey')
+         AND NOT EXISTS (SELECT 1 FROM pg_constraint
+                  WHERE conrelid = 'public.plan_ideas'::regclass
+                    AND conname = 'plan_ideas_plan_id_events_id_fk') THEN
+        ALTER TABLE "public"."plan_ideas"
+          RENAME CONSTRAINT "plan_ideas_plan_id_fkey" TO "plan_ideas_plan_id_events_id_fk";
+      END IF;
+      IF EXISTS (SELECT 1 FROM pg_constraint
+                  WHERE conrelid = 'public.idea_votes'::regclass
+                    AND conname = 'idea_votes_idea_id_fkey')
+         AND NOT EXISTS (SELECT 1 FROM pg_constraint
+                  WHERE conrelid = 'public.idea_votes'::regclass
+                    AND conname = 'idea_votes_idea_id_plan_ideas_id_fk') THEN
+        ALTER TABLE "public"."idea_votes"
+          RENAME CONSTRAINT "idea_votes_idea_id_fkey" TO "idea_votes_idea_id_plan_ideas_id_fk";
+      END IF;
+    END $$;
   `);
 
   // Query-aligned indexes for the ideas board: lists filter plan_ideas by
@@ -423,6 +483,8 @@ async function addMissingColumns(): Promise<void> {
     `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "squadz_plus_period_end_ms" text`,
     // Squadz+ tier provenance ('founding' | 'standard'); null = unknown/legacy.
     // Never gates access on its own — `is_squadz_plus` remains the access flag.
+    // Also carried by migration 0006; retained here because no migrator runs at
+    // boot (see the duplication note in this file's header).
     `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "squadz_plus_tier" text`,
     // Age gate (13+). Nullable on purpose: existing accounts predate the gate,
     // so NULL = "never age-checked" and must stay distinguishable from false.

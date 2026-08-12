@@ -50,6 +50,13 @@
       "when": 1786557734994,
       "tag": "0006_volatile_marvex",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1786560000000,
+      "tag": "0007_repair_schema_drift",
+      "breakpoints": true
     }
   ]
 }

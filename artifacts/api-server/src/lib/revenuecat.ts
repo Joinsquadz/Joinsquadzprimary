@@ -6,28 +6,50 @@
 // `users.is_squadz_plus` flag (via the webhook) and consumes founding spots.
 
 export const RC_ENTITLEMENT_ID = "squadz_plus";
-export const RC_FOUNDING_PRODUCT_ID = "squadz_plus_founding_yearly";
-export const RC_STANDARD_PRODUCT_ID = "squadz_plus_standard_yearly";
+// The REAL store product identifiers, registered in App Store Connect, Google
+// Play and the RevenueCat dashboard. These are shared across both platforms.
+//
+// History: this file (and the mobile client) previously carried invented ids
+// (`squadz_plus_founding_yearly` / `squadz_plus_standard_yearly`) that matched
+// NEITHER store, so every real purchase fell through to the
+// "entitled but unrecognized product" fallback and silently lost its founding
+// provenance. Never edit these without changing the stores to match.
+export const RC_FOUNDING_PRODUCT_ID = "com.squadz.app.squadzplus.founding.annual";
+export const RC_STANDARD_PRODUCT_ID = "com.squadz.app.squadzplus.standard.annual";
 
 /** Which price tier a Squadz+ entitlement was purchased at. */
 export type SquadzPlusTier = "founding" | "standard";
 
 /**
- * Map a store product identifier to its Squadz+ tier, or null when the id isn't
- * one of ours (or is absent — several webhook event types omit product_id).
+ * Normalize a store product identifier to its bare product id.
  *
  * Google Play reports a subscription product as `"{subscriptionId}:{basePlanId}"`
- * while the App Store reports the bare product id, so compare only the part
- * before the first ":" — the same normalization the mobile client uses.
+ * while the App Store reports the bare product id. Comparing only the part
+ * before the first ":" matches both forms with one rule (an App Store id has no
+ * colon, so the whole string is used). Same normalization as the mobile client.
+ */
+export function baseProductId(productId: string | null | undefined): string | null {
+  if (!productId) return null;
+  const base = productId.split(":")[0];
+  return base || null;
+}
+
+/**
+ * Map a store product identifier to its Squadz+ tier, or null when the id isn't
+ * one of ours (or is absent — several webhook event types omit product_id).
  */
 export function tierForProductId(
   productId: string | null | undefined,
 ): SquadzPlusTier | null {
-  if (!productId) return null;
-  const base = productId.split(":")[0];
+  const base = baseProductId(productId);
   if (base === RC_FOUNDING_PRODUCT_ID) return "founding";
   if (base === RC_STANDARD_PRODUCT_ID) return "standard";
   return null;
+}
+
+/** Is this one of our Squadz+ products (in either bare or Play base-plan form)? */
+export function isKnownSquadzPlusProduct(productId: string | null | undefined): boolean {
+  return tierForProductId(productId) !== null;
 }
 
 export interface RevenueCatEvent {
@@ -54,10 +76,8 @@ export function eventTargetsSquadzPlus(event: RevenueCatEvent): boolean {
   const ids = event.entitlement_ids ?? (event.entitlement_id ? [event.entitlement_id] : []);
   if (ids && ids.includes(RC_ENTITLEMENT_ID)) return true;
   // Some event types omit entitlement ids — fall back to our known product ids.
-  return (
-    event.product_id === RC_FOUNDING_PRODUCT_ID ||
-    event.product_id === RC_STANDARD_PRODUCT_ID
-  );
+  // Normalized, so a Google Play `"{productId}:{basePlanId}"` still matches.
+  return isKnownSquadzPlusProduct(event.product_id);
 }
 
 export type EntitlementDecision = "grant" | "revoke" | "ignore";
@@ -120,7 +140,10 @@ export function decideEntitlement(event: RevenueCatEvent, nowMs = Date.now()): E
  * idempotent no-op. Standard-tier purchases never consume a founding spot.
  */
 export function shouldRedeemFounding(event: RevenueCatEvent): boolean {
-  if (event.product_id !== RC_FOUNDING_PRODUCT_ID) return false;
+  // Normalized comparison: on Google Play the event's product_id arrives as
+  // `"{productId}:{basePlanId}"`, so an exact match would never fire and an
+  // Android founding purchase would never consume its spot.
+  if (tierForProductId(event.product_id) !== "founding") return false;
   if (event.period_type && event.period_type !== "NORMAL") return false;
   return (
     event.type === "INITIAL_PURCHASE" ||

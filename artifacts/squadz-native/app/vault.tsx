@@ -167,7 +167,7 @@ function VaultImage({ uri, style, headers }: { uri: string; style: object; heade
 export default function VaultScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { authToken, currentUser, isPro, setEntitlement } = useAuth();
+  const { authToken, currentUser, isPro, setEntitlement, onEntitlementInvalidate } = useAuth();
   const currentUserId = currentUser?.id ?? null;
   const { events } = useData();
   const [selected, setSelected] = useState<number | null>(null);
@@ -626,6 +626,20 @@ export default function VaultScreen() {
   useEffect(() => {
     if (isPro !== null) fetchPhotos();
   }, [isPro, fetchPhotos]);
+
+  // Entitlement-change invalidation (the shared boundary, not a local isPro
+  // watcher): an unlock or a lapse changes what the vault endpoints return, and
+  // the change can originate on a different screen. Favorites is SquadZ+-only,
+  // so it re-reads too whenever that sub-section is open.
+  useEffect(
+    () =>
+      onEntitlementInvalidate((targets) => {
+        if (!targets.includes("vault-access")) return;
+        void fetchPhotos();
+        if (!isSquadVault && personalTab === "favorites") void fetchFavorites();
+      }),
+    [onEntitlementInvalidate, fetchPhotos, fetchFavorites, isSquadVault, personalTab],
+  );
 
   // Retry driver for the personal vault: while a fetch is auth-pending (401 seen
   // before the token restored) re-run it on a short delay. Re-runs whenever the

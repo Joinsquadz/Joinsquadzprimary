@@ -9,7 +9,7 @@
  * Identifiers MUST match the client (`squadz-native/lib/revenuecat.ts`) and the
  * server (`api-server/lib/revenuecat.ts`):
  *   entitlement  squadz_plus
- *   products     squadz_plus_founding_yearly / squadz_plus_standard_yearly
+ *   products     com.squadz.app.squadzplus.founding.annual / com.squadz.app.squadzplus.standard.annual
  *
  * Auth is via the Replit RevenueCat connector (no API key handled here). Run:
  *   pnpm --filter @workspace/scripts run seed-revenuecat
@@ -20,8 +20,8 @@
 import { ReplitConnectors } from "@replit/connectors-sdk";
 
 const BUNDLE_ID = "com.squadz.app";
-const FOUNDING = "squadz_plus_founding_yearly";
-const STANDARD = "squadz_plus_standard_yearly";
+const FOUNDING = "com.squadz.app.squadzplus.founding.annual";
+const STANDARD = "com.squadz.app.squadzplus.standard.annual";
 const ENTITLEMENT = "squadz_plus";
 
 const connectors = new ReplitConnectors();

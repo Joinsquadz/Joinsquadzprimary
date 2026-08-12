@@ -46,8 +46,8 @@ const post = (body: unknown, auth: string | null = AUTH) => {
   return req.send(body as object);
 };
 
-const FOUNDING = "squadz_plus_founding_yearly";
-const STANDARD = "squadz_plus_standard_yearly";
+const FOUNDING = "com.squadz.app.squadzplus.founding.annual";
+const STANDARD = "com.squadz.app.squadzplus.standard.annual";
 
 const USER = { id: "u1", email: "u1@example.test" };
 

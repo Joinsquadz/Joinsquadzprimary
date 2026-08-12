@@ -110,12 +110,15 @@ const welcomeSeenKey = (userId: string) => `hasSeenUpgradeWelcome_${userId}`;
 
 export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess, headline, nextSlotAvailableAt }: Props) {
   const colors = useColors();
-  const { authToken, currentUser, setEntitlement } = useAuth();
+  const { authToken, currentUser, setEntitlement, onEntitlementInvalidate } = useAuth();
   const { refreshUsers } = useUserCache();
   const insets = useSafeAreaInsets();
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
   const [founding, setFounding] = useState<FoundingStatus | null>(null);
+  // Bumped by the entitlement-invalidation subscription to re-run the
+  // founding-status / price fetch while the sheet is open.
+  const [foundingRefreshTick, setFoundingRefreshTick] = useState(0);
   // Live store prices from RevenueCat (never hardcoded). Nulls fall back to the
   // display constants when RevenueCat is unavailable (web preview / no keys).
   const [rcPrices, setRcPrices] = useState<{ founding: string | null; standard: string | null }>({
@@ -172,7 +175,19 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess, head
       clearTimeout(timer);
       controller.abort();
     };
-  }, [visible]);
+  }, [visible, foundingRefreshTick]);
+
+  // Paywall copy quotes server-computed values (founding spots remaining, and
+  // therefore which package we sell). An entitlement change can consume the last
+  // founding spot, so re-read while the sheet is open rather than showing the
+  // figure fetched when it was first opened.
+  useEffect(
+    () =>
+      onEntitlementInvalidate((targets) => {
+        if (visible && targets.includes("paywall-copy")) setFoundingRefreshTick((n) => n + 1);
+      }),
+    [onEntitlementInvalidate, visible],
+  );
 
   const fetchSubscription = useCallback(async (): Promise<boolean> => {
     try {

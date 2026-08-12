@@ -333,7 +333,7 @@ describe("reconcileRcEntitlement: publishes to the global entitlement store", ()
   it("publishes the tier resolved from the store product id", async () => {
     getCustomerInfo.mockResolvedValue({
       entitlements: {
-        active: { [RC_ENTITLEMENT_ID]: { productIdentifier: "squadz_plus_founding_yearly" } },
+        active: { [RC_ENTITLEMENT_ID]: { productIdentifier: "com.squadz.app.squadzplus.founding.annual" } },
       },
     });
     const onEntitlement = vi.fn();

@@ -129,7 +129,7 @@ export default function CreateEventScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { addEvent, squads, events, currentUser } = useData();
-  const { authToken, isPro } = useAuth();
+  const { authToken, isPro, onEntitlementInvalidate } = useAuth();
   const { resolveUser } = useUserCache();
   const prefill = useLocalSearchParams<{ prefillDate?: string; prefillEventAt?: string; prefillSquad?: string; prefillTitle?: string; prefillEmoji?: string; prefillPollId?: string; prefillTripStart?: string; mode?: string; templateId?: string }>();
   const [findTimeOpen, setFindTimeOpen] = useState(false);
@@ -239,7 +239,10 @@ export default function CreateEventScreen() {
     return buildAuthHeaders(authToken);
   }, [authToken]);
 
-  useEffect(() => {
+  // The free plan allowance is computed server-side, so it is stale the moment
+  // the entitlement changes. Kept in a callback so both the mount fetch and the
+  // entitlement-invalidation subscription below run the same refresh.
+  const refreshPlanLimit = useCallback(() => {
     fetch(`${API_BASE}/api/events/count`, { headers: authHeaders() })
       .then(r => r.ok ? r.json() : null)
       .then((data: { count: number; limit?: number; nextSlotAvailableAt?: string | null } | null) => {
@@ -251,6 +254,21 @@ export default function CreateEventScreen() {
       })
       .catch(() => {});
   }, [authHeaders]);
+
+  useEffect(() => {
+    refreshPlanLimit();
+  }, [refreshPlanLimit]);
+
+  // Re-read the cap whenever the entitlement actually changes — including when
+  // the upgrade happened on another screen. Without this the counter kept
+  // showing "3/3 free plans used" to a user who had just subscribed.
+  useEffect(
+    () =>
+      onEntitlementInvalidate((targets) => {
+        if (targets.includes("plan-limit")) refreshPlanLimit();
+      }),
+    [onEntitlementInvalidate, refreshPlanLimit],
+  );
 
   const [pickerDate, setPickerDate] = useState(new Date());
   const [pickerStep, setPickerStep] = useState<"date" | "time" | null>(null);

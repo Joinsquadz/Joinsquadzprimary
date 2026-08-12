@@ -32,7 +32,7 @@ const RC_ENTITLEMENT = "squadz_plus";
 function rcSubscriberResponse(
   active: boolean,
   expiresInFuture = true,
-  productId: string = "squadz_plus_standard_yearly",
+  productId: string = "com.squadz.app.squadzplus.standard.annual",
 ) {
   const expires_date = active
     ? expiresInFuture

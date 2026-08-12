@@ -3,8 +3,16 @@ import { Platform } from "react-native";
 // RevenueCat product / entitlement identifiers. MUST match the RevenueCat
 // dashboard AND the server (artifacts/api-server/src/lib/revenuecat.ts).
 export const RC_ENTITLEMENT_ID = "squadz_plus";
-export const RC_FOUNDING_PRODUCT_ID = "squadz_plus_founding_yearly";
-export const RC_STANDARD_PRODUCT_ID = "squadz_plus_standard_yearly";
+// The REAL store product identifiers, registered in App Store Connect, Google
+// Play and the RevenueCat dashboard. Shared across both platforms.
+//
+// History: these constants previously held invented ids
+// (`squadz_plus_founding_yearly` / `squadz_plus_standard_yearly`) that matched
+// NEITHER store, so every real purchase resolved through the
+// "entitled but unrecognized product" fallback and lost founding provenance.
+// Never edit these without changing the stores to match.
+export const RC_FOUNDING_PRODUCT_ID = "com.squadz.app.squadzplus.founding.annual";
+export const RC_STANDARD_PRODUCT_ID = "com.squadz.app.squadzplus.standard.annual";
 
 type PurchasesModule = typeof import("react-native-purchases");
 type PurchasesDefault = PurchasesModule["default"];
@@ -161,6 +169,44 @@ export function tierForProductId(identifier: string | null | undefined): SquadzP
   return "none";
 }
 
+// Identifiers already reported this session, so a listener firing repeatedly
+// (RevenueCat re-emits CustomerInfo on every app foreground) can't flood Sentry.
+const _reportedUnknownProducts = new Set<string>();
+
+/**
+ * Telemetry for the "entitled, but the product id isn't one of ours" fallback.
+ *
+ * That fallback is deliberately silent to the user (they keep access as
+ * `standard`), which is exactly why it needs a signal: it is what hid the wrong
+ * product constants for as long as it did. If the store ids or Play base plans
+ * change again, this fires instead of the app quietly reclassifying founding
+ * members as standard.
+ *
+ * Best-effort and never throws — Sentry is dynamically imported so the web
+ * bundle and node-based unit tests never load the native module.
+ */
+function reportUnknownEntitlementProduct(identifier: string | null | undefined): void {
+  const id = identifier ?? "(none)";
+  if (_reportedUnknownProducts.has(id)) return;
+  _reportedUnknownProducts.add(id);
+  void (async () => {
+    try {
+      const { Sentry } = await import("@/lib/monitoring");
+      Sentry.captureMessage(
+        `Squadz+ entitlement active with unrecognized product identifier: ${id}`,
+        "warning",
+      );
+    } catch {
+      // Monitoring unavailable (web bundle / tests) — the fallback still works.
+    }
+  })();
+}
+
+/** Test-only: clear the once-per-identifier Sentry dedupe. */
+export function __resetUnknownProductReports(): void {
+  _reportedUnknownProducts.clear();
+}
+
 // The shape we need off a CustomerInfo without importing the native types into
 // the web bundle. Structural, so the real SDK type satisfies it.
 type CustomerInfoLike = {
@@ -179,7 +225,13 @@ export function entitlementFromCustomerInfo(info: CustomerInfoLike): RcEntitleme
   if (!ent) return NOT_ENTITLED;
   const tier = tierForProductId(ent.productIdentifier);
   // Entitled but unrecognized product → treat as standard, never as "none".
-  return { entitled: true, tier: tier === "none" ? "standard" : tier };
+  // Report it: silently reclassifying a paying member is how the wrong product
+  // constants went unnoticed.
+  if (tier === "none") {
+    reportUnknownEntitlementProduct(ent.productIdentifier);
+    return { entitled: true, tier: "standard" };
+  }
+  return { entitled: true, tier };
 }
 
 export type PurchaseOutcome =
