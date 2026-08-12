@@ -1,0 +1,58 @@
+SquadZ — Entitlement Propagation After Purchase (Audit → Fix)
+Problem observed on device (TestFlight, iOS build 3)
+
+A Squadz+ purchase completes successfully in the StoreKit sandbox, but the UI does not immediately reflect the upgraded entitlement. The tester had to navigate across several screens before gated surfaces updated. The purchase itself is fine — this is a state propagation bug, not a payment bug.
+
+Working hypothesis (verify, do not assume): entitlement state is read via one-time fetches on screen mount rather than from a single global store fed by a live RevenueCat customerInfo listener. Screens already mounted at purchase time never re-read, so they show stale free-tier state until remount.
+
+Do not treat this hypothesis as fact. Confirm or refute it in Phase 1 with actual file references.
+
+PHASE 1 — AUDIT ONLY. REPORT. NO CODE CHANGES.
+
+Do not modify, create, or delete any file in this phase. Produce a written report only.
+
+Inventory and report:
+
+Entitlement source of truth. Every place in the mobile app that determines whether the current user has Squadz+. For each: file path, whether it reads from local state, React context, a store (Zustand/Redux/etc.), a direct RevenueCat SDK call, or a server API call. Flag any surface that has its own independent copy.
+RevenueCat listeners. Is addCustomerInfoUpdateListener (or the SDK equivalent in the installed version) registered anywhere? If so: where, how many times, is it ever removed, and what does it write to?
+Post-purchase code path. Trace the exact sequence from the user tapping the purchase button to the paywall dismissing. List every state write and every cache invalidation that occurs. Note explicitly whether the server is informed and whether any client cache is invalidated.
+Server-side entitlement. Which API endpoint(s) report entitlement to the client, what caches them (in-memory, query cache, AsyncStorage), and what TTL or invalidation rule applies. Report whether the RevenueCat webhook updates the server record synchronously relative to the client's post-purchase read — i.e. whether a client read immediately after purchase can race the webhook.
+Gated surfaces inventory. Every screen/component that changes appearance based on Squadz+ status (paywall sheets, Photo Vault roll-up, plan-cap banners, squad-cap banners, and anything else). For each, state how it would learn about an entitlement change while already mounted.
+Reinstall reconciliation. The existing reconciliation-on-app-open logic added previously — where it lives, and whether it shares a code path with post-purchase updates or duplicates it.
+Pre-existing systems check. Report any existing entitlement caching, refresh, or reconciliation mechanism already present, so we do not build a second parallel system alongside it.
+
+Stop after Phase 1 and output the report. Wait for approval before Phase 2.
+
+PHASE 2 — IMPLEMENTATION (only after Phase 1 is approved)
+
+These decisions are locked. Do not ask for alternatives.
+
+Single global entitlement store. One source of truth for Squadz+ status for the whole app. Every gated surface reads from it. No screen performs its own independent entitlement fetch.
+Live listener on app init. Register the RevenueCat customer-info update listener exactly once at app initialization. Every emission writes to the global store. Ensure the listener is cleaned up correctly and never double-registered across fast refresh, re-auth, or logout/login.
+Optimistic-then-confirmed write on purchase. On a successful purchase result, write entitlement to the global store immediately from the returned customer info, without waiting for the server round-trip. Then reconcile against the server; if the server disagrees after reconciliation, the server wins.
+Server reconciliation must tolerate webhook lag. If the client reads server entitlement immediately after purchase and the webhook has not landed, the client must not downgrade the user back to free. Retry with backoff (a small bounded number of attempts) before accepting a negative server answer. Log to Sentry when reconciliation resolves only after retry, so we can measure real webhook lag rather than guessing at it.
+Invalidate dependent caches. On entitlement change, invalidate any cached queries whose results depend on tier (plan caps, squad caps, vault access, paywall copy).
+Founding-vs-standard consistency. The store must expose which tier resolved (founding vs standard), not just a boolean, so that pricing surfaces stay consistent. See the separate Photo Vault prompt for the hardcoded-price bug.
+Logout clears it. Entitlement state must be fully cleared on logout, consistent with the previously fixed stale-user-cache bleed. Verify a rapid logout → login as a different user cannot show the first user's tier.
+Constraints
+Do not break existing tests. Baseline is 972 API tests and 351 mobile tests, all green. All must still pass. Any new test files or changed files must be listed explicitly in your summary with a one-line reason each.
+Do not refactor unrelated code. Do not upgrade dependencies. Do not change RevenueCat product IDs, entitlement identifiers, or App Store Connect configuration.
+Do not introduce a second reconciliation system parallel to the existing one — extend or replace it, and say which you did.
+Post-build verification sequence
+
+Report results for each:
+
+Full API test suite — report pass count vs 972 baseline.
+Full mobile test suite — report pass count vs 351 baseline.
+New unit tests: listener emission updates the global store; logout clears state; server-disagreement-after-retry downgrades correctly; webhook-lag retry does not downgrade prematurely.
+Type check and lint clean.
+List every file changed with a one-line reason.
+State explicitly what still requires physical-device verification and cannot be proven by automated tests.
+Device verification checklist (manual, after deploy — not automated)
+ Purchase Squadz+ in TestFlight sandbox; confirm the currently open screen updates without navigating away.
+ Confirm the Photo Vault roll-up gate unlocks immediately.
+ Confirm plan-cap and squad-cap banners update immediately.
+ Force-quit and reopen; confirm entitlement persists.
+ Delete and reinstall; confirm reconciliation restores entitlement.
+ Log out and back in as a free-tier account; confirm no tier bleed.
+ Airplane mode immediately after purchase, then reconnect; confirm entitlement resolves and is not lost.
