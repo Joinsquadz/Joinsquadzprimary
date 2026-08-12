@@ -1,0 +1,70 @@
+SquadZ — Entitlement Follow-Up Build (closes gaps from the Phase 2 report)
+
+Your report is accepted. Five items need closing. Implement in the order below — item 1 is a live correctness bug and comes first.
+
+1. Tier product-ID mapping — P0, fix before anything else
+
+The configured constants are squadz_plus_founding_yearly and squadz_plus_standard_yearly. The actual RevenueCat product IDs are:
+
+com.squadz.app.squadzplus.founding.annual
+com.squadz.app.squadzplus.standard.annual
+
+These do not match on iOS either. Your report scoped this to Android because that is what was asked, but the constants match neither platform's identifiers. Every purchase on every platform is currently resolving through the "unrecognized product → standard" fallback. Confirm this in your response before changing anything.
+
+Fix:
+
+Map the real product IDs explicitly, for both the bare form and the Play productId:basePlanId form.
+Keep the "entitled but unrecognized product → standard, never none" fallback — it is the correct safety behavior and must not be removed.
+But the fallback must no longer be silent. When an entitled subscriber resolves through the fallback, log to Sentry with the unrecognized product identifier. A future product or base-plan change must surface as a signal, not as a silent reclassification.
+Add tests asserting the actual production identifiers resolve to the correct tier, in both bare and base-plan-suffixed forms. Do not write tests against the old invented constants.
+
+Report which platforms and which identifiers were affected once you have confirmed the scope.
+
+2. Tier backfill
+
+Backfill squadz_plus_tier for existing entitled users:
+
+founding where the founding-spot ledger shows a founding entitlement for that user
+standard otherwise
+Leave non-entitled users NULL
+
+Do not modify the founding-spot ledger or its idempotency keys — read from them only. Run the backfill only after item 1 is fixed, so the mapping it depends on is correct.
+
+Report how many rows were updated and how many resolved to each tier.
+
+3. Migration integrity
+
+Execute the fix path you proposed:
+
+Reconcile the Drizzle snapshot with the actual preceding migration history.
+Retain a migration whose only schema delta is the intended tier-column addition.
+Validate a completely fresh database built from migrations alone, with schemaSync disabled. Report the result explicitly — this is the acceptance criterion, not the migration file itself.
+Once verified, remove the redundant tier-column creation from schemaSync.ts. If you retain schemaSync as a compatibility path, document why and state the removal plan.
+4. Revocation regression test
+
+Add the end-to-end test you identified as missing: active entitlement → subscription expires or is refunded while the app is backgrounded → no listener active → app opens → reconciliation writes locked state to the global store.
+
+The existing coverage for "RevenueCat negative while server positive" is related but not the same path. This test must exercise app-open reconciliation specifically, since that is the only mechanism that catches a background lapse.
+
+5. Centralized tier-change invalidation
+
+Establish one entitlement-change boundary that refreshes all tier-sensitive derived state on any change: plan-cap state, squad-cap state, vault access, and paywall copy. One hook, not per-surface listeners.
+
+Consumers currently derive access from the boolean independently, which is the same fragmentation pattern the Phase 2 work removed from the purchase path. Do not leave it half-consolidated.
+
+Out of scope for this build
+
+The 15 API-server typecheck errors (auth.logoutPushToken mocks, events.closedPoll null spreads, pgPubSub.ts pg declarations, routes/ideas.ts ActivityMeta planType) are tracked separately as #644. Do not fix them here. Do not let this build add any new typecheck errors.
+
+Constraints
+New test floor: 1233 API / 419 mobile, all green. This supersedes the previous 972 / 351 baseline. Report counts against the new floor and account for every added test.
+No deleted tests, no skipped tests, no loosened assertions.
+Do not weaken the period guards in storage.ts or the logout teardown.
+Do not change RevenueCat or App Store Connect configuration.
+Verification
+API and mobile suites vs the 1233 / 419 floor.
+Mobile and libs typecheck clean; API typecheck no worse than the 15 known errors.
+Fresh-database-from-migrations-alone result, stated explicitly.
+Backfill row counts by tier.
+Every file changed, one-line reason each.
+What still requires physical-device verification.
