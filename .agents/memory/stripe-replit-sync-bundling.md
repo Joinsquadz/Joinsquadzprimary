@@ -1,6 +1,6 @@
 ---
 name: stripe-replit-sync bundling + migrations
-description: Why the api-server must externalize stripe-replit-sync and pass a logger to runMigrations, or Stripe sync silently half-works.
+description: Stripe sync must preserve migration assets, log migration failures, and never block HTTP readiness on remote webhook provisioning.
 ---
 
 # stripe-replit-sync esbuild + migrations
@@ -22,3 +22,18 @@ clean, so it's easy to chase the wrong layer (Stripe keys, webhooks, DB perms).
 **How to apply:** any time Stripe sync tables look missing/empty after a build
 change, first check both of these before touching Stripe config or the DB.
 Restart the api-server workflow after fixing — migrations run at init only.
+
+## Startup readiness
+
+Remote Stripe operations such as managed-webhook provisioning must run after the
+API has started listening, in a logged background task. Schema migrations may
+finish before readiness, but an unbounded external API wait must not hold the
+port closed.
+
+**Why:** the publisher kills services that do not open their configured port
+within its readiness window; a stalled webhook request otherwise turns a healthy
+build into a failed publish.
+
+**How to apply:** keep startup-critical local setup bounded, and log failures
+from deferred Stripe network work so it can retry on the next process start
+without hiding the API from health checks.

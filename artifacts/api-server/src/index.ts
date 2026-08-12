@@ -62,9 +62,15 @@ async function initStripe() {
     const stripeSync = await getStripeSync();
 
     const webhookBaseUrl = `https://${process.env.REPLIT_DOMAINS?.split(',')[0]}`;
-    logger.info({ webhookUrl: `${webhookBaseUrl}/api/stripe/webhook` }, 'Setting up managed webhook...');
-    await stripeSync.findOrCreateManagedWebhook(`${webhookBaseUrl}/api/stripe/webhook`);
-    logger.info('Webhook configured');
+    const webhookUrl = `${webhookBaseUrl}/api/stripe/webhook`;
+    logger.info({ webhookUrl }, 'Setting up managed webhook in the background...');
+
+    // Webhook provisioning makes a remote Stripe API call. Never keep the HTTP
+    // server from binding while it is in flight: the publishing health probe
+    // would otherwise kill a healthy process before it can serve traffic.
+    stripeSync.findOrCreateManagedWebhook(webhookUrl)
+      .then(() => logger.info('Webhook configured'))
+      .catch((err) => logger.error({ err }, 'Managed webhook setup failed'));
 
     // `syncBackfill` requires an explicit `object` — calling it with no args
     // makes `object` default to a function reference (not the string "all"),
