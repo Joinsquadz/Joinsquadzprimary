@@ -16,7 +16,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.squadz.app",
-      "buildNumber": "5",
+      "buildNumber": "6",
       "associatedDomains": ["applinks:joinsquadz.com"],
       "infoPlist": {
         "NSCameraUsageDescription": "SquadZ uses your camera so you can take photos and videos to share with your squad.",
@@ -25,7 +25,7 @@
     },
     "android": {
       "package": "com.squadz.app",
-      "versionCode": 6,
+      "versionCode": 7,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#0F0F14"

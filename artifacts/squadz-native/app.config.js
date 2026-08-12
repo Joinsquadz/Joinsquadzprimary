@@ -7,10 +7,15 @@ module.exports = {
   ...baseConfig.expo,
   ios: {
     ...baseConfig.expo.ios,
+    buildNumber: "6",
     infoPlist: {
       ...baseConfig.expo.ios.infoPlist,
       ITSAppUsesNonExemptEncryption: false,
     },
+  },
+  android: {
+    ...baseConfig.expo.android,
+    versionCode: 7,
   },
   extra: {
     apiBase,
