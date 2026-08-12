@@ -1,0 +1,69 @@
+Before I sign off on the entitlement work, I need clarification and a few gaps closed.
+Report only — do not change code until I approve.
+
+CONTRADICTIONS TO RESOLVE
+
+1. Typecheck status. Your report says "both typechecks clean" and also files task
+   #644 for "pre-existing api-server typecheck failures that currently mask real
+   regressions." These cannot both be true. State plainly whether the api-server
+   typecheck passes today. If it does not, list the failures and say whether any
+   touch files changed in this work.
+
+2. Test baselines. My locked baseline was 972 API / 351 mobile, all green. You
+   reported 1233 API passing and mobile "419 passing (was 392)." Reconcile both
+   numbers against the last known-green run. Account for the full delta: how many
+   are new tests you added here, how many came from work between my baseline and
+   now, and confirm no previously-passing test was deleted, skipped, or had its
+   assertions loosened.
+
+GAPS NOT MENTIONED IN YOUR REPORT
+
+For each of these, say whether it was implemented, deliberately skipped, or missed:
+
+3. Tier backfill. The squadzPlusTier column is nullable and I see no backfill.
+   Existing Squadz+ rows — including my own founding purchase — will read NULL,
+   not 'founding'. Spec called for backfilling existing rows to 'standard' unless
+   the founding-spot ledger indicates founding. Do not modify the founding-spot
+   ledger or its idempotency keys.
+
+4. Per-call-site confirmation. The six paywall entry points that previously passed
+   no entitlement callback (app/onboarding.tsx, app/squad/discover.tsx,
+   app/squad/join.tsx, app/squad/create.tsx, app/squad/join-public.tsx,
+   app/(tabs)/index.tsx) should now update global state via UpgradeModal owning the
+   write. Confirm each one individually.
+
+5. Sentry telemetry when entitlement resolves only after a retry, so real
+   convergence latency is measured rather than assumed.
+
+6. Centralized tier-change invalidation for plan-cap state, squad-cap state, vault
+   access, and paywall copy.
+
+MIGRATION INTEGRITY
+
+7. You narrowed the generated migration to one statement but kept the full drizzle
+   snapshot. That means the snapshot asserts schema state the migration history does
+   not create, so the next drizzle-kit generate will diff against it incorrectly.
+   Separately, schemaSync.ts adds the same column via ADD COLUMN IF NOT EXISTS, so
+   two mechanisms now create it.
+
+   Answer directly: can a fresh database be built from migrations alone, with no
+   schemaSync involvement? If not, what breaks, and what is the fix?
+
+REVOCATION PATH
+
+8. The precedence rule (server negatives cannot override a store positive) is correct
+   for the webhook race, but confirm a genuine downgrade still lands. Specifically:
+   subscription expires or is refunded while the app is backgrounded, so the listener
+   is not alive to receive it. Does reconciliation on next app open re-lock the user?
+   Point me at the test or say it does not exist.
+
+ANDROID TIER MAPPING
+
+9. You normalize Play's productId:basePlanId format. Show me the parsing against my
+   actual IDs, com.squadz.app.squadzplus.founding.annual and
+   com.squadz.app.squadzplus.standard.annual, with their base plans. Note that the
+   "unrecognized product resolves to standard, never none" fallback means a mapping
+   bug fails silently rather than throwing — so I want to see the mapping, not a
+   test that passes.
+
+Report only. No code changes, no migrations, no test edits until I approve.
