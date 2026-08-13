@@ -1,0 +1,65 @@
+SquadZ — Photo Vault IA Redesign + Personal Vault Entry Point (Audit → Fix)
+Problem observed on device (TestFlight, iOS build 3)
+
+Three issues on the squad Photo Vault screen (Photo Vault → GooN Gaming):
+
+Inverted hierarchy. "Roll up your best photos" is the dominant full-width primary CTA, but it is a Squadz+-gated action. "Upload to this vault" — which is free for every squad member — is rendered as a smaller secondary dashed box. A free-tier user's most prominent option is the one they cannot use. This is backwards.
+Empty state points at the gated feature. The empty state reads "No photos rolled up yet / Roll up your best photos to start the squad vault," which frames an empty squad vault entirely around the paid action.
+No personal vault surface. Roll-up exists only as an action inside a squad vault. There is no screen where a user can see or manage their own personal rolled-up photos across squads. It was intended to live in the profile section (top-right entry point) and does not exist.
+
+Additionally: the roll-up upsell sheet renders a hardcoded "Upgrade to SquadZ+ — $29.99/year" while the main paywall correctly shows the $19.99 founding price with founding spots remaining. Any surface showing a price must resolve it from the active RevenueCat package, never a literal.
+
+PHASE 1 — AUDIT ONLY. REPORT. NO CODE CHANGES.
+
+Do not modify, create, or delete any file in this phase. Produce a written report only.
+
+Inventory and report:
+
+Every Photo Vault surface. Squad vault screen, roll-up sheet, upload flow, personal vault (if any partial implementation exists), "By Events" view, and media filters (All / Photos / Videos). File paths and current gating for each.
+Roll-up vs upload semantics. Confirm precisely what each does today: what data source each reads from, where the media is written, who can see the result, and which is Squadz+ gated. Report the actual implemented behavior, not what the labels imply.
+Personal vault backend. Does a personal-vault data model, table, or endpoint already exist? If yes, report schema and endpoints. If no, say so plainly — do not infer one from naming.
+Every hardcoded price string. Search the entire mobile app for literal price text ("$29.99", "$19.99", "/year", "29.99"). Report every occurrence with file path. Report which surfaces correctly resolve price from the RevenueCat package and which do not.
+Profile screen entry points. The current top-right profile menu structure and where a "My Photo Vault" row would be inserted.
+Paywall entry points. Every place that opens the Squadz+ paywall, and whether each passes context about which feature triggered it.
+Pre-existing systems check. Report any existing media-picker, upload pipeline, storage bucket structure, or thumbnail/caching layer already in place, so the redesign reuses rather than duplicates it.
+
+Stop after Phase 1 and output the report. Wait for approval before Phase 2.
+
+PHASE 2 — IMPLEMENTATION (only after Phase 1 is approved)
+
+These decisions are locked. Do not ask for alternatives.
+
+A. Squad vault screen — invert the hierarchy
+Primary CTA: "Upload to this vault" — full-width, solid orange, the visually dominant action. Free for all squad members. No paywall friction.
+Secondary action: "Roll up from my photos" — a smaller, lower-emphasis button or row beneath the primary CTA. For non-subscribers, show a small ⚡ badge indicating it is a Squadz+ feature. Tapping it still opens the paywall for free users.
+Empty state copy: replace with a squad-vault-agnostic framing that points at the free action. Use: title "This vault is empty" / subtitle "Add the first photo or video from your squad's plans."
+The All / Photos / Videos and Grid / By Events controls stay as-is. Do not restyle them.
+B. Roll-up upsell sheet — fix and simplify
+The sheet currently renders two stacked upgrade affordances (an outlined banner and a solid button) that say the same thing. Collapse to one upgrade CTA.
+Price must be resolved from the active RevenueCat package. Remove every hardcoded price literal from this sheet. If founding spots remain, this sheet must show the founding price, matching the main paywall.
+The sheet should explain what roll-up gives the user in one line before the CTA, rather than being mostly empty space above a button.
+C. Personal vault — new surface
+Add a "My Photo Vault" row to the profile screen (top-right entry point).
+This screen shows the user's own personal rolled-up media, independent of any single squad.
+Personal vault remains Squadz+ gated (squad vaults stay free). For free users the row is visible but shows the ⚡ badge and opens the paywall on tap — do not hide it, discoverability of the paid feature is the point.
+Reuse the existing grid/filter components from the squad vault rather than writing new ones.
+If no personal-vault backend exists per the Phase 1 audit, implement the minimum data model and endpoints needed, and report exactly what you added.
+D. Paywall context
+Every paywall entry point passes the triggering feature so the paywall can lead with the relevant benefit. Do not build a new paywall — pass context into the existing one.
+E. Privacy constraint (hard)
+Nothing in the personal vault may expose one squad's media to another squad, and nothing may be visible to any other user unless the user explicitly rolls it up into a specific squad vault. No cross-squad leakage, no implicit sharing.
+Constraints
+Do not break existing tests. Baseline is 972 API tests and 351 mobile tests, all green. All must still pass. List any new or changed test files explicitly with a one-line reason each.
+Do not change the app's color tokens, typography, or global theme. This is an information-architecture and hierarchy change, not a visual redesign.
+Do not remove the upload flow, the media filters, or the "By Events" view.
+Do not refactor unrelated screens. Do not upgrade dependencies.
+Post-build verification sequence
+
+Report results for each:
+
+Full API test suite — report pass count vs 972 baseline.
+Full mobile test suite — report pass count vs 351 baseline.
+New tests: squad vault renders upload as primary for free users; roll-up opens paywall for free users; personal vault gated correctly; no hardcoded price literals remain (assert via a test that greps for price literals in the mobile source).
+Type check and lint clean.
+List every file changed with a one-line reason.
+State explicitly what requires physical-device verification.
