@@ -1,0 +1,64 @@
+SquadZ — "Find the Best Time": Full Navigation Map + Bug Sweep
+
+MODE: AUDIT ONLY — report, then stop. Do not modify, create, or delete any file. Do not fix anything you find. I need the complete picture before deciding on changes.
+
+Device testing of the new build surfaced flow problems. Before specifying fixes I need an exhaustive map of how this feature actually behaves, plus everything currently broken in it. Report what the code does today, not what it was intended to do.
+
+Scope: app/availability.tsx, components/FindTimeChooser.tsx, app/squad/[id].tsx, app/create.tsx, app/event/[id].tsx, routes/availability.ts, and anything else in the poll path.
+
+1. Complete navigation map
+
+For every way a user can reach any poll screen, document the full path. Include the squad screen CTA, the "Start a new poll" link, the New Event entry, the event-detail entry, invite links, and any I haven't named.
+
+For each, state:
+
+What condition decides where it lands (no active poll / exactly one / multiple / converted poll)
+Whether it opens the chooser or goes straight into a poll
+What route and params it navigates with
+2. Back behavior — every screen, every method
+
+For each poll screen (wizard step 1, step 2, step 3, grid/response view, results state, edit sheet, pending modal, cell detail sheet, alternate-time picker):
+
+Where does the header back arrow go?
+Where does Android hardware back go?
+Where does iOS swipe-back go?
+Do all three agree? Flag any screen where they differ.
+Does anything trigger the unsaved-changes guard, and under what condition?
+Is there any screen a user can reach and not get out of without force-quitting? Name it explicitly.
+
+Pay attention to router.replace vs router.push — report every place replace is used in this flow and what it does to the back stack.
+
+3. Every action on every screen
+
+Inventory every button, link, and tappable row in the poll feature. For each: exact visible label, what it does, where it navigates, when it appears or hides, and when it is enabled vs disabled.
+
+I specifically want the results screen fully enumerated — currently it shows "Create event at best time," "Pick a different time from this poll," "Create an event outside this poll," and a disabled "Save your times," and I need to know precisely when each renders and what each does.
+
+4. Layout and state inventory per screen
+
+For each poll screen, describe the vertical layout in order, and list every distinct state it can render (empty, no responses, some responses, best time found, tie, converted, creator vs non-creator, unsaved changes present).
+
+Flag any state where the screen renders something contradictory, redundant, or unreachable.
+
+5. Bug sweep
+
+Report every defect you find, whether or not I've mentioned it. For each: what happens, where in the code, and how to reproduce.
+
+Look specifically for:
+
+Duplicate or conflicting information on screen at once (e.g. the header range and the grid pagination range showing different date spans)
+Actions that appear but fail, no-op, or hit an authorization rejection
+States reachable through one path but not another
+Anything where the wizard, the edit sheet, and the poll view disagree
+Draft restore behaving unexpectedly when a poll already exists
+Stale data after edit, convert, or delete
+Anything the three-step wizard broke that worked before
+6. Known concerns to confirm or refute
+The squad CTA opens the existing poll directly with no visible way to choose a different one or create a new one from that screen. Confirm exact current behavior, and state whether "Start a new poll" is still present and discoverable on the squad screen.
+Multiple active polls per squad remain possible. Report what a user sees when two or more exist, from every entry point.
+Report whether a converted poll (with convertedEventId set) is still reachable, and what it looks like if so.
+7. What you would change
+
+After the factual report, give me your own assessment: the three or four changes you believe would most improve this flow, with reasoning. Recommendations only — implement nothing.
+
+Report only. No code changes, no test changes, no migrations. I will specify the build after reading this.
