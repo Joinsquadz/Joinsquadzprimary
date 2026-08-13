@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Modal,
   View,
@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { useAuth, useData } from "@/context/AppContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
+import { resolveResumeAction, pollStatusLabel } from "@/lib/pollWizard";
 
 export type FindTimeScope =
   | { type: "squad"; squadId: string }
@@ -61,6 +62,9 @@ export function FindTimeChooser({ visible, scope, onClose, onStartNew }: FindTim
   const [polls, setPolls] = useState<PollSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  // Guards the resume-first auto-navigation so it fires at most once per open
+  // (the load effect can re-run while the sheet is still visible).
+  const resumeHandledRef = useRef(false);
 
   const headers = useCallback(
     (): Record<string, string> => ({ "Content-Type": "application/json", ...buildAuthHeaders(authToken) }),
@@ -116,17 +120,51 @@ export function FindTimeChooser({ visible, scope, onClose, onStartNew }: FindTim
 
   useEffect(() => {
     if (visible) void load();
-    else setPolls([]);
+    else {
+      setPolls([]);
+      resumeHandledRef.current = false;
+    }
   }, [visible, load]);
 
-  const openPoll = (pollId: string) => {
+  const openPoll = useCallback((pollId: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     onClose();
     router.push({ pathname: "/availability", params: { pollId } } as never);
-  };
+  }, [onClose]);
+
+  // Resume-first: a single active poll in this scope IS the answer to "find a
+  // time", so open it rather than making the user pick it out of a sheet. Two
+  // or more still need the chooser.
+  useEffect(() => {
+    if (!visible || loading || resumeHandledRef.current) return;
+    const decision = resolveResumeAction(polls);
+    if (decision.action === "resume") {
+      resumeHandledRef.current = true;
+      openPoll(decision.pollId);
+    }
+  }, [visible, loading, polls, openPoll]);
 
   const handleStartNew = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    // Starting fresh while polls exist splits everyone's answers across two
+    // boards, so make it a deliberate choice rather than the default tap.
+    if (polls.length > 0) {
+      Alert.alert(
+        "Start a second poll?",
+        `This squad already has ${polls.length === 1 ? "an active poll" : `${polls.length} active polls`}. A new one collects separate answers.`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Start new",
+            onPress: () => {
+              onClose();
+              onStartNew();
+            },
+          },
+        ],
+      );
+      return;
+    }
     onClose();
     onStartNew();
   };
@@ -214,7 +252,7 @@ export function FindTimeChooser({ visible, scope, onClose, onStartNew }: FindTim
                         </Text>
                         <Text style={[styles.rowMeta, { color: colors.mutedForeground }]} numberOfLines={1}>
                           {rangeLabel(p.days)} ·{" "}
-                          {p.respondentCount === 1 ? "1 response" : `${p.respondentCount} responses`}
+                          {pollStatusLabel({ respondentCount: p.respondentCount, memberCount: p.memberCount })}
                         </Text>
                       </View>
                     </TouchableOpacity>

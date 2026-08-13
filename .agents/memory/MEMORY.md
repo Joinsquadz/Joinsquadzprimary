@@ -102,3 +102,4 @@
 - [Express route shadowing](express-route-shadowing.md) — silent 404s with a handler that exists: literal path declared after `/:id`, or a route file repeating the `/api` mount prefix; verify a fix by curling for 401 not 404.
 - [Squadz+ entitlement precedence](squadz-entitlement-precedence.md) — one global store w/ a `source` per reading; a server "not entitled" must NEVER overwrite a device-confirmed purchase (webhook lag re-locks paying users).
 - [Vault durable saves](vault-durable-saves.md) — "save" copies bytes + inserts an unlinked personal row (no FK, no squad/event) so it survives source deletion; provenance BEFORE insert.
+- [Poll nudge & scoped access](availability-poll-nudge-and-access.md) — nudge only where NO response row exists (trimmed members still count as responded); scoped polls authz on live membership, creator bypass is ad-hoc only.

@@ -1161,8 +1161,23 @@ export class Storage {
 
   // Member-gating for a poll. Squad polls require squad membership. Event polls
   // require the host, an RSVP'd guest, or a member of the event's squad.
+  /**
+   * Access rule for an availability poll.
+   *
+   * Scoped polls (squadId and/or eventId) are gated on LIVE membership with NO
+   * creator exception: a creator who leaves the squad loses access to the poll
+   * they made, exactly like any other ex-member. Granting the creator access
+   * first — as this used to — let a departed organizer keep reading a squad's
+   * availability indefinitely.
+   *
+   * Ad-hoc polls (neither squadId nor eventId) have no membership to evaluate,
+   * so they keep creator access plus their explicit participantIds roster and
+   * remain open-by-UUID for invite-link sharing. Without that branch they would
+   * be orphaned and unreachable by anyone, including the person who made them.
+   */
   async canAccessAvailabilityPoll(poll: AvailabilityPoll, userId: string): Promise<boolean> {
-    if (poll.createdBy === userId) return true;
+    const scoped = Boolean(poll.squadId || poll.eventId);
+
     if (poll.squadId && (await this.isSquadMember(poll.squadId, userId))) return true;
     if (poll.eventId) {
       const event = await this.getEvent(poll.eventId);
@@ -1172,10 +1187,15 @@ export class Storage {
         if (event.rsvps && Object.prototype.hasOwnProperty.call(event.rsvps, userId)) return true;
       }
     }
-    // Non-squad polls are open to any authenticated user who has the poll ID.
-    // The UUID acts as the access token for invite-by-link sharing.
-    if (!poll.squadId) return true;
-    return false;
+
+    // Scoped poll and none of the live-membership checks matched.
+    if (scoped) return false;
+
+    // Ad-hoc poll: creator + explicit roster, then open-by-UUID for link shares.
+    if (poll.createdBy === userId) return true;
+    const roster = (poll.participantIds ?? null) as string[] | null;
+    if (roster && roster.includes(userId)) return true;
+    return true;
   }
 
   // ---- Availability Nudges ----

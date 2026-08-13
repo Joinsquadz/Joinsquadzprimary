@@ -1,0 +1,96 @@
+SquadZ — "Find the Best Time": PHASE 2 GO-AHEAD (revised per Phase 1 audit)
+
+MODE: IMPLEMENT — this is not a report-only pass.
+
+Phase 1 audit is approved and it materially changes the scope. Implement what follows, not the original Phase 2 draft.
+
+Key correction from the audit: responses are stored as stable <day>-<slot> strings (e.g. 2026-08-12-7PM), not by array index. No migration is required and no reconciliation rework is needed — the trim logic in PATCH /api/availability/polls/:id already preserves and removes by stable identity. Do not rewrite it.
+
+Second correction: PATCH /api/availability/polls/:id already exists, is creator-restricted, and already accepts title, days, and slots. An organizer edit sheet already calls it. Editing is not missing — it is mislabeled and undiscoverable. Do not build a new update path.
+
+Nearly all of this work is in artifacts/squadz-native/app/availability.tsx, components/FindTimeChooser.tsx, app/squad/[id].tsx, and artifacts/api-server/src/routes/availability.ts.
+
+A. Creation becomes a 3-step wizard
+
+Replace the single long scroll in availability.tsx with three steps, a step indicator, and back navigation between steps.
+
+Step 1 — Name it. Optional title. Continue always enabled.
+Step 2 — Date range. Start date + day-count chips, with the resolved range summary live on this step.
+Step 3 — Time slots. Period tabs stay, but every selected slot must remain visible regardless of which period tab is open — render a persistent chip list of all current selections with tap-to-remove. The audit confirms selections persist in state but the UI only exposes a total count; that is the core usability defect and the count alone is not sufficient.
+Final action: "Create poll" with a compact review line (title, range, slot count).
+Back from step 1 exits; back from steps 2–3 goes to the previous step.
+
+No reusable wizard component exists in the app — the audit checked. Build a small local one scoped to this screen. Do not introduce a form-state library.
+
+B. Draft persistence
+
+No generic draft utility exists. Build a small dedicated one, following the narrow AsyncStorage patterns already in lib/pendingInvite.ts.
+
+Persist the wizard fields (pollTitle, rangeStart, rangeDays, selectedSlots, active period). Lifecycle: restore on opening creation, retain through backgrounding and navigation, clear on successful creation, clear on explicit discard. Do not persist the response grid's unsaved cells — the existing in-session protection and beforeRemove guard already cover that.
+
+C. Surface editing properly
+
+The edit sheet exists and works. Fix its presentation:
+
+Rename it from "Edit Date Range" to reflect what it actually edits (title, dates, and slots).
+Make it discoverable from the poll screen for the creator — it should not require hunting.
+Reuse the same 3-step wizard from item A, prefilled, rather than maintaining a separate modal layout.
+D. Add loss confirmation to edits
+
+The server trim is currently silent. Before saving an edit that shrinks the range or removes slots, compute and show: how many selections will be dropped, and how many people are affected. Require explicit confirmation.
+
+Preserve the existing behavior of retaining each response's updatedAt when trimming — the audit confirms this is deliberate so members still count as having responded and can be nudged to re-enter availability. Do not change it.
+
+E. Fix "Set a different time"
+
+Current handler pushes to /create with at most prefillSquad, discarding all poll context. Replace with an in-poll slot picker: list the poll's own slots with their response counts, let the organizer choose one, and create the event at that time through the existing convert path.
+
+Note the event-scoped poll already uses the selected best cell directly — align the squad-poll behavior with that, don't invent a third pattern. Keep a clearly labeled separate escape hatch for creating an event outside the poll's slots.
+
+F. Resume-first entry points, and resolve the multiple-poll ambiguity
+
+The audit found multiple active polls per squad are possible, /find returns only the newest, and the chooser lists all of them — so older active polls are reachable in one place and invisible in another.
+
+Squad screen CTA resumes the newest active poll directly, showing live status (responses received out of eligible members). It should not open the chooser first when exactly one active poll exists.
+When more than one active poll exists, the CTA opens the chooser with all of them listed — no poll may be silently unreachable from the squad screen.
+"Start a new poll" becomes secondary and requires confirmation stating the existing poll remains untouched.
+Same resume-first rule for the New Event entry point once a squad is selected.
+G. Unify pending and nudge UI
+
+Collapse the main-list Nudge and the "Still needs to update" card into one component with one button per person. Keep the "N still pending" modal as a read-only list.
+
+Reconcile the eligibility mismatch the audit flagged: the server only accepts a nudge for a member with no response row, but the "needs update" card can display members who did respond before an organizer edit. In the unified UI, those two states must be visually distinct and the button must only appear where the server will actually accept it. Do not add a client-side cooldown — the server's atomic five-minute debounce is the single source and both surfaces already share it.
+
+H. Fix the save button state machine
+
+Currently labeled "Saved" whenever dirty === false, including before the user has ever saved. Three honest states: disabled "Save your times" at rest with no unsaved changes; enabled "Save" when dirty; transient "Saved ✓" after a successful write, then back to rest.
+
+I. Consistent bottom action
+
+Keep the action in a fixed position. When no best result exists yet, show the results action disabled with a short explanation rather than swapping in "Skip poll — create event now."
+
+J. Pin the grid range header
+
+The range label currently scrolls inside the content with no sticky treatment and clips under the nav bar. Pin or offset it.
+
+K. Privacy — remove the creator exception
+
+canAccessAvailabilityPoll currently grants the creator access before evaluating squad membership. Remove that precedence: for polls with a squadId or eventId, access requires current squad membership or current event access, with no creator exception. A creator who leaves the squad loses access to the poll they made.
+
+Do not strip creator access from ad-hoc polls. Polls with neither squadId nor eventId have no membership to evaluate — those retain creator access plus the explicit participantIds roster, or they become orphaned and unreachable by anyone.
+
+Add tests for both branches.
+
+Constraints
+Test floor: 1247 API / 452 mobile, all green. List every new or changed test file with a one-line reason.
+Do not change color tokens, typography, or the global theme.
+Do not remove: the poll grid, day/slot pagination, the SSE stream and its timed refresh fallback, the beforeRemove unsaved-changes guard, the cell detail sheet, invite-link sharing, the calendar export affordances, or the creator-only delete.
+Do not rewrite the server-side response trim logic or the nudge debounce.
+Do not touch the legacy event-poll modal in app/event/[id].tsx in this pass — report it as a separate cleanup item.
+No schema changes should be required. If you believe one is, stop and report before writing a migration.
+Verification
+API and mobile suites vs the 1247 / 452 floor.
+New tests: wizard navigation and draft restore; cross-period slot visibility; loss-confirmation counts on shrink; creator-exception removal for squad polls; ad-hoc poll creator access retained; slot picker creates event at the chosen poll slot; save-state transitions; nudge eligibility alignment.
+Mobile and libs typecheck clean; API typecheck no new errors.
+Every file changed, one line each.
+What requires physical-device verification.

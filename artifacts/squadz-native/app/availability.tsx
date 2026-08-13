@@ -32,31 +32,45 @@ import { claimOnce } from "@/lib/seenFlags";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { GradientButton } from "@/components/GradientButton";
 import { SkeletonBox } from "@/components/SkeletonBox";
+import {
+  DAY_COUNT_OPTIONS,
+  DEFAULT_DAY_COUNT,
+  ALL_SLOT_OPTIONS,
+  DEFAULT_SLOTS,
+  TRIP_SLOT,
+  TRIP_SLOTS,
+  SLOT_PERIODS,
+  sortSlotsChronologically,
+  periodForSlot,
+  selectionsOutsidePeriod,
+  pollWizardSteps,
+  isLastWizardStep,
+  nextWizardStep,
+  prevWizardStep,
+  canAdvanceWizard,
+  wizardReviewLine,
+  computeTrimLoss,
+  computeTrimLossFromHeatmap,
+  trimLossMessage,
+  saveButtonState,
+  buildFollowUpList,
+  memberFollowUpState,
+  followUpStateLabel,
+  canNudgeMember,
+  rankPollCells,
+} from "@/lib/pollWizard";
+import {
+  pollDraftKey,
+  readPollDraft,
+  savePollDraft,
+  clearPollDraft,
+  draftHasContent,
+} from "@/lib/pollDraft";
 
-const DAY_COUNT_OPTIONS = [3, 5, 7, 14, 21, 30];
 // How many day-columns are shown in the grid at once. Larger ranges page
 // through these windows with prev/next arrows instead of cramming every day
 // onto one screen.
 const DAY_WINDOW = 5;
-const DEFAULT_DAY_COUNT = 7;
-const ALL_SLOT_OPTIONS: string[] = [
-  "12AM","1AM","2AM","3AM","4AM","5AM",
-  "6AM","7AM","8AM","9AM","10AM","11AM",
-  "12PM","1PM","2PM","3PM","4PM","5PM",
-  "6PM","7PM","8PM","9PM","10PM","11PM",
-];
-const DEFAULT_SLOTS: string[] = ["6PM","7PM","8PM","9PM","10PM"];
-// Trip polls are date-range focused: a single "All day" slot collapses the grid
-// to one per-day toggle so people just mark which dates they can travel.
-const TRIP_SLOT = "All day";
-const TRIP_SLOTS: string[] = [TRIP_SLOT];
-
-const SLOT_PERIODS = [
-  { label: "Night",     slots: ["12AM","1AM","2AM","3AM","4AM","5AM"] as string[] },
-  { label: "Morning",   slots: ["6AM","7AM","8AM","9AM","10AM","11AM"] as string[] },
-  { label: "Afternoon", slots: ["12PM","1PM","2PM","3PM","4PM","5PM"] as string[] },
-  { label: "Evening",   slots: ["6PM","7PM","8PM","9PM","10PM","11PM"] as string[] },
-];
 const SLOT_WINDOW = 6;
 
 const DAY_FULL: Record<string, string> = {
@@ -248,6 +262,9 @@ export default function AvailabilityScreen() {
   const [mySet, setMySet] = useState<Set<string>>(new Set());
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Distinguishes "you have never saved" from "your save just landed" — the old
+  // button read "Saved" on first open, before the user had written anything.
+  const [justSaved, setJustSaved] = useState(false);
   const [droppedNotice, setDroppedNotice] = useState<string | null>(null);
   const droppedOpacity = useRef(new Animated.Value(0)).current;
   const droppedAnimRef = useRef<Animated.CompositeAnimation | null>(null);
@@ -272,9 +289,77 @@ export default function AvailabilityScreen() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerDate, setPickerDate] = useState<Date>(new Date());
 
+  // Creation wizard: name → dates → times (trips skip "times"). One decision
+  // per screen instead of the old single scrolling form.
+  const [wizardStep, setWizardStep] = useState(0);
+  const wizardSteps = useMemo(() => pollWizardSteps(isTrip), [isTrip]);
+  const currentStepId = wizardSteps[Math.min(wizardStep, wizardSteps.length - 1)]?.id ?? "name";
+  // Set once a stored draft has been read (or found absent) so the auto-save
+  // effect below can't persist the empty defaults over a real draft during the
+  // first render pass.
+  const [draftLoaded, setDraftLoaded] = useState(false);
+  const [draftRestored, setDraftRestored] = useState(false);
+
+  const draftScopeKey = useMemo(
+    () => pollDraftKey({ squadId, eventId, adhoc }),
+    [squadId, eventId, adhoc],
+  );
+
   // Tracks the poll's updatedAt that the user has already dismissed, so a
   // background refresh doesn't resurrect a banner they already saw/dismissed.
   const dismissedRangeUpdateRef = useRef<string | null>(null);
+
+  // ---- Creation-draft persistence ----
+  //
+  // Restore any in-progress draft for THIS scope once, before the auto-save
+  // effect starts writing. Without this, backing out of the wizard (or an app
+  // kill) discarded the title, range and slot picks entirely.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const draft = await readPollDraft(draftScopeKey);
+      if (cancelled) return;
+      if (draft) {
+        const start = parseISODate(draft.rangeStartISO);
+        if (start) setRangeStart(start);
+        setPollTitle(draft.title);
+        setRangeDays(draft.rangeDays);
+        if (draft.slots.length > 0) setSelectedSlots(new Set(draft.slots));
+        if (draft.period) setSlotPeriod(draft.period);
+        setWizardStep(Math.min(draft.step, pollWizardSteps(isTrip).length - 1));
+        if (draftHasContent(draft, { rangeDays: DEFAULT_DAY_COUNT, slots: DEFAULT_SLOTS })) {
+          setDraftRestored(true);
+        }
+      }
+      setDraftLoaded(true);
+    })();
+    return () => { cancelled = true; };
+  }, [draftScopeKey, isTrip]);
+
+  // Persist the wizard's fields on every change while the setup form is the
+  // active surface. Skipped until the initial read completes and once a poll
+  // exists (there is no draft to keep at that point).
+  useEffect(() => {
+    if (!draftLoaded || !needsSetup) return;
+    void savePollDraft(draftScopeKey, {
+      title: pollTitle,
+      rangeStartISO: toISODate(rangeStart),
+      rangeDays,
+      slots: [...selectedSlots],
+      period: slotPeriod,
+      step: wizardStep,
+    });
+  }, [
+    draftLoaded,
+    needsSetup,
+    draftScopeKey,
+    pollTitle,
+    rangeStart,
+    rangeDays,
+    selectedSlots,
+    slotPeriod,
+    wizardStep,
+  ]);
 
   // "New responses" banner state — shown to the host when members responded
   // since the host last opened the poll. Cleared immediately once they open it
@@ -395,6 +480,11 @@ export default function AvailabilityScreen() {
   const [nudgeState, setNudgeState] = useState<Map<string, "sending" | "sent">>(new Map());
   // Banner shown to a member who was nudged to fill in their availability.
   const [nudgedBanner, setNudgedBanner] = useState<string | null>(null);
+
+  // Alternate-slot picker: lets anyone lock in a time OTHER than the computed
+  // best one without leaving the poll (the old "Set a different time" link
+  // pushed to a blank create form and threw the poll's data away).
+  const [altPickerOpen, setAltPickerOpen] = useState(false);
 
   // Edit range state: host-only modal to update an existing poll's date range and title.
   const [editRangeOpen, setEditRangeOpen] = useState(false);
@@ -644,6 +734,9 @@ export default function AvailabilityScreen() {
       setMySet(new Set(payload.myCells));
       setNeedsSetup(false);
       setDirty(false);
+      // The draft has become a real poll — drop it so a later visit to this
+      // scope starts clean instead of resurrecting the just-used setup.
+      void clearPollDraft(draftScopeKey);
       // Swap the create-flow URL (…?eventId=…&from=create) for the canonical
       // poll URL so a web refresh reopens the created poll instead of dropping
       // the user back onto the empty setup form.
@@ -761,7 +854,28 @@ export default function AvailabilityScreen() {
     setEditRangeOpen(true);
   }, [data]);
 
-  const updateRange = useCallback(async () => {
+  // What the pending edit would delete. The server trims silently, so the
+  // organizer sees the cost — how many selections and how many people — before
+  // they commit, not after.
+  const pendingEditLoss = useMemo(() => {
+    if (!data) return { droppedSelections: 0, affectedUserIds: [] as string[], affectedPeople: 0 };
+    const nextDays = computeRange(editStart, editDays);
+    const keptSlots = ALL_SLOT_OPTIONS.filter((s) => editSlots.has(s));
+    const nextSlots = keptSlots.length > 0 ? keptSlots : data.poll.slots;
+    if (data.memberCells && data.memberCells.length > 0) {
+      return computeTrimLoss({ memberCells: data.memberCells, nextDays, nextSlots });
+    }
+    // memberCells is omitted for large polls — fall back to the heatmap, which
+    // still gives an accurate selection count (just not per-person attribution).
+    const { droppedSelections } = computeTrimLossFromHeatmap({
+      heatmap: data.heatmap,
+      nextDays,
+      nextSlots,
+    });
+    return { droppedSelections, affectedUserIds: [] as string[], affectedPeople: 0 };
+  }, [data, editStart, editDays, editSlots]);
+
+  const doUpdateRange = useCallback(async () => {
     if (!data) return;
     setUpdating(true);
     try {
@@ -791,6 +905,22 @@ export default function AvailabilityScreen() {
       setUpdating(false);
     }
   }, [data, authHeaders, editTitle, editStart, editDays, editSlots]);
+
+  const updateRange = useCallback(() => {
+    if (!data) return;
+    if (pendingEditLoss.droppedSelections === 0) {
+      void doUpdateRange();
+      return;
+    }
+    const detail =
+      pendingEditLoss.affectedPeople > 0
+        ? trimLossMessage(pendingEditLoss)
+        : `${pendingEditLoss.droppedSelections} ${pendingEditLoss.droppedSelections === 1 ? "selection falls" : "selections fall"} outside the new range and will be removed.`;
+    Alert.alert("This will erase some answers", detail, [
+      { text: "Keep editing", style: "cancel" },
+      { text: "Save anyway", style: "destructive", onPress: () => void doUpdateRange() },
+    ]);
+  }, [data, pendingEditLoss, doUpdateRange]);
 
   // When poll data arrives, pre-populate nudge button state from server-side
   // debounce info (nudgedAt per member) and surface the nudged banner if this
@@ -965,6 +1095,7 @@ export default function AvailabilityScreen() {
         setMySet(new Set(payload.myCells));
         setDirty(false);
       }
+      setJustSaved(true);
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       // User just submitted their availability — clear the range-updated banner.
@@ -976,10 +1107,15 @@ export default function AvailabilityScreen() {
     }
   };
 
-  const useThisTime = async () => {
-    if (!data?.best) return;
-    const friendly = prettyCell(data.best.cell);
-    const eventAtISO = cellToISO(data.best.cell);
+  // `cell` defaults to the computed best time, but the in-poll alternate picker
+  // passes any other cell from THIS poll so choosing a runner-up keeps every
+  // downstream behaviour (event PATCH, poll conversion, trip vs event choice)
+  // identical instead of dumping the user into an empty create form.
+  const useThisTime = async (cellOverride?: string) => {
+    const cell = cellOverride ?? data?.best?.cell;
+    if (!data || !cell) return;
+    const friendly = prettyCell(cell);
+    const eventAtISO = cellToISO(cell);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     if (eventId) {
       try {
@@ -1016,7 +1152,7 @@ export default function AvailabilityScreen() {
     // winning day + time) or a Trip (multi-day — only the day matters, no time).
     // Either way we pass the pollId so create.tsx marks the poll converted once
     // the event/trip is made.
-    const dayISO = splitCell(data.best.cell).day;
+    const dayISO = splitCell(cell).day;
     const tripStartDay = parseISODate(dayISO) ? dayISO : undefined;
     const goCreate = (mode: "event" | "trip") => {
       router.push({
@@ -1092,6 +1228,15 @@ export default function AvailabilityScreen() {
     const last = days[days.length - 1];
     return `${prettyDay(first)} – ${prettyDay(last)}`;
   }, [rangeStart, rangeDays]);
+
+  // Full range of the loaded poll, shown in the header for every range length.
+  const pollRangeLabel = useMemo(() => {
+    const days = data?.poll.days ?? [];
+    if (days.length === 0) return null;
+    const first = days[0];
+    const last = days[days.length - 1];
+    return days.length === 1 ? prettyDay(first) : `${prettyDay(first)} – ${prettyDay(last)}`;
+  }, [data?.poll.days]);
 
   const editRangePreview = useMemo(() => {
     const days = computeRange(editStart, editDays);
@@ -1199,6 +1344,14 @@ export default function AvailabilityScreen() {
           <Text style={[styles.title, { color: colors.foreground }]} numberOfLines={1}>
             {(data?.poll.title) || "Find the Best Time"}
           </Text>
+          {/* The poll's full date range lives here rather than only in the
+              day-pager, which is hidden for short ranges — otherwise a 3-day
+              poll never states which dates it covers. */}
+          {pollRangeLabel ? (
+            <Text style={[styles.renamedByText, { color: colors.mutedForeground }]} numberOfLines={1}>
+              {pollRangeLabel}
+            </Text>
+          ) : null}
           {data?.poll.updatedAt && data.poll.updatedByName ? (
             <Text style={[styles.renamedByText, { color: colors.mutedForeground }]} numberOfLines={1}>
               Renamed by {data.poll.updatedByName} · {formatUpdatedDate(data.poll.updatedAt)}
@@ -1275,91 +1428,183 @@ export default function AvailabilityScreen() {
               </LinearGradient>
             </View>
 
-            <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
-              Pick the dates everyone should mark their availability for. You can plan for this week or further out.
-            </Text>
-
-            <Text style={[styles.setupLabel, { color: colors.mutedForeground }]}>Poll title (optional)</Text>
-            <View style={[styles.dateBtn, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <Ionicons name="text-outline" size={18} color={colors.mutedForeground} />
-              <TextInput
-                value={pollTitle}
-                onChangeText={setPollTitle}
-                placeholder="e.g. Summer trip dates"
-                placeholderTextColor={colors.textDim}
-                maxLength={120}
-                style={[styles.dateBtnText, { color: colors.foreground }]}
-              />
-            </View>
-
-            <Text style={[styles.setupLabel, { color: colors.mutedForeground }]}>Start date</Text>
-            {Platform.OS === "web" ? (
-              <View style={[styles.dateBtn, { backgroundColor: colors.card, borderColor: colors.primary }]}>
-                <Ionicons name="calendar-outline" size={18} color={colors.primary} />
-                <TextInput
-                  value={toISODate(rangeStart)}
-                  onChangeText={(t) => {
-                    const d = parseISODate(t.trim());
-                    if (d) setRangeStart(d);
-                  }}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor={colors.textDim}
-                  style={[styles.dateBtnText, { color: colors.foreground }]}
-                />
-              </View>
-            ) : (
-              <TouchableOpacity
-                onPress={openRangePicker}
-                style={[styles.dateBtn, { backgroundColor: colors.card, borderColor: colors.primary }]}
-              >
-                <Ionicons name="calendar-outline" size={18} color={colors.primary} />
-                <Text style={[styles.dateBtnText, { color: colors.foreground }]}>{prettyDay(toISODate(rangeStart))}</Text>
-                <Ionicons name="chevron-down" size={16} color={colors.mutedForeground} />
-              </TouchableOpacity>
-            )}
-
-            <Text style={[styles.setupLabel, { color: colors.mutedForeground }]}>How many days?</Text>
-            <View style={styles.chipRow}>
-              {DAY_COUNT_OPTIONS.map((n) => {
-                const active = rangeDays === n;
+            {/* Step indicator — one decision per screen. */}
+            <View style={styles.wizardSteps}>
+              {wizardSteps.map((s, i) => {
+                const done = i < wizardStep;
+                const active = i === wizardStep;
                 return (
-                  <TouchableOpacity
-                    key={n}
-                    onPress={() => {
-                      stampInteraction();
-                      Haptics.selectionAsync();
-                      setRangeDays(n);
-                    }}
-                    style={[
-                      styles.chip,
-                      {
-                        backgroundColor: active ? colors.primary : colors.card,
-                        borderColor: active ? colors.primary : colors.border,
-                      },
-                    ]}
-                  >
-                    <Text style={[styles.chipText, { color: active ? "#fff" : colors.foreground }]}>{n} days</Text>
-                  </TouchableOpacity>
+                  <View key={s.id} style={styles.wizardStepItem}>
+                    <View
+                      style={[
+                        styles.wizardStepDot,
+                        {
+                          backgroundColor: active || done ? colors.primary : colors.card,
+                          borderColor: active || done ? colors.primary : colors.border,
+                        },
+                      ]}
+                    >
+                      {done ? (
+                        <Ionicons name="checkmark" size={12} color="#fff" />
+                      ) : (
+                        <Text style={[styles.wizardStepNum, { color: active ? "#fff" : colors.mutedForeground }]}>
+                          {i + 1}
+                        </Text>
+                      )}
+                    </View>
+                    <Text
+                      style={[
+                        styles.wizardStepLabel,
+                        { color: active ? colors.foreground : colors.mutedForeground },
+                      ]}
+                    >
+                      {s.label}
+                    </Text>
+                    {i < wizardSteps.length - 1 && (
+                      <View style={[styles.wizardStepBar, { backgroundColor: done ? colors.primary : colors.border }]} />
+                    )}
+                  </View>
                 );
               })}
             </View>
 
-            {isTrip ? null : (
+            {draftRestored && (
+              <View style={[styles.draftBanner, { backgroundColor: colors.card, borderColor: colors.primary + "55" }]}>
+                <Ionicons name="refresh-outline" size={16} color={colors.primary} />
+                <Text style={[styles.draftBannerText, { color: colors.foreground }]}>
+                  Picked up where you left off.
+                </Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    setPollTitle("");
+                    setRangeStart(new Date());
+                    setRangeDays(DEFAULT_DAY_COUNT);
+                    setSelectedSlots(new Set(DEFAULT_SLOTS));
+                    setSlotPeriod("Evening");
+                    setWizardStep(0);
+                    setDraftRestored(false);
+                    void clearPollDraft(draftScopeKey);
+                  }}
+                  hitSlop={8}
+                >
+                  <Text style={[styles.draftBannerAction, { color: colors.primary }]}>Start over</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {currentStepId === "name" && (
               <>
+                <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
+                  Give this a name so your squad knows what they&apos;re marking availability for. You can skip it.
+                </Text>
+                <Text style={[styles.setupLabel, { color: colors.mutedForeground }]}>Poll title (optional)</Text>
+                <View style={[styles.dateBtn, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                  <Ionicons name="text-outline" size={18} color={colors.mutedForeground} />
+                  <TextInput
+                    value={pollTitle}
+                    onChangeText={setPollTitle}
+                    placeholder="e.g. Summer trip dates"
+                    placeholderTextColor={colors.textDim}
+                    maxLength={120}
+                    style={[styles.dateBtnText, { color: colors.foreground }]}
+                  />
+                </View>
+              </>
+            )}
+
+            {currentStepId === "dates" && (
+              <>
+                <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
+                  Pick the dates everyone should mark their availability for. You can plan for this week or further out.
+                </Text>
+
+                <Text style={[styles.setupLabel, { color: colors.mutedForeground }]}>Start date</Text>
+                {Platform.OS === "web" ? (
+                  <View style={[styles.dateBtn, { backgroundColor: colors.card, borderColor: colors.primary }]}>
+                    <Ionicons name="calendar-outline" size={18} color={colors.primary} />
+                    <TextInput
+                      value={toISODate(rangeStart)}
+                      onChangeText={(t) => {
+                        const d = parseISODate(t.trim());
+                        if (d) setRangeStart(d);
+                      }}
+                      placeholder="YYYY-MM-DD"
+                      placeholderTextColor={colors.textDim}
+                      style={[styles.dateBtnText, { color: colors.foreground }]}
+                    />
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    onPress={openRangePicker}
+                    style={[styles.dateBtn, { backgroundColor: colors.card, borderColor: colors.primary }]}
+                  >
+                    <Ionicons name="calendar-outline" size={18} color={colors.primary} />
+                    <Text style={[styles.dateBtnText, { color: colors.foreground }]}>{prettyDay(toISODate(rangeStart))}</Text>
+                    <Ionicons name="chevron-down" size={16} color={colors.mutedForeground} />
+                  </TouchableOpacity>
+                )}
+
+                <Text style={[styles.setupLabel, { color: colors.mutedForeground }]}>How many days?</Text>
+                <View style={styles.chipRow}>
+                  {DAY_COUNT_OPTIONS.map((n) => {
+                    const active = rangeDays === n;
+                    return (
+                      <TouchableOpacity
+                        key={n}
+                        onPress={() => {
+                          stampInteraction();
+                          Haptics.selectionAsync();
+                          setRangeDays(n);
+                        }}
+                        style={[
+                          styles.chip,
+                          {
+                            backgroundColor: active ? colors.primary : colors.card,
+                            borderColor: active ? colors.primary : colors.border,
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.chipText, { color: active ? "#fff" : colors.foreground }]}>{n} days</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                <View style={[styles.previewCard, { backgroundColor: colors.primary + "18", borderColor: colors.primary + "44" }]}>
+                  <Ionicons name="time-outline" size={16} color={colors.primary} />
+                  <Text style={[styles.previewText, { color: colors.foreground }]}>{rangePreview}</Text>
+                </View>
+              </>
+            )}
+
+            {currentStepId === "times" && (
+              <>
+                <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
+                  Choose which times of day people can pick from. Switch tabs to add slots from other parts of the day.
+                </Text>
+
                 <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
                   <Text style={[styles.setupLabel, { color: colors.mutedForeground, marginBottom: 0 }]}>Time slots</Text>
                   <Text style={[styles.chipText, { color: colors.mutedForeground }]}>{selectedSlots.size} selected</Text>
                 </View>
                 <View style={[styles.chipRow, { marginBottom: 8 }]}>
-                  {SLOT_PERIODS.map((p) => (
-                    <TouchableOpacity
-                      key={p.label}
-                      onPress={() => { stampInteraction(); Haptics.selectionAsync(); setSlotPeriod(p.label); }}
-                      style={[styles.chip, { backgroundColor: slotPeriod === p.label ? colors.primary : colors.card, borderColor: slotPeriod === p.label ? colors.primary : colors.border }]}
-                    >
-                      <Text style={[styles.chipText, { color: slotPeriod === p.label ? "#fff" : colors.foreground }]}>{p.label}</Text>
-                    </TouchableOpacity>
-                  ))}
+                  {SLOT_PERIODS.map((p) => {
+                    // Surface how many picks live under each tab so selections
+                    // made elsewhere are never invisible.
+                    const inPeriod = [...selectedSlots].filter((s) => periodForSlot(s) === p.label).length;
+                    return (
+                      <TouchableOpacity
+                        key={p.label}
+                        onPress={() => { stampInteraction(); Haptics.selectionAsync(); setSlotPeriod(p.label); }}
+                        style={[styles.chip, { backgroundColor: slotPeriod === p.label ? colors.primary : colors.card, borderColor: slotPeriod === p.label ? colors.primary : colors.border }]}
+                      >
+                        <Text style={[styles.chipText, { color: slotPeriod === p.label ? "#fff" : colors.foreground }]}>
+                          {p.label}{inPeriod > 0 ? ` · ${inPeriod}` : ""}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
                 <View style={styles.chipRow}>
                   {(SLOT_PERIODS.find(p => p.label === slotPeriod)?.slots ?? SLOT_PERIODS[3].slots).map((s) => {
@@ -1393,21 +1638,87 @@ export default function AvailabilityScreen() {
                     );
                   })}
                 </View>
+
+                {/* Every current selection, including ones from other tabs. */}
+                <Text style={[styles.setupLabel, { color: colors.mutedForeground }]}>Your selected times</Text>
+                <View style={styles.chipRow}>
+                  {sortSlotsChronologically(selectedSlots).map((s) => (
+                    <TouchableOpacity
+                      key={`sel-${s}`}
+                      onPress={() => {
+                        stampInteraction();
+                        Haptics.selectionAsync();
+                        setSelectedSlots((prev) => {
+                          const next = new Set(prev);
+                          if (next.size > 1) next.delete(s);
+                          return next;
+                        });
+                      }}
+                      style={[styles.selectedSlotChip, { backgroundColor: colors.primary + "1F", borderColor: colors.primary + "66" }]}
+                    >
+                      <Text style={[styles.chipText, { color: colors.primary }]}>{s}</Text>
+                      <Ionicons name="close" size={13} color={colors.primary} />
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                {selectionsOutsidePeriod(selectedSlots, slotPeriod) > 0 && (
+                  <Text style={[styles.wizardHint, { color: colors.textDim }]}>
+                    {selectionsOutsidePeriod(selectedSlots, slotPeriod)} of these are on other tabs.
+                  </Text>
+                )}
+
+                <View style={[styles.previewCard, { backgroundColor: colors.primary + "18", borderColor: colors.primary + "44" }]}>
+                  <Ionicons name="sparkles-outline" size={16} color={colors.primary} />
+                  <Text style={[styles.previewText, { color: colors.foreground }]}>
+                    {wizardReviewLine({
+                      title: pollTitle,
+                      rangeLabel: rangePreview,
+                      slotCount: selectedSlots.size,
+                      isTrip,
+                    })}
+                  </Text>
+                </View>
               </>
             )}
-
-            <View style={[styles.previewCard, { backgroundColor: colors.primary + "18", borderColor: colors.primary + "44" }]}>
-              <Ionicons name="time-outline" size={16} color={colors.primary} />
-              <Text style={[styles.previewText, { color: colors.foreground }]}>{rangePreview}</Text>
-            </View>
           </ScrollView>
 
           <View style={[styles.bottomBar, { borderTopColor: colors.border, paddingBottom: botPad + 12, backgroundColor: colors.background }]}>
-            <GradientButton
-              label={creating ? "Creating…" : "Create poll"}
-              onPress={() => void createPoll()}
-              disabled={creating}
-            />
+            <View style={styles.wizardNavRow}>
+              <TouchableOpacity
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  if (wizardStep <= 0) {
+                    router.canGoBack() ? router.back() : router.replace("/(tabs)" as never);
+                  } else {
+                    setWizardStep((i) => prevWizardStep(i));
+                  }
+                }}
+                style={[styles.wizardBackBtn, { borderColor: colors.border, backgroundColor: colors.card }]}
+              >
+                <Ionicons name="chevron-back" size={16} color={colors.foreground} />
+                <Text style={[styles.wizardBackText, { color: colors.foreground }]}>
+                  {wizardStep <= 0 ? "Cancel" : "Back"}
+                </Text>
+              </TouchableOpacity>
+              <View style={{ flex: 1 }}>
+                {isLastWizardStep(wizardStep, isTrip) ? (
+                  <GradientButton
+                    label={creating ? "Creating…" : "Create poll"}
+                    onPress={() => void createPoll()}
+                    disabled={creating || !canAdvanceWizard(wizardStep, isTrip, { slotCount: selectedSlots.size })}
+                  />
+                ) : (
+                  <GradientButton
+                    label="Next"
+                    onPress={() => {
+                      Haptics.selectionAsync();
+                      setWizardStep((i) => nextWizardStep(i, isTrip));
+                    }}
+                    disabled={!canAdvanceWizard(wizardStep, isTrip, { slotCount: selectedSlots.size })}
+                  />
+                )}
+              </View>
+            </View>
           </View>
 
           {Platform.OS === "ios" && pickerOpen && (
@@ -1801,7 +2112,7 @@ export default function AvailabilityScreen() {
                     const avatarOpacity = upToDate || isSelected ? 1 : stale ? 0.8 : 0.45;
                     const textColor = upToDate || stale || isSelected ? "#fff" : colors.mutedForeground;
                     const nudgeSt = nudgeState.get(m.id);
-                    const canNudge = isCreator && !m.hasResponded;
+                    const canNudge = canNudgeMember(m, isCreator);
                     const isSending = nudgeSt === "sending";
                     const isSent = nudgeSt === "sent";
                     return (
@@ -1910,33 +2221,40 @@ export default function AvailabilityScreen() {
                     );
                   })}
                 </View>
-                {data.members.some((m) => m.needsUpdate) && (
-                  <View style={[styles.pendingList, { borderColor: colors.border, backgroundColor: colors.card }]}>
-                    <View style={styles.pendingHeader}>
-                      <Ionicons name="time-outline" size={14} color={colors.gold} />
-                      <Text style={[styles.pendingHeaderText, { color: colors.mutedForeground }]}>
-                        Still needs to update
-                      </Text>
-                    </View>
-                    {data.members
-                      .filter((m) => m.needsUpdate)
-                      .map((m) => {
+                {/* One follow-up list: never-responded first, then people whose
+                    answers predate a date change. Each person appears exactly
+                    once, and Nudge only renders where the server accepts it
+                    (no response row) instead of 400-ing on stale responders. */}
+                {(() => {
+                  const followUps = buildFollowUpList(data.members);
+                  if (followUps.length === 0) return null;
+                  return (
+                    <View style={[styles.pendingList, { borderColor: colors.border, backgroundColor: colors.card }]}>
+                      <View style={styles.pendingHeader}>
+                        <Ionicons name="time-outline" size={14} color={colors.gold} />
+                        <Text style={[styles.pendingHeaderText, { color: colors.mutedForeground }]}>
+                          Waiting on {followUps.length}
+                        </Text>
+                      </View>
+                      {followUps.map((m) => {
+                        const state = memberFollowUpState(m);
                         const nudged = nudgeState.get(m.id) === "sent";
                         const nudging = nudgeState.get(m.id) === "sending";
+                        const showNudge = canNudgeMember(m, isCreator);
                         return (
                           <View key={m.id} style={styles.pendingMemberRow}>
-                            <View style={[styles.pendingAvatar, { backgroundColor: m.hasResponded ? colors.gold + "33" : colors.border + "33", borderColor: m.hasResponded ? colors.gold : colors.border }]}>
-                              <Text style={[styles.pendingInitial, { color: m.hasResponded ? colors.gold : colors.mutedForeground }]}>
+                            <View style={[styles.pendingAvatar, { backgroundColor: state === "stale" ? colors.gold + "33" : colors.border + "33", borderColor: state === "stale" ? colors.gold : colors.border }]}>
+                              <Text style={[styles.pendingInitial, { color: state === "stale" ? colors.gold : colors.mutedForeground }]}>
                                 {m.displayName.charAt(0).toUpperCase()}
                               </Text>
                             </View>
                             <View style={{ flex: 1 }}>
                               <Text style={[styles.pendingName, { color: colors.foreground }]}>{m.displayName}</Text>
                               <Text style={[styles.pendingStatus, { color: colors.textDim }]}>
-                                {m.hasResponded ? "Responded before the date change" : "Hasn't responded yet"}
+                                {followUpStateLabel(state)}
                               </Text>
                             </View>
-                            {isCreator && (
+                            {showNudge && (
                               <TouchableOpacity
                                 onPress={() => { void sendNudge(m.id); }}
                                 disabled={nudged || nudging}
@@ -1961,8 +2279,9 @@ export default function AvailabilityScreen() {
                           </View>
                         );
                       })}
-                  </View>
-                )}
+                    </View>
+                  );
+                })()}
 
                 {isCreator && (
                   <View style={[styles.timelineSection, { borderColor: colors.border }]}>
@@ -2068,6 +2387,26 @@ export default function AvailabilityScreen() {
                 </Text>
               </TouchableOpacity>
             )}
+            {/* Results actions are unavailable until someone has answered —
+                say why instead of showing nothing at all. */}
+            {!data.best && !dirty && (data.respondentCount ?? 0) === 0 && (
+              <View style={[styles.disabledResultBtn, { borderColor: colors.border, backgroundColor: colors.card }]}>
+                <Ionicons name="hourglass-outline" size={16} color={colors.mutedForeground} />
+                <Text style={[styles.disabledResultText, { color: colors.mutedForeground }]}>
+                  A best time appears once someone responds
+                </Text>
+              </View>
+            )}
+            {data.best && !dirty && (
+              <TouchableOpacity
+                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setAltPickerOpen(true); }}
+                style={styles.skipPollBtn}
+              >
+                <Text style={[styles.skipPollBtnText, { color: colors.mutedForeground }]}>
+                  Pick a different time from this poll
+                </Text>
+              </TouchableOpacity>
+            )}
             {!eventId && !dirty && (
               <TouchableOpacity
                 onPress={() => {
@@ -2080,15 +2419,20 @@ export default function AvailabilityScreen() {
                 style={styles.skipPollBtn}
               >
                 <Text style={[styles.skipPollBtnText, { color: colors.mutedForeground }]}>
-                  {data.best ? "Set a different time" : "Skip poll — create event now"}
+                  Create an event outside this poll
                 </Text>
               </TouchableOpacity>
             )}
-            <GradientButton
-              label={saving ? "Saving…" : dirty ? "Save my availability" : "Saved"}
-              onPress={() => void save()}
-              disabled={saving || !dirty}
-            />
+            {(() => {
+              const s = saveButtonState({ dirty, saving, justSaved });
+              return (
+                <GradientButton
+                  label={s.label === "Save" ? "Save my availability" : s.label}
+                  onPress={() => void save()}
+                  disabled={s.disabled}
+                />
+              );
+            })()}
           </View>
         </>
       ) : null}
@@ -2204,6 +2548,74 @@ export default function AvailabilityScreen() {
                     </TouchableOpacity>
                   </>
                 );
+              })()}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Alternate-slot picker — every cell from THIS poll, best first, so
+          rejecting the top pick doesn't discard the poll's results. */}
+      <Modal
+        visible={altPickerOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setAltPickerOpen(false)}
+      >
+        <View style={styles.pickerOverlay}>
+          <View style={[styles.cellSheet, { backgroundColor: colors.background, paddingBottom: insets.bottom + 12 }]}>
+            <View style={[styles.pickerToolbar, { borderBottomColor: colors.border }]}>
+              <View style={styles.pickerBtn} />
+              <Text style={[styles.pickerTitle, { color: colors.foreground }]}>Pick a time</Text>
+              <TouchableOpacity onPress={() => setAltPickerOpen(false)} style={styles.pickerBtn}>
+                <Text style={[styles.pickerBtnText, { color: colors.mutedForeground }]}>Close</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 8 }}>
+              {(() => {
+                if (!data) return null;
+                const ranked = rankPollCells({
+                  heatmap: data.heatmap,
+                  days: data.poll.days,
+                  slots: data.poll.slots,
+                });
+                if (ranked.length === 0) {
+                  return (
+                    <Text style={[styles.cellSheetEmpty, { color: colors.mutedForeground }]}>
+                      No one has marked availability yet.
+                    </Text>
+                  );
+                }
+                return ranked.map((r) => {
+                  const isBest = r.cell === data.best?.cell;
+                  return (
+                    <TouchableOpacity
+                      key={r.cell}
+                      onPress={() => {
+                        setAltPickerOpen(false);
+                        void useThisTime(r.cell);
+                      }}
+                      style={[
+                        styles.altOptionRow,
+                        {
+                          backgroundColor: colors.card,
+                          borderColor: isBest ? colors.primary : colors.border,
+                        },
+                      ]}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.altOptionName, { color: colors.foreground }]}>{prettyCell(r.cell)}</Text>
+                        <Text style={[styles.altOptionMeta, { color: colors.mutedForeground }]}>
+                          {r.count} {r.count === 1 ? "person" : "people"} free{isBest ? " · best match" : ""}
+                        </Text>
+                      </View>
+                      <View style={[styles.altOptionCount, { backgroundColor: isBest ? colors.primary : colors.primary + "22" }]}>
+                        <Text style={[styles.altOptionCountText, { color: isBest ? "#fff" : colors.primary }]}>{r.count}</Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+                    </TouchableOpacity>
+                  );
+                });
               })()}
             </ScrollView>
           </View>
@@ -2578,6 +2990,28 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 14, fontWeight: "700" },
   previewCard: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 16, borderWidth: 1, padding: 15, marginTop: 22 },
   previewText: { flex: 1, fontSize: 15, fontWeight: "700" },
+  wizardSteps: { flexDirection: "row", alignItems: "center", marginTop: 18, marginBottom: 4 },
+  wizardStepItem: { flexDirection: "row", alignItems: "center", gap: 6 },
+  wizardStepDot: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
+  wizardStepNum: { fontSize: 11, fontWeight: "800" },
+  wizardStepLabel: { fontSize: 12, fontWeight: "700" },
+  wizardStepBar: { width: 22, height: 2, borderRadius: 1, marginHorizontal: 8 },
+  wizardHint: { fontSize: 12, fontWeight: "600", marginTop: 8 },
+  wizardNavRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  wizardBackBtn: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 16, borderWidth: 1.5, paddingHorizontal: 16, paddingVertical: 15 },
+  wizardBackText: { fontSize: 15, fontWeight: "800" },
+  selectedSlotChip: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 22, borderWidth: 1.5, paddingHorizontal: 14, paddingVertical: 9 },
+  draftBanner: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 14, borderWidth: 1, padding: 12, marginTop: 14 },
+  draftBannerText: { flex: 1, fontSize: 13, fontWeight: "600" },
+  draftBannerAction: { fontSize: 13, fontWeight: "800" },
+  altOptionRow: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 14, borderWidth: 1, padding: 13, marginBottom: 8 },
+  altOptionName: { fontSize: 14, fontWeight: "700" },
+  altOptionMeta: { fontSize: 12, fontWeight: "600", marginTop: 2 },
+  altOptionCount: { borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 },
+  altOptionCountText: { fontSize: 12, fontWeight: "800" },
+  disabledResultBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 16, borderWidth: 1.5, paddingVertical: 15 },
+  disabledResultText: { fontSize: 14, fontWeight: "700" },
+  followUpRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8 },
   pickerOverlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.6)" },
   pickerSheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24 },
   pickerToolbar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 8, paddingVertical: 12, borderBottomWidth: 1 },
