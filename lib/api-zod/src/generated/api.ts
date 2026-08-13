@@ -90,18 +90,19 @@ export const ExchangeMobileAuthorizationCodeResponse = zod.object({
 
 
 
-
+export const requestUploadUrlBodyIsPublicAccessDefault = false;
 
 export const RequestUploadUrlBody = zod.object({
   "name": zod.string().min(1),
   "size": zod.number().min(1),
-  "contentType": zod.string().min(1)
+  "contentType": zod.string().min(1),
+  "isPublicAccess": zod.boolean().default(requestUploadUrlBodyIsPublicAccessDefault).describe('Request an upload slot in the PUBLIC bucket (profile avatars, which must load in a plain <img> with no auth header). Defaults to false, which issues an auth-gated object path. Only set this for media that is genuinely safe to serve to anonymous callers.')
 })
 
 
 
 
-
+export const requestUploadUrlResponseMetadataIsPublicAccessDefault = false;
 
 export const RequestUploadUrlResponse = zod.object({
   "uploadURL": zod.string().url(),
@@ -109,7 +110,8 @@ export const RequestUploadUrlResponse = zod.object({
   "metadata": zod.object({
   "name": zod.string().min(1),
   "size": zod.number().min(1),
-  "contentType": zod.string().min(1)
+  "contentType": zod.string().min(1),
+  "isPublicAccess": zod.boolean().default(requestUploadUrlResponseMetadataIsPublicAccessDefault).describe('Request an upload slot in the PUBLIC bucket (profile avatars, which must load in a plain <img> with no auth header). Defaults to false, which issues an auth-gated object path. Only set this for media that is genuinely safe to serve to anonymous callers.')
 }).optional()
 })
 

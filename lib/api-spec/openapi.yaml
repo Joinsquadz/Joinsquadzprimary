@@ -298,6 +298,14 @@ components:
         contentType:
           type: string
           minLength: 1
+        isPublicAccess:
+          type: boolean
+          default: false
+          description: >-
+            Request an upload slot in the PUBLIC bucket (profile avatars, which
+            must load in a plain <img> with no auth header). Defaults to false,
+            which issues an auth-gated object path. Only set this for media that
+            is genuinely safe to serve to anonymous callers.
     UploadUrlResponse:
       type: object
       required: [uploadURL, objectPath]

@@ -576,6 +576,25 @@ router.post("/events", requireAuth, async (req: Request, res: Response): Promise
       ...rest
     } = parsed.data;
     const hostId = authUser.id;
+    // A plan may only be attached to a squad the creator is CURRENTLY in. An
+    // unchecked squadId lets a caller drop a plan into a stranger squad's feed,
+    // or strand it against a squad id that does not exist (nobody, including
+    // the creator, can then resolve it). squadName is always taken from the
+    // squad record so the denormalized copy can't be spoofed by the client.
+    if (rest.squadId) {
+      const targetSquad = await storage.getSquad(rest.squadId);
+      if (!targetSquad) {
+        res.status(404).json({ error: "That squad no longer exists." });
+        return;
+      }
+      if (!((targetSquad.memberIds ?? []) as string[]).includes(hostId)) {
+        res.status(403).json({ error: "You can only create plans in a squad you're in." });
+        return;
+      }
+      rest.squadName = targetSquad.name;
+    } else {
+      rest.squadName = "Personal";
+    }
     // Only allow inviting people the host can actually reach: their friends or
     // current members of the squad this is being created in. Anything else is
     // silently dropped (never invite arbitrary user ids).
@@ -907,16 +926,31 @@ router.patch("/events/:id", requireAuth, async (req: Request, res: Response): Pr
     res.status(403).json({ error: "Only the host can change which squad this belongs to." });
     return;
   }
-  // When the host moves the event to a squad, keep the denormalized squadName
-  // in sync (or reset it to "Personal" when cleared).
+  // When the host moves the event to a squad, the target squad must actually
+  // exist AND the host must be a CURRENT member of it. Without this check a
+  // host could attach their event to any squad id (including one they were
+  // removed from, or one that does not exist), which either leaks the plan into
+  // a stranger squad's feed or strands it against a dangling squad id that no
+  // one — including the host — can resolve. The denormalized squadName is
+  // always taken from the squad record, never from the client.
   if (
     fieldsToUpdate.squadId !== undefined &&
     fieldsToUpdate.squadId !== existing.squadId
   ) {
-    const targetSquad = fieldsToUpdate.squadId
-      ? await storage.getSquad(fieldsToUpdate.squadId)
-      : null;
-    (fieldsToUpdate as Record<string, unknown>).squadName = targetSquad?.name ?? "Personal";
+    if (fieldsToUpdate.squadId) {
+      const targetSquad = await storage.getSquad(fieldsToUpdate.squadId);
+      if (!targetSquad) {
+        res.status(404).json({ error: "That squad no longer exists." });
+        return;
+      }
+      if (!((targetSquad.memberIds ?? []) as string[]).includes(userId)) {
+        res.status(403).json({ error: "You can only move this to a squad you're in." });
+        return;
+      }
+      (fieldsToUpdate as Record<string, unknown>).squadName = targetSquad.name;
+    } else {
+      (fieldsToUpdate as Record<string, unknown>).squadName = "Personal";
+    }
   }
   const patch: Record<string, unknown> = {
     ...fieldsToUpdate,
@@ -1490,7 +1524,16 @@ router.patch("/events/:id/tasks/:taskId", requireAuth, async (req: Request, res:
   const existing = await getEventAsMemberForWrite(id, userId, res);
   if (!existing) return;
   const { version: clientVersion, ...taskFields } = parsed.data;
-  const tasks = (existing.tasks as Array<{ id: string; done: boolean; assigneeId: string | null; title: string }>).map(
+  const currentTasks = existing.tasks as Array<{ id: string; done: boolean; assigneeId: string | null; title: string }>;
+  // A taskId that isn't on this event used to fall through the map untouched:
+  // the row was still rewritten and the version bumped, so the client got a 200
+  // plus a bumped version for a task that was never edited (typically one a
+  // collaborator had just deleted). Fail explicitly instead of silently no-op'ing.
+  if (!currentTasks.some((t) => t.id === taskId)) {
+    res.status(404).json({ error: "That to-do no longer exists — refresh to see the latest." });
+    return;
+  }
+  const tasks = currentTasks.map(
     (t) => (t.id === taskId ? { ...t, ...taskFields } : t),
   );
   const updateWhere = clientVersion !== undefined

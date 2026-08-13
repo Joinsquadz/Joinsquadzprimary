@@ -13,4 +13,6 @@ export interface UploadUrlRequest {
   size: number;
   /** @minLength 1 */
   contentType: string;
+  /** Request an upload slot in the PUBLIC bucket (profile avatars, which must load in a plain <img> with no auth header). Defaults to false, which issues an auth-gated object path. Only set this for media that is genuinely safe to serve to anonymous callers. */
+  isPublicAccess?: boolean;
 }

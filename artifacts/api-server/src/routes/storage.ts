@@ -75,7 +75,11 @@ router.post("/storage/uploads/request-url", requireAuth, async (req: Request, re
     // isPublicAccess=true (e.g. profile images) returns the Supabase public URL directly.
     // isPublicAccess=false (default, e.g. vault photos, attachments) returns an
     // auth-gated /objects/supabase/* path served via signed URL redirect.
-    const isPublicAccess = (req.body as Record<string, unknown>).isPublicAccess === true;
+    // Read the flag off the PARSED body, not the raw request: the OpenAPI
+    // contract now declares isPublicAccess, so the Zod schema type-checks it
+    // (a non-boolean is rejected at the 400 above) instead of this route
+    // coercing an untyped value out of req.body.
+    const isPublicAccess = parsed.data.isPublicAccess === true;
     const supabaseUpload = await createStorageUploadUrl(contentType, isPublicAccess);
     if (supabaseUpload) {
       // Bind the new object path to the requester so other features can verify
