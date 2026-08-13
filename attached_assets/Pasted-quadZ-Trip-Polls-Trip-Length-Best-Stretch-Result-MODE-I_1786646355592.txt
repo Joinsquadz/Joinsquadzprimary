@@ -1,0 +1,91 @@
+quadZ — Trip Polls: Trip Length + Best-Stretch Result
+
+MODE: IMPLEMENT — this is not a report-only pass.
+
+The problem
+
+Trip polls currently ask one question — "How many days?" — which sets how wide a window people vote across. But a trip has a second, independent number: how long the trip actually is. A squad polling a 30-day window for a 4-night trip needs to know which 4-day stretch works for everyone, not which individual days people are free.
+
+Today a trip poll collects <date>-All day cells and the result surfaces the single best day. That is the wrong answer shape for a trip. This is a launch blocker.
+
+Two related problems fixed in the same pass:
+
+The wizard doesn't make clear what any of the numbers mean.
+Trip polls are identified by the "All day" sentinel string rather than an explicit type, which the earlier audit flagged as fragile. Since this work touches the schema, fix it now.
+1. Schema
+
+Add to availability_polls:
+
+kind — text, 'event' or 'trip'. Explicit poll type, replacing reliance on the "All day" slot sentinel. Backfill existing rows: 'trip' where slots equal exactly ["All day"], otherwise 'event'.
+trip_length_days — nullable integer. Number of days the trip runs. Null for event polls, and null for legacy trip polls (see item 6).
+
+Critical deployment note: production does not run the Drizzle migrator — schema is established by schemaSync.ts (ensureSchema) at boot. Both columns must be added in both places: a proper migration file and schemaSync.ts with ADD COLUMN IF NOT EXISTS. A migration alone will not reach production. Verify a fresh database still builds from migrations alone using the existing validator.
+
+Keep storing trip availability as <date>-All day cells. Cell identity does not change, so all existing trip responses survive.
+
+2. Wizard: separate the two numbers
+
+Step 2 currently asks one ambiguous question. Split it.
+
+Both poll types — voting window:
+
+Relabel "HOW MANY DAYS?" to make clear it is the range people check their availability across, not the length of anything. Use "How far out should people check?" with helper text along the lines of "Everyone marks which of these days they're free."
+Keep the existing 3/5/7/14/21/30 chips and the resolved range summary.
+
+Trip polls only — trip length:
+
+Add a second control below: "How long is the trip?" with helper text "We'll find the best stretch of days that works for everyone."
+Options: 2, 3, 4, 5, 7 nights, plus a way to enter a custom number.
+Validation: trip length must be at least 2 and must not exceed the voting window. If the user shrinks the window below the trip length, clamp or block with a clear message — do not silently produce an impossible poll.
+
+Step labels: make each wizard step state what it collects. Step 2 for a trip is doing two jobs now, so its heading and step indicator label must reflect that.
+
+3. Best-stretch algorithm
+
+For trip polls, replace best-single-day with best-consecutive-stretch.
+
+Given trip_length_days = N and the poll's day list:
+
+Evaluate every consecutive run of N days within the poll range.
+For each run, count people who are available on every day in that run.
+Rank by that count, descending. Tie-break by earliest start date.
+
+When no one is free for a full stretch (count is zero for every run), do not show nothing and do not silently show a misleading winner. Fall back to ranking by total person-days across the run, and label the result honestly — state how many people are free for the whole stretch versus part of it. The user needs to see that no perfect window exists rather than being handed a false best.
+
+Return the winning stretch as a start and end date plus the count of fully-available people and the eligible-member total.
+
+4. Result display
+
+The trip hero shows the stretch, not a day: the date range, and how many people are free for all of it out of the total.
+
+The primary action creates the trip with both a start and an end date from the winning stretch. Today's conversion carries only a single day — that must now carry the full range.
+
+Item 8 of the previous spec (creator picks a non-best time from the cell-detail sheet) needs a trip equivalent: long-pressing a day should let the creator start a stretch from that day, using the same conversion path. Report how you implemented this.
+
+5. Editing
+
+Changing trip_length_days on an existing poll recomputes the result. Because cell identity is unchanged, no responses are dropped — do not show the destructive trim confirmation for a trip-length change alone.
+
+Shrinking the voting window still trims and still confirms, as today.
+
+6. Backward compatibility
+
+Existing trip polls have no trip_length_days. Treat null as length 1 and preserve exactly today's single-best-day behavior for them. Do not backfill a guessed length. New trip polls always set it.
+
+7. Copy
+
+Trip polls should read in trip language throughout — dates and stretches, not times and slots. Audit the trip path for event-shaped copy and correct it.
+
+Constraints
+Test floor: 1284 API / 515 mobile, all green. List every new or changed test file with a one-line reason.
+Do not change color tokens, typography, or the global theme.
+Do not change cell identity or the <date>-All day storage format — existing responses must survive.
+Do not regress anything from the safety build: no nested modals, unsaved-change guards intact, converted polls terminal, no auto-open, single result action.
+Do not touch the legacy event-poll modal in app/event/[id].tsx.
+Verification
+API and mobile suites vs the 1284 / 515 floor.
+New tests: best-stretch picks the correct run; ties break to the earliest date; zero-full-availability fallback labels honestly; trip length exceeding the window is rejected; legacy null-length trip polls behave as before; existing trip responses survive a length change; conversion carries both start and end dates; kind backfill classifies correctly.
+Fresh database builds from migrations alone (existing validator), and schemaSync adds both columns.
+Typechecks clean across mobile, libs, and API.
+Every file changed, one line each.
+What requires physical-device verification.
