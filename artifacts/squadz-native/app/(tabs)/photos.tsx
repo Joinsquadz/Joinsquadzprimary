@@ -21,6 +21,7 @@ import { useToast } from "@/context/ToastContext";
 import { downloadPhoto } from "@/lib/downloadPhoto";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { useVaultPhotos } from "@/hooks/useVaultPhotos";
+import { upgradeCtaLabel, useSquadzPlusPriceLabel } from "@/lib/squadzPlusPrice";
 
 type LivePhoto = {
   id: number;
@@ -66,6 +67,7 @@ export default function PhotosTab() {
     [onEntitlementInvalidate, loadPhotos],
   );
   const [upgradeVisible, setUpgradeVisible] = useState(false);
+  const upgradePriceLabel = useSquadzPlusPriceLabel();
   const [selected, setSelected] = useState<number | null>(null);
   const [activeFilter, setActiveFilter] = useState("All");
   const [downloadingId, setDownloadingId] = useState<number | "all" | null>(null);
@@ -208,7 +210,7 @@ export default function PhotosTab() {
             style={[styles.upgradeBtn, { backgroundColor: colors.primary }]}
             activeOpacity={0.85}
           >
-            <Text style={styles.upgradeBtnText}>⚡ Upgrade to SquadZ+ — $29.99/year</Text>
+            <Text style={styles.upgradeBtnText}>{upgradeCtaLabel(upgradePriceLabel)}</Text>
           </TouchableOpacity>
 
           <UpgradeModal

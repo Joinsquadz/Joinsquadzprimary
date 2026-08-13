@@ -30,13 +30,14 @@ import { useColors } from "@/hooks/useColors";
 import { useSquadStream } from "@/hooks/useSquadStream";
 import { useAuth, useData } from "@/context/AppContext";
 import { useToast } from "@/context/ToastContext";
-import { UpgradeModal } from "@/components/UpgradeModal";
+import { UpgradeModal, type UpgradeTrigger } from "@/components/UpgradeModal";
 import AttachmentVideo from "@/components/AttachmentVideo";
 import VaultMediaDetail, { type VaultDetailPhoto } from "@/components/VaultMediaDetail";
 import VaultShareComposer, { type VaultShareTarget } from "@/components/VaultShareComposer";
 import { API_BASE, buildAuthHeaders, fetchWithTimeout } from "@/lib/api";
 import { buildSquadVaultSections, type VaultSectionPhoto } from "@/lib/vaultSections";
 import { stripMediaExif } from "@/lib/imageUtils";
+import { upgradeCtaLabel, useSquadzPlusPriceLabel } from "@/lib/squadzPlusPrice";
 import {
   AUTH_RETRY_DELAY_MS,
   MAX_AUTH_RETRIES,
@@ -372,6 +373,12 @@ export default function VaultScreen() {
   }, [isContextual]);
 
   const [upgradeModalVisible, setUpgradeModalVisible] = useState(false);
+  const [upgradeTrigger, setUpgradeTrigger] = useState<UpgradeTrigger>("personal_vault");
+  const upgradePriceLabel = useSquadzPlusPriceLabel();
+  const openUpgrade = useCallback((trigger: UpgradeTrigger) => {
+    setUpgradeTrigger(trigger);
+    setUpgradeModalVisible(true);
+  }, []);
 
   const authHeaders = useCallback((): HeadersInit => {
     return buildAuthHeaders(authToken);
@@ -535,12 +542,12 @@ export default function VaultScreen() {
         return next;
       });
       if ((err as { requiresPro?: boolean }).requiresPro) {
-        setUpgradeModalVisible(true);
+        openUpgrade("personal_vault");
       } else {
         showToast("Couldn't update favorite. Please try again.", { durationMs: 2500 });
       }
     }
-  }, [favoriteIds, authHeaders, showToast]);
+  }, [favoriteIds, authHeaders, showToast, openUpgrade]);
 
   // Which source photos this user already copied into their own vault. Drives
   // the "Saved to your vault" state without an extra request per tile.
@@ -610,7 +617,7 @@ export default function VaultScreen() {
         return next;
       });
       if ((err as { requiresPro?: boolean }).requiresPro) {
-        setUpgradeModalVisible(true);
+        openUpgrade("durable_save");
       } else {
         showToast("Couldn't update your vault. Please try again.", { durationMs: 2500 });
       }
@@ -621,7 +628,7 @@ export default function VaultScreen() {
         return next;
       });
     }
-  }, [savedSourceIds, savingIds, authHeaders, showToast, isContextual, fetchPhotos]);
+  }, [savedSourceIds, savingIds, authHeaders, showToast, isContextual, fetchPhotos, openUpgrade]);
 
   useEffect(() => {
     if (isPro !== null) fetchPhotos();
@@ -900,6 +907,10 @@ export default function VaultScreen() {
 
   const openPicker = useCallback(async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (isPro === false) {
+      openUpgrade("rollup");
+      return;
+    }
     setPickerSelected(new Set());
     setPickerRequiresPro(false);
     setPickerPhotos([]);
@@ -921,7 +932,7 @@ export default function VaultScreen() {
     } finally {
       setPickerLoading(false);
     }
-  }, [authHeaders]);
+  }, [authHeaders, isPro, openUpgrade]);
 
   const togglePick = useCallback((id: number) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -1163,31 +1174,29 @@ export default function VaultScreen() {
   const squadFooter = (
     <View style={{ marginTop: 16 }}>
       <TouchableOpacity
-        style={[styles.uploadBtn, { borderColor: colors.border, marginBottom: 12 }]}
-        activeOpacity={0.7}
+        style={[styles.squadPrimaryAction, { backgroundColor: colors.primary }]}
+        activeOpacity={0.85}
         onPress={handleUploadToSquad}
         disabled={isUploadingSquad}
       >
         {isUploadingSquad ? (
-          <ActivityIndicator color={colors.mutedForeground} />
+          <ActivityIndicator color="#fff" />
         ) : (
-          <Ionicons name="cloud-upload-outline" size={26} color={colors.mutedForeground} />
+          <Ionicons name="cloud-upload-outline" size={20} color="#fff" />
         )}
-        <Text style={[styles.uploadLabel, { color: colors.mutedForeground }]}>
+        <Text style={styles.squadPrimaryActionText}>
           {isUploadingSquad ? "Uploading…" : "Upload to this vault"}
-        </Text>
-        <Text style={[styles.uploadSub, { color: colors.mutedForeground }]}>
-          Add photos or videos straight to the squad vault
         </Text>
       </TouchableOpacity>
 
       <TouchableOpacity
-        style={[styles.rollUpBtn, { backgroundColor: colors.primary }]}
-        activeOpacity={0.85}
+        style={[styles.squadSecondaryAction, { backgroundColor: colors.card, borderColor: colors.border }]}
+        activeOpacity={0.7}
         onPress={openPicker}
       >
-        <Ionicons name="sparkles" size={18} color="#fff" />
-        <Text style={styles.rollUpBtnText}>Roll up your best photos</Text>
+        <Ionicons name="images-outline" size={17} color={colors.mutedForeground} />
+        <Text style={[styles.squadSecondaryActionText, { color: colors.mutedForeground }]}>Roll up from my photos</Text>
+        {isPro === false && <Text style={[styles.rollUpProBadge, { color: colors.gold }]}>⚡</Text>}
       </TouchableOpacity>
     </View>
   );
@@ -1300,8 +1309,8 @@ export default function VaultScreen() {
               ) : (
                 <View style={[styles.emptyState, { borderColor: colors.border }]}>
                   <Text style={styles.emptyIcon}>📸</Text>
-                  <Text style={[styles.emptyTitle, { color: colors.mutedForeground }]}>No photos rolled up yet</Text>
-                  <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>Roll up your best photos to start the squad vault</Text>
+                  <Text style={[styles.emptyTitle, { color: colors.mutedForeground }]}>This vault is empty</Text>
+                  <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>Add the first photo or video from your squad&apos;s plans.</Text>
                 </View>
               )
             }
@@ -1340,8 +1349,8 @@ export default function VaultScreen() {
             ) : (
               <View style={[styles.emptyState, { borderColor: colors.border }]}>
                 <Text style={styles.emptyIcon}>📸</Text>
-                <Text style={[styles.emptyTitle, { color: colors.mutedForeground }]}>No photos rolled up yet</Text>
-                <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>Roll up your best photos to start the squad vault</Text>
+                  <Text style={[styles.emptyTitle, { color: colors.mutedForeground }]}>This vault is empty</Text>
+                  <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>Add the first photo or video from your squad&apos;s plans.</Text>
               </View>
             )
           }
@@ -1361,11 +1370,11 @@ export default function VaultScreen() {
             Your personal vault is a SquadZ+ feature. Upgrade to access all your uploads in one place, save favorites from any squad, and keep your memories forever.
           </Text>
           <TouchableOpacity
-            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setUpgradeModalVisible(true); }}
+            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); openUpgrade("personal_vault"); }}
             style={[styles.upgradeBtn, { backgroundColor: colors.primary, alignSelf: "stretch" }]}
             activeOpacity={0.85}
           >
-            <Text style={styles.upgradeBtnText}>⚡ Upgrade to SquadZ+ — $29.99/year</Text>
+            <Text style={styles.upgradeBtnText}>{upgradeCtaLabel(upgradePriceLabel)}</Text>
           </TouchableOpacity>
         </View>
       ) : (
@@ -1646,7 +1655,7 @@ export default function VaultScreen() {
 
       <UpgradeModal
         visible={upgradeModalVisible}
-        trigger="photos"
+        trigger={upgradeTrigger}
         onClose={() => setUpgradeModalVisible(false)}
         onUpgradeSuccess={() => {
           // Global entitlement is set by UpgradeModal; refetch the vault now that
@@ -1664,7 +1673,7 @@ export default function VaultScreen() {
         favorited={detailPhoto ? favoriteIds.has(detailPhoto.id) : false}
         onClose={() => setSelected(null)}
         onToggleFavorite={(id) => {
-          if (isPro === false) { setUpgradeModalVisible(true); return; }
+          if (isPro === false) { openUpgrade("personal_vault"); return; }
           void toggleFavorite(id);
         }}
         onShare={(p) => setShareTarget({ id: p.id, url: p.url, mediaType: p.mediaType })}
@@ -1686,7 +1695,7 @@ export default function VaultScreen() {
         onToggleSaveToVault={(id) => {
           // The personal vault itself is the SquadZ+ gate, so saving INTO it
           // follows the same rule as opening it.
-          if (isPro === false) { setUpgradeModalVisible(true); return; }
+          if (isPro === false) { openUpgrade("durable_save"); return; }
           void toggleSaveToVault(id);
         }}
       />
@@ -1725,16 +1734,15 @@ export default function VaultScreen() {
               </View>
             ) : pickerRequiresPro ? (
               <View style={styles.modalCenter}>
-                <View style={[styles.proHint, { backgroundColor: colors.gold + "18", borderColor: colors.gold + "40" }]}>
-                  <Text style={styles.proHintIcon}>⚡</Text>
-                  <Text style={[styles.proHintText, { color: colors.gold }]}>Upgrade to SquadZ+ to roll up photos</Text>
-                </View>
+                <Text style={[styles.rollUpPaywallExplanation, { color: colors.mutedForeground }]}>
+                  Roll up your own photos and videos so your squad can enjoy them together.
+                </Text>
                 <TouchableOpacity
-                  onPress={() => { setPickerOpen(false); setUpgradeModalVisible(true); }}
-                  style={[styles.upgradeBtn, { backgroundColor: colors.primary, marginTop: 16 }]}
+                  onPress={() => { setPickerOpen(false); openUpgrade("rollup"); }}
+                  style={[styles.rollUpPaywallCta, { backgroundColor: colors.primary }]}
                   activeOpacity={0.85}
                 >
-                  <Text style={styles.upgradeBtnText}>⚡ Upgrade to SquadZ+ — $29.99/year</Text>
+                  <Text style={styles.upgradeBtnText}>{upgradeCtaLabel(upgradePriceLabel)}</Text>
                 </TouchableOpacity>
               </View>
             ) : pickerPhotos.length > 0 ? (
@@ -2034,21 +2042,32 @@ const styles = StyleSheet.create({
     marginTop: 14,
   },
   removeBtnText: { fontSize: 13, fontWeight: "700", fontFamily: "Inter_700Bold" },
-  rollUpBtn: {
+  squadPrimaryAction: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
     borderRadius: 14,
     padding: 16,
-    marginTop: 8,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.25,
     shadowRadius: 12,
     elevation: 6,
   },
-  rollUpBtnText: { color: "#fff", fontFamily: "Inter_700Bold", fontSize: 15, fontWeight: "800" },
+  squadPrimaryActionText: { color: "#fff", fontFamily: "Inter_700Bold", fontSize: 15, fontWeight: "800" },
+  squadSecondaryAction: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
+    marginTop: 10,
+  },
+  squadSecondaryActionText: { fontFamily: "Inter_600SemiBold", fontSize: 14, fontWeight: "700" },
+  rollUpProBadge: { fontSize: 14, marginLeft: 2 },
   modalOverlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.6)" },
   modalSheet: {
     maxHeight: "85%",
@@ -2065,17 +2084,8 @@ const styles = StyleSheet.create({
   modalCenter: { alignItems: "center", justifyContent: "center", paddingVertical: 60, gap: 6 },
   modalScroll: { paddingBottom: 8 },
   pickOverlay: { ...StyleSheet.absoluteFillObject },
-  proHint: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    borderWidth: 1,
-    borderRadius: 14,
-    padding: 16,
-    marginBottom: 16,
-  },
-  proHintIcon: { fontSize: 18 },
-  proHintText: { flex: 1, fontSize: 14, fontWeight: "700", fontFamily: "Inter_700Bold" },
+  rollUpPaywallExplanation: { fontSize: 14, fontFamily: "Inter_400Regular", lineHeight: 21, textAlign: "center", marginBottom: 16, paddingHorizontal: 12 },
+  rollUpPaywallCta: { borderRadius: 14, paddingHorizontal: 20, paddingVertical: 14, alignItems: "center" },
   shareBar: {
     borderRadius: 14,
     padding: 16,

@@ -1,0 +1,84 @@
+SquadZ — Photo Vault IA: PHASE 2 GO-AHEAD (revised per Phase 1 audit)
+
+MODE: IMPLEMENT — this is not a report-only pass.
+
+Phase 1 audit is approved and it changes the scope substantially. Implement what follows, not the original Phase 2 draft.
+
+Two corrections from the audit:
+
+The personal vault backend already exists. "My Uploads" and "Favorites" are built in app/vault.tsx (no squadId/eventId), Pro-gated, with working endpoints, saved-copy handling, and access control. Do not build a new data model, table, or endpoint set. This item is now: add the entry point.
+There is a server-side entitlement gap on the roll-up endpoint that was not in the original prompt. It is now item 1 and takes priority over the IA work.
+
+No new media pipeline is needed. Reuse the existing picker, EXIF stripping, signed direct-to-storage upload, caching, and detail components throughout.
+
+1. Close the roll-up entitlement gap — P0, do this first
+
+POST /api/squads/:id/vault checks squad membership and photo ownership but performs no Squadz+ entitlement check. The gate today is only that the picker's source list (GET /api/vault/photos with no scope) returns requiresPro: true, so the UI can't populate. An authenticated caller who knows their own photo IDs bypasses it entirely.
+
+Add the server-side entitlement check to POST /api/squads/:id/vault, matching how POST /api/vault/saves is already gated. Free-tier enforcement must not depend on the client failing to render a list.
+
+Add a test asserting a free-tier user with valid membership and valid owned photo IDs is rejected by this endpoint.
+
+Do not gate DELETE /api/squads/:id/vault/:photoId — removing your own media from a squad vault must stay available regardless of tier, or a lapsed subscriber can't retract their own photos.
+
+2. Invert the squad vault hierarchy
+
+In app/vault.tsx when opened with a squadId:
+
+Primary CTA: "Upload to this vault" — full-width, solid, visually dominant. Free for current squad members.
+Secondary: "Roll up from my photos" — smaller, lower emphasis, with a ⚡ badge for non-subscribers. Still opens the paywall for free users.
+Empty state: replace "No photos rolled up yet / Roll up your best photos to start the squad vault" with title "This vault is empty" and subtitle "Add the first photo or video from your squad's plans."
+Leave the All/Photos/Videos filters and Grid/By Events toggle exactly as they are.
+3. Add the profile entry point
+
+Add a "My Photo Vault" row to the first account/settings group in app/profile.tsx (alongside Edit Profile, Friends, Notifications, Privacy, Blocked Users) — not inside the Squadz+ section, so it reads as a feature rather than a billing row.
+
+It opens the existing personal vault (app/vault.tsx with no scope). For free users the row is visible with a ⚡ marker and opens the paywall on tap. Do not hide it — discoverability of the paid feature is the point.
+
+4. Fix the roll-up upsell sheet
+
+Collapse the two stacked upgrade affordances (outlined banner + solid button) into one CTA. Add one line above it explaining what roll-up does, so the sheet isn't mostly empty space above a button.
+
+5. Resolve prices live
+
+Replace these four user-facing hardcoded literals with the resolved active RevenueCat package price via getSquadzPlusPrices():
+
+app/vault.tsx — locked personal vault CTA ($29.99/year)
+app/vault.tsx — roll-up picker upgrade CTA ($29.99/year)
+app/(tabs)/photos.tsx — global gallery upgrade CTA ($29.99/year)
+app/profile.tsx — profile upgrade settings row ($29.99/year)
+
+All four currently show standard pricing while founding spots remain, contradicting the main paywall.
+
+Retain the UpgradeModal fallback constants — those are offline/unavailable-environment labels, not the live path. But the fallback must never display a founding price unless founding availability is confirmed; when pricing can't be resolved, prefer the standard label over an unverifiable discount.
+
+Leave the test fixtures in revenuecat.test.ts and the unrelated 19.99 money value in costSplit.test.ts alone.
+
+Add a test that fails if a user-facing price literal reappears in the mobile source outside UpgradeModal fallbacks and test files.
+
+6. Add paywall context for photo surfaces
+
+UpgradeModal supports squad_limit, photos, events, general. Every photo-vault entrance currently collapses into photos.
+
+Add distinct context for: roll-up, personal vault (My Uploads), and durable saves. Favorites may share the personal-vault context. Do not build a new paywall — extend the existing trigger set and copy.
+
+7. Privacy constraint (hard)
+
+The saved-copy model is already correct per the audit — personal saves carry no squad_id or event_id, and owning a copy does not publish it anywhere. Preserve that. Nothing in this work may cause media to appear in a squad the owner did not explicitly share it to.
+
+Out of scope — report only
+
+app/(tabs)/photos.tsx is a separate legacy global gallery with a different UI from app/vault.tsx and no Photos/Videos or Grid/By Events controls. Do not merge or rewrite it in this pass — only fix its price literal per item 5. Report it as a post-launch consolidation item.
+
+Constraints
+Test floor: 1258 API / 504 mobile, all green. List every new or changed test file with a one-line reason.
+Do not change color tokens, typography, or the global theme.
+Do not remove: media filters, By Events grouping, direct upload, favorites, durable saves, EXIF stripping, the 150 MB limit, SSE refresh, or any media-detail interaction.
+Do not build a new personal-vault table, endpoint, or media pipeline.
+No schema changes should be required. If you believe one is, stop and report before writing a migration.
+Verification
+API and mobile suites vs the 1258 / 504 floor.
+New tests: free-tier user rejected by POST /api/squads/:id/vault with valid membership and owned photo IDs; delete-from-squad-vault still permitted for free tier; price-literal guard; profile row visible and gated correctly for free users.
+Mobile, libs, and API typechecks clean.
+Every file changed, one line each.
+What requires physical-device verification.

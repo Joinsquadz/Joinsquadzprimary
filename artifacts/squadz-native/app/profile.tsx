@@ -22,9 +22,12 @@ import { useAuth, useData } from "@/context/AppContext";
 import { UserAvatar } from "@/components/UserAvatar";
 import { ImageViewerModal } from "@/components/ImageViewerModal";
 import { UpgradeModal } from "@/components/UpgradeModal";
+import type { UpgradeTrigger } from "@/components/UpgradeModal";
 import { router, useLocalSearchParams } from "expo-router";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
+import { profileVaultUpgradeTrigger } from "@/lib/profileVault";
+import { upgradeCtaLabel, useSquadzPlusPriceLabel } from "@/lib/squadzPlusPrice";
 // Shared auth-race guard (see lib/vaultAuthRace.ts). The profile's own on-mount
 // fetch (event count) can 401 during a slow login; keep the events stat loading
 // + retrying rather than briefly showing a misleading value before it restores.
@@ -58,6 +61,8 @@ export default function ProfileScreen() {
   const bannerOpacity = useRef(new Animated.Value(0)).current;
 
   const [upgradeModalVisible, setUpgradeModalVisible] = useState(false);
+  const [upgradeTrigger, setUpgradeTrigger] = useState<UpgradeTrigger>("general");
+  const upgradePriceLabel = useSquadzPlusPriceLabel();
   const [avatarViewerOpen, setAvatarViewerOpen] = useState(false);
   const [showSuccessBanner, setShowSuccessBanner] = useState(didCheckoutSuccess);
   const [eventCount, setEventCount] = useState<number | null>(null);
@@ -88,6 +93,10 @@ export default function ProfileScreen() {
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + 24;
+  const openUpgrade = useCallback((trigger: UpgradeTrigger) => {
+    setUpgradeTrigger(trigger);
+    setUpgradeModalVisible(true);
+  }, []);
 
   const myEvents = events.filter(
     (e) => e.hostId === currentUser.id || e.rsvps[currentUser.id] === "going" || e.rsvps[currentUser.id] === "maybe",
@@ -570,14 +579,14 @@ export default function ProfileScreen() {
           icon: "gift-outline",
           label: "What's included in SquadZ+",
           color: colors.gold,
-          onPress: () => setUpgradeModalVisible(true),
+          onPress: () => openUpgrade("general"),
         },
         {
           icon: "flash",
           label: "Upgrade to SquadZ+",
-          value: "$29.99/year",
+          value: upgradePriceLabel ? `${upgradePriceLabel}/year` : undefined,
           color: colors.gold,
-          onPress: () => setUpgradeModalVisible(true),
+          onPress: () => openUpgrade("general"),
         },
       ];
 
@@ -586,6 +595,18 @@ export default function ProfileScreen() {
   const SETTINGS: SettingItem[][] = [
     [
       { icon: "person-outline", label: "Edit Profile", onPress: () => router.push("/settings/edit-profile" as never) },
+      {
+        icon: "images-outline",
+        label: isPro === false ? "My Photo Vault ⚡" : "My Photo Vault",
+        onPress: () => {
+          const gate = profileVaultUpgradeTrigger(isPro);
+          if (gate) {
+            openUpgrade(gate);
+            return;
+          }
+          router.push("/vault" as never);
+        },
+      },
       { icon: "people-outline", label: "Friends", value: String(friends.length), onPress: () => router.push("/friends" as never) },
       { icon: "notifications-outline", label: "Notifications", onPress: () => router.push("/settings/notifications" as never) },
       { icon: "lock-closed-outline", label: "Privacy", onPress: () => router.push("/settings/privacy" as never) },
@@ -1138,7 +1159,7 @@ export default function ProfileScreen() {
 
       <UpgradeModal
         visible={upgradeModalVisible}
-        trigger="general"
+        trigger={upgradeTrigger}
         onClose={() => setUpgradeModalVisible(false)}
       />
     </View>

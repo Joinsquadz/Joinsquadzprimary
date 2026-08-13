@@ -28,6 +28,9 @@ import { ProAvatar } from "@/components/ProAvatar";
 export type UpgradeTrigger =
   | "squad_limit"
   | "photos"
+  | "rollup"
+  | "personal_vault"
+  | "durable_save"
   | "events"
   | "general";
 
@@ -78,6 +81,18 @@ const TRIGGER_COPY: Record<UpgradeTrigger, { headline: string; sub: string }> = 
   photos: {
     headline: "Keep your memories forever",
     sub: "Your personal vault is a SquadZ+ feature. Save any photo from any squad into your own vault — your copy stays yours even if the original is deleted.",
+  },
+  rollup: {
+    headline: "Roll up your best moments",
+    sub: "Pick photos or videos from your personal vault to add to this squad's shared vault.",
+  },
+  personal_vault: {
+    headline: "Your memories, all in one place",
+    sub: "Your personal vault keeps your uploads and favorites together, private to you.",
+  },
+  durable_save: {
+    headline: "Keep this memory forever",
+    sub: "Save an independent personal copy that stays yours even if the original is deleted.",
   },
   events: {
     headline: "Plan without limits",

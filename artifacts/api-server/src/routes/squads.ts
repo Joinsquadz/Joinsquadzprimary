@@ -23,7 +23,7 @@ import { logger } from "../lib/logger";
 import { sendPushNotifications } from "../lib/pushNotifications";
 import { emitSquadUpdate, onSquadUpdate } from "../lib/squadEvents";
 import { recordActivitySafe } from "../lib/activity";
-import { resolveProStatusForIds } from "../lib/proStatus";
+import { resolveProStatus, resolveProStatusForIds } from "../lib/proStatus";
 import { FREE_SQUAD_LIMIT, countSquadSlotsUsed, withSquadLimit } from "../lib/squadLimit";
 
 function generateInviteCode(): string {
@@ -966,6 +966,21 @@ router.post("/squads/:id/vault", requireAuth, async (req: Request, res: Response
     }
     if (!isMember) {
       res.status(403).json({ error: "Access denied" });
+      return;
+    }
+    // Rolling a personal upload into the shared squad vault is a SquadZ+
+    // feature. The picker is gated in the app, but callers can submit owned
+    // photo ids directly, so the entitlement must be enforced at this boundary.
+    // Direct uploads to the squad vault remain free in POST /vault/photos, and
+    // DELETE below deliberately stays ungated so lapsed members can retract
+    // their own shared media.
+    const user = await storage.getUser(userId);
+    if (!user || !(await resolveProStatus(user))) {
+      res.status(403).json({
+        error: "SquadZ+ is required to roll up photos.",
+        code: "PRO_REQUIRED",
+        requiresPro: true,
+      });
       return;
     }
     const parsed = ShareToVaultBody.safeParse(req.body);

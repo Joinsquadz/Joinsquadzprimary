@@ -53,7 +53,13 @@ beforeEach(() => {
   storageMock.setPhotosSharedToSquad.mockResolvedValue([{ id: 1 }, { id: 2 }]);
   storageMock.filterUnmutedForSquad.mockImplementation(async (ids: string[]) => ids);
   storageMock.getPushTokensForUsers.mockResolvedValue(["ExponentPushToken[a]"]);
-  storageMock.getUser.mockResolvedValue({ id: SHARER, firstName: "Sam", lastName: null, email: "sam@x.io" });
+  storageMock.getUser.mockResolvedValue({
+    id: SHARER,
+    firstName: "Sam",
+    lastName: null,
+    email: "sam@x.io",
+    isSquadzPlus: true,
+  });
   storageMock.clearPushToken.mockResolvedValue(undefined);
   sendPushNotificationsMock.mockResolvedValue({ staleTokens: [] });
 });
