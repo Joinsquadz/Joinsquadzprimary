@@ -1,0 +1,94 @@
+SquadZ — "Find the Best Time" Poll Flow Rework (Audit → Fix)
+Problems observed on device (TestFlight, iOS build 3)
+
+The availability poll feature works mechanically but the flow around it is broken in several places. Observed:
+
+Poll is not editable after creation. Once created, there is no way to change the title, the date range, the number of days, or the selected time slots. The organizer's only options are to live with it or delete the poll and start over.
+Back button exits without a way back in. Pressing back from the poll returns to the squad screen. There is no clear, persistent entry point to re-open an existing active poll — the squad screen shows a "Find the Best Time" banner and a separate "Start a new poll" link, and it is ambiguous which one resumes the existing poll versus starts a new one.
+"Set a different time" is broken. On the poll results screen, tapping "Set a different time" navigates to the blank New Event creation screen instead of letting the organizer pick a different time slot from the poll and create the event at that time. The poll context is lost entirely.
+Creation form is a single long scroll. Poll title, start date, day-count chips, and a four-group time-slot picker are all stacked on one screen. The time-slot picker swaps its contents when you change group (Night / Morning / Afternoon / Evening), so selections made in one group are invisible once you switch to another — the only feedback that they still exist is the "N selected" counter. Users cannot see what they have actually chosen.
+Duplicated pending-member UI. The poll screen renders the same pending member twice: once under "1 still pending / Tap Nudge to remind pending members" with a Nudge button, and again under a "STILL NEEDS TO UPDATE" card with a second Nudge button. Two components, same person, two buttons.
+"Saved" button state is wrong. A disabled button labeled "Saved" sits pinned at the bottom of the poll screen even when the user has made no changes and nothing has been saved. It reads as a status that isn't true.
+Inconsistent bottom actions. Before responses exist the bottom action is "Skip poll — create event now"; after responses it becomes "Create event at best time" / "Set a different time." Two different action sets in the same position with no explanation of the transition.
+Grid header clips under the nav bar when scrolled (the "Wed Aug 12 – Sun Aug 16" range label slides under the header).
+PHASE 1 — AUDIT ONLY. REPORT. NO CODE CHANGES.
+
+Do not modify, create, or delete any file in this phase. Produce a written report only.
+
+Inventory and report:
+
+Every screen and component in the poll feature. Creation form, grid/response screen, results state, nudge components, entry points from the squad screen, and entry points from the New Event screen ("Find the best time with your squad"). File paths for each.
+Poll data model and endpoints. Full schema for the poll, its date range, its time slots, and individual member responses. Every API endpoint that touches polls, with method, path, auth rule, and what it mutates. State explicitly whether any update endpoint exists for a poll after creation, or whether creation is the only write path.
+Response storage shape. How an individual member's availability is stored relative to the poll's slots — by absolute timestamp, by slot ID, by index into the poll's slot array, or otherwise. This determines what happens to existing responses if the range or slots change, so be precise and cite the actual schema.
+"Set a different time" handler. Trace exactly what it calls and where it navigates. Report why the poll context is dropped.
+Navigation graph. How a user reaches the poll, what back does from each poll screen, and whether an active poll is discoverable from anywhere other than the squad screen banner. Report whether more than one active poll per squad is possible today.
+Pending/nudge components. Identify both components rendering pending members, where each is used, and whether the nudge cooldown logic is shared or duplicated between them. Note: reminder cooldown race conditions were previously fixed — report whether both surfaces route through that same fixed path.
+Draft persistence. Whether any in-progress poll creation state survives backgrounding or navigating away.
+Pre-existing systems check. Report any existing multi-step/wizard component, form-state manager, or draft-persistence utility already in the codebase, so the rework reuses it rather than inventing a parallel one.
+
+Stop after Phase 1 and output the report. Wait for approval before Phase 2.
+
+PHASE 2 — IMPLEMENTATION (only after Phase 1 is approved)
+
+These decisions are locked. Do not ask for alternatives.
+
+A. Creation becomes a 3-step wizard
+
+Replace the single long form with three steps, a step indicator, and working back navigation between steps.
+
+Step 1 — Name it. Poll title (optional, with the existing placeholder). Continue is always enabled since the title is optional.
+Step 2 — Pick the date range. Start date + day-count chips. Show the resolved range summary ("Wed Aug 12 – Tue Aug 18") live on this step.
+Step 3 — Pick the time slots. Group tabs stay, but selected slots from all groups must remain visible — render a persistent summary row or chip list of every currently selected slot regardless of which group tab is open, with tap-to-remove. The bare "N selected" counter is not sufficient feedback.
+Final action: "Create poll" on step 3, with a compact review line summarizing title, range, and slot count.
+Back from step 1 exits the wizard; back from steps 2 and 3 goes to the previous step.
+B. Drafts persist
+
+In-progress wizard state survives backgrounding and navigating away. Returning to poll creation restores the draft. Creating the poll or explicitly discarding clears it.
+
+C. Polls become editable
+Add an update path (endpoint + organizer-only UI) to change title, start date, day count, and time slots after creation.
+Only the poll creator can edit. Non-organizers see the poll read-only.
+Editing reuses the same wizard, prefilled.
+Response-preservation rules (locked):
+Expanding the range or adding slots: all existing responses are preserved.
+Shrinking the range or removing slots: responses falling outside the new bounds are dropped. Before saving, show an explicit confirmation stating how many responses will be lost and from how many people. No silent data loss.
+Responses must be reconciled by stable slot identity (absolute date + time), never by array index. If Phase 1 finds responses stored by index, migrate to stable identity as part of this work and say so explicitly.
+D. Fix "Set a different time"
+
+It must open a slot picker within the poll context, listing the poll's own slots with their response counts, letting the organizer choose any slot and create the event at that time. It must never navigate to the blank New Event screen. Keep a separate, clearly labeled escape hatch for creating an event outside the poll's slots.
+
+E. Fix entry points and resumability
+If a squad has an active poll, the squad screen's primary poll affordance resumes it and shows live status (e.g. responses received out of members).
+"Start a new poll" becomes secondary. If an active poll already exists, tapping it requires confirmation that clearly states the existing poll remains untouched.
+Same rule for the "Find the best time with your squad" entry on the New Event screen: if an active poll exists for the selected squad, resume it rather than starting a fresh one.
+F. Collapse duplicated pending UI
+
+One pending-members component. One Nudge button per person. Both current surfaces must route through the existing nudge cooldown logic — do not create a second cooldown path.
+
+G. Fix the save button state machine
+
+Three states, correctly reflecting reality: disabled "Save your times" when no unsaved changes exist; enabled "Save" when the user has changed their availability; transient "Saved ✓" confirmation after a successful write, then back to the disabled resting state. Never show "Saved" when nothing has been saved.
+
+H. Minor fixes
+Pin or offset the grid range header so it does not clip under the nav bar on scroll.
+Keep the bottom action consistent in position; when the poll has zero responses, show the results action in a disabled state with a short explanation rather than swapping in a different action.
+I. Privacy constraint (hard)
+
+Poll contents, responses, and pending-member lists remain visible only to members of the owning squad. Nothing about a poll may surface in another squad or to non-members, including via the invite link surface.
+
+Constraints
+Do not break existing tests. Baseline is 972 API tests and 351 mobile tests, all green. All must still pass. List any new or changed test files explicitly with a one-line reason each.
+Do not change the app's color tokens, typography, or global theme. This is a flow and state-correctness rework.
+Do not remove the poll grid, the day/slot pagination, the nudge feature, the invite-link surface, or the .ics/calendar export affordances in the poll header.
+Do not refactor unrelated screens. Do not upgrade dependencies.
+If the poll update path requires schema changes, write a proper migration and report it separately — do not mutate existing production rows without stating exactly what changes.
+Post-build verification sequence
+
+Report results for each:
+
+Full API test suite — report pass count vs 972 baseline.
+Full mobile test suite — report pass count vs 351 baseline.
+New tests: wizard step navigation and draft restore; organizer-only edit authorization; response preservation on range expansion; response drop + confirmation on range shrink; slot reconciliation by stable identity across an edit; "Set a different time" creates an event at the chosen poll slot; save-button state machine transitions.
+Type check and lint clean.
+List every file changed with a one-line reason.
+State explicitly what requires physical-device verification.
