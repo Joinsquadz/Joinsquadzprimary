@@ -54,6 +54,7 @@
 - [vitest v4 strict named-import throws](vitest-v4-strict-named-import.md) — vi.mock factory missing a named export throws at runtime (not load-time); wrap binding access in try-catch in library code that must degrade silently.
 - [Engagement scanner timing](engagement-scanner-timing.md) — event reminder/recap scanners must read events.eventAt (via eventStartFor), not parse year-less date; parser rolls >48h-past forward a year → retirement unreachable.
 - [Availability poll caps](availability-poll-caps.md) — mobile DAY_COUNT_OPTIONS must match server days cap (BOTH Create+Update schemas) and cells cap (=maxDays×48); grid is windowed (DAY_WINDOW) with arrow pager, not all-on-screen.
+- [Trip poll best stretch](trip-poll-stretch.md) — polls carry explicit `kind` + trip length; trips rank consecutive RUNS (full-run count, earliest tie), flag partial, legacy stays single-day.
 - [Availability live updates](availability-live-updates.md) — poll SSE stream reuses GET-poll authz; any refresh MUST branch pollId→/:id vs squad/event→/find or invite-link screens silently never refresh; keep 20s poll fallback.
 - [SSE needs expo/fetch on native](sse-expo-fetch.md) — RN built-in fetch has null response.body → getReader SSE never connects on device (stuck "reconnecting"); use `import {fetch} from "expo/fetch"`; tests must mock expo/fetch too.
 - [Squadz activation UX](squadz-activation-ux.md) — onboarding has NO paywall (value before payment); invite-crew is the climax; Find-the-Best-Time stays prominent; no fake social proof.

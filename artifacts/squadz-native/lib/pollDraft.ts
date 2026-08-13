@@ -29,6 +29,14 @@ export type PollDraft = {
   period: string;
   /** Wizard step index the user was on. */
   step: number;
+  /**
+   * Trip polls only: how many days the trip runs (step 3 for trips).
+   *
+   * Optional on purpose — drafts written before trip length existed must still
+   * restore rather than being thrown away as malformed, and event drafts never
+   * carry one.
+   */
+  tripLengthDays?: number;
 };
 
 type StoredDraft = PollDraft & { savedAt: number };
@@ -63,6 +71,11 @@ function isValidDraft(v: Partial<StoredDraft> | null | undefined): v is StoredDr
     typeof v.step === "number" &&
     Number.isFinite(v.step) &&
     v.step >= 0 &&
+    // Absent is valid (older drafts / event polls); present must be sane.
+    (v.tripLengthDays === undefined ||
+      (typeof v.tripLengthDays === "number" &&
+        Number.isInteger(v.tripLengthDays) &&
+        v.tripLengthDays > 0)) &&
     typeof v.savedAt === "number"
   );
 }
@@ -102,10 +115,20 @@ export async function clearPollDraft(scopeKey: string): Promise<void> {
 }
 
 /** True when a restored draft actually differs from a fresh form (worth telling the user about). */
-export function draftHasContent(draft: PollDraft, defaults: { rangeDays: number; slots: string[] }): boolean {
+export function draftHasContent(
+  draft: PollDraft,
+  defaults: { rangeDays: number; slots: string[]; tripLengthDays?: number },
+): boolean {
   if (draft.title.trim().length > 0) return true;
   if (draft.rangeDays !== defaults.rangeDays) return true;
   if (draft.step > 0) return true;
+  if (
+    draft.tripLengthDays !== undefined &&
+    defaults.tripLengthDays !== undefined &&
+    draft.tripLengthDays !== defaults.tripLengthDays
+  ) {
+    return true;
+  }
   const a = [...draft.slots].sort();
   const b = [...defaults.slots].sort();
   return a.length !== b.length || a.some((s, i) => s !== b[i]);

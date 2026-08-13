@@ -2,9 +2,11 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { z } from "zod";
 import { requireAuth } from "../middleware/currentUser";
 import { storage } from "../storage";
+import { DEFAULT_POLL_DAY_COUNT } from "../lib/pollDefaults";
 import { logger } from "../lib/logger";
 import { sendPushNotifications } from "../lib/pushNotifications";
 import { emitPollUpdate, onPollUpdate } from "../lib/availabilityEvents";
+import { bestTripStretch } from "../lib/tripStretch";
 import type { AvailabilityPoll } from "@workspace/db/schema";
 
 type MemberInfo = {
@@ -224,6 +226,12 @@ const CreatePollBody = z
     title: z.string().trim().min(1).max(120).optional(),
     days: z.array(z.string().max(20)).max(31).optional(),
     slots: z.array(z.string().max(20)).max(48).optional(),
+    // Explicit poll type. Defaults to "event" so every existing client keeps
+    // creating event polls without change.
+    kind: z.enum(["event", "trip"]).optional(),
+    // How long the TRIP runs, independent of the voting window. Only meaningful
+    // for kind === "trip"; the refinement below rejects it elsewhere.
+    tripLengthDays: z.number().int().min(2).max(31).optional(),
     // When true, always create a brand-new poll instead of reusing the latest
     // poll for this scope (T12 — "Find a time" starts fresh each time).
     forceNew: z.boolean().optional(),
@@ -242,6 +250,26 @@ const CreatePollBody = z
     {
       message: "A poll must be scoped to a squad, an event, or a set of participants",
     },
+  )
+  // A trip length only means something on a trip poll. Silently ignoring it on
+  // an event poll would store a number nothing reads and nothing shows.
+  .refine((d) => d.tripLengthDays === undefined || d.kind === "trip", {
+    message: "tripLengthDays is only valid for a trip poll",
+  })
+  // The trip cannot be longer than the window people vote across — there would
+  // be no stretch to rank. Reject rather than clamp: the poll the organizer
+  // asked for is impossible, and quietly shortening their trip is worse than
+  // saying so.
+  //
+  // Omitting `days` does NOT skip this check. Storage fills an unspecified
+  // window with a default range, so the poll still ends up with a concrete
+  // window — validating only when days were sent let a caller create a 31-day
+  // trip on the default window, which has no rankable stretch at all.
+  .refine(
+    (d) =>
+      d.tripLengthDays === undefined ||
+      d.tripLengthDays <= (d.days?.length ?? DEFAULT_POLL_DAY_COUNT),
+    { message: "The trip can't be longer than the dates people are voting on" },
   );
 
 const FindPollQuery = z
@@ -262,16 +290,37 @@ const UpdatePollBody = z
     title: z.string().trim().max(120).optional(),
     days: z.array(z.string().max(20)).min(1).max(31).optional(),
     slots: z.array(z.string().max(20)).min(1).max(48).optional(),
+    // Trip length can be changed on its own. Doing so only re-ranks stretches —
+    // cell identity is untouched, so nobody's answers are dropped.
+    tripLengthDays: z.number().int().min(2).max(31).optional(),
   })
-  .refine((d) => d.title !== undefined || d.days || d.slots, {
-    message: "At least one of title, days, or slots must be provided",
-  });
+  .refine(
+    (d) => d.title !== undefined || d.days || d.slots || d.tripLengthDays !== undefined,
+    { message: "At least one of title, days, slots, or tripLengthDays must be provided" },
+  )
+  .refine(
+    (d) =>
+      d.tripLengthDays === undefined || !d.days || d.tripLengthDays <= d.days.length,
+    { message: "The trip can't be longer than the dates people are voting on" },
+  );
 
 const NudgeBody = z.object({
   targetUserId: z.string().min(1),
 });
 
 type AggregatedCell = { cell: string; count: number };
+
+/**
+ * Trip polls resolve to a consecutive STRETCH of days, not one cell — but only
+ * when they know how long the trip is. Legacy trip polls predate
+ * `trip_length_days` and were never asked, so they are deliberately left on the
+ * original single-best-day path rather than being given a guessed length.
+ */
+function tripLengthFor(poll: AvailabilityPoll): number | null {
+  if (poll.kind !== "trip") return null;
+  const n = poll.tripLengthDays;
+  return typeof n === "number" && n >= 2 ? n : null;
+}
 
 function buildPollPayload(
   poll: AvailabilityPoll,
@@ -319,6 +368,19 @@ function buildPollPayload(
 
   const myResponse = responses.find((r) => r.userId === userId);
 
+  // A trip poll that knows its length answers with a consecutive run of days.
+  // `best` (the single-cell answer) stays populated alongside it so legacy
+  // clients, and the trip poll's own grid interactions, keep working.
+  const tripLength = tripLengthFor(poll);
+  const bestStretch =
+    tripLength !== null
+      ? bestTripStretch({
+          days: poll.days as string[],
+          lengthDays: tripLength,
+          responses: responses.map((r) => ({ userId: r.userId, cells: r.cells })),
+        })
+      : null;
+
   return {
     poll: {
       id: poll.id,
@@ -328,6 +390,8 @@ function buildPollPayload(
       title: poll.title,
       days: poll.days,
       slots: poll.slots,
+      kind: poll.kind ?? "event",
+      tripLengthDays: poll.tripLengthDays ?? null,
       updatedAt: poll.updatedAt?.toISOString() ?? null,
       updatedBy: poll.updatedBy ?? null,
       updatedByName: updatedByName ?? null,
@@ -342,6 +406,7 @@ function buildPollPayload(
       bestCell && bestCount > 0
         ? { cell: bestCell, count: bestCount, total: respondentCount }
         : null,
+    bestStretch,
   };
 }
 
@@ -396,7 +461,8 @@ router.post("/availability/polls", requireAuth, async (req: Request, res: Respon
       res.status(400).json({ error: parsed.error.message });
       return;
     }
-    const { squadId, eventId, participantIds, title, days, slots, forceNew } = parsed.data;
+    const { squadId, eventId, participantIds, title, days, slots, kind, tripLengthDays, forceNew } =
+      parsed.data;
 
     // Access checks before creating.
     if (eventId) {
@@ -445,6 +511,10 @@ router.post("/availability/polls", requireAuth, async (req: Request, res: Respon
         title,
         days,
         slots,
+        kind,
+        // Only a trip poll carries a length; an event poll must stay NULL so
+        // nothing downstream mistakes it for a stretch poll.
+        tripLengthDays: kind === "trip" ? tripLengthDays ?? null : null,
       }));
 
     const responses = await storage.getAvailabilityResponses(poll.id);
@@ -843,6 +913,34 @@ router.patch("/availability/polls/:id", requireAuth, async (req: Request, res: R
     // Snapshot the current range before updating so we can detect a real change.
     const prevDays = poll.days as string[];
     const prevSlots = poll.slots as string[];
+
+    // Trip-length invariants can only be checked here: the schema sees the
+    // request body alone, but each field can be omitted and still change the
+    // outcome. Validate the state the poll will actually be IN after the patch,
+    // not the fields the caller happened to send.
+    if (parsed.data.tripLengthDays !== undefined && poll.kind !== "trip") {
+      res.status(400).json({ error: "tripLengthDays is only valid for a trip poll" });
+      return;
+    }
+    if (poll.kind === "trip") {
+      // Either side of the comparison can be the one that moved: a
+      // duration-only patch keeps the current days, and a days-only patch
+      // keeps the current length. Checking only when a length was SENT let a
+      // caller shrink a 5-day window to 2 days under a 5-day trip — the update
+      // succeeds and the poll is left with no rankable stretch, which is the
+      // exact silent no-result state this guard exists to prevent.
+      //
+      // A legacy trip has no recorded length (NULL) and is deliberately exempt:
+      // there is nothing to outgrow, and it keeps its single-best-day result.
+      const effectiveLength = parsed.data.tripLengthDays ?? poll.tripLengthDays;
+      const effectiveDays = parsed.data.days ?? prevDays;
+      if (effectiveLength != null && effectiveLength > effectiveDays.length) {
+        res.status(400).json({
+          error: "The trip can't be longer than the dates people are voting on",
+        });
+        return;
+      }
+    }
 
     const updatedPoll = await storage.updateAvailabilityPoll(poll.id, parsed.data, userId);
     const responses = await storage.getAvailabilityResponses(updatedPoll.id);

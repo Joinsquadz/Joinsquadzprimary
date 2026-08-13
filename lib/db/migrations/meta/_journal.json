@@ -57,6 +57,13 @@
       "when": 1786560000000,
       "tag": "0007_repair_schema_drift",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1786646692662,
+      "tag": "0008_harsh_risque",
+      "breakpoints": true
     }
   ]
 }

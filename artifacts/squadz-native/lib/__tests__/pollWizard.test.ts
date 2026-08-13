@@ -27,12 +27,22 @@ import {
   followUpStateLabel,
   rankPollCells,
   pollStatusLabel,
+  pollResultKind,
+  shouldNudgePollWinner,
+  editRangeSnapshot,
+  editRangeDirty,
+  editChangesGrid,
+  initialEditTripLength,
+  editTripLengthPatchValue,
 } from "../pollWizard";
 
 describe("wizard step navigation", () => {
-  it("uses three steps for event polls and two for trips", () => {
+  // Both flows are three steps; only the third differs. A trip's third step is
+  // its LENGTH — the span of the trip itself, which is a separate question from
+  // the voting window picked on the dates step.
+  it("uses three steps for both, ending in times for events and length for trips", () => {
     expect(pollWizardSteps(false).map((s) => s.id)).toEqual(["name", "dates", "times"]);
-    expect(pollWizardSteps(true).map((s) => s.id)).toEqual(["name", "dates"]);
+    expect(pollWizardSteps(true).map((s) => s.id)).toEqual(["name", "dates", "length"]);
   });
 
   it("advances forward and back without leaving the range", () => {
@@ -44,14 +54,16 @@ describe("wizard step navigation", () => {
     expect(prevWizardStep(0)).toBe(0);
   });
 
-  it("treats the times step as last for events and dates as last for trips", () => {
+  it("treats the third step as last for both events and trips", () => {
     expect(isLastWizardStep(1, false)).toBe(false);
     expect(isLastWizardStep(2, false)).toBe(true);
-    expect(isLastWizardStep(1, true)).toBe(true);
+    expect(isLastWizardStep(1, true)).toBe(false);
+    expect(isLastWizardStep(2, true)).toBe(true);
   });
 
-  it("clamps a trip's next step to the dates step (no times step exists)", () => {
-    expect(nextWizardStep(1, true)).toBe(1);
+  it("advances a trip from dates into the length step", () => {
+    expect(nextWizardStep(1, true)).toBe(2);
+    expect(nextWizardStep(2, true)).toBe(2);
   });
 
   it("exits the flow only from the first step", () => {
@@ -314,5 +326,166 @@ describe("poll entry points", () => {
     expect(pollStatusLabel({ respondentCount: 2, memberCount: 5 })).toBe("2 of 5 responded");
     expect(pollStatusLabel({ respondentCount: 1, memberCount: 0 })).toBe("1 response");
     expect(pollStatusLabel({ respondentCount: 3, memberCount: 0 })).toBe("3 responses");
+  });
+});
+
+describe("which result a poll board may show", () => {
+  // The trap: the server keeps sending the single-cell `best` on trip polls for
+  // backwards compatibility, so a naive `bestStretch ?? best` announces ONE DAY
+  // as the winner of a multi-day trip.
+  it("shows the stretch whenever there is one", () => {
+    expect(pollResultKind({ hasStretch: true, hasBest: true, tripLengthDays: 3 })).toBe("stretch");
+    expect(pollResultKind({ hasStretch: true, hasBest: false, tripLengthDays: 3 })).toBe("stretch");
+  });
+
+  it("shows NOTHING rather than a single day when a length-aware trip has no stretch", () => {
+    expect(pollResultKind({ hasStretch: false, hasBest: true, tripLengthDays: 3 })).toBe("none");
+  });
+
+  it("still shows the single cell for event polls", () => {
+    expect(pollResultKind({ hasStretch: false, hasBest: true, tripLengthDays: null })).toBe("cell");
+  });
+
+  it("still shows the single cell for legacy trips with no recorded length", () => {
+    // These polls never chose a length, so their original single-best-day
+    // answer is the only honest one available.
+    expect(pollResultKind({ hasStretch: false, hasBest: true, tripLengthDays: null })).toBe("cell");
+  });
+
+  it("shows nothing when there is no result at all", () => {
+    expect(pollResultKind({ hasStretch: false, hasBest: false, tripLengthDays: 3 })).toBe("none");
+    expect(pollResultKind({ hasStretch: false, hasBest: false, tripLengthDays: null })).toBe("none");
+  });
+});
+
+describe("winner nudge honesty", () => {
+  const stretch = (count: number, partial: boolean) => ({ count, partial });
+
+  it("nudges a trip only for a complete stretch that works for 2+", () => {
+    expect(
+      shouldNudgePollWinner({ isCreator: true, tripLengthDays: 3, stretch: stretch(2, false), best: null }),
+    ).toBe(true);
+  });
+
+  it("never nudges on a partial stretch", () => {
+    // "You've got a winner!" for dates nobody can fully make is the exact
+    // dishonesty the partial flag exists to prevent.
+    expect(
+      shouldNudgePollWinner({ isCreator: true, tripLengthDays: 3, stretch: stretch(0, true), best: { count: 5 } }),
+    ).toBe(false);
+  });
+
+  it("never falls back to the single-cell best on a length-aware trip", () => {
+    expect(
+      shouldNudgePollWinner({ isCreator: true, tripLengthDays: 3, stretch: null, best: { count: 4 } }),
+    ).toBe(false);
+  });
+
+  it("does not nudge when only one person is free for the run", () => {
+    expect(
+      shouldNudgePollWinner({ isCreator: true, tripLengthDays: 3, stretch: stretch(1, false), best: null }),
+    ).toBe(false);
+  });
+
+  it("keeps the single-cell nudge for event and legacy-trip polls", () => {
+    expect(
+      shouldNudgePollWinner({ isCreator: true, tripLengthDays: null, stretch: null, best: { count: 2 } }),
+    ).toBe(true);
+    expect(
+      shouldNudgePollWinner({ isCreator: true, tripLengthDays: null, stretch: null, best: { count: 1 } }),
+    ).toBe(false);
+  });
+
+  it("never nudges a non-creator", () => {
+    expect(
+      shouldNudgePollWinner({ isCreator: false, tripLengthDays: 3, stretch: stretch(5, false), best: null }),
+    ).toBe(false);
+    expect(
+      shouldNudgePollWinner({ isCreator: false, tripLengthDays: null, stretch: null, best: { count: 5 } }),
+    ).toBe(false);
+  });
+});
+
+describe("editing a LEGACY trip poll (no stored length)", () => {
+  // A legacy trip has tripLengthDays === null and must keep its original
+  // single-best-day behavior. Opening the editor must not invent a length:
+  // seeding the control with the default made an untouched sheet report dirty,
+  // warn "unsaved changes" on Cancel, and PATCH a duration on Save — silently
+  // converting the poll to stretch-ranking the host never asked for.
+  const LEGACY_DAYS = 10;
+
+  const openSheet = (loadedTripLength: number | null) => {
+    const editTripLength = initialEditTripLength(loadedTripLength, LEGACY_DAYS);
+    const baseline = editRangeSnapshot({
+      startISO: "2026-03-01",
+      days: LEGACY_DAYS,
+      slots: ["All day"],
+      title: "Ski trip",
+      tripLengthDays: loadedTripLength,
+    });
+    return { editTripLength, baseline };
+  };
+
+  const snapshotOf = (editTripLength: number | null) =>
+    editRangeSnapshot({
+      startISO: "2026-03-01",
+      days: LEGACY_DAYS,
+      slots: ["All day"],
+      title: "Ski trip",
+      tripLengthDays: editTripLength,
+    });
+
+  it("opens with NO length selected instead of defaulting to one", () => {
+    expect(openSheet(null).editTripLength).toBeNull();
+  });
+
+  it("is not dirty when the host opens the sheet and changes nothing", () => {
+    const { editTripLength, baseline } = openSheet(null);
+    // This is the Cancel path: an untouched sheet must not warn about
+    // discarding changes the host never made.
+    expect(editRangeDirty(snapshotOf(editTripLength), baseline)).toBe(false);
+    expect(editChangesGrid(snapshotOf(editTripLength), baseline)).toBe(false);
+  });
+
+  it("omits tripLengthDays from the PATCH so the poll stays length-less", () => {
+    const { editTripLength } = openSheet(null);
+    expect(
+      editTripLengthPatchValue({ isTrip: true, editTripLength, editDays: LEGACY_DAYS }),
+    ).toBeUndefined();
+  });
+
+  it("sends a length only once the host deliberately picks one", () => {
+    const { editTripLength, baseline } = openSheet(null);
+    expect(editTripLength).toBeNull();
+    // Host taps the "4 days" chip.
+    const chosen = 4;
+    expect(editRangeDirty(snapshotOf(chosen), baseline)).toBe(true);
+    // Giving a legacy trip a length re-ranks it; it does not touch the grid, so
+    // it must not trigger the destructive answer-loss confirmation.
+    expect(editChangesGrid(snapshotOf(chosen), baseline)).toBe(false);
+    expect(
+      editTripLengthPatchValue({ isTrip: true, editTripLength: chosen, editDays: LEGACY_DAYS }),
+    ).toBe(chosen);
+  });
+
+  it("still round-trips a length-aware trip untouched", () => {
+    const { editTripLength, baseline } = openSheet(3);
+    expect(editTripLength).toBe(3);
+    expect(editRangeDirty(snapshotOf(editTripLength), baseline)).toBe(false);
+    expect(
+      editTripLengthPatchValue({ isTrip: true, editTripLength, editDays: LEGACY_DAYS }),
+    ).toBe(3);
+  });
+
+  it("clamps a stored length that no longer fits a shrunken window", () => {
+    expect(initialEditTripLength(10, 4)).toBe(4);
+    // …but a length-less trip stays length-less no matter the window.
+    expect(initialEditTripLength(null, 4)).toBeNull();
+  });
+
+  it("never sends a length for an event poll", () => {
+    expect(
+      editTripLengthPatchValue({ isTrip: false, editTripLength: 5, editDays: LEGACY_DAYS }),
+    ).toBeUndefined();
   });
 });

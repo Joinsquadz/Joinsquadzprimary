@@ -60,6 +60,17 @@ import {
   wizardHasInput,
   editRangeSnapshot,
   editRangeDirty,
+  editChangesGrid,
+  DEFAULT_TRIP_LENGTH_DAYS,
+  MIN_TRIP_LENGTH_DAYS,
+  tripLengthOptionsFor,
+  clampTripLength,
+  initialEditTripLength,
+  editTripLengthPatchValue,
+  tripStretchFor,
+  canStartTripOn,
+  pollResultKind,
+  shouldNudgePollWinner,
 } from "@/lib/pollWizard";
 import {
   pollDraftKey,
@@ -105,6 +116,15 @@ type PollPayload = {
     title: string;
     days: string[];
     slots: string[];
+    /**
+     * Explicit poll type from the server. This — not the "All day" slot
+     * sentinel, and not the `kind` route param — is what decides whether the
+     * board behaves as a trip. A poll opened by link carries no route param, so
+     * reading the type off the loaded poll is the only correct source.
+     */
+    kind?: "event" | "trip";
+    /** Trip length in days; null on event polls and on legacy trip polls. */
+    tripLengthDays?: number | null;
     updatedAt: string | null;
     updatedBy: string | null;
     updatedByName: string | null;
@@ -116,6 +136,20 @@ type PollPayload = {
   myResponseUpdatedAt: string | null;
   memberCells?: { userId: string; cells: string[] }[];
   best: { cell: string; count: number; total: number } | null;
+  /**
+   * Trip polls that know their length answer with a consecutive RUN of days.
+   * `partial: true` means nobody is free for the whole run and this is the
+   * least-bad window — the UI must say so rather than presenting a winner.
+   */
+  bestStretch?: {
+    startDate: string;
+    endDate: string;
+    lengthDays: number;
+    count: number;
+    partialCount: number;
+    total: number;
+    partial: boolean;
+  } | null;
   members?: MemberInfo[];
   droppedCount?: number;
   nudgedAt?: string | null;
@@ -252,8 +286,12 @@ export default function AvailabilityScreen() {
   const fromCreate = params.from === "create";
   // Trip vs Event: events are day + time-slot focused; trips are date-range
   // focused (a single "All day" slot, so the grid collapses to a per-day toggle).
-  const pollKind: "trip" | "event" = params.kind === "trip" ? "trip" : "event";
-  const isTrip = pollKind === "trip";
+  //
+  // The route param only describes a poll being CREATED. Once a poll is loaded
+  // its own `kind` is authoritative — a poll opened by link (or by pollId) has
+  // no param at all, and inferring the type from the "All day" slot sentinel is
+  // exactly the coupling this feature removed.
+  const paramKind: "trip" | "event" = params.kind === "trip" ? "trip" : "event";
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
@@ -270,6 +308,25 @@ export default function AvailabilityScreen() {
   const [droppedNotice, setDroppedNotice] = useState<string | null>(null);
   const droppedOpacity = useRef(new Animated.Value(0)).current;
   const droppedAnimRef = useRef<Animated.CompositeAnimation | null>(null);
+
+  // Once a poll is loaded it decides its own type; before then (the creation
+  // wizard) the route param is all we have.
+  const isTrip = data ? (data.poll.kind ?? "event") === "trip" : paramKind === "trip";
+  // The loaded poll's trip length. Null on event polls AND on legacy trip polls
+  // created before trip length existed — those keep single-best-day results
+  // rather than being retro-fitted with a length nobody chose.
+  const loadedTripLength =
+    data && (data.poll.kind ?? "event") === "trip" && typeof data.poll.tripLengthDays === "number"
+      ? data.poll.tripLengthDays
+      : null;
+
+  // Which result the board is allowed to show. Rule (and the reasoning for it)
+  // lives in lib/pollWizard so it's unit-tested without mounting the screen.
+  const resultKind = pollResultKind({
+    hasStretch: !!data?.bestStretch,
+    hasBest: !!data?.best,
+    tripLengthDays: loadedTripLength,
+  });
 
   // Set when this poll has already been turned into a plan. The board is
   // terminal at that point: no grid, no saves, just a link to the plan.
@@ -300,6 +357,8 @@ export default function AvailabilityScreen() {
   const [rangeDays, setRangeDays] = useState<number>(DEFAULT_DAY_COUNT);
   const [selectedSlots, setSelectedSlots] = useState<Set<string>>(new Set(DEFAULT_SLOTS));
   const [slotPeriod, setSlotPeriod] = useState<string>("Evening");
+  // Trip creation only: how long the trip runs inside the voting window.
+  const [tripLength, setTripLength] = useState<number>(DEFAULT_TRIP_LENGTH_DAYS);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerDate, setPickerDate] = useState<Date>(new Date());
 
@@ -340,8 +399,19 @@ export default function AvailabilityScreen() {
         setRangeDays(draft.rangeDays);
         if (draft.slots.length > 0) setSelectedSlots(new Set(draft.slots));
         if (draft.period) setSlotPeriod(draft.period);
+        // Drafts written before trip length existed simply don't carry one —
+        // keep the default rather than discarding an otherwise valid draft.
+        if (draft.tripLengthDays !== undefined) {
+          setTripLength(clampTripLength(draft.tripLengthDays, draft.rangeDays));
+        }
         setWizardStep(Math.min(draft.step, pollWizardSteps(isTrip).length - 1));
-        if (draftHasContent(draft, { rangeDays: DEFAULT_DAY_COUNT, slots: DEFAULT_SLOTS })) {
+        if (
+          draftHasContent(draft, {
+            rangeDays: DEFAULT_DAY_COUNT,
+            slots: DEFAULT_SLOTS,
+            tripLengthDays: DEFAULT_TRIP_LENGTH_DAYS,
+          })
+        ) {
           setDraftRestored(true);
         }
       }
@@ -362,6 +432,7 @@ export default function AvailabilityScreen() {
       slots: [...selectedSlots],
       period: slotPeriod,
       step: wizardStep,
+      ...(isTrip ? { tripLengthDays: tripLength } : {}),
     });
   }, [
     draftLoaded,
@@ -373,7 +444,16 @@ export default function AvailabilityScreen() {
     selectedSlots,
     slotPeriod,
     wizardStep,
+    isTrip,
+    tripLength,
   ]);
+
+  // Shrinking the voting window under the chosen trip length would make the
+  // poll impossible; follow it down instead of failing at create time.
+  useEffect(() => {
+    if (!isTrip) return;
+    setTripLength((n) => clampTripLength(n, rangeDays));
+  }, [isTrip, rangeDays]);
 
   // "New responses" banner state — shown to the host when members responded
   // since the host last opened the poll. Cleared immediately once they open it
@@ -395,6 +475,7 @@ export default function AvailabilityScreen() {
     rangeDays,
     rangeStartISO: toISODate(rangeStart),
     todayISO: toISODate(new Date()),
+    ...(isTrip ? { tripLengthDays: tripLength } : {}),
   });
   const wizardDirtyRef = useRef(false);
   useEffect(() => {
@@ -559,9 +640,23 @@ export default function AvailabilityScreen() {
   const [editDays, setEditDays] = useState<number>(DEFAULT_DAY_COUNT);
   const [editSlots, setEditSlots] = useState<Set<string>>(new Set(DEFAULT_SLOTS));
   const [editSlotPeriod, setEditSlotPeriod] = useState<string>("Evening");
+  // Trip polls only: the edit sheet can change how long the trip runs. This is
+  // NOT a grid change — it re-ranks the same cells — so it must never trigger
+  // the destructive-loss confirmation.
+  // Null means "this trip has no length" — the state a LEGACY trip poll is in.
+  // It is not a placeholder for the default: seeding a number here would make
+  // the sheet dirty the moment it opens and let Save convert the poll to
+  // stretch-ranking without the host ever choosing a duration.
+  const [editTripLength, setEditTripLength] = useState<number | null>(null);
   const [editPickerOpen, setEditPickerOpen] = useState(false);
   // What the edit sheet looked like when it opened, for the dirty-cancel guard.
-  const editBaselineRef = useRef<{ startISO: string; days: number; slots: string; title: string } | null>(null);
+  const editBaselineRef = useRef<{
+    startISO: string;
+    days: number;
+    slots: string;
+    title: string;
+    tripLengthDays: number | null;
+  } | null>(null);
   const [editPickerDate, setEditPickerDate] = useState<Date>(new Date());
   const [updating, setUpdating] = useState(false);
 
@@ -802,25 +897,54 @@ export default function AvailabilityScreen() {
     }
   }, [authToken, authHeaders, squadId, eventId, pollId, currentUser]);
 
-  // B7: poll-resolution nudge — when the creator's poll has a clear best time
-  // (2+ people free at the same slot), nudge them once to lock it in.
+  // B7: poll-resolution nudge — when the creator's poll has a clear winner
+  // (2+ people free), nudge them once to lock it in.
+  //
+  // A length-aware trip poll must be judged on its STRETCH, never on the
+  // compatibility single-cell `best`: that cell is one day, so nudging with it
+  // would announce "you've got a winner" for a single date of a multi-day trip
+  // — and would fire even when bestStretch.partial says nobody can actually
+  // make the whole run. Legacy trips (no recorded length) and event polls keep
+  // the single-cell nudge, which is the right answer for them.
   useEffect(() => {
-    if (!data?.poll || !data.best) return;
+    if (!data?.poll) return;
     if (data.poll.createdBy !== currentUser?.id) return;
-    if (data.best.count < 2) return;
-    const best = data.best;
+
+    const stretch = data.bestStretch ?? null;
+    if (
+      !shouldNudgePollWinner({
+        isCreator: true,
+        tripLengthDays: loadedTripLength,
+        stretch,
+        best: data.best,
+      })
+    ) {
+      return;
+    }
+
+    let title: string;
+    let subtitle: string;
+    if (loadedTripLength) {
+      if (!stretch) return;
+      const range =
+        stretch.startDate === stretch.endDate
+          ? prettyDay(stretch.startDate)
+          : `${prettyDay(stretch.startDate)} – ${prettyDay(stretch.endDate)}`;
+      title = "You've got a winner! 🎯";
+      subtitle = `${range} works for ${stretch.count}/${stretch.total}. Tap to lock it in.`;
+    } else {
+      if (!data.best || data.best.count < 2) return;
+      title = "You've got a winner! 🎯";
+      subtitle = `${prettyCell(data.best.cell)} works for ${data.best.count}/${data.best.total}. Tap to lock it in.`;
+    }
+
     const thePollId = data.poll.id;
     void (async () => {
       if (await claimOnce(`pollnudge_${thePollId}`, currentUser?.id)) {
-        showBanner({
-          title: "You've got a winner! 🎯",
-          subtitle: `${prettyCell(best.cell)} works for ${best.count}/${best.total}. Tap to lock it in.`,
-          emoji: "🗓️",
-          durationMs: 6000,
-        });
+        showBanner({ title, subtitle, emoji: "🗓️", durationMs: 6000 });
       }
     })();
-  }, [data, currentUser?.id, showBanner]);
+  }, [data, currentUser?.id, showBanner, loadedTripLength]);
 
   const createPoll = useCallback(async () => {
     setCreating(true);
@@ -835,7 +959,17 @@ export default function AvailabilityScreen() {
           : { eventId };
       // "Find a time" / event-planning flows always start a brand-new poll
       // rather than reopening this scope's last (possibly stale) board.
-      const body: Record<string, unknown> = { ...scope, days, slots, ...(fromCreate ? { forceNew: true } : {}) };
+      const body: Record<string, unknown> = {
+        ...scope,
+        days,
+        slots,
+        // Explicit type, so the server never has to infer it from the slots.
+        kind: isTrip ? "trip" : "event",
+        // Only trips carry a length — the voting window (`days`) is a separate
+        // span and must not be confused with it.
+        ...(isTrip ? { tripLengthDays: clampTripLength(tripLength, rangeDays) } : {}),
+        ...(fromCreate ? { forceNew: true } : {}),
+      };
       if (pollTitle.trim()) body.title = pollTitle.trim();
       const res = await fetch(`${API_BASE}/api/availability/polls`, {
         method: "POST",
@@ -867,7 +1001,7 @@ export default function AvailabilityScreen() {
     } finally {
       setCreating(false);
     }
-  }, [authHeaders, squadId, eventId, adhoc, fromCreate, isTrip, params.participantIds, pollTitle, rangeStart, rangeDays, selectedSlots, leaveAfterSuccess]);
+  }, [authHeaders, squadId, eventId, adhoc, fromCreate, isTrip, tripLength, params.participantIds, pollTitle, rangeStart, rangeDays, selectedSlots, leaveAfterSuccess, draftScopeKey]);
 
   // Silently re-fetches the poll and updates the heatmap + best-time card.
   // The user's own unsaved picks (mySet) are only synced when there are no
@@ -985,6 +1119,13 @@ export default function AvailabilityScreen() {
     setEditDays(data.poll.days.length);
     setEditSlots(slots);
     setEditTitle(title);
+    // A legacy trip poll has no stored length, and opening the editor must not
+    // invent one (see initialEditTripLength): seeding the control with a default
+    // made the sheet dirty before the host touched anything, warned about
+    // "unsaved changes" on Cancel, and let Save quietly convert the poll to
+    // stretch-ranking. Null in, null out.
+    const currentTripLength = loadedTripLength;
+    setEditTripLength(initialEditTripLength(currentTripLength, data.poll.days.length));
     // Snapshot what the sheet opened with so Cancel can tell "nothing changed"
     // from "you're about to throw away a re-range".
     editBaselineRef.current = editRangeSnapshot({
@@ -992,24 +1133,40 @@ export default function AvailabilityScreen() {
       days: data.poll.days.length,
       slots,
       title,
+      tripLengthDays: currentTripLength,
     });
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setEditRangeOpen(true);
-  }, [data]);
+  }, [data, loadedTripLength]);
+
+  const editSnapshot = useMemo(
+    () =>
+      editRangeSnapshot({
+        startISO: toISODate(editStart),
+        days: editDays,
+        slots: editSlots,
+        title: editTitle,
+        // Only a trip poll can change its length; on an event poll this stays
+        // null on both sides so it can never register as a change.
+        tripLengthDays: isTrip ? editTripLength : null,
+      }),
+    [editStart, editDays, editSlots, editTitle, isTrip, editTripLength],
+  );
 
   /** True when the edit sheet holds changes that Cancel would discard. */
   const editRangeIsDirty = useMemo(
-    () =>
-      editRangeDirty(
-        editRangeSnapshot({
-          startISO: toISODate(editStart),
-          days: editDays,
-          slots: editSlots,
-          title: editTitle,
-        }),
-        editBaselineRef.current,
-      ),
-    [editStart, editDays, editSlots, editTitle],
+    () => editRangeDirty(editSnapshot, editBaselineRef.current),
+    [editSnapshot],
+  );
+
+  /**
+   * True only when the DATES or SLOTS changed. Changing just the trip length
+   * re-ranks the existing `<date>-All day` cells — nothing moves out of the
+   * grid, so there is nothing to trim and no loss to confirm.
+   */
+  const editTouchesGrid = useMemo(
+    () => editChangesGrid(editSnapshot, editBaselineRef.current),
+    [editSnapshot],
   );
 
   /**
@@ -1037,6 +1194,11 @@ export default function AvailabilityScreen() {
   // they commit, not after.
   const pendingEditLoss = useMemo(() => {
     if (!data) return { droppedSelections: 0, affectedUserIds: [] as string[], affectedPeople: 0 };
+    // A duration-only edit can't drop anything — skip the scan so the confirm
+    // dialog never claims answers are about to be erased when they aren't.
+    if (!editTouchesGrid) {
+      return { droppedSelections: 0, affectedUserIds: [] as string[], affectedPeople: 0 };
+    }
     const nextDays = computeRange(editStart, editDays);
     const keptSlots = ALL_SLOT_OPTIONS.filter((s) => editSlots.has(s));
     const nextSlots = keptSlots.length > 0 ? keptSlots : data.poll.slots;
@@ -1051,16 +1213,29 @@ export default function AvailabilityScreen() {
       nextSlots,
     });
     return { droppedSelections, affectedUserIds: [] as string[], affectedPeople: 0 };
-  }, [data, editStart, editDays, editSlots]);
+  }, [data, editStart, editDays, editSlots, editTouchesGrid]);
 
   const doUpdateRange = useCallback(async () => {
     if (!data) return;
     setUpdating(true);
     try {
-      const days = computeRange(editStart, editDays);
-      const slots = ALL_SLOT_OPTIONS.filter(s => editSlots.has(s));
-      const patchBody: Record<string, unknown> = { days, ...(slots.length > 0 ? { slots } : {}) };
+      const patchBody: Record<string, unknown> = {};
+      // Send the grid ONLY when it actually changed. A duration-only save that
+      // re-sent identical days/slots would make the server run its trim pass
+      // and fire "the host changed the dates" pushes for a change that never
+      // touched anyone's answers.
+      if (editTouchesGrid) {
+        const days = computeRange(editStart, editDays);
+        const slots = ALL_SLOT_OPTIONS.filter((s) => editSlots.has(s));
+        patchBody.days = days;
+        if (slots.length > 0) patchBody.slots = slots;
+      }
       patchBody.title = editTitle.trim();
+      // Only send a length when there IS one. A legacy trip whose length the
+      // host never set must stay length-less: sending a default here would
+      // silently convert it to a stretch-ranked poll.
+      const tripLengthPatch = editTripLengthPatchValue({ isTrip, editTripLength, editDays });
+      if (tripLengthPatch !== undefined) patchBody.tripLengthDays = tripLengthPatch;
       const res = await fetch(`${API_BASE}/api/availability/polls/${data.poll.id}`, {
         method: "PATCH",
         headers: authHeaders(),
@@ -1082,7 +1257,7 @@ export default function AvailabilityScreen() {
     } finally {
       setUpdating(false);
     }
-  }, [data, authHeaders, editTitle, editStart, editDays, editSlots]);
+  }, [data, authHeaders, editTitle, editStart, editDays, editSlots, editTouchesGrid, isTrip, editTripLength]);
 
   const updateRange = useCallback(() => {
     if (!data) return;
@@ -1359,6 +1534,76 @@ export default function AvailabilityScreen() {
         { text: "Cancel", style: "cancel" },
       ],
     );
+  };
+
+  /**
+   * Trip flow: lock in a RUN of days rather than a single cell.
+   *
+   * Deliberately does not offer the "Event or Trip?" fork that `useThisTime`
+   * does — a stretch is a date RANGE, so there is nothing to ask. Both ends go
+   * through to create.tsx, and the pollId still rides along so the server
+   * claims the poll inside the create transaction.
+   */
+  const useThisStretch = async (startDate: string, endDate: string) => {
+    if (!data) return;
+    const startOk = parseISODate(startDate) !== null;
+    const endOk = parseISODate(endDate) !== null;
+    if (!startOk || !endOk) return;
+    const friendly =
+      startDate === endDate
+        ? prettyDay(startDate)
+        : `${prettyDay(startDate)} – ${prettyDay(endDate)}`;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    // Bound to an existing event/trip: update its dates in place rather than
+    // creating a second plan alongside it.
+    if (eventId) {
+      try {
+        const startISO = new Date(`${startDate}T09:00:00`).toISOString();
+        const endISO = new Date(`${endDate}T18:00:00`).toISOString();
+        const res = await fetch(`${API_BASE}/api/events/${eventId}`, {
+          method: "PATCH",
+          headers: authHeaders(),
+          body: JSON.stringify({ date: friendly, startAt: startISO, endAt: endISO }),
+        });
+        if (res.ok) {
+          if (data.poll.id) {
+            fetch(`${API_BASE}/api/availability/polls/${data.poll.id}/convert`, {
+              method: "POST",
+              headers: authHeaders(),
+              body: JSON.stringify({ eventId }),
+            }).catch(() => {});
+          }
+          Alert.alert("Dates locked in", `${friendly} is now the trip.`, [
+            {
+              text: "Done",
+              onPress: () =>
+                leaveAfterSuccess(() =>
+                  router.canGoBack() ? router.back() : router.replace("/(tabs)" as never),
+                ),
+            },
+          ]);
+        } else if (res.status === 403) {
+          Alert.alert("Host only", "Only the host can change the dates.");
+        } else {
+          Alert.alert("Couldn't update", "Please try again.");
+        }
+      } catch {
+        Alert.alert("Couldn't update", "Network error. Please try again.");
+      }
+      return;
+    }
+
+    router.push({
+      pathname: "/create",
+      params: {
+        prefillSquad: squadId ?? "",
+        ...(data.poll.id ? { prefillPollId: data.poll.id } : {}),
+        mode: "trip",
+        prefillTripStart: startDate,
+        prefillTripEnd: endDate,
+      },
+    } as never);
   };
 
   // Creator-only: delete the poll and everyone's responses, then leave the screen.
@@ -1820,6 +2065,61 @@ export default function AvailabilityScreen() {
               </>
             )}
 
+            {currentStepId === "length" && (
+              <>
+                <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
+                  How long is the trip itself? Everyone marks every date they could travel across
+                  the range above, and we find the best run of days inside it.
+                </Text>
+
+                <Text style={[styles.setupLabel, { color: colors.mutedForeground }]}>Trip length</Text>
+                <View style={styles.chipRow}>
+                  {tripLengthOptionsFor(rangeDays).map((n) => {
+                    const active = tripLength === n;
+                    return (
+                      <TouchableOpacity
+                        key={`trip-len-${n}`}
+                        onPress={() => {
+                          stampInteraction();
+                          Haptics.selectionAsync();
+                          setTripLength(n);
+                        }}
+                        style={[
+                          styles.chip,
+                          {
+                            backgroundColor: active ? colors.primary : colors.card,
+                            borderColor: active ? colors.primary : colors.border,
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.chipText, { color: active ? "#fff" : colors.foreground }]}>
+                          {n} days
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                {tripLengthOptionsFor(rangeDays).length === 0 && (
+                  <Text style={[styles.wizardHint, { color: colors.textDim }]}>
+                    Go back and pick at least {MIN_TRIP_LENGTH_DAYS} days to vote across.
+                  </Text>
+                )}
+
+                <View style={[styles.previewCard, { backgroundColor: colors.primary + "18", borderColor: colors.primary + "44" }]}>
+                  <Ionicons name="sparkles-outline" size={16} color={colors.primary} />
+                  <Text style={[styles.previewText, { color: colors.foreground }]}>
+                    {wizardReviewLine({
+                      title: pollTitle,
+                      rangeLabel: rangePreview,
+                      slotCount: selectedSlots.size,
+                      isTrip,
+                      tripLengthDays: tripLength,
+                    })}
+                  </Text>
+                </View>
+              </>
+            )}
+
             {currentStepId === "times" && (
               <>
                 <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
@@ -1947,7 +2247,14 @@ export default function AvailabilityScreen() {
                   <GradientButton
                     label={creating ? "Creating…" : "Create poll"}
                     onPress={() => void createPoll()}
-                    disabled={creating || !canAdvanceWizard(wizardStep, isTrip, { slotCount: selectedSlots.size })}
+                    disabled={
+                      creating ||
+                      !canAdvanceWizard(wizardStep, isTrip, {
+                        slotCount: selectedSlots.size,
+                        tripLengthDays: tripLength,
+                        rangeDays,
+                      })
+                    }
                   />
                 ) : (
                   <GradientButton
@@ -1956,7 +2263,13 @@ export default function AvailabilityScreen() {
                       Haptics.selectionAsync();
                       setWizardStep((i) => nextWizardStep(i, isTrip));
                     }}
-                    disabled={!canAdvanceWizard(wizardStep, isTrip, { slotCount: selectedSlots.size })}
+                    disabled={
+                      !canAdvanceWizard(wizardStep, isTrip, {
+                        slotCount: selectedSlots.size,
+                        tripLengthDays: tripLength,
+                        rangeDays,
+                      })
+                    }
                   />
                 )}
               </View>
@@ -2008,8 +2321,10 @@ export default function AvailabilityScreen() {
             showsVerticalScrollIndicator={false}
           >
             <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
-              {data.poll.slots.length === 1 && data.poll.slots[0] === TRIP_SLOT
-                ? "Tap the dates you're free — tap again to clear. Long-press a date to see who's free. We'll highlight when the most people can go."
+              {isTrip
+                ? loadedTripLength
+                  ? `Tap every date you could travel — tap again to clear. We'll find the best ${loadedTripLength} days in a row. Long-press a date to see who's free, or to start the trip there.`
+                  : "Tap the dates you're free — tap again to clear. Long-press a date to see who's free. We'll highlight when the most people can go."
                 : "Tap the times you're free — tap again to clear. Long-press a slot to see who's free. We'll highlight when the most people can make it."}
             </Text>
 
@@ -2050,7 +2365,57 @@ export default function AvailabilityScreen() {
               </Animated.View>
             )}
 
-            {data.best && (
+            {/* Trip result: a RUN of days, not one slot. When nobody clears the
+                whole run we say so plainly instead of dressing up the least-bad
+                window as a winner — a squad that books on a false "best" finds
+                out at the airport. */}
+            {data.bestStretch ? (
+              <View style={styles.heroWrap}>
+                <LinearGradient
+                  colors={data.bestStretch.partial ? ["#6B7280", "#8A93A3"] : ["#FF6B2C", "#FF8050"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.heroCard}
+                >
+                  <View style={styles.heroIcon}>
+                    <Ionicons
+                      name={data.bestStretch.partial ? "alert-circle" : "sparkles"}
+                      size={20}
+                      color="#fff"
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.heroLabel}>
+                      {data.bestStretch.partial
+                        ? `NO ${data.bestStretch.lengthDays} DAYS WORK FOR EVERYONE`
+                        : `BEST ${data.bestStretch.lengthDays} DAYS FOR EVERYONE`}
+                    </Text>
+                    <Text style={styles.heroValue} numberOfLines={2}>
+                      {prettyDay(data.bestStretch.startDate)} – {prettyDay(data.bestStretch.endDate)}
+                    </Text>
+                    <Text style={styles.heroSubLabel} numberOfLines={2}>
+                      {data.bestStretch.partial
+                        ? `Nobody is free for all ${data.bestStretch.lengthDays} days. ${data.bestStretch.partialCount} of ${data.bestStretch.total} can make part of this stretch.`
+                        : `Free for the whole stretch${
+                            data.bestStretch.partialCount > data.bestStretch.count
+                              ? ` · ${data.bestStretch.partialCount} of ${data.bestStretch.total} free for part of it`
+                              : ""
+                          }`}
+                    </Text>
+                  </View>
+                  <View style={styles.heroFreePill}>
+                    <Text style={styles.heroFreeCount}>
+                      {data.bestStretch.count}/{data.bestStretch.total}
+                    </Text>
+                    <Text style={styles.heroFreeLabel}>free</Text>
+                  </View>
+                </LinearGradient>
+              </View>
+            ) : resultKind === "cell" && data.best ? (
+              // Single-cell result — correct for event polls and for legacy
+              // trips that never recorded a length. A length-aware trip with no
+              // rankable stretch must NOT fall back to this: one day is not an
+              // answer to "when can we all go away for N days?".
               <View style={styles.heroWrap}>
                 <LinearGradient
                   colors={["#FF6B2C", "#FF8050"]}
@@ -2062,7 +2427,9 @@ export default function AvailabilityScreen() {
                     <Ionicons name="sparkles" size={20} color="#fff" />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.heroLabel}>BEST TIME FOR EVERYONE</Text>
+                    <Text style={styles.heroLabel}>
+                      {isTrip ? "BEST DATE FOR EVERYONE" : "BEST TIME FOR EVERYONE"}
+                    </Text>
                     <Text style={styles.heroValue} numberOfLines={2}>{prettyCell(data.best.cell)}</Text>
                   </View>
                   <View style={styles.heroFreePill}>
@@ -2071,7 +2438,7 @@ export default function AvailabilityScreen() {
                   </View>
                 </LinearGradient>
               </View>
-            )}
+            ) : null}
 
             {/* Grid */}
             <View style={styles.gridWrap}>
@@ -2605,25 +2972,40 @@ export default function AvailabilityScreen() {
                 <Text style={[styles.droppedBannerText, { color: colors.mutedForeground }]}>{droppedNotice}</Text>
               </Animated.View>
             )}
-            {data.best && !dirty && (
-              <TouchableOpacity onPress={() => void useThisTime()} style={[styles.secondaryBtn, { borderColor: colors.primary, backgroundColor: colors.primary + "14" }]}>
+            {resultKind !== "none" && !dirty && (
+              <TouchableOpacity
+                onPress={() =>
+                  data.bestStretch
+                    ? void useThisStretch(data.bestStretch.startDate, data.bestStretch.endDate)
+                    : void useThisTime()
+                }
+                style={[styles.secondaryBtn, { borderColor: colors.primary, backgroundColor: colors.primary + "14" }]}
+              >
                 <Ionicons name={eventId ? "checkmark-circle-outline" : "calendar-outline"} size={18} color={colors.primary} />
                 <Text style={[styles.secondaryBtnText, { color: colors.primary }]}>
-                  {eventId
-                    ? `Use ${prettyCell(data.best.cell)}`
-                    : data.poll.slots.length === 1 && data.poll.slots[0] === TRIP_SLOT
-                      ? "Lock in the best dates"
-                      : "Create event at best time"}
+                  {data.bestStretch
+                    ? // Say "these dates" rather than "the best dates" when the
+                      // winning stretch works for nobody end-to-end.
+                      data.bestStretch.partial
+                      ? "Lock in these dates anyway"
+                      : "Lock in the best dates"
+                    : eventId
+                      ? `Use ${prettyCell(data.best!.cell)}`
+                      : isTrip
+                        ? "Lock in the best dates"
+                        : "Create event at best time"}
                 </Text>
               </TouchableOpacity>
             )}
             {/* Results actions are unavailable until someone has answered —
                 say why instead of showing nothing at all. */}
-            {!data.best && !dirty && (data.respondentCount ?? 0) === 0 && (
+            {resultKind === "none" && !dirty && (data.respondentCount ?? 0) === 0 && (
               <View style={[styles.disabledResultBtn, { borderColor: colors.border, backgroundColor: colors.card }]}>
                 <Ionicons name="hourglass-outline" size={16} color={colors.mutedForeground} />
                 <Text style={[styles.disabledResultText, { color: colors.mutedForeground }]}>
-                  A best time appears once someone responds
+                  {isTrip
+                    ? "The best dates appear once someone responds"
+                    : "A best time appears once someone responds"}
                 </Text>
               </View>
             )}
@@ -2759,25 +3141,83 @@ export default function AvailabilityScreen() {
                     {/* Creator-only: lock in THIS slot. Replaces the old
                         "pick a different time" sheet — choosing a runner-up now
                         happens on the cell itself, where you can already see
-                        who is free, instead of in a second ranked list. */}
-                    {isCreator && (
-                      <TouchableOpacity
-                        onPress={() => {
-                          const cell = selectedCell;
-                          closeCellSheet();
-                          if (cell) void useThisTime(cell);
-                        }}
-                        style={[
-                          styles.cellSheetToggleBtn,
-                          { backgroundColor: "transparent", borderColor: colors.primary, marginTop: 10 },
-                        ]}
-                      >
-                        <Ionicons name="calendar-outline" size={18} color={colors.primary} />
-                        <Text style={[styles.cellSheetToggleBtnText, { color: colors.primary }]}>
-                          {eventId ? "Use this time" : "Create event at this time"}
-                        </Text>
-                      </TouchableOpacity>
-                    )}
+                        who is free, instead of in a second ranked list.
+
+                        On a trip poll with a known length the unit of choice is
+                        a RUN of days, so this offers "start the trip here" and
+                        states up-front how many people that run actually works
+                        for — including when the answer is nobody. */}
+                    {isCreator && (() => {
+                      const day = splitCell(selectedCell).day;
+                      const stretch =
+                        loadedTripLength && data.memberCells
+                          ? tripStretchFor({
+                              days: data.poll.days,
+                              lengthDays: loadedTripLength,
+                              memberCells: data.memberCells,
+                              startDate: day,
+                            })
+                          : null;
+
+                      if (loadedTripLength) {
+                        // Too close to the end of the voting window for a full
+                        // run — say so rather than offering a truncated trip.
+                        if (!canStartTripOn(data.poll.days, loadedTripLength, day)) {
+                          return (
+                            <Text style={[styles.cellSheetEmpty, { color: colors.mutedForeground, marginTop: 12 }]}>
+                              A {loadedTripLength}-day trip doesn&apos;t fit starting here — pick an
+                              earlier date.
+                            </Text>
+                          );
+                        }
+                        if (stretch) {
+                          return (
+                            <TouchableOpacity
+                              onPress={() => {
+                                closeCellSheet();
+                                void useThisStretch(stretch.startDate, stretch.endDate);
+                              }}
+                              style={[
+                                styles.cellSheetToggleBtn,
+                                { backgroundColor: "transparent", borderColor: colors.primary, marginTop: 10 },
+                              ]}
+                            >
+                              <Ionicons name="calendar-outline" size={18} color={colors.primary} />
+                              <View style={{ flex: 1 }}>
+                                <Text style={[styles.cellSheetToggleBtnText, { color: colors.primary }]}>
+                                  Start the trip here
+                                </Text>
+                                <Text style={[styles.cellSheetStretchNote, { color: colors.mutedForeground }]}>
+                                  {prettyDay(stretch.startDate)} – {prettyDay(stretch.endDate)} ·{" "}
+                                  {stretch.partial
+                                    ? `no one is free all ${stretch.lengthDays} days`
+                                    : `${stretch.count} of ${stretch.total} free the whole time`}
+                                </Text>
+                              </View>
+                            </TouchableOpacity>
+                          );
+                        }
+                      }
+
+                      return (
+                        <TouchableOpacity
+                          onPress={() => {
+                            const cell = selectedCell;
+                            closeCellSheet();
+                            if (cell) void useThisTime(cell);
+                          }}
+                          style={[
+                            styles.cellSheetToggleBtn,
+                            { backgroundColor: "transparent", borderColor: colors.primary, marginTop: 10 },
+                          ]}
+                        >
+                          <Ionicons name="calendar-outline" size={18} color={colors.primary} />
+                          <Text style={[styles.cellSheetToggleBtnText, { color: colors.primary }]}>
+                            {eventId ? "Use this time" : "Create event at this time"}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })()}
                   </>
                 );
               })()}
@@ -2876,7 +3316,48 @@ export default function AvailabilityScreen() {
                 })}
               </View>
 
-              {data && data.poll.slots.length === 1 && data.poll.slots[0] === TRIP_SLOT ? null : (
+              {isTrip ? (
+                <>
+                  {/* Trip length is a different span from the voting window
+                      above, so it gets its own control and its own explanation.
+                      Changing it only re-ranks the days people already marked —
+                      no answers are trimmed. */}
+                  <Text style={[styles.setupLabel, { color: colors.mutedForeground }]}>How long is the trip?</Text>
+                  <View style={styles.chipRow}>
+                    {tripLengthOptionsFor(editDays).map((n) => {
+                      const active = editTripLength === n;
+                      return (
+                        <TouchableOpacity
+                          key={`edit-trip-${n}`}
+                          onPress={() => {
+                            Haptics.selectionAsync();
+                            setEditTripLength(n);
+                          }}
+                          style={[
+                            styles.chip,
+                            {
+                              backgroundColor: active ? colors.primary : colors.card,
+                              borderColor: active ? colors.primary : colors.border,
+                            },
+                          ]}
+                        >
+                          <Text style={[styles.chipText, { color: active ? "#fff" : colors.foreground }]}>
+                            {n} days
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                  <Text style={[styles.wizardHint, { color: colors.textDim }]}>
+                    {editTripLength === null
+                      ? // Legacy trip: no length was ever chosen, so no chip is
+                        // selected and none is assumed. Explain what picking one
+                        // would change instead of pretending a default is set.
+                        "This trip doesn't have a length yet, so we're picking the single best day. Choose a length to find the best run of days instead."
+                      : `We'll find the best ${editTripLength} days in a row inside this range. Changing this keeps everyone's answers.`}
+                  </Text>
+                </>
+              ) : (
                 <>
                   <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
                     <Text style={[styles.setupLabel, { color: colors.mutedForeground, marginBottom: 0 }]}>Time slots</Text>
@@ -3014,6 +3495,8 @@ const styles = StyleSheet.create({
   heroIcon: { width: 44, height: 44, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.18)" },
   heroLabel: { fontSize: 11, fontWeight: "800", letterSpacing: 1, color: "rgba(255,255,255,0.9)" },
   heroValue: { fontSize: 22, fontWeight: "900", color: "#fff", marginTop: 3, letterSpacing: -0.3 },
+  heroSubLabel: { fontSize: 12, fontWeight: "600", color: "rgba(255,255,255,0.92)", marginTop: 4, lineHeight: 16 },
+  cellSheetStretchNote: { fontSize: 12, fontWeight: "600", marginTop: 2 },
   heroFreePill: { alignItems: "center", borderRadius: 14, backgroundColor: "rgba(255,255,255,0.2)", paddingHorizontal: 13, paddingVertical: 8 },
   heroFreeCount: { fontSize: 16, fontWeight: "900", color: "#fff" },
   heroFreeLabel: { fontSize: 10, fontWeight: "800", color: "rgba(255,255,255,0.9)", marginTop: 1, textTransform: "uppercase", letterSpacing: 0.5 },

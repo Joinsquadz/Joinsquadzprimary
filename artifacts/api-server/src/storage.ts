@@ -39,6 +39,7 @@ import {
   eventChatAudience,
   type EventVisibilityFields,
 } from './lib/eventVisibility';
+import { DEFAULT_POLL_DAY_COUNT } from './lib/pollDefaults';
 
 /**
  * Thrown when a photo URL is already recorded under a different uploader.
@@ -65,7 +66,7 @@ function toISODate(d: Date): string {
  * days starting today, as ISO date strings. Squads coordinate on real dates
  * rather than abstract weekdays.
  */
-export function defaultPollDates(count = 7, start: Date = new Date()): string[] {
+export function defaultPollDates(count = DEFAULT_POLL_DAY_COUNT, start: Date = new Date()): string[] {
   const out: string[] = [];
   for (let i = 0; i < count; i++) {
     const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
@@ -976,6 +977,8 @@ export class Storage {
     title?: string;
     days?: string[];
     slots?: string[];
+    kind?: "event" | "trip";
+    tripLengthDays?: number | null;
   }): Promise<AvailabilityPoll> {
     const values: Record<string, unknown> = {
       createdBy: input.createdBy,
@@ -989,6 +992,11 @@ export class Storage {
     // supply an explicit set, default to a sensible upcoming range.
     values.days = input.days && input.days.length ? input.days : defaultPollDates();
     if (input.slots && input.slots.length) values.slots = input.slots;
+    // Explicit poll type — no longer inferred from the "All day" slot sentinel.
+    if (input.kind) values.kind = input.kind;
+    // Only trips carry a length. NULL on an event poll, and NULL on a trip poll
+    // created without one (which then behaves like the legacy single-day trips).
+    if (input.tripLengthDays != null) values.tripLengthDays = input.tripLengthDays;
     const [poll] = await db
       .insert(availabilityPollsTable)
       .values(values as typeof availabilityPollsTable.$inferInsert)
@@ -998,7 +1006,12 @@ export class Storage {
 
   async updateAvailabilityPoll(
     pollId: string,
-    updates: { title?: string; days?: string[]; slots?: string[] },
+    updates: {
+      title?: string;
+      days?: string[];
+      slots?: string[];
+      tripLengthDays?: number;
+    },
     updatedBy?: string,
   ): Promise<AvailabilityPoll> {
     const setValues: Record<string, unknown> = { updatedAt: new Date() };
@@ -1006,12 +1019,19 @@ export class Storage {
     if (updates.title !== undefined) setValues.title = updates.title;
     if (updates.days && updates.days.length) setValues.days = updates.days;
     if (updates.slots && updates.slots.length) setValues.slots = updates.slots;
+    if (updates.tripLengthDays !== undefined) setValues.tripLengthDays = updates.tripLengthDays;
 
     const [updated] = await db
       .update(availabilityPollsTable)
       .set(setValues as Partial<typeof availabilityPollsTable.$inferInsert>)
       .where(eq(availabilityPollsTable.id, pollId))
       .returning();
+
+    // A grid-preserving edit (title, or a trip's LENGTH) can't put any cell out
+    // of range, so skip the trim scan entirely. This is what keeps changing how
+    // long the trip is from touching anyone's answers: cell identity is
+    // `<date>-All day` either way, and only the ranking changes.
+    if (!updates.days && !updates.slots) return updated;
 
     // Trim all existing responses to only cells that fall within the new grid.
     const newDays = updated.days as string[];

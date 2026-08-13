@@ -531,6 +531,10 @@ async function addMissingColumns(): Promise<void> {
     `ALTER TABLE "availability_polls" ADD COLUMN IF NOT EXISTS "nudge_sent_at" timestamp with time zone`,
     `ALTER TABLE "availability_polls" ADD COLUMN IF NOT EXISTS "converted_event_id" text`,
     `ALTER TABLE "availability_polls" ADD COLUMN IF NOT EXISTS "poll_update_notified_at" timestamp with time zone`,
+    // Explicit poll type + trip duration. Production never runs the Drizzle
+    // migrator, so these must exist here as well as in migrations/0008.
+    `ALTER TABLE "availability_polls" ADD COLUMN IF NOT EXISTS "kind" text DEFAULT 'event' NOT NULL`,
+    `ALTER TABLE "availability_polls" ADD COLUMN IF NOT EXISTS "trip_length_days" integer`,
     // conversation_messages
     `ALTER TABLE "conversation_messages" ADD COLUMN IF NOT EXISTS "status" text DEFAULT 'visible' NOT NULL`,
     // conversations — per-plan (event/trip) chat threads
@@ -694,6 +698,32 @@ async function backfillLimitLedgers(): Promise<void> {
 }
 
 /**
+ * Classify pre-existing availability polls now that the poll type is an
+ * explicit column instead of an inference from the "All day" slot sentinel.
+ *
+ * Trip polls were, and still are, the only polls whose slot list is EXACTLY
+ * ["All day"] — event polls always carry real clock slots — so that is the only
+ * signal available for rows created before `kind` existed. Everything else
+ * keeps the column default ('event').
+ *
+ * Re-running is a no-op: a row already stamped 'trip' is excluded, and a new
+ * trip poll writes both `kind` and its slots itself.
+ *
+ * `trip_length_days` is deliberately left NULL for these rows. A legacy trip
+ * poll never asked how long the trip was, so any value here would be a guess
+ * that silently changes the result people already voted on; NULL preserves the
+ * original single-best-day behaviour (see the trip length notes in
+ * routes/availability.ts).
+ */
+async function backfillPollKinds(): Promise<void> {
+  await safeExec(`
+    UPDATE "availability_polls"
+    SET "kind" = 'trip'
+    WHERE "kind" <> 'trip' AND "slots" = '["All day"]'::jsonb
+  `);
+}
+
+/**
  * The (user_id, event_id) unique index can only be created once any pre-existing
  * duplicates are collapsed. Duplicates should not exist (creation wrote one row
  * per event) but a NULL event_id row or a legacy double-create would block the
@@ -755,6 +785,7 @@ export async function ensureSchema(): Promise<void> {
     await createIndexes();
     await createForeignKeys();
     await backfillLimitLedgers();
+    await backfillPollKinds();
     logger.info('[schemaSync] Schema sync complete');
     // Heal any counter drift caused by webhooks that fired before the
     // founding_member_counter / founding_member_redemptions tables existed.

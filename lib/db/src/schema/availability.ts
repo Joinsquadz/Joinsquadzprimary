@@ -1,4 +1,4 @@
-import { pgTable, text, serial, jsonb, timestamp, unique } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, jsonb, timestamp, unique } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -21,6 +21,20 @@ export const availabilityPollsTable = pgTable("availability_polls", {
   // is derived from squad membership / event participants instead).
   participantIds: jsonb("participant_ids").$type<string[] | null>(),
   createdBy: text("created_by").notNull(),
+  // Explicit poll type. Trip polls collect whole-day availability across a
+  // voting window and resolve to a consecutive STRETCH of days; event polls
+  // collect day+time-slot cells and resolve to a single slot.
+  //
+  // This used to be inferred from the slots array being exactly ["All day"],
+  // which made a display detail load-bearing for behaviour. Existing rows are
+  // backfilled from that same sentinel exactly once (see the migration and
+  // schemaSync) and nothing reads the sentinel for control flow any more.
+  kind: text("kind").notNull().default("event"),
+  // How many days the TRIP itself runs — independent of how wide the voting
+  // window (`days`) is. NULL for event polls, and NULL for legacy trip polls
+  // created before this existed (those keep single-best-day behaviour rather
+  // than being backfilled with a guess).
+  tripLengthDays: integer("trip_length_days"),
   title: text("title").notNull().default("Find the Best Time"),
   days: jsonb("days")
     .$type<string[]>()
