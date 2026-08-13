@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Modal,
   View,
@@ -17,7 +17,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { useAuth, useData } from "@/context/AppContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
-import { resolveResumeAction, pollStatusLabel } from "@/lib/pollWizard";
+import { pollStatusLabel } from "@/lib/pollWizard";
 
 export type FindTimeScope =
   | { type: "squad"; squadId: string }
@@ -61,10 +61,8 @@ export function FindTimeChooser({ visible, scope, onClose, onStartNew }: FindTim
 
   const [polls, setPolls] = useState<PollSummary[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  // Guards the resume-first auto-navigation so it fires at most once per open
-  // (the load effect can re-run while the sheet is still visible).
-  const resumeHandledRef = useRef(false);
 
   const headers = useCallback(
     (): Record<string, string> => ({ "Content-Type": "application/json", ...buildAuthHeaders(authToken) }),
@@ -74,55 +72,41 @@ export function FindTimeChooser({ visible, scope, onClose, onStartNew }: FindTim
   const load = useCallback(async () => {
     if (!authToken) return;
     setLoading(true);
+    setLoadFailed(false);
     try {
-      if (scope.type === "event") {
-        // Events are 1:1 with a poll — resolve the single existing one via /find.
-        const res = await fetch(`${API_BASE}/api/availability/polls/find?eventId=${scope.eventId}`, {
-          headers: headers(),
-        });
-        if (res.ok) {
-          const payload = (await res.json()) as {
-            poll: { id: string; title: string; days: string[]; slots: string[]; createdBy: string };
-            respondentCount?: number;
-          };
-          const p = payload.poll;
-          setPolls([
-            {
-              id: p.id,
-              title: p.title,
-              days: p.days,
-              slots: p.slots,
-              respondentCount: payload.respondentCount ?? 0,
-              memberCount: 0,
-              createdBy: p.createdBy,
-              mine: p.createdBy === currentUser?.id,
-            },
-          ]);
-        } else {
-          setPolls([]);
-        }
-        return;
-      }
-      const qs = scope.type === "squad" ? `squadId=${scope.squadId}` : "scope=personal";
+      // Every scope lists ALL of its active polls. Event scope used to resolve
+      // a single board via /find, which hid every earlier active poll for that
+      // event behind the newest one.
+      const qs =
+        scope.type === "squad"
+          ? `squadId=${scope.squadId}`
+          : scope.type === "event"
+          ? `eventId=${scope.eventId}`
+          : "scope=personal";
       const res = await fetch(`${API_BASE}/api/availability/polls?${qs}`, { headers: headers() });
       if (res.ok) {
         const body = (await res.json()) as { polls: PollSummary[] };
         setPolls(body.polls ?? []);
       } else {
+        // A failed fetch is NOT "there are no polls" — silently showing an
+        // empty list here is what pushed people into starting duplicate polls
+        // on top of boards their squad had already answered.
         setPolls([]);
+        setLoadFailed(true);
       }
     } catch {
       setPolls([]);
+      setLoadFailed(true);
     } finally {
       setLoading(false);
     }
-  }, [authToken, headers, scope, currentUser?.id]);
+  }, [authToken, headers, scope]);
 
   useEffect(() => {
     if (visible) void load();
     else {
       setPolls([]);
-      resumeHandledRef.current = false;
+      setLoadFailed(false);
     }
   }, [visible, load]);
 
@@ -131,18 +115,6 @@ export function FindTimeChooser({ visible, scope, onClose, onStartNew }: FindTim
     onClose();
     router.push({ pathname: "/availability", params: { pollId } } as never);
   }, [onClose]);
-
-  // Resume-first: a single active poll in this scope IS the answer to "find a
-  // time", so open it rather than making the user pick it out of a sheet. Two
-  // or more still need the chooser.
-  useEffect(() => {
-    if (!visible || loading || resumeHandledRef.current) return;
-    const decision = resolveResumeAction(polls);
-    if (decision.action === "resume") {
-      resumeHandledRef.current = true;
-      openPoll(decision.pollId);
-    }
-  }, [visible, loading, polls, openPoll]);
 
   const handleStartNew = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -233,6 +205,20 @@ export function FindTimeChooser({ visible, scope, onClose, onStartNew }: FindTim
 
             {loading ? (
               <ActivityIndicator color={colors.primary} style={{ marginVertical: 18 }} />
+            ) : loadFailed ? (
+              <View style={[styles.errorBox, { borderColor: colors.border, backgroundColor: colors.card }]}>
+                <Ionicons name="cloud-offline-outline" size={20} color={colors.mutedForeground} />
+                <Text style={[styles.errorText, { color: colors.mutedForeground }]}>
+                  Couldn&apos;t load existing polls. Starting a new one now could split your squad&apos;s answers.
+                </Text>
+                <TouchableOpacity
+                  onPress={() => void load()}
+                  style={[styles.retryBtn, { borderColor: colors.primary }]}
+                  accessibilityLabel="Try again"
+                >
+                  <Text style={[styles.retryText, { color: colors.primary }]}>Try again</Text>
+                </TouchableOpacity>
+              </View>
             ) : polls.length > 0 ? (
               <>
                 <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Continue an existing poll</Text>
@@ -333,6 +319,17 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 8,
   },
+  errorBox: {
+    alignItems: "center",
+    gap: 10,
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 16,
+    marginTop: 16,
+  },
+  errorText: { fontSize: 13, fontWeight: "500", textAlign: "center", lineHeight: 18 },
+  retryBtn: { borderWidth: 1, borderRadius: 10, paddingVertical: 8, paddingHorizontal: 18 },
+  retryText: { fontSize: 13, fontWeight: "700" },
   rowIcon: { width: 36, height: 36, borderRadius: 11, alignItems: "center", justifyContent: "center" },
   rowName: { fontSize: 14, fontWeight: "700" },
   rowMeta: { fontSize: 12, fontWeight: "500", marginTop: 2 },

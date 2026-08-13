@@ -1,0 +1,126 @@
+SquadZ — "Find the Best Time": Safety Fixes + Flow Simplification
+
+MODE: IMPLEMENT — this is not a report-only pass.
+
+The navigation audit is approved. Implement in the order below. Items 1–4 are correctness and loss-of-work problems and come first; the flow simplification follows.
+
+PART A — SAFETY (do these first)
+1. Remove the nested iOS modal — P0
+
+app/availability.tsx:2847–2877 renders the iOS date picker as a Modal inside the already-visible Edit Range Modal. This app has an established constraint against stacked modals on iOS because they can freeze the interface, leaving no in-app exit.
+
+Render the date picker as an in-sheet overlay within the existing Edit Range modal — not as a second Modal. Audit the whole poll feature for any other nested-modal instance and fix those too.
+
+2. Make conversion terminal
+
+Converted polls (convertedEventId set) are filtered from list/find/chooser but remain fully live through direct pollId routes: GET /:id, PATCH, response save, DELETE, and the SSE stream all still work.
+
+At the API boundary, reject write operations on a converted poll (PATCH, PUT /me, nudge, convert). For GET /:id, return an explicit converted payload rather than a normal one.
+
+Client-side: when a converted poll loads, show a terminal state naming the event it became, with a link to that event. No grid editing, no result actions. A stale open screen must reach this state on next refresh.
+
+3. Add unsaved-change guards
+
+There is currently no navigation interception anywhere in availability.tsx.
+
+Unsaved grid selections: confirm before leaving via header back, Android hardware back, or iOS swipe.
+Wizard in progress: confirm before abandoning. The draft persists, so the copy should say the draft will be kept, not that work is lost.
+Edit Range sheet: Cancel with uncommitted changes confirms before discarding.
+4. Make back behavior consistent
+
+Header back uses router.back() with a /(tabs) fallback; Android hardware back and iOS swipe have no equivalent, so a cold-start or deep-linked poll behaves differently depending on how you leave it.
+
+Apply one fallback policy across all three paths on every poll screen. Also: wizard steps 2–3 have a visible Back that moves between steps while hardware/swipe back exits the screen entirely — make hardware and swipe back step backward within the wizard, matching the visible button.
+
+PART B — FLOW SIMPLIFICATION
+5. Multiple active polls stay supported — make them consistently visible
+
+Multiple active polls per scope remain intentional. The audit is right that the hybrid is the problem: some paths list every poll while others silently resolve the newest. Fix the inconsistency, not the capability.
+
+The rule: no entry point may ever silently resolve or auto-open a poll. Every path either shows the user all active polls for that scope, or goes into the wizard when none exist.
+
+Stop using /find for resume decisions. Every entry point uses the list endpoint so it sees all active polls. /find may remain for other purposes; report where it is still used after this change.
+Event scope must list all active polls, not just the newest. This is the fix for audit bug 6, where older active event polls were unreachable from the event entry.
+forceNew stays — creating an additional poll is a legitimate action, but it must be a deliberate choice made from a screen that already showed the user what exists.
+Converted polls stay excluded from every list (item 2 handles their direct-link behavior).
+6. Squad screen: show what exists, never auto-open
+
+Remove the auto-resume in FindTimeChooser.tsx:135–145. This is the core fix — a poll must never open without the user choosing it, including when only one exists.
+
+On the squad screen, when active polls exist, render them inline (not behind a chooser sheet). For each poll:
+
+Title and date range
+Live status: responses received out of eligible members
+For a member who hasn't responded: that poll leads with a prompt to add their times, not a neutral status line
+Tap opens it
+Creator gets a delete action
+
+Below the list, "Start a new poll" is always visible as a secondary action. When no active polls exist, the squad screen shows "Find the Best Time" going straight into the wizard.
+
+Apply the same inline pattern to the event-detail entry.
+
+For the New Event and Home entries — where an inline list doesn't fit the screen — keep FindTimeChooser as a real, non-auto-resolving sheet listing all active polls plus "Start a new poll." It must render and wait for input in every case, including one poll.
+
+If more than a few active polls exist, cap the inline list and link to the full chooser rather than growing the squad screen without bound. Report what cap you chose.
+
+7. Results screen: one action
+
+Collapse the bottom action area to a single primary action.
+
+Best time exists: "Create event at best time" (or "Lock in the best dates" for trips; keep the event-bound "Use" behavior as-is).
+No responses yet: the same action rendered disabled, with "Waiting on responses" beneath it. Fixed position, never swapped for a different action.
+Unsaved grid changes: Save remains primary, as today.
+
+Remove "Pick a different time from this poll" and its separate picker modal entirely.
+
+Remove "Create an event outside this poll" entirely. A user who wants an unrelated event backs out and uses the normal create flow.
+
+8. Choosing a non-best time moves into the grid
+
+Long-press on a cell already opens the cell-detail sheet showing who's free. For the creator, that sheet gains a "Create event at this time" action that runs the same conversion path the best-time action uses.
+
+This puts the choice where the data already is and removes a screen. Update the instruction text so long-press is discoverable.
+
+9. Merge the duplicated pending surfaces
+
+The compact "N still pending" opener and the "Waiting on N" follow-up list overlap. Collapse to one list. Preserve the existing distinction between never-responded and stale-after-edit, and keep Nudge rendering only where the server will accept it.
+
+PART C — REMAINING BUGS FROM THE AUDIT
+10. Wrong-poll refresh — now higher priority
+
+After a range-change save with dropped cells, the client refreshes via scope /find rather than the current pollId (availability.tsx:1053–1069), silently moving the user to whichever poll is newest. With multi-poll retained this is a live bug rather than an edge case, so treat it as part of Part A. Always refresh by the pollId currently open.
+
+Audit every other place in the poll flow that resolves a poll by scope rather than by ID, and fix each the same way. A screen showing poll X must never repopulate itself with poll Y.
+
+11. Chooser network failure looks like "no polls"
+
+FindTimeChooser.tsx:107–115 sets polls to [] on fetch failure with no error shown, so a network blip invites creating a duplicate poll. Show an error with retry, distinct from the empty state.
+
+12. Stale RSVP retains poll access
+
+Event-poll access checks whether a user ID appears in RSVP keys, not whether the RSVP is currently active. Declined or cancelled RSVPs should not retain access, and should not be nudge or notification targets.
+
+13. Ad-hoc participants can't be nudged
+
+participantIds seeds the roster but nudge authorization derives targets only from squad/event membership, and range-edit notifications omit ad-hoc participants. Include the ad-hoc roster in both.
+
+14. Convert endpoint accepts an arbitrary event ID
+
+The standalone convert route validates that the event ID is a non-empty string but not that it identifies a real, appropriate event. Verify it before stamping conversion.
+
+15. Ad-hoc scope resume is unsupported
+
+An ad-hoc route without from=create or pollId falls into the event-style /find?eventId= path. Either add a proper ad-hoc branch or make the unsupported shape fail clearly rather than issuing a malformed request.
+
+Constraints
+Test floor: 1260 API / 506 mobile, all green. List every new or changed test file with a one-line reason.
+Do not change color tokens, typography, or the global theme.
+Do not remove: the grid, day/slot pagination, SSE and its refresh fallback, the cell detail sheet, invite-link sharing, calendar export, creator-only delete, the draft system, or the edit-trim confirmation.
+Do not touch the legacy event-poll modal in app/event/[id].tsx — still a separate cleanup item.
+If item 5 requires a schema change or a migration, stop and report before writing one.
+Verification
+API and mobile suites vs the 1260 / 506 floor.
+New tests: no entry point auto-resolves a poll when exactly one exists; event scope lists all active polls, not just newest; converted poll rejects writes and returns terminal payload on read; refresh-by-pollId after trim never swaps polls; stale RSVP denied access; ad-hoc participant nudgeable; convert rejects an invalid event ID.
+Typechecks clean across mobile, libs, and API.
+Every file changed, one line each.
+What requires physical-device verification — call out the iOS edit-sheet date picker specifically.

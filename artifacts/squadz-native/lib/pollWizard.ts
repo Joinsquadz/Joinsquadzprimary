@@ -108,6 +108,78 @@ export function wizardBackExits(index: number): boolean {
 }
 
 /**
+ * Has the user actually put work into the creation wizard?
+ *
+ * Drafts persist per scope, so leaving doesn't destroy the answers — but
+ * walking out of a half-built poll with no acknowledgement reads as "that got
+ * thrown away", and on the last step it's one tap away from a poll that was
+ * never created. Only REAL input counts: an untouched wizard (today's date, the
+ * default day count, no title, step 0) must still leave instantly, or every
+ * accidental tap into the flow turns into a confirm dialog.
+ *
+ * Dates are compared as calendar days, not timestamps — the default start is
+ * "now", so a raw Date comparison would report dirty the moment the clock
+ * ticked past the render that created it.
+ */
+export function wizardHasInput(v: {
+  title: string;
+  stepIndex: number;
+  rangeDays: number;
+  rangeStartISO: string;
+  todayISO: string;
+}): boolean {
+  return (
+    v.title.trim().length > 0 ||
+    v.stepIndex > 0 ||
+    v.rangeDays !== DEFAULT_DAY_COUNT ||
+    v.rangeStartISO !== v.todayISO
+  );
+}
+
+/** What the edit-range sheet opened with, for a cheap dirty comparison. */
+export type EditRangeSnapshot = {
+  startISO: string;
+  days: number;
+  /** Sorted + joined so slot ordering can't fake a change. */
+  slots: string;
+  title: string;
+};
+
+export function editRangeSnapshot(v: {
+  startISO: string;
+  days: number;
+  slots: Iterable<string>;
+  title: string;
+}): EditRangeSnapshot {
+  return {
+    startISO: v.startISO,
+    days: v.days,
+    slots: [...new Set(v.slots)].sort().join("|"),
+    title: v.title,
+  };
+}
+
+/**
+ * True when the edit sheet holds changes that Cancel would silently discard.
+ *
+ * Cancelling used to drop a re-range the host had just dialled in — including
+ * via a fat-fingered backdrop tap — so the sheet confirms only when something
+ * really changed.
+ */
+export function editRangeDirty(
+  current: EditRangeSnapshot,
+  baseline: EditRangeSnapshot | null,
+): boolean {
+  if (!baseline) return false;
+  return (
+    current.startISO !== baseline.startISO ||
+    current.days !== baseline.days ||
+    current.slots !== baseline.slots ||
+    current.title !== baseline.title
+  );
+}
+
+/**
  * Step 1 (title) is always skippable — the server defaults the title. Step 3
  * requires at least one slot so the poll can never be created with an empty
  * grid.
@@ -318,26 +390,32 @@ function splitByLastDash(cell: string): [string, string] {
   return [cell.slice(0, i), cell.slice(i + 1)];
 }
 
-// ---- Resume-first entry points ----
+// ---- Poll entry points ----
+//
+// NOTE: a `resolveResumeAction` helper used to live here and auto-resumed a
+// scope that had exactly one active poll. It's gone deliberately: opening a
+// board on the user's behalf is how people ended up answering a poll they
+// hadn't chosen, and the "one poll" case is precisely when the auto-open looks
+// harmless and is hardest to notice. Selecting a poll is always an explicit tap
+// now — see ActivePollList and FindTimeChooser.
 
 export type ActivePollSummary = { id: string };
 
-export type ResumeDecision =
-  | { action: "create" }
-  | { action: "resume"; pollId: string }
-  | { action: "choose" };
+/** How many poll cards render inline before the rest collapse behind a
+ *  "See all N polls" row. Three keeps a busy squad's detail screen readable
+ *  while still making a second/third active poll impossible to miss. */
+export const INLINE_POLL_CAP = 3;
 
 /**
- * Resume-first rule for the squad / New Event CTAs.
- *
- * Exactly one active poll resumes directly; more than one opens the chooser so
- * no active poll is silently unreachable (the squad CTA used to resolve only
- * the newest via /find while the chooser listed them all).
+ * Decide what an inline poll list renders: the capped visible slice plus how
+ * many are hidden behind the "see all" row. The hidden count must never go
+ * negative — it's rendered straight into "See all N polls".
  */
-export function resolveResumeAction(polls: ActivePollSummary[]): ResumeDecision {
-  if (polls.length === 0) return { action: "create" };
-  if (polls.length === 1) return { action: "resume", pollId: polls[0].id };
-  return { action: "choose" };
+export function splitInlinePolls<T>(
+  polls: T[],
+  cap = INLINE_POLL_CAP,
+): { visible: T[]; hiddenCount: number } {
+  return { visible: polls.slice(0, cap), hiddenCount: Math.max(0, polls.length - cap) };
 }
 
 /** Live "responses received out of eligible members" label for the CTA. */

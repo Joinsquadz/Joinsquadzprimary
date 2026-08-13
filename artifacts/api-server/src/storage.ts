@@ -1053,16 +1053,25 @@ export class Storage {
 
   /**
    * List ACTIVE (not-yet-converted) polls for the "Existing" chooser.
+   * - eventId → all polls bound to that event.
    * - squadId → all squad-scoped polls for that squad (eventId IS NULL).
    * - createdBy (no squadId) → the caller's personal/ad-hoc polls
    *   (squadId & eventId both NULL). Converted polls are always excluded.
+   *
+   * Event scope is a real list, not `findAvailabilityPoll` + 1: an event can
+   * carry several active polls (a host re-asking after a date slip), and
+   * collapsing them to the newest silently hides the board people already
+   * answered on.
    */
   async listAvailabilityPolls(opts: {
     squadId?: string;
+    eventId?: string;
     createdBy?: string;
   }): Promise<AvailabilityPoll[]> {
     const conds = [isNull(availabilityPollsTable.convertedEventId)];
-    if (opts.squadId) {
+    if (opts.eventId) {
+      conds.push(eq(availabilityPollsTable.eventId, opts.eventId));
+    } else if (opts.squadId) {
       conds.push(eq(availabilityPollsTable.squadId, opts.squadId));
       conds.push(sql`${availabilityPollsTable.eventId} IS NULL`);
     } else if (opts.createdBy) {
@@ -1092,6 +1101,31 @@ export class Storage {
       .where(inArray(availabilityResponsesTable.pollId, pollIds))
       .groupBy(availabilityResponsesTable.pollId);
     for (const r of rows) out.set(r.pollId, Number(r.count));
+    return out;
+  }
+
+  /**
+   * Newest response timestamp per poll, for list summaries.
+   *
+   * The squad/event screens show a "new responses since you last looked" badge.
+   * That used to be derived from the single poll `/find` returned, so responses
+   * on every other active poll were invisible. Summaries carry the timestamp so
+   * the badge can span all of the caller's polls in the scope.
+   */
+  async lastResponseAtForPolls(pollIds: string[]): Promise<Map<string, Date>> {
+    const out = new Map<string, Date>();
+    if (pollIds.length === 0) return out;
+    const rows = await db
+      .select({
+        pollId: availabilityResponsesTable.pollId,
+        lastAt: sql<string>`max(${availabilityResponsesTable.updatedAt})`,
+      })
+      .from(availabilityResponsesTable)
+      .where(inArray(availabilityResponsesTable.pollId, pollIds))
+      .groupBy(availabilityResponsesTable.pollId);
+    for (const r of rows) {
+      if (r.lastAt) out.set(r.pollId, new Date(r.lastAt));
+    }
     return out;
   }
 
@@ -1184,7 +1218,12 @@ export class Storage {
       if (event) {
         if (event.hostId === userId) return true;
         if (event.squadId && (await this.isSquadMember(event.squadId, userId))) return true;
-        if (event.rsvps && Object.prototype.hasOwnProperty.call(event.rsvps, userId)) return true;
+        // Presence of an RSVP key is not participation: the map keeps a row for
+        // everyone who ever answered, so a "notgoing" decline was granting the
+        // person who explicitly bailed permanent read access to the squad's
+        // availability. Only an active status counts.
+        const status = (event.rsvps as Record<string, unknown> | null | undefined)?.[userId];
+        if (status === "going" || status === "maybe") return true;
       }
     }
 

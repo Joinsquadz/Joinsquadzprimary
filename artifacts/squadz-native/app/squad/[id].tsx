@@ -29,6 +29,7 @@ import { useDelayedFlag } from "@/hooks/useDelayedFlag";
 import { runSquadPoll, squadSignature } from "@/lib/squadLiveRefresh";
 import { useData, useAuth, type FoundUser } from "@/context/AppContext";
 import { FindTimeChooser } from "@/components/FindTimeChooser";
+import { ActivePollList } from "@/components/ActivePollList";
 import { useMutedSquads } from "@/context/MutedSquadsContext";
 import { useToast } from "@/context/ToastContext";
 import { useMessages } from "@/context/MessagesContext";
@@ -96,8 +97,10 @@ export default function SquadDetailScreen() {
   const showReconnecting = useDelayedFlag(streamStatus === "reconnecting", 3000);
 
   const [openingChat, setOpeningChat] = useState(false);
-  const [availabilityTitle, setAvailabilityTitle] = useState<string | null>(null);
   const [newResponseCount, setNewResponseCount] = useState(0);
+  // Bumped on focus so the inline poll list re-fetches after the user creates,
+  // answers, deletes or converts a poll and comes back.
+  const [pollListRefreshKey, setPollListRefreshKey] = useState(0);
 
   const [addMemberOpen, setAddMemberOpen] = useState(false);
   const [nameQuery, setNameQuery] = useState("");
@@ -306,25 +309,31 @@ export default function SquadDetailScreen() {
       if (!id) return;
       let active = true;
       const avKey = `availability_lastviewed_${id}`;
+      // Re-fetch the inline active-poll list every time this screen regains
+      // focus (a poll may have been created, answered, deleted or converted).
+      setPollListRefreshKey((k) => k + 1);
+      // The "new responses" badge summarises the caller's OWN active polls, so
+      // it counts across every poll they created in this squad rather than the
+      // single newest one /find used to return.
       Promise.all([
-        fetch(`${API_BASE}/api/availability/polls/find?squadId=${id}`, { headers: authHeaders() })
+        fetch(`${API_BASE}/api/availability/polls?squadId=${id}`, { headers: authHeaders() })
           .then(r => r.ok ? r.json() : null)
           .catch(() => null),
         AsyncStorage.getItem(avKey).catch(() => null),
-      ]).then(([d, stored]: [{ poll?: { title?: string; createdBy?: string }; members?: { id: string; respondedAt: string | null }[] } | null, string | null]) => {
+      ]).then(([d, stored]: [{ polls?: { createdBy: string; lastResponseAt?: string | null }[] } | null, string | null]) => {
         if (!active) return;
-        setAvailabilityTitle(d?.poll?.title ?? null);
-        if (d?.poll?.createdBy === currentUser.id && stored) {
-          const lastViewedAt = new Date(Number(stored));
-          const count = (d.members ?? []).filter((m) => {
-            if (m.id === currentUser.id) return false;
-            if (!m.respondedAt) return false;
-            return new Date(m.respondedAt) > lastViewedAt;
-          }).length;
-          setNewResponseCount(count);
-        } else {
+        if (!d?.polls || !stored) {
           setNewResponseCount(0);
+          return;
         }
+        const lastViewedAt = new Date(Number(stored));
+        const count = d.polls.filter(
+          (p) =>
+            p.createdBy === currentUser.id &&
+            p.lastResponseAt != null &&
+            new Date(p.lastResponseAt) > lastViewedAt,
+        ).length;
+        setNewResponseCount(count);
       });
       return () => { active = false; };
     }, [id, authHeaders, currentUser.id])
@@ -857,11 +866,21 @@ export default function SquadDetailScreen() {
               <Ionicons name="sparkles" size={22} color="#fff" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.findTimeTitle}>{availabilityTitle ?? "Find the Best Time"}</Text>
+              <Text style={styles.findTimeTitle}>Find the Best Time</Text>
               <Text style={styles.findTimeSub}>Poll the squad · pick a time everyone's free</Text>
             </View>
             {newResponseCount > 0 ? (
-              <View style={styles.findTimeBadge}>
+              // Counts POLLS with activity since the last visit, not individual
+              // responses — the CTA opens a list of polls, so a poll count is
+              // what the number has to agree with when it's tapped.
+              <View
+                style={styles.findTimeBadge}
+                accessibilityLabel={
+                  newResponseCount === 1
+                    ? "1 poll with new responses"
+                    : `${newResponseCount} polls with new responses`
+                }
+              >
                 <Text style={styles.findTimeBadgeText}>{newResponseCount}</Text>
               </View>
             ) : (
@@ -869,19 +888,25 @@ export default function SquadDetailScreen() {
             )}
           </LinearGradient>
         </TouchableOpacity>
-        {availabilityTitle !== null && (
-          <TouchableOpacity
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              router.push({ pathname: "/availability", params: { squadId: squad.id, from: "create" } } as never);
-            }}
-            style={styles.newPollLink}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="add-circle-outline" size={14} color={colors.mutedForeground} />
-            <Text style={[styles.newPollLinkText, { color: colors.mutedForeground }]}>Start a new poll</Text>
-          </TouchableOpacity>
-        )}
+        {/* Every ACTIVE poll for this squad, capped — not just the newest one. */}
+        <ActivePollList
+          scope={{ type: "squad", squadId: squad.id }}
+          refreshKey={pollListRefreshKey}
+          onSeeAll={() => setFindTimeOpen(true)}
+        />
+        {/* Always available: starting a new poll must never depend on whether
+            an existing poll happened to load. */}
+        <TouchableOpacity
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            router.push({ pathname: "/availability", params: { squadId: squad.id, from: "create" } } as never);
+          }}
+          style={styles.newPollLink}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="add-circle-outline" size={14} color={colors.mutedForeground} />
+          <Text style={[styles.newPollLinkText, { color: colors.mutedForeground }]}>Start a new poll</Text>
+        </TouchableOpacity>
         </View>
 
         {/* Members — horizontal avatar row */}

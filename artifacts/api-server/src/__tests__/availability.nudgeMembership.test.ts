@@ -84,7 +84,9 @@ describe("POST /api/availability/polls/:id/nudge — event-scoped participants",
       id: "evt-1",
       hostId: CREATOR,
       squadId: "squad-9",
-      rsvps: { [RSVP_USER]: "yes" },
+      // "going" / "maybe" are the ACTIVE statuses; a participant list built
+      // from any historical RSVP key would also include people who declined.
+      rsvps: { [RSVP_USER]: "going" },
     });
   });
 

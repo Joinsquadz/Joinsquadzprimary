@@ -26,7 +26,6 @@ import {
   buildFollowUpList,
   followUpStateLabel,
   rankPollCells,
-  resolveResumeAction,
   pollStatusLabel,
 } from "../pollWizard";
 
@@ -310,19 +309,7 @@ describe("alternate-time picker ranking", () => {
   });
 });
 
-describe("resume-first entry points", () => {
-  it("creates fresh when the scope has no active poll", () => {
-    expect(resolveResumeAction([])).toEqual({ action: "create" });
-  });
-
-  it("opens the single active poll directly", () => {
-    expect(resolveResumeAction([{ id: "poll-1" }])).toEqual({ action: "resume", pollId: "poll-1" });
-  });
-
-  it("falls back to the chooser when several polls are active", () => {
-    expect(resolveResumeAction([{ id: "a" }, { id: "b" }])).toEqual({ action: "choose" });
-  });
-
+describe("poll entry points", () => {
   it("reports responses against the eligible member count when known", () => {
     expect(pollStatusLabel({ respondentCount: 2, memberCount: 5 })).toBe("2 of 5 responded");
     expect(pollStatusLabel({ respondentCount: 1, memberCount: 0 })).toBe("1 response");

@@ -109,6 +109,111 @@ function parseId(raw: unknown): string {
   return Array.isArray(raw) ? (raw[0] as string) : (raw as string);
 }
 
+/**
+ * RSVP keys are NOT a participant list. `rsvps` retains a row for everyone who
+ * ever answered, including "notgoing" declines, so reading `Object.keys` treats
+ * someone who explicitly bailed as a live participant — they get nudged, get
+ * "re-enter your times" pushes, and (worse) keep read access to the poll.
+ * Only "going" / "maybe" count as taking part.
+ */
+const ACTIVE_RSVP_STATUSES = new Set(["going", "maybe"]);
+
+function activeRsvpUserIds(rsvps: unknown): string[] {
+  if (!rsvps || typeof rsvps !== "object") return [];
+  return Object.entries(rsvps as Record<string, unknown>)
+    .filter(([, status]) => typeof status === "string" && ACTIVE_RSVP_STATUSES.has(status))
+    .map(([userId]) => userId);
+}
+
+/**
+ * A poll that has been turned into a plan is TERMINAL: it keeps its identity so
+ * an old share link still resolves, but it can never be answered, re-ranged,
+ * nudged or re-converted again. Every write path checks this before touching
+ * state — otherwise a member sitting on a stale board silently saves times into
+ * a poll nobody will ever read, and the host's "locked in" plan quietly drifts.
+ */
+function isConverted(poll: AvailabilityPoll): boolean {
+  return Boolean(poll.convertedEventId);
+}
+
+/**
+ * Read-side terminal payload: enough for the client to show "this became a
+ * plan" and link straight to it, with no grid to edit.
+ *
+ * `convertedEventType` matters: trips and events are the same row but live on
+ * different routes (/trip/:id vs /event/:id), so without it the "View the plan"
+ * button dead-ends for every poll that became a trip.
+ */
+async function convertedPayload(poll: AvailabilityPoll) {
+  let convertedEventType: string | null = null;
+  if (poll.convertedEventId) {
+    const target = await storage.getEvent(poll.convertedEventId).catch(() => null);
+    convertedEventType = (target as { type?: string } | null)?.type ?? null;
+  }
+  return {
+    converted: true,
+    convertedEventId: poll.convertedEventId ?? null,
+    convertedEventType,
+    poll: {
+      id: poll.id,
+      squadId: poll.squadId,
+      eventId: poll.eventId,
+      createdBy: poll.createdBy,
+      title: poll.title,
+      days: poll.days,
+      slots: poll.slots,
+      updatedAt: poll.updatedAt?.toISOString() ?? null,
+      updatedBy: poll.updatedBy ?? null,
+      updatedByName: null,
+    },
+  };
+}
+
+/** Write-side terminal rejection. 409 (not 403) so the client can tell "this is
+ *  finished, go look at the plan" apart from "you aren't allowed". */
+function rejectConverted(res: Response, poll: AvailabilityPoll): void {
+  res.status(409).json({
+    error: "This poll has already been turned into a plan and can no longer be changed.",
+    convertedEventId: poll.convertedEventId ?? null,
+    alreadyConverted: true,
+  });
+}
+
+/**
+ * Everyone who counts as taking part in this poll: squad members, the event
+ * host plus ACTIVE RSVPs plus the event's squad, and — for an ad-hoc poll — the
+ * explicit invitee roster.
+ *
+ * The ad-hoc roster used to be missing here, which meant the exact people a
+ * host hand-picked for a "new plan" poll were the ones who could never be
+ * nudged and never got the "range changed" push. Shared by the nudge gate and
+ * the range-update fan-out so the two can't drift apart again.
+ */
+async function collectPollParticipantIds(poll: AvailabilityPoll): Promise<Set<string>> {
+  const participantIds = new Set<string>();
+  if (poll.squadId) {
+    const squad = await storage.getSquad(poll.squadId);
+    for (const id of (squad?.memberIds ?? []) as string[]) participantIds.add(id);
+  }
+  if (poll.eventId) {
+    const event = await storage.getEvent(poll.eventId);
+    if (event) {
+      participantIds.add(event.hostId);
+      for (const id of activeRsvpUserIds(event.rsvps)) participantIds.add(id);
+      if (event.squadId) {
+        const squad = await storage.getSquad(event.squadId);
+        for (const id of (squad?.memberIds ?? []) as string[]) participantIds.add(id);
+      }
+    }
+  }
+  // Ad-hoc poll: the roster IS the participant list (plus its creator).
+  if (!poll.squadId && !poll.eventId) {
+    participantIds.add(poll.createdBy);
+    for (const id of ((poll.participantIds ?? []) as string[])) participantIds.add(id);
+  }
+  return participantIds;
+}
+
 const CreatePollBody = z
   .object({
     squadId: z.string().optional(),
@@ -362,18 +467,24 @@ router.post("/availability/polls", requireAuth, async (req: Request, res: Respon
 const ListPollsQuery = z
   .object({
     squadId: z.string().optional(),
+    eventId: z.string().optional(),
     // "personal" → the caller's own ad-hoc polls (no squad, no event).
     scope: z.enum(["personal"]).optional(),
   })
-  .refine((d) => d.squadId || d.scope === "personal", {
-    message: "squadId or scope=personal is required",
+  .refine((d) => d.squadId || d.eventId || d.scope === "personal", {
+    message: "squadId, eventId, or scope=personal is required",
   });
 
 /**
- * GET /api/availability/polls?squadId=  | ?scope=personal
- * List ACTIVE (un-converted) polls for the New/Existing chooser. Squad scope is
- * gated on squad membership; personal scope returns only the caller's own
- * ad-hoc polls. Returns lightweight summaries (no heatmap).
+ * GET /api/availability/polls?squadId=  | ?eventId=  | ?scope=personal
+ * List ACTIVE (un-converted) polls for the New/Existing chooser. Squad and
+ * event scopes are gated on access to that squad/event; personal scope returns
+ * only the caller's own ad-hoc polls. Returns lightweight summaries (no
+ * heatmap).
+ *
+ * Event scope lists EVERY active poll for the event rather than the newest one:
+ * `/find` collapsing to the latest board is what hid older polls people had
+ * already filled in.
  */
 router.get("/availability/polls", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
@@ -383,10 +494,28 @@ router.get("/availability/polls", requireAuth, async (req: Request, res: Respons
       res.status(400).json({ error: parsed.error.message });
       return;
     }
-    const { squadId, scope } = parsed.data;
+    const { squadId, eventId, scope } = parsed.data;
 
     let squadMemberCount = 0;
-    if (squadId) {
+    if (eventId) {
+      const event = await storage.getEvent(eventId);
+      if (!event) {
+        res.status(404).json({ error: "Event not found" });
+        return;
+      }
+      const canAccess = await storage.canAccessAvailabilityPoll(
+        { eventId, squadId: event.squadId || null, createdBy: event.hostId } as AvailabilityPoll,
+        userId,
+      );
+      if (!canAccess) {
+        res.status(403).json({ error: "Access denied" });
+        return;
+      }
+      if (event.squadId) {
+        const squad = await storage.getSquad(event.squadId);
+        squadMemberCount = ((squad?.memberIds ?? []) as string[]).length;
+      }
+    } else if (squadId) {
       const member = await storage.canAccessAvailabilityPoll(
         { squadId, eventId: null, createdBy: "" } as AvailabilityPoll,
         userId,
@@ -399,26 +528,36 @@ router.get("/availability/polls", requireAuth, async (req: Request, res: Respons
       squadMemberCount = ((squad?.memberIds ?? []) as string[]).length;
     }
 
-    const polls = squadId
+    const polls = eventId
+      ? await storage.listAvailabilityPolls({ eventId })
+      : squadId
       ? await storage.listAvailabilityPolls({ squadId })
       : await storage.listAvailabilityPolls({ createdBy: userId });
 
-    const counts = await storage.countResponsesForPolls(polls.map((p) => p.id));
+    const pollIds = polls.map((p) => p.id);
+    const [counts, lastResponses] = await Promise.all([
+      storage.countResponsesForPolls(pollIds),
+      storage.lastResponseAtForPolls(pollIds),
+    ]);
 
     const summaries = polls.map((p) => ({
       id: p.id,
       title: p.title,
       squadId: p.squadId,
+      eventId: p.eventId,
       days: p.days,
       slots: p.slots,
       respondentCount: counts.get(p.id) ?? 0,
-      memberCount: p.squadId
+      memberCount: p.squadId || p.eventId
         ? squadMemberCount
         : ((p.participantIds as string[] | null) ?? []).length,
       createdBy: p.createdBy,
       mine: p.createdBy === userId,
       createdAt: p.createdAt?.toISOString() ?? null,
       updatedAt: p.updatedAt?.toISOString() ?? null,
+      // Drives the caller's "new responses since you last looked" badge across
+      // ALL of their active polls in this scope.
+      lastResponseAt: lastResponses.get(p.id)?.toISOString() ?? null,
     }));
 
     res.json({ polls: summaries });
@@ -483,6 +622,13 @@ router.get("/availability/polls/:id", requireAuth, async (req: Request, res: Res
       res.status(403).json({ error: "Access denied" });
       return;
     }
+    // Terminal state: a share link to a poll that already became a plan must
+    // say so and point at the plan, instead of rendering an editable grid whose
+    // answers can never land anywhere.
+    if (isConverted(poll)) {
+      res.json(await convertedPayload(poll));
+      return;
+    }
     const responses = await storage.getAvailabilityResponses(poll.id);
     const [members, updatedByName] = await Promise.all([
       buildMembersField(poll, responses),
@@ -530,6 +676,40 @@ router.delete("/availability/polls/:id", requireAuth, async (req: Request, res: 
 const ConvertPollBody = z.object({ eventId: z.string().min(1).max(120) });
 
 /**
+ * A poll may only be converted into an event the caller can actually reach, and
+ * that matches the poll's own scope. Validating only "non-empty string" let a
+ * typo'd or foreign id become the poll's permanent terminal target — the poll
+ * would disappear from every active list and link to a plan nobody can open.
+ */
+async function validateConversionTarget(
+  poll: AvailabilityPoll,
+  eventId: string,
+  userId: string,
+): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  const event = await storage.getEvent(eventId);
+  if (!event) {
+    return { ok: false, status: 404, error: "That plan no longer exists." };
+  }
+  // The converter must be able to see the plan they're pointing the poll at.
+  const canSeeEvent = await storage.canAccessAvailabilityPoll(
+    { eventId, squadId: event.squadId || null, createdBy: event.hostId } as AvailabilityPoll,
+    userId,
+  );
+  if (!canSeeEvent) {
+    return { ok: false, status: 403, error: "You don't have access to that plan." };
+  }
+  // An event-scoped poll can only ever become ITS OWN event.
+  if (poll.eventId && poll.eventId !== eventId) {
+    return { ok: false, status: 400, error: "This poll belongs to a different plan." };
+  }
+  // A squad-scoped poll can only become a plan in the same squad.
+  if (poll.squadId && event.squadId && event.squadId !== poll.squadId) {
+    return { ok: false, status: 400, error: "That plan belongs to a different squad." };
+  }
+  return { ok: true };
+}
+
+/**
  * POST /api/availability/polls/:id/convert
  * Mark a poll as "locked in" — it became the event/trip identified by eventId.
  * Only the poll creator may call this. A converted poll drops out of the
@@ -563,6 +743,11 @@ router.post("/availability/polls/:id/convert", requireAuth, async (req: Request,
       res.status(400).json({ error: parsed.error.message });
       return;
     }
+    const target = await validateConversionTarget(poll, parsed.data.eventId, userId);
+    if (!target.ok) {
+      res.status(target.status).json({ error: target.error });
+      return;
+    }
     const claim = await storage.claimAvailabilityPollConversion(poll.id, parsed.data.eventId);
     if (!claim.claimed) {
       res.status(409).json({
@@ -573,6 +758,9 @@ router.post("/availability/polls/:id/convert", requireAuth, async (req: Request,
       return;
     }
     res.json({ ok: true, convertedEventId: claim.convertedEventId });
+    // Live update: anyone sitting on this board must be pushed to the terminal
+    // state rather than keeping an editable grid whose saves now 409.
+    emitPollUpdate(poll.id);
   } catch (err) {
     logger.error({ err }, "Error converting availability poll");
     res.status(500).json({ error: "Failed to convert poll" });
@@ -643,6 +831,10 @@ router.patch("/availability/polls/:id", requireAuth, async (req: Request, res: R
       res.status(403).json({ error: "Only the poll creator can update the date range" });
       return;
     }
+    if (isConverted(poll)) {
+      rejectConverted(res, poll);
+      return;
+    }
     const parsed = UpdatePollBody.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: parsed.error.message });
@@ -698,28 +890,7 @@ router.patch("/availability/polls/:id", requireAuth, async (req: Request, res: R
         const pollUpdatedAt = updatedPoll.updatedAt ?? new Date();
 
         // Gather all participant user IDs for this poll scope.
-        const participantIds = new Set<string>();
-        if (poll.squadId) {
-          const squad = await storage.getSquad(poll.squadId);
-          for (const id of ((squad?.memberIds ?? []) as string[])) {
-            participantIds.add(id);
-          }
-        }
-        if (poll.eventId) {
-          const event = await storage.getEvent(poll.eventId);
-          if (event) {
-            participantIds.add(event.hostId);
-            for (const id of Object.keys(event.rsvps ?? {})) {
-              participantIds.add(id);
-            }
-            if (event.squadId) {
-              const squad = await storage.getSquad(event.squadId);
-              for (const id of ((squad?.memberIds ?? []) as string[])) {
-                participantIds.add(id);
-              }
-            }
-          }
-        }
+        const participantIds = await collectPollParticipantIds(poll);
         // Also include anyone who has responded (they're participants even if not
         // currently in the squad/event member list).
         for (const r of responses) participantIds.add(r.userId);
@@ -780,6 +951,10 @@ router.post("/availability/polls/:id/nudge", requireAuth, async (req: Request, r
       res.status(403).json({ error: "Only the poll creator can send nudges" });
       return;
     }
+    if (isConverted(poll)) {
+      rejectConverted(res, poll);
+      return;
+    }
 
     const parsed = NudgeBody.safeParse(req.body);
     if (!parsed.success) {
@@ -805,22 +980,7 @@ router.post("/availability/polls/:id/nudge", requireAuth, async (req: Request, r
     // this, the poll creator could push-spam any arbitrary userId by passing it
     // here — the only prior gate was "hasn't responded", which every non-member
     // trivially satisfies.
-    const participantIds = new Set<string>();
-    if (poll.squadId) {
-      const squad = await storage.getSquad(poll.squadId);
-      for (const pid of (squad?.memberIds ?? []) as string[]) participantIds.add(pid);
-    }
-    if (poll.eventId) {
-      const event = await storage.getEvent(poll.eventId);
-      if (event) {
-        participantIds.add(event.hostId);
-        for (const pid of Object.keys(event.rsvps ?? {})) participantIds.add(pid);
-        if (event.squadId) {
-          const squad = await storage.getSquad(event.squadId);
-          for (const pid of (squad?.memberIds ?? []) as string[]) participantIds.add(pid);
-        }
-      }
-    }
+    const participantIds = await collectPollParticipantIds(poll);
     if (!participantIds.has(targetUserId)) {
       res.status(403).json({ error: "You can only nudge members of this poll." });
       return;
@@ -898,6 +1058,13 @@ router.put("/availability/polls/:id/me", requireAuth, async (req: Request, res: 
     }
     if (!(await storage.canAccessAvailabilityPoll(poll, userId))) {
       res.status(403).json({ error: "Access denied" });
+      return;
+    }
+    // A member on a stale board must not be able to write answers into a poll
+    // that already became a plan — they'd get a success toast for data no one
+    // will ever read.
+    if (isConverted(poll)) {
+      rejectConverted(res, poll);
       return;
     }
     const parsed = UpsertResponseBody.safeParse(req.body);

@@ -6,9 +6,11 @@ const storageMock = vi.hoisted(() => ({
   canAccessAvailabilityPoll: vi.fn(),
   listAvailabilityPolls: vi.fn(),
   countResponsesForPolls: vi.fn(),
+  lastResponseAtForPolls: vi.fn(),
   deleteAvailabilityPoll: vi.fn(),
   claimAvailabilityPollConversion: vi.fn(),
   getSquad: vi.fn(),
+  getEvent: vi.fn(),
 }));
 
 vi.mock("../storage", () => ({ storage: storageMock }));
@@ -53,6 +55,12 @@ beforeEach(() => {
   vi.clearAllMocks();
   storageMock.getSquad.mockResolvedValue({ memberIds: [CREATOR_ID, MEMBER_ID] });
   storageMock.countResponsesForPolls.mockResolvedValue(new Map([["poll-1", 2]]));
+  // Drives the "new responses since you last looked" badge on every summary.
+  storageMock.lastResponseAtForPolls.mockResolvedValue(new Map());
+  // Conversion validates its target plan before claiming the poll, so the
+  // event has to exist and be visible to the converter.
+  storageMock.getEvent.mockResolvedValue({ id: "event-9", hostId: CREATOR_ID, squadId: "squad-1" });
+  storageMock.canAccessAvailabilityPoll.mockResolvedValue(true);
 });
 
 describe("GET /api/availability/polls (list)", () => {
@@ -90,6 +98,25 @@ describe("GET /api/availability/polls (list)", () => {
       memberCount: 2,
       mine: false,
     });
+  });
+
+  it("lists EVERY active poll for an event, not just the newest", async () => {
+    // Event screens resolved their poll through /find, which returns only the
+    // most recent one — so a plan with three live boards advertised one and the
+    // rest were unreachable from the screen people actually open.
+    const secondEventPoll = { ...squadPoll, id: "poll-2", squadId: null, eventId: "event-1" };
+    const firstEventPoll = { ...squadPoll, id: "poll-1", squadId: null, eventId: "event-1" };
+    storageMock.getEvent.mockResolvedValue({ id: "event-1", hostId: CREATOR_ID, squadId: "squad-1" });
+    storageMock.listAvailabilityPolls.mockResolvedValue([secondEventPoll, firstEventPoll]);
+
+    const app = await makeApp({ id: MEMBER_ID });
+    const res = await request(app).get("/api/availability/polls?eventId=event-1");
+
+    expect(res.status).toBe(200);
+    expect(storageMock.listAvailabilityPolls).toHaveBeenCalledWith({ eventId: "event-1" });
+    expect(res.body.polls.map((p: { id: string }) => p.id)).toEqual(["poll-2", "poll-1"]);
+    // eventId rides along so the client can route each card back to its plan.
+    expect(res.body.polls[0]).toMatchObject({ eventId: "event-1" });
   });
 
   it("lists the caller's own ad-hoc polls for scope=personal", async () => {

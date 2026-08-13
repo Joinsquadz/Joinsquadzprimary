@@ -39,6 +39,7 @@ import { useData, useAuth, dbEventToEvent } from "@/context/AppContext";
 import { ChatMessages, ChatComposer } from "@/components/EventChatPanel";
 import { useEventChat } from "@/hooks/useEventChat";
 import { FindTimeChooser } from "@/components/FindTimeChooser";
+import { ActivePollList } from "@/components/ActivePollList";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { UserAvatar } from "@/components/UserAvatar";
 import { ProAvatar } from "@/components/ProAvatar";
@@ -333,8 +334,8 @@ export default function EventDetailScreen() {
     prefetchUsers(ids);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [event?.id]);
-  const [availabilityTitle, setAvailabilityTitle] = useState<string | null>(null);
   const [newResponseCount, setNewResponseCount] = useState(0);
+  const [pollListRefreshKey, setPollListRefreshKey] = useState(0);
   const [firstRsvpCelebration, setFirstRsvpCelebration] = useState(false);
   const [findTimeOpen, setFindTimeOpen] = useState(false);
 
@@ -379,25 +380,29 @@ export default function EventDetailScreen() {
       if (!id) return;
       let active = true;
       const avKey = `availability_lastviewed_${id}`;
+      // Re-fetch the inline active-poll list whenever this screen regains focus.
+      setPollListRefreshKey((k) => k + 1);
+      // Badge spans ALL of the caller's active polls for this event, not just
+      // the newest one /find used to return.
       Promise.all([
-        fetch(`${API_BASE}/api/availability/polls/find?eventId=${id}`, { headers: authHeaders() })
+        fetch(`${API_BASE}/api/availability/polls?eventId=${id}`, { headers: authHeaders() })
           .then(r => r.ok ? r.json() : null)
           .catch(() => null),
         AsyncStorage.getItem(avKey).catch(() => null),
-      ]).then(([d, stored]: [{ poll?: { title?: string; createdBy?: string }; members?: { id: string; respondedAt: string | null }[] } | null, string | null]) => {
+      ]).then(([d, stored]: [{ polls?: { createdBy: string; lastResponseAt?: string | null }[] } | null, string | null]) => {
         if (!active) return;
-        setAvailabilityTitle(d?.poll?.title ?? null);
-        if (d?.poll?.createdBy === currentUser.id && stored) {
-          const lastViewedAt = new Date(Number(stored));
-          const count = (d.members ?? []).filter((m) => {
-            if (m.id === currentUser.id) return false;
-            if (!m.respondedAt) return false;
-            return new Date(m.respondedAt) > lastViewedAt;
-          }).length;
-          setNewResponseCount(count);
-        } else {
+        if (!d?.polls || !stored) {
           setNewResponseCount(0);
+          return;
         }
+        const lastViewedAt = new Date(Number(stored));
+        const count = d.polls.filter(
+          (p) =>
+            p.createdBy === currentUser.id &&
+            p.lastResponseAt != null &&
+            new Date(p.lastResponseAt) > lastViewedAt,
+        ).length;
+        setNewResponseCount(count);
       });
       return () => { active = false; };
     }, [id, authHeaders, currentUser.id])
@@ -1476,7 +1481,7 @@ export default function EventDetailScreen() {
                 <Ionicons name="sparkles-outline" size={18} color={colors.primary} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.cardBody, { color: colors.foreground, fontWeight: "700" }]}>{availabilityTitle ?? "Find the Best Time"}</Text>
+                <Text style={[styles.cardBody, { color: colors.foreground, fontWeight: "700" }]}>Find the Best Time</Text>
                 <Text style={[styles.cardBody, { color: colors.mutedForeground, fontSize: 13 }]}>Poll everyone & lock in when most can make it</Text>
               </View>
               {newResponseCount > 0 && (
@@ -1486,6 +1491,14 @@ export default function EventDetailScreen() {
               )}
               <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
             </TouchableOpacity>
+
+            {/* Every ACTIVE poll for this plan, capped — an event can have more
+                than one live poll and all of them must be reachable here. */}
+            <ActivePollList
+              scope={{ type: "event", eventId: event.id }}
+              refreshKey={pollListRefreshKey}
+              onSeeAll={() => setFindTimeOpen(true)}
+            />
 
             {myConflicts.length > 0 && (
               <ConflictBanner conflicts={myConflicts} style={{ marginBottom: 12 }} />

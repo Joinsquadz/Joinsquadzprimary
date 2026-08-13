@@ -285,7 +285,7 @@ describe("PATCH /api/availability/polls/:id — push notifications (event-scoped
     id: "event-1",
     hostId: HOST_ID,
     squadId: null,
-    rsvps: { [MEMBER_A]: "yes", [MEMBER_B]: "maybe" },
+    rsvps: { [MEMBER_A]: "going", [MEMBER_B]: "maybe" },
   };
 
   beforeEach(() => {

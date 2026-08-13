@@ -119,6 +119,33 @@ describe("canAccessAvailabilityPoll — scoped polls have no creator exception",
     await expect(storage.canAccessAvailabilityPoll(eventPoll, OUTSIDER)).resolves.toBe(true);
   });
 
+  it("denies someone whose only RSVP is a decline", async () => {
+    // Access came from "has a key in event.rsvps", so explicitly bailing on a
+    // plan still granted permanent read access to the squad's availability.
+    // Only an ACTIVE status ("going" / "maybe") counts.
+    mockMembership([]);
+    mockEvent({
+      id: "event-1",
+      hostId: "host-id",
+      squadId: null,
+      rsvps: { [OUTSIDER]: "notgoing" },
+    });
+
+    await expect(storage.canAccessAvailabilityPoll(eventPoll, OUTSIDER)).resolves.toBe(false);
+  });
+
+  it("allows a 'maybe' RSVP — undecided still counts as taking part", async () => {
+    mockMembership([]);
+    mockEvent({
+      id: "event-1",
+      hostId: "host-id",
+      squadId: null,
+      rsvps: { [OUTSIDER]: "maybe" },
+    });
+
+    await expect(storage.canAccessAvailabilityPoll(eventPoll, OUTSIDER)).resolves.toBe(true);
+  });
+
   it("denies a scoped poll whose linked event has been deleted", async () => {
     mockMembership([]);
     mockEvent(null);

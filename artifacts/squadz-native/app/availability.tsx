@@ -57,7 +57,9 @@ import {
   memberFollowUpState,
   followUpStateLabel,
   canNudgeMember,
-  rankPollCells,
+  wizardHasInput,
+  editRangeSnapshot,
+  editRangeDirty,
 } from "@/lib/pollWizard";
 import {
   pollDraftKey,
@@ -269,6 +271,18 @@ export default function AvailabilityScreen() {
   const droppedOpacity = useRef(new Animated.Value(0)).current;
   const droppedAnimRef = useRef<Animated.CompositeAnimation | null>(null);
 
+  // Set when this poll has already been turned into a plan. The board is
+  // terminal at that point: no grid, no saves, just a link to the plan.
+  const [convertedEventId, setConvertedEventId] = useState<string | null>(null);
+  // Trips and events are the same row on different routes — without the type
+  // the "View the plan" button dead-ends for every poll that became a trip.
+  const [convertedEventType, setConvertedEventType] = useState<string | null>(null);
+  // An ad-hoc URL with no pollId: nothing to resolve, because ad-hoc polls are
+  // only ever reachable by their own id.
+  const [adhocLinkUnsupported, setAdhocLinkUnsupported] = useState(false);
+  // A squad/event scope with 2+ active polls: we refuse to guess which one.
+  const [ambiguousScope, setAmbiguousScope] = useState(false);
+
   const [rangeUpdatedBanner, setRangeUpdatedBanner] = useState(false);
   const [rangeUpdatedVisible, setRangeUpdatedVisible] = useState(false);
   const rangeUpdatedOpacity = useRef(new Animated.Value(0)).current;
@@ -373,25 +387,70 @@ export default function AvailabilityScreen() {
   const dirtyRef = useRef(dirty);
   useEffect(() => { dirtyRef.current = dirty; }, [dirty]);
 
-  // Intercept all back-navigation (header button, Android hardware back, iOS
-  // swipe-back) when there are unsaved availability changes.
+  // Has the user actually put work into the creation wizard? (rule + rationale
+  // live in lib/pollWizard so they're unit-tested without mounting the screen)
+  const wizardDirty = wizardHasInput({
+    title: pollTitle,
+    stepIndex: wizardStep,
+    rangeDays,
+    rangeStartISO: toISODate(rangeStart),
+    todayISO: toISODate(new Date()),
+  });
+  const wizardDirtyRef = useRef(false);
+  useEffect(() => {
+    // Only while the wizard is the surface on screen — never once a poll loads.
+    wizardDirtyRef.current = needsSetup && wizardDirty;
+  }, [needsSetup, wizardDirty]);
+
+  /**
+   * Suppresses the leave guard for navigation WE initiated after the work
+   * finished — creating the poll, deleting it, locking a time in.
+   *
+   * `beforeRemove` fires for programmatic navigation too, and the state that
+   * clears the dirty flags only lands on the next render, so without this the
+   * success path prompts "Leave without creating the poll?" one beat after the
+   * poll was created.
+   */
+  const bypassLeaveGuardRef = useRef(false);
+  const leaveAfterSuccess = useCallback((go: () => void) => {
+    bypassLeaveGuardRef.current = true;
+    go();
+  }, []);
+
+  // Intercept ALL back-navigation through one listener — the header button,
+  // Android hardware back, the iOS swipe-back gesture and the wizard's own
+  // Cancel all end up here, so they can't drift apart.
   useEffect(() => {
     const unsubscribe = navigation.addListener("beforeRemove" as never, (e: {
       preventDefault: () => void;
       data: { action: object };
     }) => {
-      if (!dirtyRef.current) return;
+      if (bypassLeaveGuardRef.current) {
+        bypassLeaveGuardRef.current = false;
+        return;
+      }
+      const leavingGridEdits = dirtyRef.current;
+      const leavingWizard = wizardDirtyRef.current;
+      if (!leavingGridEdits && !leavingWizard) return;
       e.preventDefault();
+      const leave = () => (navigation as { dispatch: (action: object) => void }).dispatch(e.data.action);
+      if (leavingGridEdits) {
+        Alert.alert(
+          "Unsaved changes",
+          "You have unsaved availability — leave anyway?",
+          [
+            { text: "Stay", style: "cancel" },
+            { text: "Leave", style: "destructive", onPress: leave },
+          ],
+        );
+        return;
+      }
       Alert.alert(
-        "Unsaved changes",
-        "You have unsaved availability — leave anyway?",
+        "Leave without creating the poll?",
+        "We'll keep what you've entered so you can pick up where you left off.",
         [
-          { text: "Stay", style: "cancel" },
-          {
-            text: "Leave",
-            style: "destructive",
-            onPress: () => (navigation as { dispatch: (action: object) => void }).dispatch(e.data.action),
-          },
+          { text: "Keep editing", style: "cancel" },
+          { text: "Leave", style: "destructive", onPress: leave },
         ],
       );
     });
@@ -401,6 +460,15 @@ export default function AvailabilityScreen() {
   // Keep a ref that tells background polling whether a real poll is loaded.
   const hasPollRef = useRef(false);
   useEffect(() => { hasPollRef.current = data !== null; }, [data]);
+
+  // The id of the poll actually on screen. Every refresh keys off THIS, never
+  // off the scope — resolving a scope re-picks the newest poll, which silently
+  // swaps the board out from under someone mid-edit.
+  const openPollIdRef = useRef<string | null>(pollId ?? null);
+  useEffect(() => {
+    if (data?.poll.id) openPollIdRef.current = data.poll.id;
+    else if (pollId) openPollIdRef.current = pollId;
+  }, [data?.poll.id, pollId]);
 
   // Shared guard — any modal/sheet calls hold() when it opens and release()
   // when it closes; cell taps call stamp().  refreshInBackground uses
@@ -426,7 +494,6 @@ export default function AvailabilityScreen() {
   const [selectedMemberIds, setSelectedMemberIds] = useState<Set<string>>(new Set());
 
   // Pending modal — shown when user taps the "N still pending" label.
-  const [showPendingModal, setShowPendingModal] = useState(false);
 
   // Response timeline — host-only collapsible list of all members + timestamps.
   const [showTimeline, setShowTimeline] = useState(false);
@@ -484,7 +551,6 @@ export default function AvailabilityScreen() {
   // Alternate-slot picker: lets anyone lock in a time OTHER than the computed
   // best one without leaving the poll (the old "Set a different time" link
   // pushed to a blank create form and threw the poll's data away).
-  const [altPickerOpen, setAltPickerOpen] = useState(false);
 
   // Edit range state: host-only modal to update an existing poll's date range and title.
   const [editRangeOpen, setEditRangeOpen] = useState(false);
@@ -494,6 +560,8 @@ export default function AvailabilityScreen() {
   const [editSlots, setEditSlots] = useState<Set<string>>(new Set(DEFAULT_SLOTS));
   const [editSlotPeriod, setEditSlotPeriod] = useState<string>("Evening");
   const [editPickerOpen, setEditPickerOpen] = useState(false);
+  // What the edit sheet looked like when it opened, for the dirty-cancel guard.
+  const editBaselineRef = useRef<{ startISO: string; days: number; slots: string; title: string } | null>(null);
   const [editPickerDate, setEditPickerDate] = useState<Date>(new Date());
   const [updating, setUpdating] = useState(false);
 
@@ -501,7 +569,7 @@ export default function AvailabilityScreen() {
   // date-picker is open; release only when both are closed.  The combined
   // boolean ensures closing the inner picker while the sheet remains open
   // does not prematurely release the guard.
-  useModalGuard(editRangeOpen || editPickerOpen || showPendingModal, holdInteraction, releaseInteraction);
+  useModalGuard(editRangeOpen || editPickerOpen, holdInteraction, releaseInteraction);
 
   // Fade the droppedNotice banner in when it appears.
   useEffect(() => {
@@ -591,6 +659,8 @@ export default function AvailabilityScreen() {
     setLoading(true);
     setError(null);
     setNeedsSetup(false);
+    setAdhocLinkUnsupported(false);
+    setAmbiguousScope(false);
 
     // Read the last-viewed timestamp BEFORE fetching so we can compare once
     // the payload arrives. Keyed by the squad/event/poll so different polls
@@ -615,9 +685,44 @@ export default function AvailabilityScreen() {
           headers: authHeaders(),
           signal: controller.signal,
         });
+      } else if (!squadId && !eventId) {
+        // Ad-hoc polls have no scope to resolve from — they're only reachable
+        // by their own id. A bare `?adhoc=1` (an old link, or a reload after
+        // the poll was created) has nothing to open, so say so and offer the
+        // one action that makes sense instead of resolving some other poll.
+        setData(null);
+        setNeedsSetup(false);
+        setAdhocLinkUnsupported(true);
+        return;
       } else {
+        // No pollId: resolve the scope from its ACTIVE poll list rather than
+        // /find, which silently returns the newest poll and hides the rest.
         const qs = new URLSearchParams(squadId ? { squadId } : { eventId: eventId ?? "" });
-        res = await fetch(`${API_BASE}/api/availability/polls/find?${qs.toString()}`, {
+        const listRes = await fetch(`${API_BASE}/api/availability/polls?${qs.toString()}`, {
+          headers: authHeaders(),
+          signal: controller.signal,
+        });
+        if (!listRes.ok) {
+          const body = (await listRes.json().catch(() => ({}))) as { error?: string };
+          setError(body.error ?? "Could not load availability.");
+          return;
+        }
+        const list = (await listRes.json()) as { polls?: { id: string }[] };
+        const active = list.polls ?? [];
+        if (active.length === 0) {
+          setData(null);
+          setNeedsSetup(true);
+          try { await AsyncStorage.setItem(avKey, String(Date.now())); } catch { /* ignore */ }
+          return;
+        }
+        if (active.length > 1) {
+          // Never guess which board the user meant — make them pick.
+          setData(null);
+          setNeedsSetup(false);
+          setAmbiguousScope(true);
+          return;
+        }
+        res = await fetch(`${API_BASE}/api/availability/polls/${active[0].id}`, {
           headers: authHeaders(),
           signal: controller.signal,
         });
@@ -640,7 +745,20 @@ export default function AvailabilityScreen() {
         setError("Could not load availability.");
         return;
       }
+      // Terminal: this poll already became a plan. A share link must still
+      // resolve, but as a read-only "here's the plan" card — not a grid whose
+      // answers can never be read by anyone.
+      if ((raw as { converted?: boolean }).converted) {
+        const terminal = raw as { convertedEventId?: string | null; convertedEventType?: string | null };
+        setConvertedEventId(terminal.convertedEventId ?? null);
+        setConvertedEventType(terminal.convertedEventType ?? null);
+        setData(null);
+        setNeedsSetup(false);
+        return;
+      }
       const payload = raw as PollPayload;
+      setConvertedEventId(null);
+      setConvertedEventType(null);
       setData(payload);
       setMySet(new Set(payload.myCells ?? []));
       setDirty(false);
@@ -740,14 +858,16 @@ export default function AvailabilityScreen() {
       // Swap the create-flow URL (…?eventId=…&from=create) for the canonical
       // poll URL so a web refresh reopens the created poll instead of dropping
       // the user back onto the empty setup form.
-      router.replace({ pathname: "/availability", params: { pollId: payload.poll.id } } as never);
+      leaveAfterSuccess(() =>
+        router.replace({ pathname: "/availability", params: { pollId: payload.poll.id } } as never),
+      );
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch {
       Alert.alert("Couldn't create poll", "Network error. Please try again.");
     } finally {
       setCreating(false);
     }
-  }, [authHeaders, squadId, eventId, adhoc, fromCreate, isTrip, params.participantIds, pollTitle, rangeStart, rangeDays, selectedSlots]);
+  }, [authHeaders, squadId, eventId, adhoc, fromCreate, isTrip, params.participantIds, pollTitle, rangeStart, rangeDays, selectedSlots, leaveAfterSuccess]);
 
   // Silently re-fetches the poll and updates the heatmap + best-time card.
   // The user's own unsaved picks (mySet) are only synced when there are no
@@ -759,18 +879,31 @@ export default function AvailabilityScreen() {
     if (!hasPollRef.current) return;
     if (interactionActive(INTERACTION_QUIET_MS)) return;
     try {
-      // Invite-link flow opens the poll directly by id (no squadId/eventId), so
-      // refresh via the by-id endpoint there; otherwise resolve via /find.
-      const url = pollId
-        ? `${API_BASE}/api/availability/polls/${pollId}`
-        : `${API_BASE}/api/availability/polls/find?${new URLSearchParams(
-            squadId ? { squadId } : { eventId: eventId ?? "" },
-          ).toString()}`;
-      const res = await fetch(url, {
+      // ALWAYS refresh the poll that is actually open, by its id.
+      //
+      // This used to fall back to /find whenever the screen was opened without
+      // a pollId param, which resolves the scope's NEWEST poll: if anyone
+      // started another poll for the same squad while you sat on yours, your
+      // grid silently swapped to a different board underneath you and your
+      // picks were saved against the wrong poll.
+      const openPollId = openPollIdRef.current;
+      if (!openPollId) return;
+      const res = await fetch(`${API_BASE}/api/availability/polls/${openPollId}`, {
         headers: authHeaders(),
       });
       if (!res.ok) return;
-      const payload = (await res.json()) as PollPayload;
+      const payload = (await res.json()) as PollPayload & {
+        converted?: boolean;
+        convertedEventId?: string | null;
+      };
+      // The host locked this poll in while we were looking at it: drop straight
+      // to the terminal state instead of leaving an editable grid whose saves
+      // would now be rejected.
+      if (payload.converted) {
+        setConvertedEventId(payload.convertedEventId ?? null);
+        setData(null);
+        return;
+      }
       setData((prev) => {
         const changed =
           !prev ||
@@ -846,13 +979,58 @@ export default function AvailabilityScreen() {
     // Pre-populate with the poll's current range and title so the host sees what's set.
     const firstDay = data.poll.days[0];
     const d = parseISODate(firstDay);
+    const slots = new Set((data.poll.slots as string[]) ?? DEFAULT_SLOTS);
+    const title = data.poll.title ?? "";
     setEditStart(d ?? new Date());
     setEditDays(data.poll.days.length);
-    setEditSlots(new Set((data.poll.slots as string[]) ?? DEFAULT_SLOTS));
-    setEditTitle(data.poll.title ?? "");
+    setEditSlots(slots);
+    setEditTitle(title);
+    // Snapshot what the sheet opened with so Cancel can tell "nothing changed"
+    // from "you're about to throw away a re-range".
+    editBaselineRef.current = editRangeSnapshot({
+      startISO: toISODate(d ?? new Date()),
+      days: data.poll.days.length,
+      slots,
+      title,
+    });
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setEditRangeOpen(true);
   }, [data]);
+
+  /** True when the edit sheet holds changes that Cancel would discard. */
+  const editRangeIsDirty = useMemo(
+    () =>
+      editRangeDirty(
+        editRangeSnapshot({
+          startISO: toISODate(editStart),
+          days: editDays,
+          slots: editSlots,
+          title: editTitle,
+        }),
+        editBaselineRef.current,
+      ),
+    [editStart, editDays, editSlots, editTitle],
+  );
+
+  /**
+   * Cancelling the edit sheet silently dropped a re-range the host had just
+   * dialled in — including a fat-fingered backdrop tap. Confirm first when
+   * anything actually changed.
+   */
+  const closeEditRange = useCallback(() => {
+    if (!editRangeIsDirty) {
+      setEditRangeOpen(false);
+      return;
+    }
+    Alert.alert(
+      "Discard these changes?",
+      "Your new date range hasn't been saved.",
+      [
+        { text: "Keep editing", style: "cancel" },
+        { text: "Discard", style: "destructive", onPress: () => setEditRangeOpen(false) },
+      ],
+    );
+  }, [editRangeIsDirty]);
 
   // What the pending edit would delete. The server trims silently, so the
   // organizer sees the cost — how many selections and how many people — before
@@ -1135,7 +1313,13 @@ export default function AvailabilityScreen() {
             }).catch(() => {});
           }
           Alert.alert("Time locked in", `${friendly} is now the event time.`, [
-            { text: "Done", onPress: () => router.back() },
+            {
+              text: "Done",
+              onPress: () =>
+                leaveAfterSuccess(() =>
+                  router.canGoBack() ? router.back() : router.replace("/(tabs)" as never),
+                ),
+            },
           ]);
         } else if (res.status === 403) {
           Alert.alert("Host only", "Only the event host can change the time.");
@@ -1189,7 +1373,9 @@ export default function AvailabilityScreen() {
         });
         if (res.ok) {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          router.canGoBack() ? router.back() : router.replace("/(tabs)" as never);
+          leaveAfterSuccess(() =>
+            router.canGoBack() ? router.back() : router.replace("/(tabs)" as never),
+          );
         } else if (res.status === 403) {
           Alert.alert("Creator only", "Only the person who started this poll can delete it.");
         } else {
@@ -1398,6 +1584,62 @@ export default function AvailabilityScreen() {
           <Text style={[styles.errorText, { color: colors.mutedForeground }]}>{error}</Text>
           <TouchableOpacity onPress={() => void loadPoll()} style={[styles.retryBtn, { borderColor: colors.border }]}>
             <Text style={[styles.retryText, { color: colors.primary }]}>Try again</Text>
+          </TouchableOpacity>
+        </View>
+      ) : convertedEventId !== null ? (
+        // Terminal state. The poll did its job and became a plan; a shared link
+        // still resolves, but as a signpost to the plan rather than a grid
+        // whose answers can no longer change anything.
+        <View style={styles.center}>
+          <Ionicons name="checkmark-circle" size={44} color={colors.primary} />
+          <Text style={[styles.terminalTitle, { color: colors.foreground }]}>This poll is closed</Text>
+          <Text style={[styles.errorText, { color: colors.mutedForeground }]}>
+            A time was picked and the plan is on the calendar.
+          </Text>
+          <TouchableOpacity
+            onPress={() =>
+              router.push(
+                (convertedEventType === "trip"
+                  ? `/trip/${convertedEventId}`
+                  : `/event/${convertedEventId}`) as never,
+              )
+            }
+            style={[styles.retryBtn, { borderColor: colors.primary }]}
+          >
+            <Text style={[styles.retryText, { color: colors.primary }]}>View the plan</Text>
+          </TouchableOpacity>
+        </View>
+      ) : ambiguousScope ? (
+        // 2+ active polls for this squad/event. Auto-opening "the newest" is how
+        // people ended up answering the wrong board, so make the choice explicit.
+        <View style={styles.center}>
+          <Ionicons name="layers-outline" size={44} color={colors.textDim} />
+          <Text style={[styles.terminalTitle, { color: colors.foreground }]}>More than one poll is running</Text>
+          <Text style={[styles.errorText, { color: colors.mutedForeground }]}>
+            Pick the one you want so you don&apos;t answer the wrong board.
+          </Text>
+          <TouchableOpacity
+            onPress={() => (router.canGoBack() ? router.back() : router.replace("/(tabs)" as never))}
+            style={[styles.retryBtn, { borderColor: colors.primary }]}
+          >
+            <Text style={[styles.retryText, { color: colors.primary }]}>Choose a poll</Text>
+          </TouchableOpacity>
+        </View>
+      ) : adhocLinkUnsupported ? (
+        // An ad-hoc poll belongs to no squad or event, so there is nothing to
+        // resolve from a bare ?adhoc=1 link. Say that plainly instead of
+        // showing an empty board or silently opening someone else's poll.
+        <View style={styles.center}>
+          <Ionicons name="link-outline" size={44} color={colors.textDim} />
+          <Text style={[styles.terminalTitle, { color: colors.foreground }]}>This link needs a poll</Text>
+          <Text style={[styles.errorText, { color: colors.mutedForeground }]}>
+            One-off polls open from their own link. Ask whoever created it to share it again, or start a new one.
+          </Text>
+          <TouchableOpacity
+            onPress={() => (router.canGoBack() ? router.back() : router.replace("/(tabs)" as never))}
+            style={[styles.retryBtn, { borderColor: colors.primary }]}
+          >
+            <Text style={[styles.retryText, { color: colors.primary }]}>Go back</Text>
           </TouchableOpacity>
         </View>
       ) : needsSetup ? (
@@ -2079,23 +2321,11 @@ export default function AvailabilityScreen() {
                     </TouchableOpacity>
                   ) : null;
                 })()}
-                {(() => {
-                  const notResponded = (data.members ?? []).filter((m) => !m.hasResponded);
-                  if (notResponded.length === 0) return null;
-                  return (
-                    <TouchableOpacity
-                      onPress={() => { void Haptics.selectionAsync(); setShowPendingModal(true); }}
-                      style={styles.pendingCountBtn}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons name="time-outline" size={13} color={colors.textDim} />
-                      <Text style={[styles.pendingCountText, { color: colors.textDim }]}>
-                        {notResponded.length} still pending
-                      </Text>
-                      <Ionicons name="chevron-forward" size={12} color={colors.textDim} />
-                    </TouchableOpacity>
-                  );
-                })()}
+                {/* NOTE: the old "N still pending" button + modal lived here.
+                    It listed the same people as the "Waiting on N" section
+                    further down, minus the stale-answer state and the nudge
+                    rules — two places to check, one of them wrong. The single
+                    follow-up list below is now the only pending surface. */}
                 {isCreator && data.members.some((m) => !m.hasResponded) && (
                   <Text style={[styles.memberSectionLabel, { color: colors.mutedForeground }]}>
                     Tap Nudge to remind pending members
@@ -2397,32 +2627,11 @@ export default function AvailabilityScreen() {
                 </Text>
               </View>
             )}
-            {data.best && !dirty && (
-              <TouchableOpacity
-                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setAltPickerOpen(true); }}
-                style={styles.skipPollBtn}
-              >
-                <Text style={[styles.skipPollBtnText, { color: colors.mutedForeground }]}>
-                  Pick a different time from this poll
-                </Text>
-              </TouchableOpacity>
-            )}
-            {!eventId && !dirty && (
-              <TouchableOpacity
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  router.push({
-                    pathname: "/create",
-                    params: squadId ? { prefillSquad: squadId } : {},
-                  } as never);
-                }}
-                style={styles.skipPollBtn}
-              >
-                <Text style={[styles.skipPollBtnText, { color: colors.mutedForeground }]}>
-                  Create an event outside this poll
-                </Text>
-              </TouchableOpacity>
-            )}
+            {/* Results have exactly ONE primary action. The old bar stacked
+                "use the best time", "pick a different time" and "create an
+                event outside this poll", which turned the end of a poll into a
+                three-way decision. Picking a non-winning slot now happens where
+                the times actually are: tap that cell in the grid. */}
             {(() => {
               const s = saveButtonState({ dirty, saving, justSaved });
               return (
@@ -2546,131 +2755,29 @@ export default function AvailabilityScreen() {
                         {isFree ? "I'm no longer free" : "Mark me as free"}
                       </Text>
                     </TouchableOpacity>
-                  </>
-                );
-              })()}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
 
-      {/* Alternate-slot picker — every cell from THIS poll, best first, so
-          rejecting the top pick doesn't discard the poll's results. */}
-      <Modal
-        visible={altPickerOpen}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setAltPickerOpen(false)}
-      >
-        <View style={styles.pickerOverlay}>
-          <View style={[styles.cellSheet, { backgroundColor: colors.background, paddingBottom: insets.bottom + 12 }]}>
-            <View style={[styles.pickerToolbar, { borderBottomColor: colors.border }]}>
-              <View style={styles.pickerBtn} />
-              <Text style={[styles.pickerTitle, { color: colors.foreground }]}>Pick a time</Text>
-              <TouchableOpacity onPress={() => setAltPickerOpen(false)} style={styles.pickerBtn}>
-                <Text style={[styles.pickerBtnText, { color: colors.mutedForeground }]}>Close</Text>
-              </TouchableOpacity>
-            </View>
-            <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 8 }}>
-              {(() => {
-                if (!data) return null;
-                const ranked = rankPollCells({
-                  heatmap: data.heatmap,
-                  days: data.poll.days,
-                  slots: data.poll.slots,
-                });
-                if (ranked.length === 0) {
-                  return (
-                    <Text style={[styles.cellSheetEmpty, { color: colors.mutedForeground }]}>
-                      No one has marked availability yet.
-                    </Text>
-                  );
-                }
-                return ranked.map((r) => {
-                  const isBest = r.cell === data.best?.cell;
-                  return (
-                    <TouchableOpacity
-                      key={r.cell}
-                      onPress={() => {
-                        setAltPickerOpen(false);
-                        void useThisTime(r.cell);
-                      }}
-                      style={[
-                        styles.altOptionRow,
-                        {
-                          backgroundColor: colors.card,
-                          borderColor: isBest ? colors.primary : colors.border,
-                        },
-                      ]}
-                    >
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.altOptionName, { color: colors.foreground }]}>{prettyCell(r.cell)}</Text>
-                        <Text style={[styles.altOptionMeta, { color: colors.mutedForeground }]}>
-                          {r.count} {r.count === 1 ? "person" : "people"} free{isBest ? " · best match" : ""}
+                    {/* Creator-only: lock in THIS slot. Replaces the old
+                        "pick a different time" sheet — choosing a runner-up now
+                        happens on the cell itself, where you can already see
+                        who is free, instead of in a second ranked list. */}
+                    {isCreator && (
+                      <TouchableOpacity
+                        onPress={() => {
+                          const cell = selectedCell;
+                          closeCellSheet();
+                          if (cell) void useThisTime(cell);
+                        }}
+                        style={[
+                          styles.cellSheetToggleBtn,
+                          { backgroundColor: "transparent", borderColor: colors.primary, marginTop: 10 },
+                        ]}
+                      >
+                        <Ionicons name="calendar-outline" size={18} color={colors.primary} />
+                        <Text style={[styles.cellSheetToggleBtnText, { color: colors.primary }]}>
+                          {eventId ? "Use this time" : "Create event at this time"}
                         </Text>
-                      </View>
-                      <View style={[styles.altOptionCount, { backgroundColor: isBest ? colors.primary : colors.primary + "22" }]}>
-                        <Text style={[styles.altOptionCountText, { color: isBest ? "#fff" : colors.primary }]}>{r.count}</Text>
-                      </View>
-                      <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
-                    </TouchableOpacity>
-                  );
-                });
-              })()}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Pending members modal */}
-      <Modal
-        visible={showPendingModal}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setShowPendingModal(false)}
-      >
-        <View style={styles.pickerOverlay}>
-          <View style={[styles.cellSheet, { backgroundColor: colors.background, paddingBottom: insets.bottom + 12 }]}>
-            <View style={[styles.pickerToolbar, { borderBottomColor: colors.border }]}>
-              <View style={styles.pickerBtn} />
-              <Text style={[styles.pickerTitle, { color: colors.foreground }]}>Still pending</Text>
-              <TouchableOpacity onPress={() => setShowPendingModal(false)} style={styles.pickerBtn}>
-                <Text style={[styles.pickerBtnText, { color: colors.mutedForeground }]}>Done</Text>
-              </TouchableOpacity>
-            </View>
-            <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 20, paddingBottom: 8 }}>
-              {(() => {
-                const notResponded = (data?.members ?? []).filter((m) => !m.hasResponded);
-                if (notResponded.length === 0) {
-                  return (
-                    <Text style={[styles.cellSheetEmpty, { color: colors.mutedForeground }]}>
-                      Everyone has responded!
-                    </Text>
-                  );
-                }
-                return (
-                  <>
-                    <Text style={[styles.cellSheetSectionLabel, { color: colors.mutedForeground }]}>
-                      {notResponded.length} {notResponded.length === 1 ? "person hasn't" : "people haven't"} responded yet
-                    </Text>
-                    <View style={styles.cellSheetMemberList}>
-                      {notResponded.map((m) => (
-                        <View key={m.id} style={styles.cellSheetMemberRow}>
-                          <View style={[styles.cellSheetAvatar, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1.5 }]}>
-                            {m.avatarUrl ? (
-                              <Image source={{ uri: m.avatarUrl }} style={styles.cellSheetAvatarImage} />
-                            ) : (
-                              <Text style={[styles.cellSheetAvatarInitial, { color: colors.mutedForeground }]}>
-                                {m.displayName.charAt(0).toUpperCase()}
-                              </Text>
-                            )}
-                          </View>
-                          <Text style={[styles.cellSheetMemberName, { color: colors.foreground }]}>
-                            {m.displayName}
-                          </Text>
-                        </View>
-                      ))}
-                    </View>
+                      </TouchableOpacity>
+                    )}
                   </>
                 );
               })()}
@@ -2684,12 +2791,12 @@ export default function AvailabilityScreen() {
         visible={editRangeOpen}
         animationType="slide"
         transparent
-        onRequestClose={() => setEditRangeOpen(false)}
+        onRequestClose={closeEditRange}
       >
         <View style={styles.pickerOverlay}>
           <View style={[styles.editSheet, { backgroundColor: colors.background, paddingBottom: botPad + 12 }]}>
             <View style={[styles.pickerToolbar, { borderBottomColor: colors.border }]}>
-              <TouchableOpacity onPress={() => setEditRangeOpen(false)} style={styles.pickerBtn}>
+              <TouchableOpacity onPress={closeEditRange} style={styles.pickerBtn}>
                 <Text style={[styles.pickerBtnText, { color: colors.mutedForeground }]}>Cancel</Text>
               </TouchableOpacity>
               <Text style={[styles.pickerTitle, { color: colors.foreground }]}>Edit Date Range</Text>
@@ -2830,6 +2937,8 @@ export default function AvailabilityScreen() {
               </Text>
             </ScrollView>
 
+            {/* Android keeps its native dialog as a sibling — that's the
+                platform-correct presentation and it doesn't deadlock. */}
             {Platform.OS === "android" && editPickerOpen && (
               <DateTimePicker
                 value={editPickerDate}
@@ -2841,40 +2950,43 @@ export default function AvailabilityScreen() {
                 }}
               />
             )}
+
+            {/* iOS: an IN-SHEET overlay, never a nested Modal.
+                Opening a second Modal while this edit sheet is up freezes iOS —
+                the picker never appears and the whole UI stops responding, so
+                the host can't even close the sheet. Absolutely positioned
+                inside the sheet it presents normally. */}
+            {Platform.OS === "ios" && editPickerOpen && (
+              <View style={styles.inSheetPickerOverlay}>
+                <View style={[styles.pickerSheet, { backgroundColor: colors.card, paddingBottom: insets.bottom + 8 }]}>
+                  <View style={[styles.pickerToolbar, { borderBottomColor: colors.border }]}>
+                    <TouchableOpacity onPress={() => setEditPickerOpen(false)} style={styles.pickerBtn}>
+                      <Text style={[styles.pickerBtnText, { color: colors.mutedForeground }]}>Cancel</Text>
+                    </TouchableOpacity>
+                    <Text style={[styles.pickerTitle, { color: colors.foreground }]}>Start Date</Text>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setEditStart(editPickerDate);
+                        setEditPickerOpen(false);
+                      }}
+                      style={styles.pickerBtn}
+                    >
+                      <Text style={[styles.pickerBtnText, { color: colors.primary, fontWeight: "700" }]}>Done</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <DateTimePicker
+                    value={editPickerDate}
+                    mode="date"
+                    display="spinner"
+                    onChange={(_, d) => { if (d) setEditPickerDate(d); }}
+                    themeVariant="dark"
+                    style={{ width: "100%", height: 200 }}
+                  />
+                </View>
+              </View>
+            )}
           </View>
         </View>
-
-        {Platform.OS === "ios" && editPickerOpen && (
-          <Modal visible animationType="slide" transparent onRequestClose={() => setEditPickerOpen(false)}>
-            <View style={styles.pickerOverlay}>
-              <View style={[styles.pickerSheet, { backgroundColor: colors.card, paddingBottom: insets.bottom + 8 }]}>
-                <View style={[styles.pickerToolbar, { borderBottomColor: colors.border }]}>
-                  <TouchableOpacity onPress={() => setEditPickerOpen(false)} style={styles.pickerBtn}>
-                    <Text style={[styles.pickerBtnText, { color: colors.mutedForeground }]}>Cancel</Text>
-                  </TouchableOpacity>
-                  <Text style={[styles.pickerTitle, { color: colors.foreground }]}>Start Date</Text>
-                  <TouchableOpacity
-                    onPress={() => {
-                      setEditStart(editPickerDate);
-                      setEditPickerOpen(false);
-                    }}
-                    style={styles.pickerBtn}
-                  >
-                    <Text style={[styles.pickerBtnText, { color: colors.primary, fontWeight: "700" }]}>Done</Text>
-                  </TouchableOpacity>
-                </View>
-                <DateTimePicker
-                  value={editPickerDate}
-                  mode="date"
-                  display="spinner"
-                  onChange={(_, d) => { if (d) setEditPickerDate(d); }}
-                  themeVariant="dark"
-                  style={{ width: "100%", height: 200 }}
-                />
-              </View>
-            </View>
-          </Modal>
-        )}
       </Modal>
     </View>
   );
@@ -2889,6 +3001,7 @@ const styles = StyleSheet.create({
   renamedByText: { fontSize: 11, fontWeight: "500", marginTop: 2 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, padding: 24 },
   errorText: { fontSize: 15, textAlign: "center" },
+  terminalTitle: { fontSize: 19, fontWeight: "800", textAlign: "center" },
   retryBtn: { borderRadius: 12, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 9 },
   retryText: { fontSize: 14, fontWeight: "700" },
   body: { flex: 1 },
@@ -3004,11 +3117,17 @@ const styles = StyleSheet.create({
   draftBanner: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 14, borderWidth: 1, padding: 12, marginTop: 14 },
   draftBannerText: { flex: 1, fontSize: 13, fontWeight: "600" },
   draftBannerAction: { fontSize: 13, fontWeight: "800" },
-  altOptionRow: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 14, borderWidth: 1, padding: 13, marginBottom: 8 },
-  altOptionName: { fontSize: 14, fontWeight: "700" },
-  altOptionMeta: { fontSize: 12, fontWeight: "600", marginTop: 2 },
-  altOptionCount: { borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 },
-  altOptionCountText: { fontSize: 12, fontWeight: "800" },
+  // iOS in-sheet picker backdrop. Fills the edit sheet rather than presenting a
+  // nested Modal (which deadlocks iOS).
+  inSheetPickerOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(0,0,0,0.5)",
+  },
   disabledResultBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 16, borderWidth: 1.5, paddingVertical: 15 },
   disabledResultText: { fontSize: 14, fontWeight: "700" },
   followUpRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8 },
