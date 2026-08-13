@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from "react-native";
+import { Alert, View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
@@ -84,6 +84,34 @@ export function ActivePollList({ scope, onSeeAll, refreshKey = 0 }: ActivePollLi
     router.push({ pathname: "/availability", params: { pollId } } as never);
   };
 
+  const deletePoll = (pollId: string) => {
+    Alert.alert("Delete poll?", "This removes the poll and everyone's responses. This can't be undone.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: () => {
+          void (async () => {
+            try {
+              const res = await fetch(`${API_BASE}/api/availability/polls/${pollId}`, {
+                method: "DELETE",
+                headers: { "Content-Type": "application/json", ...buildAuthHeaders(authToken) },
+              });
+              if (!res.ok) {
+                Alert.alert("Couldn't delete", "Please try again.");
+                return;
+              }
+              setPolls((prev) => prev.filter((p) => p.id !== pollId));
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            } catch {
+              Alert.alert("Couldn't delete", "Network error. Please try again.");
+            }
+          })();
+        },
+      },
+    ]);
+  };
+
   if (loading) {
     return <ActivityIndicator color={colors.primary} style={{ marginTop: 10 }} />;
   }
@@ -113,26 +141,40 @@ export function ActivePollList({ scope, onSeeAll, refreshKey = 0 }: ActivePollLi
         {polls.length === 1 ? "Active poll" : `${polls.length} active polls`}
       </Text>
       {visible.map((p) => (
-        <TouchableOpacity
+        <View
           key={p.id}
-          onPress={() => open(p.id)}
           style={[styles.row, { borderColor: colors.border, backgroundColor: colors.card }]}
-          activeOpacity={0.8}
         >
-          <View style={[styles.icon, { backgroundColor: colors.primary + "20" }]}>
-            <Ionicons name="sparkles-outline" size={16} color={colors.primary} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.name, { color: colors.foreground }]} numberOfLines={1}>
-              {p.title || "Find the Best Time"}
-            </Text>
-            <Text style={[styles.meta, { color: colors.mutedForeground }]} numberOfLines={1}>
-              {p.days.length === 1 ? "1 day" : `${p.days.length} days`} ·{" "}
-              {pollStatusLabel({ respondentCount: p.respondentCount, memberCount: p.memberCount })}
-            </Text>
-          </View>
-          <Ionicons name="chevron-forward" size={16} color={colors.textDim} />
-        </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => open(p.id)}
+            style={styles.openPoll}
+            activeOpacity={0.8}
+          >
+            <View style={[styles.icon, { backgroundColor: colors.primary + "20" }]}>
+              <Ionicons name="sparkles-outline" size={16} color={colors.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.name, { color: colors.foreground }]} numberOfLines={1}>
+                {p.title || "Find the Best Time"}
+              </Text>
+              <Text style={[styles.meta, { color: colors.mutedForeground }]} numberOfLines={1}>
+                {p.days.length === 1 ? "1 day" : `${p.days.length} days`} ·{" "}
+                {pollStatusLabel({ respondentCount: p.respondentCount, memberCount: p.memberCount })}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={colors.textDim} />
+          </TouchableOpacity>
+          {p.mine && (
+            <TouchableOpacity
+              onPress={() => deletePoll(p.id)}
+              style={styles.deleteBtn}
+              hitSlop={8}
+              accessibilityLabel="Delete poll"
+            >
+              <Ionicons name="trash-outline" size={18} color={colors.mutedForeground} />
+            </TouchableOpacity>
+          )}
+        </View>
       ))}
       {hiddenCount > 0 && (
         <TouchableOpacity onPress={onSeeAll} style={styles.moreRow} activeOpacity={0.7}>
@@ -162,6 +204,8 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 11,
   },
+  openPoll: { flex: 1, flexDirection: "row", alignItems: "center", gap: 10 },
+  deleteBtn: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
   icon: { width: 32, height: 32, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   name: { fontSize: 13.5, fontWeight: "700" },
   meta: { fontSize: 12, fontWeight: "500", marginTop: 2 },
