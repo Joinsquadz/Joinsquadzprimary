@@ -169,6 +169,16 @@ const CreateEventBody = z.object({
   // poll's conversion slot is claimed inside the create transaction, so a
   // double-tap (or a retried request) can never turn one poll into two plans.
   sourcePollId: z.string().min(1).max(120).optional(),
+  // Template stops are accepted only at trip creation. The server adds trusted
+  // ids/authorship/order before inserting them with the trip and poll claim.
+  // This replaces a fragile post-create sequence of itinerary writes.
+  initialItinerary: z.array(z.object({
+    day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    time: z.string().max(40).optional(),
+    title: z.string().trim().min(1).max(200),
+    placeName: z.string().max(200).optional(),
+    category: z.enum(["food", "activity", "lodging", "travel", "other"]).optional(),
+  })).max(100).optional(),
 });
 
 // Body for inviting friends to an existing event/trip after creation.
@@ -573,9 +583,33 @@ router.post("/events", requireAuth, async (req: Request, res: Response): Promise
       endAt,
       invitedUserIds: requestedInvites,
       sourcePollId,
+      initialItinerary,
       ...rest
     } = parsed.data;
     const hostId = authUser.id;
+    if (rest.type !== "trip" && initialItinerary?.length) {
+      res.status(400).json({ error: "An itinerary can only be created with a trip." });
+      return;
+    }
+    // A trip's start may arrive as `startAt` or (for callers that only set a
+    // single time) as `eventAt`; either one anchors the range.
+    const resolvedStartAt = rest.type === "trip" ? (startAt ?? eventAt) : startAt;
+    if (rest.type === "trip" && !resolvedStartAt) {
+      res.status(400).json({ error: "A trip needs a start date." });
+      return;
+    }
+    // A trip is a complete inclusive date range. Normalize a missing end to the
+    // start day and reject inverted values before creating any related rows.
+    const resolvedEndAt = rest.type === "trip" ? (endAt ?? resolvedStartAt) : endAt;
+    if (
+      rest.type === "trip" &&
+      resolvedStartAt &&
+      resolvedEndAt &&
+      new Date(resolvedEndAt).getTime() < new Date(resolvedStartAt).getTime()
+    ) {
+      res.status(400).json({ error: "A trip's end date can't be before its start date." });
+      return;
+    }
     // A plan may only be attached to a squad the creator is CURRENTLY in. An
     // unchecked squadId lets a caller drop a plan into a stranger squad's feed,
     // or strand it against a squad id that does not exist (nobody, including
@@ -605,7 +639,24 @@ router.post("/events", requireAuth, async (req: Request, res: Response): Promise
     );
     // For trips, eventAt defaults to startAt so existing reminder/expiry logic
     // (which keys on eventAt) still works; endAt drives range-aware expiry.
-    const resolvedEventAt = eventAt ?? (rest.type === "trip" ? startAt : undefined);
+    const resolvedEventAt = eventAt ?? (rest.type === "trip" ? resolvedStartAt : undefined);
+    const initialStops: ItineraryStop[] = (initialItinerary ?? []).map((stop, index) => ({
+      id: `s${Date.now()}-${index}`,
+      day: stop.day,
+      time: stop.time,
+      title: stop.title,
+      placeName: stop.placeName,
+      category: stop.category,
+      status: "confirmed",
+      cost: null,
+      paidById: null,
+      assigneeId: null,
+      createdBy: hostId,
+      votes: [],
+      // Preserve template order within a day while still giving each day its
+      // own zero-based ordering, matching the regular itinerary endpoint.
+      sortOrder: (initialItinerary ?? []).slice(0, index).filter((prior) => prior.day === stop.day).length,
+    }));
     const insertValues = {
       ...rest,
       hostId,
@@ -617,8 +668,9 @@ router.post("/events", requireAuth, async (req: Request, res: Response): Promise
       // unset and prompt them to RSVP, so they are not seeded here.
       ...(rest.type === "trip" ? { rsvps: { [hostId]: "going" } } : {}),
       ...(resolvedEventAt ? { eventAt: new Date(resolvedEventAt) } : {}),
-      ...(startAt ? { startAt: new Date(startAt) } : {}),
-      ...(endAt ? { endAt: new Date(endAt) } : {}),
+      ...(resolvedStartAt ? { startAt: new Date(resolvedStartAt) } : {}),
+      ...(resolvedEndAt ? { endAt: new Date(resolvedEndAt) } : {}),
+      ...(initialStops.length > 0 ? { itinerary: initialStops } : {}),
     };
 
     // Only the poll's creator converts it into a plan (mirrors POST

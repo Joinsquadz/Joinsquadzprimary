@@ -7,6 +7,8 @@
 
 export const DAY_COUNT_OPTIONS = [3, 5, 7, 14, 21, 30];
 export const DEFAULT_DAY_COUNT = 7;
+export const MIN_POLL_DAY_COUNT = 1;
+export const MAX_POLL_DAY_COUNT = 31;
 
 export const ALL_SLOT_OPTIONS: string[] = [
   "12AM","1AM","2AM","3AM","4AM","5AM",
@@ -30,6 +32,48 @@ export const MIN_TRIP_LENGTH_DAYS = 2;
 export const DEFAULT_TRIP_LENGTH_DAYS = 3;
 export const TRIP_LENGTH_OPTIONS = [2, 3, 4, 5, 7, 10, 14];
 
+/** Whether a duration was chosen from a suggestion or entered deliberately. */
+export type TimelineChoice = "preset" | "custom";
+
+/**
+ * A number alone is not enough to describe the UI choice: someone can enter
+ * "7" under Custom even though 7 is also a suggested window. Keep the mode in
+ * drafts so Back/Next restores the choice they made, not an inferred preset.
+ */
+export function timelineChoiceFor(
+  value: number,
+  presets: readonly number[],
+  savedChoice?: TimelineChoice,
+): TimelineChoice {
+  return savedChoice ?? (presets.includes(value) ? "preset" : "custom");
+}
+
+/** Clear, client-side guidance that mirrors the API's supported poll limits. */
+export function customDayCountError(raw: string): string | null {
+  if (!/^\d+$/.test(raw.trim())) return "Enter a whole number of days.";
+  const value = Number(raw);
+  if (value < MIN_POLL_DAY_COUNT || value > MAX_POLL_DAY_COUNT) {
+    return `Choose between ${MIN_POLL_DAY_COUNT} and ${MAX_POLL_DAY_COUNT} days.`;
+  }
+  return null;
+}
+
+/** Trip duration validation, including the voting-window relationship. */
+export function customTripLengthError(raw: string, rangeDays: number): string | null {
+  if (!/^\d+$/.test(raw.trim())) return "Enter a whole number of days.";
+  const value = Number(raw);
+  if (value < MIN_TRIP_LENGTH_DAYS) {
+    return `A trip must be at least ${MIN_TRIP_LENGTH_DAYS} days.`;
+  }
+  if (value > MAX_POLL_DAY_COUNT) {
+    return `Choose ${MAX_POLL_DAY_COUNT} days or fewer.`;
+  }
+  if (value > rangeDays) {
+    return "The trip can't be longer than the dates people are voting on.";
+  }
+  return null;
+}
+
 /**
  * Trip lengths that fit inside a voting window of `rangeDays`. A trip longer
  * than the window has no stretch to rank at all, so those options are never
@@ -44,7 +88,7 @@ export function tripLengthOptionsFor(rangeDays: number): number[] {
  * Clamps to the longest option that still fits (never below the minimum).
  */
 export function clampTripLength(lengthDays: number, rangeDays: number): number {
-  const max = Math.max(MIN_TRIP_LENGTH_DAYS, Math.min(rangeDays, 31));
+  const max = Math.max(MIN_TRIP_LENGTH_DAYS, Math.min(rangeDays, MAX_POLL_DAY_COUNT));
   return Math.min(Math.max(lengthDays, MIN_TRIP_LENGTH_DAYS), max);
 }
 

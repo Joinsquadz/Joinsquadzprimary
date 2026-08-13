@@ -28,9 +28,8 @@ import { IconPicker } from "@/components/IconPicker";
 import FriendPickerSheet from "@/components/FriendPickerSheet";
 import { UserAvatar } from "@/components/UserAvatar";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
-import { addStop } from "@/lib/tripApi";
-import { TRIP_COVER_KEYS, TRIP_COVERS, formatTripRange, dayKey } from "@/lib/tripUtils";
-import { getTemplate } from "@/lib/tripTemplates";
+import { TRIP_COVER_KEYS, TRIP_COVERS, formatTripRange } from "@/lib/tripUtils";
+import { getTemplate, materializeTemplateStops } from "@/lib/tripTemplates";
 import { findMyConflicts, getPlanSpan } from "@/lib/conflicts";
 import ConflictBanner from "@/components/ConflictBanner";
 
@@ -159,6 +158,9 @@ export default function CreateEventScreen() {
       ? new Date(`${prefill.prefillTripEnd}T12:00:00`)
       : null,
   );
+  // A template offers a helpful default end date, not a fixed itinerary length.
+  // Keep the choice explicit so changing the start date preserves a custom end.
+  const [templateEndChoice, setTemplateEndChoice] = useState<"suggested" | "custom">("suggested");
   const [allDay, setAllDay] = useState(true);
   const [coverStyle, setCoverStyle] = useState<string>(template?.coverStyle ?? "sunset");
   const [rangeStep, setRangeStep] = useState<"start" | "end" | null>(null);
@@ -339,26 +341,22 @@ export default function CreateEventScreen() {
           squadId: selectedSquad, isPublic,
           type: "trip", startAt: startISO, endAt: endISO, allDay, coverStyle,
           invitedUserIds, timezone: deviceTimezone,
+          // Templates are part of the same create request, not a series of
+          // post-create writes. That means a poll conversion produces one
+          // complete trip, and a retry can never duplicate template stops.
+          ...(template && isPro
+            ? {
+                initialItinerary: materializeTemplateStops(template, tripStart, end).map((stop) => ({
+                  day: stop.day,
+                  time: stop.time,
+                  title: stop.title,
+                  placeName: stop.placeName,
+                  category: stop.category,
+                })),
+              }
+            : {}),
           ...(prefill.prefillPollId ? { sourcePollId: prefill.prefillPollId } : {}),
         });
-        // Templates are a Squadz+ feature: only materialize their stops for pro
-        // users. This re-checks entitlement server-trust-free at create time so
-        // the deep-link /create?mode=trip&templateId=… path can't hand template
-        // content to a non-pro user who bypassed the template picker UI gate.
-        // Thread the event version through each append so the version-checked
-        // itinerary route accepts them (a freshly created event starts at v1).
-        if (template && isPro) {
-          let v = 1;
-          for (const s of template.stops) {
-            const day = new Date(tripStart);
-            day.setDate(day.getDate() + s.dayIndex);
-            const r = await addStop(id, authToken, {
-              day: dayKey(day), time: s.time, title: s.title,
-              placeName: s.placeName, category: s.category, status: "confirmed",
-            }, v);
-            if (r.event && typeof r.event.version === "number") v = r.event.version;
-          }
-        }
       } else {
         id = await addEvent({
           title: title.trim(), emoji: selectedEmoji,
@@ -404,9 +402,9 @@ export default function CreateEventScreen() {
   const applyRange = (step: "start" | "end", picked: Date) => {
     if (step === "start") {
       setTripStart(picked);
-      // Seed the end date from a template's suggested length the first time a
-      // start day is chosen; otherwise just keep end ≥ start.
-      if (template && !tripEnd) {
+      // Templates offer a suggested span, but only while the person has not
+      // explicitly selected a custom end date of their own.
+      if (template && templateEndChoice === "suggested") {
         const seeded = new Date(picked);
         seeded.setDate(seeded.getDate() + template.nights);
         setTripEnd(seeded);
@@ -414,6 +412,7 @@ export default function CreateEventScreen() {
         setTripEnd(picked);
       }
     } else {
+      setTemplateEndChoice("custom");
       if (tripStart && picked < tripStart) setTripEnd(tripStart);
       else setTripEnd(picked);
     }
@@ -647,6 +646,55 @@ export default function CreateEventScreen() {
                   {formatTripRange({ startAt: dayAt(tripStart, 9), endAt: dayAt(tripEnd ?? tripStart, 18) })}
                 </Text>
               ) : null}
+              {template ? (
+                <>
+                  <Text style={[styles.templateDateHint, { color: colors.mutedForeground }]}>
+                    This template suggests {template.nights} {template.nights === 1 ? "night" : "nights"}. Its itinerary stays intact if you choose different dates.
+                  </Text>
+                  <View style={styles.quickChipRow}>
+                    <TouchableOpacity
+                      onPress={() => {
+                        Haptics.selectionAsync();
+                        setTemplateEndChoice("suggested");
+                        if (tripStart) {
+                          const suggestedEnd = new Date(tripStart);
+                          suggestedEnd.setDate(suggestedEnd.getDate() + template.nights);
+                          setTripEnd(suggestedEnd);
+                        }
+                      }}
+                      style={[
+                        styles.quickChip,
+                        {
+                          backgroundColor: templateEndChoice === "suggested" ? colors.primary + "20" : colors.card,
+                          borderColor: templateEndChoice === "suggested" ? colors.primary : colors.border,
+                        },
+                      ]}
+                    >
+                      <Ionicons name="sparkles-outline" size={13} color={colors.primary} />
+                      <Text style={[styles.quickChipText, { color: colors.primary }]}>Suggested {template.nights}-night end</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        setTemplateEndChoice("custom");
+                        if (Platform.OS !== "web") openRangePicker("end");
+                      }}
+                      style={[
+                        styles.quickChip,
+                        {
+                          backgroundColor: templateEndChoice === "custom" ? colors.primary + "20" : colors.card,
+                          borderColor: templateEndChoice === "custom" ? colors.primary : colors.border,
+                        },
+                      ]}
+                      accessibilityRole="button"
+                      accessibilityLabel="Choose a custom trip end date"
+                    >
+                      <Ionicons name="calendar-outline" size={13} color={colors.primary} />
+                      <Text style={[styles.quickChipText, { color: colors.primary }]}>Custom end date</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              ) : null}
               <View style={[styles.toggleRow, { backgroundColor: colors.card, borderColor: colors.border, marginTop: 12 }]}>
                 <Ionicons name="time-outline" size={20} color={colors.mutedForeground} />
                 <View style={{ flex: 1 }}>
@@ -713,25 +761,41 @@ export default function CreateEventScreen() {
               <Ionicons name="chevron-forward" size={16} color={colors.textDim} />
             </TouchableOpacity>
           )}
-          {!date && (
-            <View style={styles.quickChipRow}>
-              {quickStartSuggestions().map((sug) => (
-                <TouchableOpacity
-                  key={sug.label}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    setDate(formatPickedDate(sug.date));
-                    setEventAtISO(sug.date.toISOString());
-                    setPickerDate(sug.date);
-                  }}
-                  style={[styles.quickChip, { backgroundColor: colors.primary + "12", borderColor: colors.primary + "40" }]}
-                >
-                  <Ionicons name="flash-outline" size={13} color={colors.primary} />
-                  <Text style={[styles.quickChipText, { color: colors.primary }]}>{sug.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          )}
+          <View style={styles.quickChipRow}>
+            {quickStartSuggestions().map((sug) => (
+              <TouchableOpacity
+                key={sug.label}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setDate(formatPickedDate(sug.date));
+                  setEventAtISO(sug.date.toISOString());
+                  setPickerDate(sug.date);
+                }}
+                style={[styles.quickChip, { backgroundColor: colors.primary + "12", borderColor: colors.primary + "40" }]}
+              >
+                <Ionicons name="flash-outline" size={13} color={colors.primary} />
+                <Text style={[styles.quickChipText, { color: colors.primary }]}>{sug.label}</Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                if (Platform.OS === "web") {
+                  // The web form's visible field is the existing custom control.
+                  // Clearing a previous suggestion makes it immediately editable.
+                  clearDate();
+                } else {
+                  openDatePicker();
+                }
+              }}
+              style={[styles.quickChip, { backgroundColor: colors.card, borderColor: colors.primary + "70" }]}
+              accessibilityRole="button"
+              accessibilityLabel="Choose a custom event date and time"
+            >
+              <Ionicons name="calendar-outline" size={13} color={colors.primary} />
+              <Text style={[styles.quickChipText, { color: colors.primary }]}>Custom date & time</Text>
+            </TouchableOpacity>
+          </View>
           <TouchableOpacity
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -1198,6 +1262,7 @@ const styles = StyleSheet.create({
   rangeLabel: { fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 4 },
   rangeValue: { fontSize: 15, fontWeight: "700" },
   rangePreview: { fontSize: 13, fontWeight: "700", marginTop: 10 },
+  templateDateHint: { fontSize: 12, lineHeight: 17, marginTop: 10 },
   coverSwatch: { width: 64, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   field: {
     flexDirection: "row", alignItems: "center", gap: 12,

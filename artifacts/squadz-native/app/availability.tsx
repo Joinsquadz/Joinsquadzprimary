@@ -63,8 +63,13 @@ import {
   editChangesGrid,
   DEFAULT_TRIP_LENGTH_DAYS,
   MIN_TRIP_LENGTH_DAYS,
+  MAX_POLL_DAY_COUNT,
   tripLengthOptionsFor,
   clampTripLength,
+  timelineChoiceFor,
+  customDayCountError,
+  customTripLengthError,
+  type TimelineChoice,
   initialEditTripLength,
   editTripLengthPatchValue,
   tripStretchFor,
@@ -355,10 +360,14 @@ export default function AvailabilityScreen() {
   const [pollTitle, setPollTitle] = useState("");
   const [rangeStart, setRangeStart] = useState<Date>(new Date());
   const [rangeDays, setRangeDays] = useState<number>(DEFAULT_DAY_COUNT);
+  const [rangeDaysChoice, setRangeDaysChoice] = useState<TimelineChoice>("preset");
+  const [customRangeDays, setCustomRangeDays] = useState(String(DEFAULT_DAY_COUNT));
   const [selectedSlots, setSelectedSlots] = useState<Set<string>>(new Set(DEFAULT_SLOTS));
   const [slotPeriod, setSlotPeriod] = useState<string>("Evening");
   // Trip creation only: how long the trip runs inside the voting window.
   const [tripLength, setTripLength] = useState<number>(DEFAULT_TRIP_LENGTH_DAYS);
+  const [tripLengthChoice, setTripLengthChoice] = useState<TimelineChoice>("preset");
+  const [customTripLength, setCustomTripLength] = useState(String(DEFAULT_TRIP_LENGTH_DAYS));
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerDate, setPickerDate] = useState<Date>(new Date());
 
@@ -397,12 +406,16 @@ export default function AvailabilityScreen() {
         if (start) setRangeStart(start);
         setPollTitle(draft.title);
         setRangeDays(draft.rangeDays);
+        setCustomRangeDays(String(draft.rangeDays));
+        setRangeDaysChoice(timelineChoiceFor(draft.rangeDays, DAY_COUNT_OPTIONS, draft.rangeDaysChoice));
         if (draft.slots.length > 0) setSelectedSlots(new Set(draft.slots));
         if (draft.period) setSlotPeriod(draft.period);
         // Drafts written before trip length existed simply don't carry one —
         // keep the default rather than discarding an otherwise valid draft.
         if (draft.tripLengthDays !== undefined) {
           setTripLength(clampTripLength(draft.tripLengthDays, draft.rangeDays));
+          setCustomTripLength(String(draft.tripLengthDays));
+          setTripLengthChoice(timelineChoiceFor(draft.tripLengthDays, tripLengthOptionsFor(draft.rangeDays), draft.tripLengthChoice));
         }
         setWizardStep(Math.min(draft.step, pollWizardSteps(isTrip).length - 1));
         if (
@@ -429,10 +442,11 @@ export default function AvailabilityScreen() {
       title: pollTitle,
       rangeStartISO: toISODate(rangeStart),
       rangeDays,
+      rangeDaysChoice,
       slots: [...selectedSlots],
       period: slotPeriod,
       step: wizardStep,
-      ...(isTrip ? { tripLengthDays: tripLength } : {}),
+      ...(isTrip ? { tripLengthDays: tripLength, tripLengthChoice } : {}),
     });
   }, [
     draftLoaded,
@@ -441,19 +455,35 @@ export default function AvailabilityScreen() {
     pollTitle,
     rangeStart,
     rangeDays,
+    rangeDaysChoice,
     selectedSlots,
     slotPeriod,
     wizardStep,
     isTrip,
     tripLength,
+    tripLengthChoice,
   ]);
 
   // Shrinking the voting window under the chosen trip length would make the
   // poll impossible; follow it down instead of failing at create time.
   useEffect(() => {
     if (!isTrip) return;
-    setTripLength((n) => clampTripLength(n, rangeDays));
-  }, [isTrip, rangeDays]);
+    // Preset behaviour stays convenient: if the window shrinks, a suggested
+    // duration follows it down. A Custom value must instead remain visible with
+    // an honest "doesn't fit" message until the organizer corrects it.
+    if (tripLengthChoice === "custom") return;
+    setTripLength((n) => {
+      const next = clampTripLength(n, rangeDays);
+      if (next !== n) {
+        setCustomTripLength(String(next));
+      }
+      return next;
+    });
+  }, [isTrip, rangeDays, tripLengthChoice]);
+
+  const rangeCustomError = rangeDaysChoice === "custom" ? customDayCountError(customRangeDays) : null;
+  const tripCustomError =
+    isTrip && tripLengthChoice === "custom" ? customTripLengthError(customTripLength, rangeDays) : null;
 
   // "New responses" banner state — shown to the host when members responded
   // since the host last opened the poll. Cleared immediately once they open it
@@ -947,6 +977,10 @@ export default function AvailabilityScreen() {
   }, [data, currentUser?.id, showBanner, loadedTripLength]);
 
   const createPoll = useCallback(async () => {
+    if (rangeCustomError || tripCustomError) {
+      Alert.alert("Check your custom dates", rangeCustomError ?? tripCustomError ?? "Please choose a valid timeline.");
+      return;
+    }
     setCreating(true);
     setError(null);
     try {
@@ -967,7 +1001,7 @@ export default function AvailabilityScreen() {
         kind: isTrip ? "trip" : "event",
         // Only trips carry a length — the voting window (`days`) is a separate
         // span and must not be confused with it.
-        ...(isTrip ? { tripLengthDays: clampTripLength(tripLength, rangeDays) } : {}),
+        ...(isTrip ? { tripLengthDays: tripLength } : {}),
         ...(fromCreate ? { forceNew: true } : {}),
       };
       if (pollTitle.trim()) body.title = pollTitle.trim();
@@ -1001,7 +1035,7 @@ export default function AvailabilityScreen() {
     } finally {
       setCreating(false);
     }
-  }, [authHeaders, squadId, eventId, adhoc, fromCreate, isTrip, tripLength, params.participantIds, pollTitle, rangeStart, rangeDays, selectedSlots, leaveAfterSuccess, draftScopeKey]);
+  }, [authHeaders, squadId, eventId, adhoc, fromCreate, isTrip, tripLength, params.participantIds, pollTitle, rangeStart, rangeDays, selectedSlots, leaveAfterSuccess, draftScopeKey, rangeCustomError, tripCustomError]);
 
   // Silently re-fetches the poll and updates the heatmap + best-time card.
   // The user's own unsaved picks (mySet) are only synced when there are no
@@ -1967,8 +2001,13 @@ export default function AvailabilityScreen() {
                     setPollTitle("");
                     setRangeStart(new Date());
                     setRangeDays(DEFAULT_DAY_COUNT);
+                    setRangeDaysChoice("preset");
+                    setCustomRangeDays(String(DEFAULT_DAY_COUNT));
                     setSelectedSlots(new Set(DEFAULT_SLOTS));
                     setSlotPeriod("Evening");
+                    setTripLength(DEFAULT_TRIP_LENGTH_DAYS);
+                    setTripLengthChoice("preset");
+                    setCustomTripLength(String(DEFAULT_TRIP_LENGTH_DAYS));
                     setWizardStep(0);
                     setDraftRestored(false);
                     void clearPollDraft(draftScopeKey);
@@ -2035,7 +2074,7 @@ export default function AvailabilityScreen() {
                 <Text style={[styles.setupLabel, { color: colors.mutedForeground }]}>How many days?</Text>
                 <View style={styles.chipRow}>
                   {DAY_COUNT_OPTIONS.map((n) => {
-                    const active = rangeDays === n;
+                    const active = rangeDaysChoice === "preset" && rangeDays === n;
                     return (
                       <TouchableOpacity
                         key={n}
@@ -2043,6 +2082,8 @@ export default function AvailabilityScreen() {
                           stampInteraction();
                           Haptics.selectionAsync();
                           setRangeDays(n);
+                          setRangeDaysChoice("preset");
+                          setCustomRangeDays(String(n));
                         }}
                         style={[
                           styles.chip,
@@ -2056,7 +2097,50 @@ export default function AvailabilityScreen() {
                       </TouchableOpacity>
                     );
                   })}
+                  <TouchableOpacity
+                    onPress={() => {
+                      stampInteraction();
+                      Haptics.selectionAsync();
+                      setRangeDaysChoice("custom");
+                      setCustomRangeDays(String(rangeDays));
+                    }}
+                    style={[
+                      styles.chip,
+                      {
+                        backgroundColor: rangeDaysChoice === "custom" ? colors.primary : colors.card,
+                        borderColor: rangeDaysChoice === "custom" ? colors.primary : colors.border,
+                      },
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Choose a custom voting window"
+                  >
+                    <Text style={[styles.chipText, { color: rangeDaysChoice === "custom" ? "#fff" : colors.foreground }]}>Custom</Text>
+                  </TouchableOpacity>
                 </View>
+                {rangeDaysChoice === "custom" && (
+                  <>
+                    <View style={[styles.dateBtn, { backgroundColor: colors.card, borderColor: rangeCustomError ? colors.destructive : colors.primary, marginTop: 10 }]}>
+                      <Ionicons name="calendar-number-outline" size={18} color={rangeCustomError ? colors.destructive : colors.primary} />
+                      <TextInput
+                        value={customRangeDays}
+                        onChangeText={(text) => {
+                          setCustomRangeDays(text);
+                          if (!customDayCountError(text)) setRangeDays(Number(text.trim()));
+                        }}
+                        keyboardType="number-pad"
+                        returnKeyType="done"
+                        placeholder={`1–${MAX_POLL_DAY_COUNT}`}
+                        placeholderTextColor={colors.textDim}
+                        style={[styles.dateBtnText, { color: colors.foreground }]}
+                        accessibilityLabel="Custom voting window days"
+                      />
+                      <Text style={[styles.chipText, { color: colors.mutedForeground }]}>days</Text>
+                    </View>
+                    <Text style={[styles.wizardHint, { color: rangeCustomError ? colors.destructive : colors.textDim }]}>
+                      {rangeCustomError ?? `Choose any whole-day window from 1 to ${MAX_POLL_DAY_COUNT} days.`}
+                    </Text>
+                  </>
+                )}
 
                 <View style={[styles.previewCard, { backgroundColor: colors.primary + "18", borderColor: colors.primary + "44" }]}>
                   <Ionicons name="time-outline" size={16} color={colors.primary} />
@@ -2075,7 +2159,7 @@ export default function AvailabilityScreen() {
                 <Text style={[styles.setupLabel, { color: colors.mutedForeground }]}>Trip length</Text>
                 <View style={styles.chipRow}>
                   {tripLengthOptionsFor(rangeDays).map((n) => {
-                    const active = tripLength === n;
+                    const active = tripLengthChoice === "preset" && tripLength === n;
                     return (
                       <TouchableOpacity
                         key={`trip-len-${n}`}
@@ -2083,6 +2167,8 @@ export default function AvailabilityScreen() {
                           stampInteraction();
                           Haptics.selectionAsync();
                           setTripLength(n);
+                          setTripLengthChoice("preset");
+                          setCustomTripLength(String(n));
                         }}
                         style={[
                           styles.chip,
@@ -2098,7 +2184,50 @@ export default function AvailabilityScreen() {
                       </TouchableOpacity>
                     );
                   })}
+                  <TouchableOpacity
+                    onPress={() => {
+                      stampInteraction();
+                      Haptics.selectionAsync();
+                      setTripLengthChoice("custom");
+                      setCustomTripLength(String(tripLength));
+                    }}
+                    style={[
+                      styles.chip,
+                      {
+                        backgroundColor: tripLengthChoice === "custom" ? colors.primary : colors.card,
+                        borderColor: tripLengthChoice === "custom" ? colors.primary : colors.border,
+                      },
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Choose a custom trip length"
+                  >
+                    <Text style={[styles.chipText, { color: tripLengthChoice === "custom" ? "#fff" : colors.foreground }]}>Custom</Text>
+                  </TouchableOpacity>
                 </View>
+                {tripLengthChoice === "custom" && (
+                  <>
+                    <View style={[styles.dateBtn, { backgroundColor: colors.card, borderColor: tripCustomError ? colors.destructive : colors.primary, marginTop: 10 }]}>
+                      <Ionicons name="calendar-number-outline" size={18} color={tripCustomError ? colors.destructive : colors.primary} />
+                      <TextInput
+                        value={customTripLength}
+                        onChangeText={(text) => {
+                          setCustomTripLength(text);
+                          if (!customTripLengthError(text, rangeDays)) setTripLength(Number(text.trim()));
+                        }}
+                        keyboardType="number-pad"
+                        returnKeyType="done"
+                        placeholder={`${MIN_TRIP_LENGTH_DAYS}–${rangeDays}`}
+                        placeholderTextColor={colors.textDim}
+                        style={[styles.dateBtnText, { color: colors.foreground }]}
+                        accessibilityLabel="Custom trip length days"
+                      />
+                      <Text style={[styles.chipText, { color: colors.mutedForeground }]}>days</Text>
+                    </View>
+                    <Text style={[styles.wizardHint, { color: tripCustomError ? colors.destructive : colors.textDim }]}>
+                      {tripCustomError ?? `Your trip can be ${MIN_TRIP_LENGTH_DAYS} to ${rangeDays} days inside this voting window.`}
+                    </Text>
+                  </>
+                )}
                 {tripLengthOptionsFor(rangeDays).length === 0 && (
                   <Text style={[styles.wizardHint, { color: colors.textDim }]}>
                     Go back and pick at least {MIN_TRIP_LENGTH_DAYS} days to vote across.
@@ -2253,7 +2382,9 @@ export default function AvailabilityScreen() {
                         slotCount: selectedSlots.size,
                         tripLengthDays: tripLength,
                         rangeDays,
-                      })
+                      }) ||
+                      !!rangeCustomError ||
+                      !!tripCustomError
                     }
                   />
                 ) : (
@@ -2268,7 +2399,9 @@ export default function AvailabilityScreen() {
                         slotCount: selectedSlots.size,
                         tripLengthDays: tripLength,
                         rangeDays,
-                      })
+                      }) ||
+                      !!rangeCustomError ||
+                      !!tripCustomError
                     }
                   />
                 )}

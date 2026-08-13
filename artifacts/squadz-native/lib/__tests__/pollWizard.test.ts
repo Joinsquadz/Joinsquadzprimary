@@ -34,6 +34,9 @@ import {
   editChangesGrid,
   initialEditTripLength,
   editTripLengthPatchValue,
+  timelineChoiceFor,
+  customDayCountError,
+  customTripLengthError,
 } from "../pollWizard";
 
 describe("wizard step navigation", () => {
@@ -92,6 +95,28 @@ describe("wizard step navigation", () => {
     expect(wizardReviewLine({ title: "Trip", rangeLabel: "Aug 12 – Aug 18", slotCount: 1, isTrip: true })).toBe(
       "Trip · Aug 12 – Aug 18 · all-day",
     );
+  });
+});
+
+describe("custom timeline choices", () => {
+  it("keeps an explicit Custom choice even when its numeric value is also suggested", () => {
+    expect(timelineChoiceFor(7, [3, 5, 7], "custom")).toBe("custom");
+    expect(timelineChoiceFor(7, [3, 5, 7])).toBe("preset");
+    expect(timelineChoiceFor(9, [3, 5, 7])).toBe("custom");
+  });
+
+  it("allows whole-day custom voting windows only within server-supported limits", () => {
+    expect(customDayCountError("1")).toBeNull();
+    expect(customDayCountError("31")).toBeNull();
+    expect(customDayCountError("0")).toContain("between 1 and 31");
+    expect(customDayCountError("32")).toContain("between 1 and 31");
+    expect(customDayCountError("3.5")).toBe("Enter a whole number of days.");
+  });
+
+  it("blocks a custom trip length that is too short or outside the voting window", () => {
+    expect(customTripLengthError("4", 10)).toBeNull();
+    expect(customTripLengthError("1", 10)).toContain("at least 2");
+    expect(customTripLengthError("11", 10)).toBe("The trip can't be longer than the dates people are voting on.");
   });
 });
 

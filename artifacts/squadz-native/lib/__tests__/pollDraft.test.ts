@@ -76,6 +76,18 @@ describe("save and restore", () => {
     expect(await readPollDraft("squad:sq1")).toEqual(draft);
   });
 
+  it("round-trips explicit Custom choices even when values match presets", async () => {
+    const customDraft: PollDraft = {
+      ...draft,
+      rangeDays: 7,
+      rangeDaysChoice: "custom",
+      tripLengthDays: 3,
+      tripLengthChoice: "custom",
+    };
+    await savePollDraft("squad:sq1", customDraft);
+    expect(await readPollDraft("squad:sq1")).toEqual(customDraft);
+  });
+
   it("stores under the dedicated key namespace with a savedAt stamp", async () => {
     await savePollDraft("squad:sq1", draft);
     const raw = asyncStorageData.store[`${PREFIX}squad:sq1`];

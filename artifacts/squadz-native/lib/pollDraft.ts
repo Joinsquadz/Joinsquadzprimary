@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import type { TimelineChoice } from "./pollWizard";
 
 // Dedicated draft persistence for the "Find the Best Time" creation wizard.
 //
@@ -37,6 +38,10 @@ export type PollDraft = {
    * carry one.
    */
   tripLengthDays?: number;
+  /** Preserve an explicit Custom choice even when its value matches a preset. */
+  rangeDaysChoice?: TimelineChoice;
+  /** Trip polls only; same distinction as rangeDaysChoice. */
+  tripLengthChoice?: TimelineChoice;
 };
 
 type StoredDraft = PollDraft & { savedAt: number };
@@ -76,6 +81,8 @@ function isValidDraft(v: Partial<StoredDraft> | null | undefined): v is StoredDr
       (typeof v.tripLengthDays === "number" &&
         Number.isInteger(v.tripLengthDays) &&
         v.tripLengthDays > 0)) &&
+    (v.rangeDaysChoice === undefined || v.rangeDaysChoice === "preset" || v.rangeDaysChoice === "custom") &&
+    (v.tripLengthChoice === undefined || v.tripLengthChoice === "preset" || v.tripLengthChoice === "custom") &&
     typeof v.savedAt === "number"
   );
 }

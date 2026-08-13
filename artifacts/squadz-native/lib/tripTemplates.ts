@@ -1,4 +1,5 @@
 import type { StopCategory } from "@/types";
+import { dayKey } from "@/lib/tripUtils";
 
 /**
  * A trip template preloads a starter itinerary. Stops use a relative `dayIndex`
@@ -23,6 +24,29 @@ export type TripTemplate = {
   nights: number;
   stops: TemplateStop[];
 };
+
+/** A template stop placed on a real trip day, ready for the create request. */
+export type MaterializedTemplateStop = TemplateStop & { day: string };
+
+/**
+ * Places template stops inside the selected inclusive trip range.
+ *
+ * A template's length is a suggestion, not a constraint. If someone locks in a
+ * shorter availability winner, never create stops on dates outside that trip;
+ * the trip screen still renders every selected day from startAt/endAt.
+ */
+export function materializeTemplateStops(
+  template: TripTemplate,
+  start: Date,
+  end: Date,
+): MaterializedTemplateStop[] {
+  const lastDay = dayKey(end);
+  return template.stops.flatMap((stop) => {
+    const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + stop.dayIndex, 12);
+    const day = dayKey(date);
+    return day <= lastDay ? [{ ...stop, day }] : [];
+  });
+}
 
 export const TRIP_TEMPLATES: TripTemplate[] = [
   {

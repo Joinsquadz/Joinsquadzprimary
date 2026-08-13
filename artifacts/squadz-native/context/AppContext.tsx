@@ -221,8 +221,11 @@ export type NewEventInput = {
   endAt?: string;
   allDay?: boolean;
   coverStyle?: string;
-  /** Optional preloaded itinerary stops (template flow). */
-  itinerary?: ItineraryStop[];
+  /**
+   * Stops that belong in a new trip from the outset (currently template flow).
+   * The server owns ids, authorship, ordering and the atomic insert.
+   */
+  initialItinerary?: Array<Pick<ItineraryStop, "day" | "time" | "title" | "placeName" | "category">>;
   /** Friend user ids to invite directly at creation time. */
   invitedUserIds?: string[];
   /** IANA timezone string from the device (e.g. "America/Los_Angeles"). Stored
@@ -1816,7 +1819,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       ...(input.endAt ? { endAt: input.endAt } : {}),
       ...(input.allDay !== undefined ? { allDay: input.allDay } : {}),
       ...(input.coverStyle ? { coverStyle: input.coverStyle } : {}),
-      ...(input.itinerary && input.itinerary.length > 0 ? { itinerary: input.itinerary } : {}),
+      ...(input.initialItinerary && input.initialItinerary.length > 0
+        ? { initialItinerary: input.initialItinerary }
+        : {}),
       ...(input.invitedUserIds && input.invitedUserIds.length > 0
         ? { invitedUserIds: input.invitedUserIds }
         : {}),
@@ -1854,7 +1859,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         tasks: [],
         costs: [],
         polls: [],
-        itinerary: input.itinerary ?? [],
+        itinerary: (input.initialItinerary ?? []).map((stop, index) => ({
+          id: `s${Date.now()}-${index}`,
+          day: stop.day,
+          time: stop.time ?? "",
+          endTime: "",
+          title: stop.title,
+          placeName: stop.placeName ?? "",
+          address: "",
+          note: "",
+          category: stop.category ?? "other",
+          status: "confirmed" as const,
+          cost: null,
+          paidById: null,
+          assigneeId: null,
+          createdBy: hostId,
+          votes: [],
+          sortOrder: index,
+        })),
         packing: [],
         version: 1,
       };

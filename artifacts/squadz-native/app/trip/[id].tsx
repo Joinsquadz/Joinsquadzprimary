@@ -1412,12 +1412,12 @@ export default function TripDetailScreen() {
               </View>
             ) : null}
 
-            {stops.length === 0 && !hasConfirmedIdeas ? (
+            {itineraryDayKeys.length === 0 ? (
               <View style={styles.empty}>
-                <Ionicons name="map-outline" size={40} color={colors.textDim} />
-                <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No stops yet</Text>
+                <Ionicons name="calendar-outline" size={40} color={colors.textDim} />
+                <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Dates needed</Text>
                 <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>
-                  Build the plan day by day. Add your first stop to get the squad excited.
+                  Add the trip dates to build its day-by-day itinerary.
                 </Text>
               </View>
             ) : (
