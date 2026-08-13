@@ -15,6 +15,7 @@ import {
   Modal,
   Animated,
   AppState,
+  useWindowDimensions,
 } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
@@ -49,6 +50,10 @@ import {
   type AuthRaceState,
 } from "@/lib/vaultAuthRace";
 import { SkeletonBox } from "@/components/SkeletonBox";
+
+/** At or above this viewport width a 3-up grid still yields large thumbnails
+ *  (tablets, the web preview). Below it, 2-up keeps faces recognisable. */
+const WIDE_GRID_MIN_WIDTH = 700;
 
 const VAULT_SELECTED_KEY = "vault:selectedPhoto";
 const VAULT_SCROLL_KEY = "vault:scrollY";
@@ -268,6 +273,19 @@ export default function VaultScreen() {
 
   const isContextual = !!(squadId || eventId);
   const isSquadVault = !!squadId;
+
+  // Thumbnail size. A three-across grid on a phone renders each memory about
+  // 120px wide — too small to recognise a face, which is the whole point of
+  // looking at the vault. Phones get two across; the extra room on tablets and
+  // the web preview keeps three, since there the cells are already large.
+  const { width: windowWidth } = useWindowDimensions();
+  const gridColumns = windowWidth >= WIDE_GRID_MIN_WIDTH ? 3 : 2;
+  // Percentage widths (rather than flex:1) so a half-filled last row keeps the
+  // same cell size as a full one instead of stretching to fill it.
+  const gridCellSize = useMemo(
+    () => ({ width: gridColumns === 3 ? "31.8%" as const : "48.7%" as const }),
+    [gridColumns],
+  );
 
   // When opened from a vault-comment notification, the photoId param drives the
   // detail view directly. Applied once; the detail resolves as soon as the
@@ -571,18 +589,21 @@ export default function VaultScreen() {
   /**
    * Save (or un-save) a photo into the personal vault. Unlike favoriting, this
    * asks the server to COPY the media, so the result survives the original
-   * being deleted. Optimistic, with rollback on failure.
+   * being deleted.
+   *
+   * Deliberately NOT optimistic. "Saved to your vault" is a promise that a
+   * durable copy exists; flipping the label before the server answered made
+   * that promise on the client's behalf, so a failed copy left someone believing
+   * their photo was safe. The state only moves once the response says it moved —
+   * the interim is shown as a pending state instead.
    */
   const toggleSaveToVault = useCallback(async (sourcePhotoId: number) => {
+    // Guard against the double-tap the (now slower-feeling) pending state
+    // invites: the second tap would otherwise be read as an un-save of a save
+    // still in flight.
     if (savingIds.has(sourcePhotoId)) return;
     const wasSaved = savedSourceIds.has(sourcePhotoId);
     setSavingIds(prev => new Set(prev).add(sourcePhotoId));
-    setSavedSourceIds(prev => {
-      const next = new Set(prev);
-      if (wasSaved) next.delete(sourcePhotoId);
-      else next.add(sourcePhotoId);
-      return next;
-    });
     try {
       const res = wasSaved
         ? await fetchWithTimeout(`${API_BASE}/api/vault/saves/${sourcePhotoId}`, {
@@ -603,19 +624,27 @@ export default function VaultScreen() {
           (await res.json().catch(() => ({}))).code === "PRO_REQUIRED";
         throw Object.assign(new Error("save failed"), { requiresPro });
       }
+      // Confirmed by the server — only NOW does the UI claim it's saved.
+      setSavedSourceIds(prev => {
+        const next = new Set(prev);
+        if (wasSaved) next.delete(sourcePhotoId);
+        else next.add(sourcePhotoId);
+        return next;
+      });
       showToast(
         wasSaved ? "Removed from your vault." : "Saved to your vault — it's yours to keep.",
         { durationMs: 2500 },
       );
-      // The personal grid now has one more/fewer item.
+      // Re-read the saved set from the server so the badge state is its truth
+      // and not our inference — a save that the server treated as idempotent
+      // (already saved elsewhere) reconciles here rather than drifting.
+      void fetchSaves();
+      // The personal vault now holds one more/fewer item. Only THIS mount's
+      // grid can be refreshed; a contextual mount (squad/event vault) doesn't
+      // hold the personal list at all, and the personal mount re-fetches when
+      // it opens, so there's nothing stale left behind either way.
       if (!isContextual) void fetchPhotos();
     } catch (err) {
-      setSavedSourceIds(prev => {
-        const next = new Set(prev);
-        if (wasSaved) next.add(sourcePhotoId);
-        else next.delete(sourcePhotoId);
-        return next;
-      });
       if ((err as { requiresPro?: boolean }).requiresPro) {
         openUpgrade("durable_save");
       } else {
@@ -628,7 +657,7 @@ export default function VaultScreen() {
         return next;
       });
     }
-  }, [savedSourceIds, savingIds, authHeaders, showToast, isContextual, fetchPhotos, openUpgrade]);
+  }, [savedSourceIds, savingIds, authHeaders, showToast, isContextual, fetchPhotos, fetchSaves, openUpgrade]);
 
   useEffect(() => {
     if (isPro !== null) fetchPhotos();
@@ -1122,7 +1151,7 @@ export default function VaultScreen() {
     <TouchableOpacity
       key={p.id}
       onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSelected(selected === p.id ? null : p.id); }}
-      style={[styles.gridCell, { borderWidth: 2, borderColor: selected === p.id ? colors.primary : "transparent" }]}
+      style={[styles.gridCell, gridCellSize, { borderWidth: 2, borderColor: selected === p.id ? colors.primary : "transparent" }]}
       activeOpacity={0.8}
     >
       {renderCellMedia(p.url, p.mediaType === "video")}
@@ -1320,7 +1349,10 @@ export default function VaultScreen() {
         <FlatList
           data={squadBusy && squadPhotos.length === 0 ? [] : filteredSquadPhotos}
           keyExtractor={(p) => String(p.id)}
-          numColumns={3}
+          // Remounts on rotation / window resize, which is what a column-count
+          // change requires — FlatList can't reflow numColumns in place.
+          key={`squad-grid-${gridColumns}`}
+          numColumns={gridColumns}
           columnWrapperStyle={{ gap: 4 }}
           ItemSeparatorComponent={() => <View style={{ height: 4 }} />}
           extraData={listExtra}
@@ -1401,7 +1433,8 @@ export default function VaultScreen() {
             ref={scrollRef}
             data={visiblePhotos}
             keyExtractor={(p) => String(p.id)}
-            numColumns={3}
+            key={`personal-grid-${gridColumns}`}
+            numColumns={gridColumns}
             columnWrapperStyle={{ gap: 4 }}
             ItemSeparatorComponent={() => <View style={{ height: 4 }} />}
             extraData={listExtra}
@@ -1567,7 +1600,7 @@ export default function VaultScreen() {
                   }
                   setSelected(selected === p.id ? null : p.id);
                 }}
-                style={[styles.gridCell, { borderWidth: 2, borderColor: selected === p.id ? colors.primary : "transparent" }]}
+                style={[styles.gridCell, gridCellSize, { borderWidth: 2, borderColor: selected === p.id ? colors.primary : "transparent" }]}
                 activeOpacity={0.8}
               >
                 {renderCellMedia(p.url, p.mediaType === "video")}
@@ -1692,6 +1725,7 @@ export default function VaultScreen() {
         deleteLabel="Remove from squad vault"
         isPersonalContext={!isSquadVault && !isContextual}
         savedToVault={detailPhoto ? savedSourceIds.has(detailPhoto.id) : false}
+        savePending={detailPhoto ? savingIds.has(detailPhoto.id) : false}
         onToggleSaveToVault={(id) => {
           // The personal vault itself is the SquadZ+ gate, so saving INTO it
           // follows the same rule as opening it.
@@ -1953,6 +1987,8 @@ const styles = StyleSheet.create({
   pickerItemSub: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 4, borderRadius: 14, overflow: "hidden", marginBottom: 16 },
   gridCell: {
+    // Width is supplied per-render (gridCellSize) so the column count can adapt
+    // to the viewport; this is only the fallback for the fixed-3-up pickers.
     width: "31.8%",
     aspectRatio: 1,
     borderRadius: 10,

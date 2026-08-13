@@ -130,7 +130,7 @@ export default function CreateEventScreen() {
   const { addEvent, squads, events, currentUser } = useData();
   const { authToken, isPro, onEntitlementInvalidate } = useAuth();
   const { resolveUser } = useUserCache();
-  const prefill = useLocalSearchParams<{ prefillDate?: string; prefillEventAt?: string; prefillSquad?: string; prefillTitle?: string; prefillEmoji?: string; prefillPollId?: string; prefillTripStart?: string; prefillTripEnd?: string; mode?: string; templateId?: string }>();
+  const prefill = useLocalSearchParams<{ prefillDate?: string; prefillEventAt?: string; prefillEndAt?: string; prefillSquad?: string; prefillTitle?: string; prefillEmoji?: string; prefillPollId?: string; prefillTripStart?: string; prefillTripEnd?: string; mode?: string; templateId?: string }>();
   const [findTimeOpen, setFindTimeOpen] = useState(false);
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
@@ -290,10 +290,14 @@ export default function CreateEventScreen() {
   useEffect(() => {
     if (prefill.prefillDate) setDate(prefill.prefillDate);
     if (prefill.prefillEventAt) setEventAtISO(prefill.prefillEventAt);
+    // A MULTI-DAY event resolved from a poll arrives with both ends of the
+    // winning run. Without the end, the run the squad voted on would collapse
+    // to its first day and they'd have to re-enter it by hand.
+    if (prefill.prefillEndAt) setEndAtISO(prefill.prefillEndAt);
     if (prefill.prefillSquad) setSelectedSquad(prefill.prefillSquad);
     if (prefill.prefillTitle) setTitle(prefill.prefillTitle);
     if (prefill.prefillEmoji) setSelectedEmoji(prefill.prefillEmoji);
-  }, [prefill.prefillDate, prefill.prefillEventAt, prefill.prefillSquad, prefill.prefillTitle, prefill.prefillEmoji]);
+  }, [prefill.prefillDate, prefill.prefillEventAt, prefill.prefillEndAt, prefill.prefillSquad, prefill.prefillTitle, prefill.prefillEmoji]);
 
   // Seed title/emoji/cover from a chosen template (once).
   useEffect(() => {

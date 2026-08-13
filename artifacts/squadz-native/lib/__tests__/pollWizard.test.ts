@@ -40,28 +40,49 @@ import {
 } from "../pollWizard";
 
 describe("wizard step navigation", () => {
-  // Both flows are three steps; only the third differs. A trip's third step is
-  // its LENGTH — the span of the trip itself, which is a separate question from
-  // the voting window picked on the dates step.
-  it("uses three steps for both, ending in times for events and length for trips", () => {
-    expect(pollWizardSteps(false).map((s) => s.id)).toEqual(["name", "dates", "times"]);
+  // Every poll now answers the LENGTH question — the span of the plan itself,
+  // which is separate from the voting window picked on the dates step. Only the
+  // time-slot step is type-specific, because a trip's grid has no times.
+  it("asks length on both kinds and times only on events", () => {
+    expect(pollWizardSteps(false).map((s) => s.id)).toEqual(["name", "dates", "length", "times"]);
     expect(pollWizardSteps(true).map((s) => s.id)).toEqual(["name", "dates", "length"]);
+  });
+
+  // Entry points that never carried a kind must ASK rather than defaulting to
+  // event — that silent default is what made a squad's "Start a new poll"
+  // impossible to turn into a trip.
+  it("prepends a type step when the entry point didn't supply a kind", () => {
+    expect(pollWizardSteps(false, true).map((s) => s.id)).toEqual([
+      "type",
+      "name",
+      "dates",
+      "length",
+      "times",
+    ]);
+    expect(pollWizardSteps(true, true).map((s) => s.id)).toEqual(["type", "name", "dates", "length"]);
   });
 
   it("advances forward and back without leaving the range", () => {
     expect(nextWizardStep(0, false)).toBe(1);
     expect(nextWizardStep(1, false)).toBe(2);
+    expect(nextWizardStep(2, false)).toBe(3);
     // Clamped at the last step rather than running past the end.
-    expect(nextWizardStep(2, false)).toBe(2);
+    expect(nextWizardStep(3, false)).toBe(3);
     expect(prevWizardStep(1)).toBe(0);
     expect(prevWizardStep(0)).toBe(0);
   });
 
-  it("treats the third step as last for both events and trips", () => {
-    expect(isLastWizardStep(1, false)).toBe(false);
-    expect(isLastWizardStep(2, false)).toBe(true);
+  it("treats the final step as last for each flow shape", () => {
+    // Event: name, dates, length, times.
+    expect(isLastWizardStep(2, false)).toBe(false);
+    expect(isLastWizardStep(3, false)).toBe(true);
+    // Trip: name, dates, length.
     expect(isLastWizardStep(1, true)).toBe(false);
     expect(isLastWizardStep(2, true)).toBe(true);
+    // With the type step, everything shifts by one.
+    expect(isLastWizardStep(3, false, true)).toBe(false);
+    expect(isLastWizardStep(4, false, true)).toBe(true);
+    expect(isLastWizardStep(3, true, true)).toBe(true);
   });
 
   it("advances a trip from dates into the length step", () => {
@@ -77,12 +98,37 @@ describe("wizard step navigation", () => {
   it("lets the title step be skipped but requires at least one slot", () => {
     expect(canAdvanceWizard(0, false, { slotCount: 0 })).toBe(true);
     expect(canAdvanceWizard(1, false, { slotCount: 0 })).toBe(true);
-    expect(canAdvanceWizard(2, false, { slotCount: 0 })).toBe(false);
-    expect(canAdvanceWizard(2, false, { slotCount: 1 })).toBe(true);
+    // Step 2 is now length (a 1-day event is valid); times is step 3.
+    expect(canAdvanceWizard(2, false, { slotCount: 0, tripLengthDays: 1, rangeDays: 7 })).toBe(true);
+    expect(canAdvanceWizard(3, false, { slotCount: 0 })).toBe(false);
+    expect(canAdvanceWizard(3, false, { slotCount: 1 })).toBe(true);
   });
 
   it("never blocks a trip poll on slot count", () => {
     expect(canAdvanceWizard(1, true, { slotCount: 0 })).toBe(true);
+  });
+
+  // The type step is a real question, so it can't be walked past with nothing
+  // chosen — otherwise the "default" it was added to remove comes back.
+  it("blocks the type step until a kind is chosen", () => {
+    expect(
+      canAdvanceWizard(0, false, { slotCount: 0, needsKind: true, kindChosen: false }),
+    ).toBe(false);
+    expect(
+      canAdvanceWizard(0, false, { slotCount: 0, needsKind: true, kindChosen: true }),
+    ).toBe(true);
+  });
+
+  // An event may run a single day; a trip may not (there'd be no run to rank).
+  it("accepts a one-day event length but not a one-day trip", () => {
+    expect(canAdvanceWizard(2, false, { slotCount: 1, tripLengthDays: 1, rangeDays: 7 })).toBe(true);
+    expect(canAdvanceWizard(2, true, { slotCount: 0, tripLengthDays: 1, rangeDays: 7 })).toBe(false);
+    expect(canAdvanceWizard(2, true, { slotCount: 0, tripLengthDays: 2, rangeDays: 7 })).toBe(true);
+  });
+
+  it("rejects a plan longer than the voting window", () => {
+    expect(canAdvanceWizard(2, true, { slotCount: 0, tripLengthDays: 9, rangeDays: 7 })).toBe(false);
+    expect(canAdvanceWizard(2, false, { slotCount: 1, tripLengthDays: 9, rangeDays: 7 })).toBe(false);
   });
 
   it("summarises the poll on the final step", () => {
@@ -95,6 +141,29 @@ describe("wizard step navigation", () => {
     expect(wizardReviewLine({ title: "Trip", rangeLabel: "Aug 12 – Aug 18", slotCount: 1, isTrip: true })).toBe(
       "Trip · Aug 12 – Aug 18 · all-day",
     );
+  });
+
+  // A multi-day event names its own span, or the review reads exactly like a
+  // single-evening event and the length the host just picked disappears.
+  it("names the length of a multi-day event but not a one-day one", () => {
+    expect(
+      wizardReviewLine({
+        title: "Festival",
+        rangeLabel: "Aug 12 – Aug 18",
+        slotCount: 2,
+        isTrip: false,
+        tripLengthDays: 2,
+      }),
+    ).toBe("Festival · Aug 12 – Aug 18 · 2-day event · 2 time slots");
+    expect(
+      wizardReviewLine({
+        title: "Dinner",
+        rangeLabel: "Aug 12 – Aug 18",
+        slotCount: 2,
+        isTrip: false,
+        tripLengthDays: 1,
+      }),
+    ).toBe("Dinner · Aug 12 – Aug 18 · 2 time slots");
   });
 });
 
@@ -475,7 +544,7 @@ describe("editing a LEGACY trip poll (no stored length)", () => {
   it("omits tripLengthDays from the PATCH so the poll stays length-less", () => {
     const { editTripLength } = openSheet(null);
     expect(
-      editTripLengthPatchValue({ isTrip: true, editTripLength, editDays: LEGACY_DAYS }),
+      editTripLengthPatchValue({ editTripLength, editDays: LEGACY_DAYS }),
     ).toBeUndefined();
   });
 
@@ -489,7 +558,7 @@ describe("editing a LEGACY trip poll (no stored length)", () => {
     // it must not trigger the destructive answer-loss confirmation.
     expect(editChangesGrid(snapshotOf(chosen), baseline)).toBe(false);
     expect(
-      editTripLengthPatchValue({ isTrip: true, editTripLength: chosen, editDays: LEGACY_DAYS }),
+      editTripLengthPatchValue({ editTripLength: chosen, editDays: LEGACY_DAYS }),
     ).toBe(chosen);
   });
 
@@ -498,7 +567,7 @@ describe("editing a LEGACY trip poll (no stored length)", () => {
     expect(editTripLength).toBe(3);
     expect(editRangeDirty(snapshotOf(editTripLength), baseline)).toBe(false);
     expect(
-      editTripLengthPatchValue({ isTrip: true, editTripLength, editDays: LEGACY_DAYS }),
+      editTripLengthPatchValue({ editTripLength, editDays: LEGACY_DAYS }),
     ).toBe(3);
   });
 
@@ -508,9 +577,49 @@ describe("editing a LEGACY trip poll (no stored length)", () => {
     expect(initialEditTripLength(null, 4)).toBeNull();
   });
 
-  it("never sends a length for an event poll", () => {
+  // Duration is a plan property, not a trip-only one: a multi-day EVENT must be
+  // able to record (and change) its length too.
+  it("sends a length for a multi-day event poll", () => {
     expect(
-      editTripLengthPatchValue({ isTrip: false, editTripLength: 5, editDays: LEGACY_DAYS }),
+      editTripLengthPatchValue({ editTripLength: 5, editDays: LEGACY_DAYS }),
+    ).toBe(5);
+  });
+
+  // A 1-day plan has no run to rank and the server rejects the value, so it is
+  // expressed as an ABSENT length rather than an invalid one.
+  it("omits a one-day length instead of sending an invalid value", () => {
+    expect(
+      editTripLengthPatchValue({ editTripLength: 1, editDays: LEGACY_DAYS }),
     ).toBeUndefined();
+  });
+
+  // The way back from a multi-day plan. Omitting the field would read as "no
+  // change" and leave the poll stretch-ranked, so a STORED length must be
+  // cleared with an explicit null.
+  it("clears a stored length when the host picks one day", () => {
+    expect(
+      editTripLengthPatchValue({ editTripLength: 1, editDays: LEGACY_DAYS, loadedTripLength: 3 }),
+    ).toBeNull();
+    // Same for deselecting entirely.
+    expect(
+      editTripLengthPatchValue({ editTripLength: null, editDays: LEGACY_DAYS, loadedTripLength: 3 }),
+    ).toBeNull();
+  });
+
+  // Nothing stored means nothing to clear — sending null would be a pointless
+  // write, and on a legacy trip it must stay off the wire entirely.
+  it("omits the field rather than clearing a length that was never set", () => {
+    expect(
+      editTripLengthPatchValue({ editTripLength: 1, editDays: LEGACY_DAYS, loadedTripLength: null }),
+    ).toBeUndefined();
+    expect(
+      editTripLengthPatchValue({ editTripLength: null, editDays: LEGACY_DAYS, loadedTripLength: null }),
+    ).toBeUndefined();
+  });
+
+  it("still sends a number when the host raises a stored length", () => {
+    expect(
+      editTripLengthPatchValue({ editTripLength: 4, editDays: LEGACY_DAYS, loadedTripLength: 2 }),
+    ).toBe(4);
   });
 });

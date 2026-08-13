@@ -1010,7 +1010,9 @@ export class Storage {
       title?: string;
       days?: string[];
       slots?: string[];
-      tripLengthDays?: number;
+      /** A number sets the length; explicit `null` CLEARS it (back to
+       *  single-best-day ranking); `undefined` leaves it alone. */
+      tripLengthDays?: number | null;
     },
     updatedBy?: string,
   ): Promise<AvailabilityPoll> {
@@ -1019,6 +1021,8 @@ export class Storage {
     if (updates.title !== undefined) setValues.title = updates.title;
     if (updates.days && updates.days.length) setValues.days = updates.days;
     if (updates.slots && updates.slots.length) setValues.slots = updates.slots;
+    // Null is a real value here (SQL NULL), so the guard is on `undefined`
+    // alone — a `!= null` check would make clearing impossible.
     if (updates.tripLengthDays !== undefined) setValues.tripLengthDays = updates.tripLengthDays;
 
     const [updated] = await db

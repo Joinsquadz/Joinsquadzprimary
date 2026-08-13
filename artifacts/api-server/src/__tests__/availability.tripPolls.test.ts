@@ -127,11 +127,27 @@ describe("POST /api/availability/polls — trip kind and length", () => {
     expect(storageMock.createAvailabilityPoll).not.toHaveBeenCalled();
   });
 
-  it("rejects a trip length on an event poll", async () => {
+  it("persists a length on a MULTI-DAY EVENT poll", async () => {
+    // Duration belongs to the plan, not to its type: a two-day festival is an
+    // event that still needs the best consecutive run of days.
+    storageMock.createAvailabilityPoll.mockResolvedValue({ ...eventPoll, tripLengthDays: 3 });
     const app = await makeApp({ id: HOST_ID });
     const res = await request(app)
       .post("/api/availability/polls")
       .send({ squadId: "squad-1", days: DAYS, slots: ["6PM"], kind: "event", tripLengthDays: 3 });
+
+    expect(res.status).toBe(201);
+    expect(storageMock.createAvailabilityPoll).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "event", tripLengthDays: 3 }),
+    );
+    expect(res.body.poll).toMatchObject({ kind: "event", tripLengthDays: 3 });
+  });
+
+  it("rejects a multi-day event longer than the window people are voting on", async () => {
+    const app = await makeApp({ id: HOST_ID });
+    const res = await request(app)
+      .post("/api/availability/polls")
+      .send({ squadId: "squad-1", days: DAYS, slots: ["6PM"], kind: "event", tripLengthDays: 9 });
 
     expect(res.status).toBe(400);
     expect(storageMock.createAvailabilityPoll).not.toHaveBeenCalled();
@@ -180,7 +196,7 @@ describe("POST /api/availability/polls — trip kind and length", () => {
     expect(res.status).toBe(400);
   });
 
-  it("never stores a length for an event poll", async () => {
+  it("stores no length for a one-day event poll", async () => {
     storageMock.createAvailabilityPoll.mockResolvedValue(eventPoll);
     const app = await makeApp({ id: HOST_ID });
 
@@ -244,7 +260,7 @@ describe("GET /api/availability/polls/:id — bestStretch", () => {
     expect(res.body.best).toMatchObject({ cell: "2026-06-02-All day", count: 2 });
   });
 
-  it("gives an event poll no stretch at all", async () => {
+  it("gives a one-day event poll no stretch at all", async () => {
     storageMock.getAvailabilityPoll.mockResolvedValue(eventPoll);
     storageMock.getAvailabilityResponses.mockResolvedValue([
       { userId: MEMBER_A, cells: ["2026-06-01-6PM"], updatedAt: AT },
@@ -255,6 +271,32 @@ describe("GET /api/availability/polls/:id — bestStretch", () => {
 
     expect(res.body.bestStretch).toBeNull();
     expect(res.body.poll).toMatchObject({ kind: "event", tripLengthDays: null });
+  });
+
+  it("ranks a MULTI-DAY EVENT poll by consecutive stretch, like a trip", async () => {
+    // Same ranking, different plan type: the event runs two days, so the answer
+    // has to be a run of days rather than one winning cell.
+    storageMock.getAvailabilityPoll.mockResolvedValue({
+      ...eventPoll,
+      id: "poll-event-2day",
+      tripLengthDays: 2,
+    });
+    storageMock.getAvailabilityResponses.mockResolvedValue([
+      { userId: MEMBER_A, cells: ["2026-06-02-6PM", "2026-06-03-6PM"], updatedAt: AT },
+      { userId: MEMBER_B, cells: ["2026-06-02-6PM", "2026-06-03-6PM"], updatedAt: AT },
+    ]);
+
+    const app = await makeApp({ id: HOST_ID });
+    const res = await request(app).get("/api/availability/polls/poll-event-2day");
+
+    expect(res.status).toBe(200);
+    expect(res.body.bestStretch).toMatchObject({
+      startDate: "2026-06-02",
+      endDate: "2026-06-03",
+      lengthDays: 2,
+      count: 2,
+      partial: false,
+    });
   });
 
   it("keeps the single-cell `best` alongside the stretch for compatibility", async () => {
@@ -329,13 +371,128 @@ describe("PATCH /api/availability/polls/:id — trip length", () => {
     expect(storageMock.updateAvailabilityPoll).not.toHaveBeenCalled();
   });
 
-  it("rejects a trip length on an event poll", async () => {
+  it("gives an EVENT poll a length and re-ranks it as a stretch", async () => {
+    // A one-day event that grows into a two-day plan: the same PATCH path a
+    // trip uses, because duration is a property of the plan, not its type.
     storageMock.getAvailabilityPoll.mockResolvedValue(eventPoll);
+    storageMock.updateAvailabilityPoll.mockResolvedValue({ ...eventPoll, tripLengthDays: 2 });
+    storageMock.getAvailabilityResponses.mockResolvedValue([
+      { userId: MEMBER_A, cells: ["2026-06-01-6PM", "2026-06-02-6PM"], updatedAt: AT },
+    ]);
     const app = await makeApp({ id: HOST_ID });
 
     const res = await request(app)
       .patch("/api/availability/polls/poll-event")
       .send({ tripLengthDays: 2 });
+
+    expect(res.status).toBe(200);
+    expect(storageMock.updateAvailabilityPoll).toHaveBeenCalledWith(
+      "poll-event",
+      { tripLengthDays: 2 },
+      HOST_ID,
+    );
+    expect(res.body.bestStretch).toMatchObject({ lengthDays: 2, count: 1 });
+  });
+
+  // The way back. A host who makes an event 2 days and then thinks better of it
+  // must be able to return it to a single day — and "one day" is stored as NO
+  // length, so this is a CLEAR, not a value of 1 (the server rejects 1).
+  it("clears a multi-day EVENT's length back to a single-day plan", async () => {
+    const multiDayEvent = { ...eventPoll, tripLengthDays: 2 };
+    storageMock.getAvailabilityPoll.mockResolvedValue(multiDayEvent);
+    storageMock.updateAvailabilityPoll.mockResolvedValue({ ...eventPoll, tripLengthDays: null });
+    storageMock.getAvailabilityResponses.mockResolvedValue([
+      { userId: MEMBER_A, cells: ["2026-06-01-6PM", "2026-06-02-6PM"], updatedAt: AT },
+    ]);
+    const app = await makeApp({ id: HOST_ID });
+
+    const res = await request(app)
+      .patch("/api/availability/polls/poll-event")
+      .send({ tripLengthDays: null });
+
+    expect(res.status).toBe(200);
+    // Explicit null must reach storage: dropping it would leave the poll
+    // stretch-ranked, which is exactly the bug this covers.
+    expect(storageMock.updateAvailabilityPoll).toHaveBeenCalledWith(
+      "poll-event",
+      { tripLengthDays: null },
+      HOST_ID,
+    );
+    // Back to the single-best-cell answer, with no stretch offered.
+    expect(res.body.poll).toMatchObject({ tripLengthDays: null });
+    expect(res.body.bestStretch ?? null).toBeNull();
+  });
+
+  it("clears a TRIP's length back to the legacy single-day behavior", async () => {
+    storageMock.getAvailabilityPoll.mockResolvedValue(tripPoll);
+    storageMock.updateAvailabilityPoll.mockResolvedValue({ ...tripPoll, tripLengthDays: null });
+    storageMock.getAvailabilityResponses.mockResolvedValue([
+      { userId: MEMBER_A, cells: cells("2026-06-01"), updatedAt: AT },
+    ]);
+    const app = await makeApp({ id: HOST_ID });
+
+    const res = await request(app)
+      .patch("/api/availability/polls/poll-trip")
+      .send({ tripLengthDays: null });
+
+    expect(res.status).toBe(200);
+    expect(storageMock.updateAvailabilityPoll).toHaveBeenCalledWith(
+      "poll-trip",
+      { tripLengthDays: null },
+      HOST_ID,
+    );
+    expect(res.body.bestStretch ?? null).toBeNull();
+  });
+
+  // A clear can't be "too long", so the window guard must not measure the
+  // length being removed — nor fall back to the stored one it's replacing.
+  it("allows clearing a length that no longer fits a shrunken window", async () => {
+    storageMock.getAvailabilityPoll.mockResolvedValue({ ...tripPoll, tripLengthDays: 5 });
+    storageMock.updateAvailabilityPoll.mockResolvedValue({
+      ...tripPoll,
+      days: DAYS.slice(0, 2),
+      tripLengthDays: null,
+    });
+    storageMock.getAvailabilityResponses.mockResolvedValue([]);
+    const app = await makeApp({ id: HOST_ID });
+
+    const res = await request(app)
+      .patch("/api/availability/polls/poll-trip")
+      .send({ days: DAYS.slice(0, 2), tripLengthDays: null });
+
+    expect(res.status).toBe(200);
+    expect(storageMock.updateAvailabilityPoll).toHaveBeenCalledWith(
+      "poll-trip",
+      expect.objectContaining({ tripLengthDays: null }),
+      HOST_ID,
+    );
+  });
+
+  // Omission and null are different requests. Omitting the field means "leave
+  // the length alone"; if the two were conflated, every title-only edit would
+  // wipe the poll's duration.
+  it("leaves the stored length untouched when the field is omitted", async () => {
+    storageMock.getAvailabilityPoll.mockResolvedValue(tripPoll);
+    storageMock.updateAvailabilityPoll.mockResolvedValue(tripPoll);
+    storageMock.getAvailabilityResponses.mockResolvedValue([]);
+    const app = await makeApp({ id: HOST_ID });
+
+    const res = await request(app)
+      .patch("/api/availability/polls/poll-1")
+      .send({ title: "Renamed" });
+
+    expect(res.status).toBe(200);
+    const [, updates] = storageMock.updateAvailabilityPoll.mock.calls[0];
+    expect(updates).not.toHaveProperty("tripLengthDays");
+  });
+
+  it("rejects an event length longer than the poll's existing window", async () => {
+    storageMock.getAvailabilityPoll.mockResolvedValue(eventPoll);
+    const app = await makeApp({ id: HOST_ID });
+
+    const res = await request(app)
+      .patch("/api/availability/polls/poll-event")
+      .send({ tripLengthDays: 31 });
 
     expect(res.status).toBe(400);
     expect(storageMock.updateAvailabilityPoll).not.toHaveBeenCalled();

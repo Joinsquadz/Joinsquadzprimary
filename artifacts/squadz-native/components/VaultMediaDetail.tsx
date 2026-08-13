@@ -88,6 +88,10 @@ type Props = {
   savedToVault?: boolean;
   /** Copy this photo into the viewer's personal vault (or undo that copy). */
   onToggleSaveToVault?: (id: number) => void;
+  /** A save/un-save for this photo is in flight. The label stays honest ("Saving…")
+   *  and the button is inert, so a second tap can't fire a duplicate request
+   *  while the first is still copying bytes server-side. */
+  savePending?: boolean;
 };
 
 const displayName = (first?: string | null, last?: string | null): string => {
@@ -143,6 +147,7 @@ export default function VaultMediaDetail({
   isPersonalContext = true,
   savedToVault = false,
   onToggleSaveToVault,
+  savePending = false,
 }: Props) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -491,18 +496,36 @@ export default function VaultMediaDetail({
                   upload — saving your own upload to yourself is a no-op. */}
               {!isUploader && onToggleSaveToVault && (
                 <TouchableOpacity
-                  style={styles.saveAction}
-                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onToggleSaveToVault(photo.id); }}
+                  style={[styles.saveAction, savePending && { opacity: 0.6 }]}
+                  onPress={() => {
+                    // Inert while a save is in flight. Copying media server-side
+                    // is slow enough to invite an impatient second tap, which
+                    // would fire an un-save against the save that hasn't landed.
+                    if (savePending) return;
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    onToggleSaveToVault(photo.id);
+                  }}
+                  disabled={savePending}
                   activeOpacity={0.7}
+                  accessibilityState={{ disabled: savePending, busy: savePending }}
                   accessibilityLabel={savedToVault ? "Remove from my vault" : "Save to my vault"}
                 >
-                  <Ionicons
-                    name={savedToVault ? "checkmark-circle" : "download-outline"}
-                    size={20}
-                    color={savedToVault ? colors.green : colors.foreground}
-                  />
-                  <Text style={[styles.saveActionText, { color: savedToVault ? colors.green : colors.foreground }]}>
-                    {savedToVault ? "Saved to your vault" : "Save to my vault"}
+                  {savePending ? (
+                    <ActivityIndicator size="small" color={colors.foreground} />
+                  ) : (
+                    <Ionicons
+                      name={savedToVault ? "checkmark-circle" : "download-outline"}
+                      size={20}
+                      color={savedToVault ? colors.green : colors.foreground}
+                    />
+                  )}
+                  <Text style={[styles.saveActionText, { color: savedToVault && !savePending ? colors.green : colors.foreground }]}>
+                    {/* "Saved" is a claim about the SERVER's state, so it waits
+                        for the server. Showing it optimistically told people
+                        their copy was safe when the request could still fail. */}
+                    {savePending
+                      ? savedToVault ? "Removing…" : "Saving…"
+                      : savedToVault ? "Saved to your vault" : "Save to my vault"}
                   </Text>
                 </TouchableOpacity>
               )}

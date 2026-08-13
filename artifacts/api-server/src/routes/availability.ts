@@ -229,8 +229,10 @@ const CreatePollBody = z
     // Explicit poll type. Defaults to "event" so every existing client keeps
     // creating event polls without change.
     kind: z.enum(["event", "trip"]).optional(),
-    // How long the TRIP runs, independent of the voting window. Only meaningful
-    // for kind === "trip"; the refinement below rejects it elsewhere.
+    // How long the PLAN runs, independent of the voting window people vote
+    // across. Valid on BOTH kinds: a trip is inherently multi-day, and an event
+    // can span days too (a two-day festival is not a trip). Omitted means a
+    // single-day event, or a legacy-style trip with no recorded length.
     tripLengthDays: z.number().int().min(2).max(31).optional(),
     // When true, always create a brand-new poll instead of reusing the latest
     // poll for this scope (T12 — "Find a time" starts fresh each time).
@@ -251,12 +253,7 @@ const CreatePollBody = z
       message: "A poll must be scoped to a squad, an event, or a set of participants",
     },
   )
-  // A trip length only means something on a trip poll. Silently ignoring it on
-  // an event poll would store a number nothing reads and nothing shows.
-  .refine((d) => d.tripLengthDays === undefined || d.kind === "trip", {
-    message: "tripLengthDays is only valid for a trip poll",
-  })
-  // The trip cannot be longer than the window people vote across — there would
+  // The plan cannot be longer than the window people vote across — there would
   // be no stretch to rank. Reject rather than clamp: the poll the organizer
   // asked for is impossible, and quietly shortening their trip is worse than
   // saying so.
@@ -290,18 +287,24 @@ const UpdatePollBody = z
     title: z.string().trim().max(120).optional(),
     days: z.array(z.string().max(20)).min(1).max(31).optional(),
     slots: z.array(z.string().max(20)).min(1).max(48).optional(),
-    // Trip length can be changed on its own. Doing so only re-ranks stretches —
-    // cell identity is untouched, so nobody's answers are dropped.
-    tripLengthDays: z.number().int().min(2).max(31).optional(),
+    // Plan length (trip OR multi-day event) can be changed on its own. Doing so
+    // only re-ranks stretches — cell identity is untouched, so nobody's answers
+    // are dropped.
+    //
+    // Explicit `null` CLEARS the length, which is the only way to turn a
+    // multi-day event back into a single-day one. It has to be distinct from an
+    // omitted field: omission means "don't touch the length", and if clearing
+    // reused omission the poll would stay stretch-ranked forever.
+    tripLengthDays: z.number().int().min(2).max(31).nullable().optional(),
   })
   .refine(
     (d) => d.title !== undefined || d.days || d.slots || d.tripLengthDays !== undefined,
     { message: "At least one of title, days, slots, or tripLengthDays must be provided" },
   )
   .refine(
-    (d) =>
-      d.tripLengthDays === undefined || !d.days || d.tripLengthDays <= d.days.length,
-    { message: "The trip can't be longer than the dates people are voting on" },
+    // A cleared length can't be too long for anything.
+    (d) => d.tripLengthDays == null || !d.days || d.tripLengthDays <= d.days.length,
+    { message: "The plan can't be longer than the dates people are voting on" },
   );
 
 const NudgeBody = z.object({
@@ -311,13 +314,16 @@ const NudgeBody = z.object({
 type AggregatedCell = { cell: string; count: number };
 
 /**
- * Trip polls resolve to a consecutive STRETCH of days, not one cell — but only
- * when they know how long the trip is. Legacy trip polls predate
- * `trip_length_days` and were never asked, so they are deliberately left on the
- * original single-best-day path rather than being given a guessed length.
+ * A DURATION-AWARE poll resolves to a consecutive STRETCH of days, not one
+ * cell. The duration is a property of the plan, not of its type: a three-day
+ * trip and a two-day festival both need the best run of consecutive days.
+ *
+ * A poll without a recorded length keeps the single-best-day answer — that
+ * covers one-off events (the overwhelmingly common case) and legacy trip polls
+ * created before `trip_length_days` existed, which were never asked and must
+ * not be retro-fitted with a guessed length.
  */
-function tripLengthFor(poll: AvailabilityPoll): number | null {
-  if (poll.kind !== "trip") return null;
+function planLengthFor(poll: AvailabilityPoll): number | null {
   const n = poll.tripLengthDays;
   return typeof n === "number" && n >= 2 ? n : null;
 }
@@ -368,15 +374,16 @@ function buildPollPayload(
 
   const myResponse = responses.find((r) => r.userId === userId);
 
-  // A trip poll that knows its length answers with a consecutive run of days.
-  // `best` (the single-cell answer) stays populated alongside it so legacy
-  // clients, and the trip poll's own grid interactions, keep working.
-  const tripLength = tripLengthFor(poll);
+  // A poll that knows its plan length — trip OR multi-day event — answers with
+  // a consecutive run of days. `best` (the single-cell answer) stays populated
+  // alongside it so legacy clients, and the board's own grid interactions, keep
+  // working.
+  const planLength = planLengthFor(poll);
   const bestStretch =
-    tripLength !== null
+    planLength !== null
       ? bestTripStretch({
           days: poll.days as string[],
-          lengthDays: tripLength,
+          lengthDays: planLength,
           responses: responses.map((r) => ({ userId: r.userId, cells: r.cells })),
         })
       : null;
@@ -512,9 +519,10 @@ router.post("/availability/polls", requireAuth, async (req: Request, res: Respon
         days,
         slots,
         kind,
-        // Only a trip poll carries a length; an event poll must stay NULL so
-        // nothing downstream mistakes it for a stretch poll.
-        tripLengthDays: kind === "trip" ? tripLengthDays ?? null : null,
+        // A duration is a property of the plan, not of its type: both trips and
+        // multi-day events carry one. Absent stays NULL, which is what keeps a
+        // one-off event (and a legacy trip) on the single-best-day answer.
+        tripLengthDays: tripLengthDays ?? null,
       }));
 
     const responses = await storage.getAvailabilityResponses(poll.id);
@@ -918,25 +926,28 @@ router.patch("/availability/polls/:id", requireAuth, async (req: Request, res: R
     // request body alone, but each field can be omitted and still change the
     // outcome. Validate the state the poll will actually be IN after the patch,
     // not the fields the caller happened to send.
-    if (parsed.data.tripLengthDays !== undefined && poll.kind !== "trip") {
-      res.status(400).json({ error: "tripLengthDays is only valid for a trip poll" });
-      return;
-    }
-    if (poll.kind === "trip") {
-      // Either side of the comparison can be the one that moved: a
-      // duration-only patch keeps the current days, and a days-only patch
-      // keeps the current length. Checking only when a length was SENT let a
-      // caller shrink a 5-day window to 2 days under a 5-day trip — the update
-      // succeeds and the poll is left with no rankable stretch, which is the
-      // exact silent no-result state this guard exists to prevent.
-      //
-      // A legacy trip has no recorded length (NULL) and is deliberately exempt:
-      // there is nothing to outgrow, and it keeps its single-best-day result.
-      const effectiveLength = parsed.data.tripLengthDays ?? poll.tripLengthDays;
+    //
+    // Either side of the comparison can be the one that moved: a duration-only
+    // patch keeps the current days, and a days-only patch keeps the current
+    // length. Checking only when a length was SENT let a caller shrink a 5-day
+    // window to 2 days under a 5-day plan — the update succeeds and the poll is
+    // left with no rankable stretch, which is the exact silent no-result state
+    // this guard exists to prevent.
+    //
+    // A poll with no recorded length (one-off event, legacy trip) is
+    // deliberately exempt: there is nothing to outgrow, and it keeps its
+    // single-best-day result.
+    {
+      // `??` would be wrong here: an explicit null is a CLEAR, and falling back
+      // to the stored length would measure a length the poll won't have.
+      const effectiveLength =
+        parsed.data.tripLengthDays !== undefined
+          ? parsed.data.tripLengthDays
+          : poll.tripLengthDays;
       const effectiveDays = parsed.data.days ?? prevDays;
       if (effectiveLength != null && effectiveLength > effectiveDays.length) {
         res.status(400).json({
-          error: "The trip can't be longer than the dates people are voting on",
+          error: "The plan can't be longer than the dates people are voting on",
         });
         return;
       }

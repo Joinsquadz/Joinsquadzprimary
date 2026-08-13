@@ -24,13 +24,29 @@ export const DEFAULT_SLOTS: string[] = ["6PM","7PM","8PM","9PM","10PM"];
 export const TRIP_SLOT = "All day";
 export const TRIP_SLOTS: string[] = [TRIP_SLOT];
 
-// How long the TRIP runs, which is a different question from how wide the
+// How long the PLAN runs, which is a different question from how wide the
 // voting window is: people vote across (say) three weeks so the squad can find
-// the best four-day run inside it. Minimum 2 — a one-day "trip" is an event,
-// and that's the poll type next to it in the flow.
+// the best four-day run inside it.
+//
+// This is deliberately NOT trip-only. A two-day festival is an event that still
+// runs for two days, and it needs the same "best run of consecutive days"
+// answer a trip does. The poll's TYPE (event vs trip) and its DURATION are
+// independent facts; conflating them is what forced people to mislabel a
+// multi-day event as a trip just to get a usable result.
+//
+// Minimum 2: a one-day plan has no run to rank, which is the single-day event
+// case and stays on the original single-best-cell answer.
 export const MIN_TRIP_LENGTH_DAYS = 2;
 export const DEFAULT_TRIP_LENGTH_DAYS = 3;
 export const TRIP_LENGTH_OPTIONS = [2, 3, 4, 5, 7, 10, 14];
+
+/** Which kind of plan a poll is being created for. */
+export type PollKind = "event" | "trip";
+
+/** Noun used in duration copy so an event is never called a trip. */
+export function planNoun(kind: PollKind): string {
+  return kind === "trip" ? "trip" : "event";
+}
 
 /** Whether a duration was chosen from a suggestion or entered deliberately. */
 export type TimelineChoice = "preset" | "custom";
@@ -58,20 +74,42 @@ export function customDayCountError(raw: string): string | null {
   return null;
 }
 
-/** Trip duration validation, including the voting-window relationship. */
-export function customTripLengthError(raw: string, rangeDays: number): string | null {
+/**
+ * Duration validation, including the voting-window relationship.
+ *
+ * The floor differs by kind and only by kind: a trip is inherently multi-day,
+ * while an event is allowed to run for a single day (the common case).
+ */
+export function customPlanLengthError(
+  raw: string,
+  rangeDays: number,
+  kind: PollKind = "trip",
+): string | null {
   if (!/^\d+$/.test(raw.trim())) return "Enter a whole number of days.";
   const value = Number(raw);
-  if (value < MIN_TRIP_LENGTH_DAYS) {
-    return `A trip must be at least ${MIN_TRIP_LENGTH_DAYS} days.`;
+  const min = minPlanLength(kind);
+  if (value < min) {
+    return kind === "trip"
+      ? `A trip must be at least ${MIN_TRIP_LENGTH_DAYS} days.`
+      : `An event must run for at least ${min} day.`;
   }
   if (value > MAX_POLL_DAY_COUNT) {
     return `Choose ${MAX_POLL_DAY_COUNT} days or fewer.`;
   }
   if (value > rangeDays) {
-    return "The trip can't be longer than the dates people are voting on.";
+    return `The ${planNoun(kind)} can't be longer than the dates people are voting on.`;
   }
   return null;
+}
+
+/** Trip-specific wrapper kept for the trip call sites and their tests. */
+export function customTripLengthError(raw: string, rangeDays: number): string | null {
+  return customPlanLengthError(raw, rangeDays, "trip");
+}
+
+/** Shortest plan of each kind: an event may be a single day, a trip may not. */
+export function minPlanLength(kind: PollKind): number {
+  return kind === "trip" ? MIN_TRIP_LENGTH_DAYS : 1;
 }
 
 /**
@@ -81,6 +119,34 @@ export function customTripLengthError(raw: string, rangeDays: number): string | 
  */
 export function tripLengthOptionsFor(rangeDays: number): number[] {
   return TRIP_LENGTH_OPTIONS.filter((n) => n <= rangeDays);
+}
+
+/**
+ * Duration options for a plan of either kind. Events add the single-day option
+ * up front — that's what most events are, and it's the choice that keeps them
+ * on the classic single-best-time answer instead of stretch ranking.
+ */
+export function planLengthOptionsFor(rangeDays: number, kind: PollKind): number[] {
+  const base = kind === "trip" ? TRIP_LENGTH_OPTIONS : [1, ...TRIP_LENGTH_OPTIONS];
+  return base.filter((n) => n <= rangeDays);
+}
+
+/** Keep a chosen duration legal for its kind when the window shrinks under it. */
+export function clampPlanLength(lengthDays: number, rangeDays: number, kind: PollKind): number {
+  const min = minPlanLength(kind);
+  const max = Math.max(min, Math.min(rangeDays, MAX_POLL_DAY_COUNT));
+  return Math.min(Math.max(lengthDays, min), max);
+}
+
+/**
+ * The `tripLengthDays` to SEND when creating a poll, or undefined to omit it.
+ *
+ * Omission is what a single-day event means on the wire: no stored duration, so
+ * the poll answers with the single best cell. Anything of 2+ days — trip or
+ * event — is stretch-ranked.
+ */
+export function createPlanLengthValue(lengthDays: number): number | undefined {
+  return lengthDays >= MIN_TRIP_LENGTH_DAYS ? lengthDays : undefined;
 }
 
 /**
@@ -110,25 +176,52 @@ export function initialEditTripLength(
 }
 
 /**
- * The `tripLengthDays` to PATCH, or undefined to omit the field entirely.
+ * The `tripLengthDays` to PATCH: a number to set it, `null` to CLEAR it, or
+ * `undefined` to omit the field entirely.
  *
- * Omission is meaningful: it is what preserves a length-less legacy trip. Event
- * polls never send a length (the server rejects it).
+ * All three are distinct on the wire and must stay that way:
+ * - `undefined` (host never chose a length) preserves a length-less legacy
+ *   trip. Omission means "don't touch it".
+ * - `null` (host picked "1 day") clears a stored length, which is how a
+ *   multi-day event goes back to being a single-day one. Reusing `undefined`
+ *   for this looked identical to "no change", so the poll silently stayed
+ *   stretch-ranked after the host asked for one day.
+ * - a number sets the length. Duration is NOT trip-only — an event poll may
+ *   carry one too.
+ *
+ * `loadedTripLength` is what the poll currently has stored, and it is what
+ * separates the two nulls: with nothing stored there is nothing to clear.
  */
 export function editTripLengthPatchValue(v: {
-  isTrip: boolean;
   editTripLength: number | null;
   editDays: number;
-}): number | undefined {
-  if (!v.isTrip || v.editTripLength === null) return undefined;
+  loadedTripLength?: number | null;
+}): number | null | undefined {
+  const stored = v.loadedTripLength ?? null;
+  // Below the 2-day floor there is no stretch to rank, so "1 day" is expressed
+  // as the ABSENCE of a length rather than an invalid value the server rejects.
+  if (v.editTripLength === null || v.editTripLength < MIN_TRIP_LENGTH_DAYS) {
+    // Only send the clear when there is actually something stored to clear;
+    // otherwise this is a no-op and the field stays off the wire.
+    return stored === null ? undefined : null;
+  }
   return clampTripLength(v.editTripLength, v.editDays);
 }
 
 /** Server-side rule, mirrored so the wizard can't offer an impossible poll. */
 export function isValidTripLength(lengthDays: number, rangeDays: number): boolean {
+  return isValidPlanLength(lengthDays, rangeDays, "trip");
+}
+
+/** Same rule for either kind — only the floor differs (see minPlanLength). */
+export function isValidPlanLength(
+  lengthDays: number,
+  rangeDays: number,
+  kind: PollKind,
+): boolean {
   return (
     Number.isInteger(lengthDays) &&
-    lengthDays >= MIN_TRIP_LENGTH_DAYS &&
+    lengthDays >= minPlanLength(kind) &&
     lengthDays <= rangeDays
   );
 }
@@ -184,34 +277,41 @@ export function selectionsOutsidePeriod(slots: Iterable<string>, period: string)
 
 // ---- Wizard step machine ----
 
-export type WizardStepId = "name" | "dates" | "times" | "length";
+export type WizardStepId = "type" | "name" | "dates" | "times" | "length";
 
 export type WizardStep = { id: WizardStepId; label: string };
 
 /**
- * Both poll types are 3 steps, but the last one asks a different question.
+ * The steps of the creation wizard.
  *
- * Event polls need the time slots people vote on. Trip polls have no time-slot
- * step (the grid is a single "All day" row) — instead they need how many days
- * the trip runs, which is what turns the voting window into a rankable set of
- * consecutive stretches. Without it a trip poll can only answer "which single
- * day suits most people", which is not the question a trip asks.
+ * `needsKind` adds the Event-or-Trip question up front. It is on for every
+ * entry point that doesn't already carry an explicit kind: the poll's type used
+ * to be inherited from wherever the user happened to tap, so a squad's "Start a
+ * new poll" silently produced an event poll and there was no way to say
+ * otherwise. Entry points that DO pass a kind (the Home chooser) skip the step
+ * — asking twice for an answer already given is its own annoyance.
+ *
+ * Every poll then gets a Length step: duration is a property of the plan, not
+ * of its type, so a two-day festival is an event that still needs the best run
+ * of consecutive days. Events additionally pick the time slots people vote on;
+ * trips don't (their grid is a single "All day" row per date).
  */
-export function pollWizardSteps(isTrip: boolean): WizardStep[] {
-  const steps: WizardStep[] = [
-    { id: "name", label: "Name" },
-    { id: "dates", label: "Dates" },
-  ];
-  steps.push(isTrip ? { id: "length", label: "Length" } : { id: "times", label: "Times" });
+export function pollWizardSteps(isTrip: boolean, needsKind = false): WizardStep[] {
+  const steps: WizardStep[] = [];
+  if (needsKind) steps.push({ id: "type", label: "Type" });
+  steps.push({ id: "name", label: "Name" });
+  steps.push({ id: "dates", label: "Dates" });
+  steps.push({ id: "length", label: "Length" });
+  if (!isTrip) steps.push({ id: "times", label: "Times" });
   return steps;
 }
 
-export function isLastWizardStep(index: number, isTrip: boolean): boolean {
-  return index >= pollWizardSteps(isTrip).length - 1;
+export function isLastWizardStep(index: number, isTrip: boolean, needsKind = false): boolean {
+  return index >= pollWizardSteps(isTrip, needsKind).length - 1;
 }
 
-export function nextWizardStep(index: number, isTrip: boolean): number {
-  return Math.min(index + 1, pollWizardSteps(isTrip).length - 1);
+export function nextWizardStep(index: number, isTrip: boolean, needsKind = false): number {
+  return Math.min(index + 1, pollWizardSteps(isTrip, needsKind).length - 1);
 }
 
 export function prevWizardStep(index: number): number {
@@ -333,20 +433,41 @@ export function editChangesGrid(
 export function canAdvanceWizard(
   index: number,
   isTrip: boolean,
-  values: { slotCount: number; tripLengthDays?: number; rangeDays?: number },
+  values: {
+    slotCount: number;
+    tripLengthDays?: number;
+    rangeDays?: number;
+    /** Set once the user has answered the Event-or-Trip question. */
+    kindChosen?: boolean;
+    needsKind?: boolean;
+  },
 ): boolean {
-  const step = pollWizardSteps(isTrip)[index];
+  const needsKind = values.needsKind ?? false;
+  const step = pollWizardSteps(isTrip, needsKind)[index];
   if (!step) return false;
+  // The whole point of the type step is that nothing is assumed — so it can't
+  // be walked past with a default still in place.
+  if (step.id === "type") return values.kindChosen === true;
   if (step.id === "times") return values.slotCount > 0;
   if (step.id === "length") {
-    // Guard the same rule the server enforces, so an impossible trip length
-    // can't reach the create call and fail there.
-    return isValidTripLength(values.tripLengthDays ?? 0, values.rangeDays ?? 0);
+    // Guard the same rule the server enforces, so an impossible duration can't
+    // reach the create call and fail there.
+    return isValidPlanLength(
+      values.tripLengthDays ?? 0,
+      values.rangeDays ?? 0,
+      isTrip ? "trip" : "event",
+    );
   }
   return true;
 }
 
-/** Compact review line shown on the final step. */
+/**
+ * Compact review line shown on the final step.
+ *
+ * The voting window and the plan itself are two different spans, so both are
+ * named whenever the plan runs for more than a day — "all-day" alone left
+ * people thinking the whole range was the trip.
+ */
 export function wizardReviewLine(v: {
   title: string;
   rangeLabel: string;
@@ -355,15 +476,18 @@ export function wizardReviewLine(v: {
   tripLengthDays?: number;
 }): string {
   const title = v.title.trim() || "Find the Best Time";
+  const n = v.tripLengthDays;
   if (v.isTrip) {
-    // The window and the trip are two different spans, so name both — "all-day"
-    // alone left people thinking the whole range was the trip.
-    const n = v.tripLengthDays;
     return n
       ? `${title} · ${v.rangeLabel} · ${n}-day trip`
       : `${title} · ${v.rangeLabel} · all-day`;
   }
-  return `${title} · ${v.rangeLabel} · ${v.slotCount} ${v.slotCount === 1 ? "time slot" : "time slots"}`;
+  const slots = `${v.slotCount} ${v.slotCount === 1 ? "time slot" : "time slots"}`;
+  // A multi-day event names its own length too, or the review reads exactly
+  // like a single-evening event.
+  return n && n >= MIN_TRIP_LENGTH_DAYS
+    ? `${title} · ${v.rangeLabel} · ${n}-day event · ${slots}`
+    : `${title} · ${v.rangeLabel} · ${slots}`;
 }
 
 // ---- Edit loss confirmation ----
@@ -609,18 +733,20 @@ export function tripStretchFor(input: {
  * Which result a poll board should show: the multi-day stretch, the single-cell
  * best, or nothing.
  *
- * The rule that matters: a LENGTH-AWARE trip poll must never fall back to the
+ * The rule that matters: a DURATION-AWARE poll must never fall back to the
  * single-cell `best`. That cell is one day, and the server keeps sending it for
  * backwards compatibility — so a naive `bestStretch ?? best` would announce a
- * single date as the winner of a multi-day trip, including when the stretch is
- * partial (nobody free for the whole run). Event polls and LEGACY trips (no
- * recorded length) keep the single-cell result, which is the right answer for
- * them.
+ * single date as the winner of a multi-day plan, including when the stretch is
+ * partial (nobody free for the whole run). This is about duration, not type: a
+ * two-day event is as wrong to answer with one cell as a two-day trip is.
+ *
+ * Single-day events and LEGACY trips (no recorded length) keep the single-cell
+ * result, which is the right answer for them.
  */
 export function pollResultKind(input: {
   hasStretch: boolean;
   hasBest: boolean;
-  /** The poll's trip length; null on event polls AND legacy trip polls. */
+  /** The poll's plan length; null on single-day events AND legacy trip polls. */
   tripLengthDays: number | null;
 }): "stretch" | "cell" | "none" {
   if (input.hasStretch) return "stretch";
@@ -630,9 +756,9 @@ export function pollResultKind(input: {
 
 /**
  * Should the creator be nudged that their poll has a winner? Only for a result
- * that is honestly a win: a complete stretch (not `partial`) on a length-aware
- * trip, or a single cell on any other poll — and in both cases only when 2+
- * people are actually free.
+ * that is honestly a win: a complete stretch (not `partial`) on any
+ * duration-aware poll — event or trip — or a single cell on a poll with no
+ * duration, and in both cases only when 2+ people are actually free.
  */
 export function shouldNudgePollWinner(input: {
   isCreator: boolean;

@@ -88,6 +88,34 @@ describe("save and restore", () => {
     expect(await readPollDraft("squad:sq1")).toEqual(customDraft);
   });
 
+  // The chosen plan type is part of the answer, so backing out and returning
+  // must not silently drop it back to "unanswered" (or worse, to a default).
+  it("round-trips the chosen plan type", async () => {
+    await savePollDraft("squad:sq1", { ...draft, kind: "trip", tripLengthDays: 3 });
+    expect(await readPollDraft("squad:sq1")).toEqual({ ...draft, kind: "trip", tripLengthDays: 3 });
+    await savePollDraft("squad:sq2", { ...draft, kind: "event" });
+    expect((await readPollDraft("squad:sq2"))?.kind).toBe("event");
+  });
+
+  // Drafts written before the type question existed are still restorable; they
+  // just leave the type unanswered rather than inheriting an implied one.
+  it("restores a legacy draft with no stored type", async () => {
+    expect((await readPollDraft("squad:none"))?.kind).toBeUndefined();
+    await savePollDraft("squad:sq1", draft);
+    const restored = await readPollDraft("squad:sq1");
+    expect(restored).not.toBeNull();
+    expect(restored?.kind).toBeUndefined();
+  });
+
+  it("discards a draft carrying an unrecognised plan type", async () => {
+    asyncStorageData.store[`${PREFIX}squad:sq1`] = JSON.stringify({
+      ...draft,
+      kind: "picnic",
+      savedAt: Date.now(),
+    });
+    expect(await readPollDraft("squad:sq1")).toBeNull();
+  });
+
   it("stores under the dedicated key namespace with a savedAt stamp", async () => {
     await savePollDraft("squad:sq1", draft);
     const raw = asyncStorageData.store[`${PREFIX}squad:sq1`];

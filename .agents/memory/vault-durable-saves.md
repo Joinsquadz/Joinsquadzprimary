@@ -35,3 +35,20 @@ people's vaults whenever a squadmate cleans up their photos or a squad is torn d
   vault is free for members. Enforce it server-side on every save endpoint — a UI-only gate
   lets a free user bank copies via the API and keep them until upgrade. Removal stays free
   so a downgrade never traps bytes.
+
+## Client: "Saved" is a claim about the server, so don't say it optimistically
+
+- Optimistic UI is wrong for this one action. Every other toggle (heart, favorite) can
+  flip instantly because a lost one costs nothing, but "Saved to your vault" tells someone
+  their photo is now safe forever — say it only after the server confirms, and show a
+  pending state in between. A rolled-back optimistic save is indistinguishable from a real
+  one until they come back and find it missing.
+- A pending state that isn't disabled invites a second tap, which reads as an UN-save of a
+  save still in flight. Track in-flight source ids and make the control inert while a
+  request is open.
+- Re-read the saved set from the server after a save instead of inferring it: the server
+  may treat the write as idempotent (already saved via another surface), and inference
+  drifts from that.
+- Refresh only the grid the current screen actually holds. A contextual mount (squad/event
+  vault) has no personal list in state, and the personal mount re-fetches when it opens, so
+  reaching for a cross-screen refresh helper is unnecessary — and the helper doesn't exist.

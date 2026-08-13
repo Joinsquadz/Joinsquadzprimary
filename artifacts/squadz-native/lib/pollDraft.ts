@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import type { TimelineChoice } from "./pollWizard";
+import type { PollKind, TimelineChoice } from "./pollWizard";
 
 // Dedicated draft persistence for the "Find the Best Time" creation wizard.
 //
@@ -31,17 +31,25 @@ export type PollDraft = {
   /** Wizard step index the user was on. */
   step: number;
   /**
-   * Trip polls only: how many days the trip runs (step 3 for trips).
+   * How many days the plan itself runs — the Length step, on BOTH kinds.
    *
-   * Optional on purpose — drafts written before trip length existed must still
-   * restore rather than being thrown away as malformed, and event drafts never
-   * carry one.
+   * Optional on purpose — drafts written before plan length existed must still
+   * restore rather than being thrown away as malformed.
    */
   tripLengthDays?: number;
   /** Preserve an explicit Custom choice even when its value matches a preset. */
   rangeDaysChoice?: TimelineChoice;
-  /** Trip polls only; same distinction as rangeDaysChoice. */
+  /** Same distinction as rangeDaysChoice, for the plan-length control. */
   tripLengthChoice?: TimelineChoice;
+  /**
+   * Which plan type the user picked in the wizard.
+   *
+   * Absent means "not chosen yet", which is exactly what an older draft is —
+   * those pre-date the explicit Event-or-Trip question, so restoring one must
+   * still leave the type unanswered rather than silently re-applying whatever
+   * the entry point used to imply.
+   */
+  kind?: PollKind;
 };
 
 type StoredDraft = PollDraft & { savedAt: number };
@@ -83,6 +91,8 @@ function isValidDraft(v: Partial<StoredDraft> | null | undefined): v is StoredDr
         v.tripLengthDays > 0)) &&
     (v.rangeDaysChoice === undefined || v.rangeDaysChoice === "preset" || v.rangeDaysChoice === "custom") &&
     (v.tripLengthChoice === undefined || v.tripLengthChoice === "preset" || v.tripLengthChoice === "custom") &&
+    // Absent is valid (drafts from before the type step existed).
+    (v.kind === undefined || v.kind === "event" || v.kind === "trip") &&
     typeof v.savedAt === "number"
   );
 }
@@ -127,6 +137,8 @@ export function draftHasContent(
   defaults: { rangeDays: number; slots: string[]; tripLengthDays?: number },
 ): boolean {
   if (draft.title.trim().length > 0) return true;
+  // Answering "Event or Trip?" is real input even if nothing else was touched.
+  if (draft.kind !== undefined) return true;
   if (draft.rangeDays !== defaults.rangeDays) return true;
   if (draft.step > 0) return true;
   if (

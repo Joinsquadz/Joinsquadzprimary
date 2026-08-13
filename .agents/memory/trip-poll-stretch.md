@@ -68,3 +68,23 @@ not an answer to "when can we all go away together?".
 end date) rather than the single cell, and must surface the partial flag rather
 than presenting a least-bad window as a win. Keep the result-selection rule in a
 shared, unit-tested helper — it is needed in more places than it first appears.
+
+## Kind is asked, never inferred; duration belongs to BOTH kinds
+
+- **Never infer the poll's kind from the entry point.** Screens that launch the
+  wizard without a kind must show a Type step, not fall through to "event".
+  Inheriting it meant a squad screen could only ever start event polls, and the
+  host had no way to say "this is a trip" — the fix is a question, not a better
+  default.
+- **A loaded poll's stored kind is authoritative.** Route params may only seed a
+  NEW poll; they must never override what an existing poll already recorded, or
+  reopening a trip poll from the wrong entry point silently converts it.
+- **Don't ask again at conversion time.** Once the poll knows its kind, the
+  lock-in action follows it. Re-prompting "Event or Trip?" after voting lets a
+  stray tap turn a trip poll's result into an event.
+- **Duration is a plan property, not a trip property.** The same field carries
+  "how long the plan runs" for events too, so a multi-day event ranks by stretch
+  and converts with both ends of the winning run prefilled.
+- **A one-day plan is expressed as an ABSENT duration,** not `1`. The server
+  rejects a length of 1 (no run to rank), and absence is also what keeps single-
+  evening events on the single-best-time path. Omit it on create and on PATCH.

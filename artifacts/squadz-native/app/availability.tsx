@@ -65,10 +65,16 @@ import {
   MIN_TRIP_LENGTH_DAYS,
   MAX_POLL_DAY_COUNT,
   tripLengthOptionsFor,
+  planLengthOptionsFor,
   clampTripLength,
+  clampPlanLength,
+  createPlanLengthValue,
+  minPlanLength,
   timelineChoiceFor,
   customDayCountError,
-  customTripLengthError,
+  customPlanLengthError,
+  planNoun,
+  type PollKind,
   type TimelineChoice,
   initialEditTripLength,
   editTripLengthPatchValue,
@@ -296,7 +302,13 @@ export default function AvailabilityScreen() {
   // its own `kind` is authoritative — a poll opened by link (or by pollId) has
   // no param at all, and inferring the type from the "All day" slot sentinel is
   // exactly the coupling this feature removed.
-  const paramKind: "trip" | "event" = params.kind === "trip" ? "trip" : "event";
+  //
+  // A MISSING param is not "event". Most entry points (a squad's "Start a new
+  // poll", an event screen's Find-a-time, the create flow) never passed one, so
+  // defaulting silently produced an event poll and left no way to say
+  // otherwise. Undefined now means "ask", and the wizard opens on a Type step.
+  const paramKind: PollKind | undefined =
+    params.kind === "trip" ? "trip" : params.kind === "event" ? "event" : undefined;
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
@@ -314,14 +326,26 @@ export default function AvailabilityScreen() {
   const droppedOpacity = useRef(new Animated.Value(0)).current;
   const droppedAnimRef = useRef<Animated.CompositeAnimation | null>(null);
 
+  // The type the user picked in the wizard. Null until they answer, which is
+  // what makes the Type step a real question rather than a confirmation of a
+  // default. Seeded from the route param when an entry point already asked.
+  const [chosenKind, setChosenKind] = useState<PollKind | null>(paramKind ?? null);
+  // True when this creation flow has to ask. Entry points that pass an explicit
+  // kind don't (the Home chooser already asked).
+  const needsKindStep = paramKind === undefined;
+
   // Once a poll is loaded it decides its own type; before then (the creation
-  // wizard) the route param is all we have.
-  const isTrip = data ? (data.poll.kind ?? "event") === "trip" : paramKind === "trip";
-  // The loaded poll's trip length. Null on event polls AND on legacy trip polls
-  // created before trip length existed — those keep single-best-day results
-  // rather than being retro-fitted with a length nobody chose.
+  // wizard) the user's answer — or the entry point's explicit param — is all we
+  // have. An unanswered wizard is laid out as an event so the step list is
+  // stable; nothing can be created until the question is answered.
+  const isTrip = data ? (data.poll.kind ?? "event") === "trip" : chosenKind === "trip";
+  // The loaded poll's PLAN length, on either kind. Null on single-day events
+  // and on legacy trip polls created before plan length existed — those keep
+  // single-best-day results rather than being retro-fitted with a length nobody
+  // chose. Duration is a plan property, not a trip-only one, so an event poll
+  // with a stored length is stretch-ranked exactly like a trip.
   const loadedTripLength =
-    data && (data.poll.kind ?? "event") === "trip" && typeof data.poll.tripLengthDays === "number"
+    data && typeof data.poll.tripLengthDays === "number" && data.poll.tripLengthDays >= MIN_TRIP_LENGTH_DAYS
       ? data.poll.tripLengthDays
       : null;
 
@@ -364,17 +388,22 @@ export default function AvailabilityScreen() {
   const [customRangeDays, setCustomRangeDays] = useState(String(DEFAULT_DAY_COUNT));
   const [selectedSlots, setSelectedSlots] = useState<Set<string>>(new Set(DEFAULT_SLOTS));
   const [slotPeriod, setSlotPeriod] = useState<string>("Evening");
-  // Trip creation only: how long the trip runs inside the voting window.
+  // How long the PLAN runs inside the voting window — asked for events and
+  // trips alike, because a two-day event needs the best run of days just as
+  // much as a two-day trip does.
   const [tripLength, setTripLength] = useState<number>(DEFAULT_TRIP_LENGTH_DAYS);
   const [tripLengthChoice, setTripLengthChoice] = useState<TimelineChoice>("preset");
   const [customTripLength, setCustomTripLength] = useState(String(DEFAULT_TRIP_LENGTH_DAYS));
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerDate, setPickerDate] = useState<Date>(new Date());
 
-  // Creation wizard: name → dates → times (trips skip "times"). One decision
-  // per screen instead of the old single scrolling form.
+  // Creation wizard: [type →] name → dates → length [→ times]. One decision per
+  // screen instead of the old single scrolling form.
   const [wizardStep, setWizardStep] = useState(0);
-  const wizardSteps = useMemo(() => pollWizardSteps(isTrip), [isTrip]);
+  const wizardSteps = useMemo(
+    () => pollWizardSteps(isTrip, needsKindStep),
+    [isTrip, needsKindStep],
+  );
   const currentStepId = wizardSteps[Math.min(wizardStep, wizardSteps.length - 1)]?.id ?? "name";
   // Set once a stored draft has been read (or found absent) so the auto-save
   // effect below can't persist the empty defaults over a real draft during the
@@ -410,14 +439,28 @@ export default function AvailabilityScreen() {
         setRangeDaysChoice(timelineChoiceFor(draft.rangeDays, DAY_COUNT_OPTIONS, draft.rangeDaysChoice));
         if (draft.slots.length > 0) setSelectedSlots(new Set(draft.slots));
         if (draft.period) setSlotPeriod(draft.period);
-        // Drafts written before trip length existed simply don't carry one —
+        // An explicit route param outranks the draft: the user just answered
+        // "Event or Trip?" on the way in, so a stale draft answer must not
+        // overwrite it.
+        const restoredKind = paramKind ?? draft.kind ?? null;
+        setChosenKind(restoredKind);
+        // Drafts written before plan length existed simply don't carry one —
         // keep the default rather than discarding an otherwise valid draft.
         if (draft.tripLengthDays !== undefined) {
-          setTripLength(clampTripLength(draft.tripLengthDays, draft.rangeDays));
+          const kindForDraft: PollKind = restoredKind ?? "event";
+          setTripLength(clampPlanLength(draft.tripLengthDays, draft.rangeDays, kindForDraft));
           setCustomTripLength(String(draft.tripLengthDays));
-          setTripLengthChoice(timelineChoiceFor(draft.tripLengthDays, tripLengthOptionsFor(draft.rangeDays), draft.tripLengthChoice));
+          setTripLengthChoice(
+            timelineChoiceFor(
+              draft.tripLengthDays,
+              planLengthOptionsFor(draft.rangeDays, kindForDraft),
+              draft.tripLengthChoice,
+            ),
+          );
         }
-        setWizardStep(Math.min(draft.step, pollWizardSteps(isTrip).length - 1));
+        setWizardStep(
+          Math.min(draft.step, pollWizardSteps(isTrip, needsKindStep).length - 1),
+        );
         if (
           draftHasContent(draft, {
             rangeDays: DEFAULT_DAY_COUNT,
@@ -431,7 +474,7 @@ export default function AvailabilityScreen() {
       setDraftLoaded(true);
     })();
     return () => { cancelled = true; };
-  }, [draftScopeKey, isTrip]);
+  }, [draftScopeKey, isTrip, needsKindStep, paramKind]);
 
   // Persist the wizard's fields on every change while the setup form is the
   // active surface. Skipped until the initial read completes and once a poll
@@ -446,7 +489,11 @@ export default function AvailabilityScreen() {
       slots: [...selectedSlots],
       period: slotPeriod,
       step: wizardStep,
-      ...(isTrip ? { tripLengthDays: tripLength, tripLengthChoice } : {}),
+      // Duration is persisted for BOTH kinds now — the draft has to survive a
+      // multi-day event just as it does a trip.
+      tripLengthDays: tripLength,
+      tripLengthChoice,
+      ...(chosenKind ? { kind: chosenKind } : {}),
     });
   }, [
     draftLoaded,
@@ -459,21 +506,20 @@ export default function AvailabilityScreen() {
     selectedSlots,
     slotPeriod,
     wizardStep,
-    isTrip,
+    chosenKind,
     tripLength,
     tripLengthChoice,
   ]);
 
-  // Shrinking the voting window under the chosen trip length would make the
-  // poll impossible; follow it down instead of failing at create time.
+  // Shrinking the voting window under the chosen duration would make the poll
+  // impossible; follow it down instead of failing at create time.
   useEffect(() => {
-    if (!isTrip) return;
     // Preset behaviour stays convenient: if the window shrinks, a suggested
     // duration follows it down. A Custom value must instead remain visible with
     // an honest "doesn't fit" message until the organizer corrects it.
     if (tripLengthChoice === "custom") return;
     setTripLength((n) => {
-      const next = clampTripLength(n, rangeDays);
+      const next = clampPlanLength(n, rangeDays, isTrip ? "trip" : "event");
       if (next !== n) {
         setCustomTripLength(String(next));
       }
@@ -481,9 +527,23 @@ export default function AvailabilityScreen() {
     });
   }, [isTrip, rangeDays, tripLengthChoice]);
 
+  // Switching Event → Trip with a 1-day duration selected would leave an
+  // illegal trip length on screen; lift it to the trip minimum.
+  useEffect(() => {
+    if (!isTrip) return;
+    setTripLength((n) => {
+      if (n >= MIN_TRIP_LENGTH_DAYS) return n;
+      const next = clampPlanLength(MIN_TRIP_LENGTH_DAYS, rangeDays, "trip");
+      setCustomTripLength(String(next));
+      return next;
+    });
+  }, [isTrip, rangeDays]);
+
   const rangeCustomError = rangeDaysChoice === "custom" ? customDayCountError(customRangeDays) : null;
   const tripCustomError =
-    isTrip && tripLengthChoice === "custom" ? customTripLengthError(customTripLength, rangeDays) : null;
+    tripLengthChoice === "custom"
+      ? customPlanLengthError(customTripLength, rangeDays, isTrip ? "trip" : "event")
+      : null;
 
   // "New responses" banner state — shown to the host when members responded
   // since the host last opened the poll. Cleared immediately once they open it
@@ -505,7 +565,7 @@ export default function AvailabilityScreen() {
     rangeDays,
     rangeStartISO: toISODate(rangeStart),
     todayISO: toISODate(new Date()),
-    ...(isTrip ? { tripLengthDays: tripLength } : {}),
+    tripLengthDays: tripLength,
   });
   const wizardDirtyRef = useRef(false);
   useEffect(() => {
@@ -984,6 +1044,12 @@ export default function AvailabilityScreen() {
     setCreating(true);
     setError(null);
     try {
+      // The type must have been answered by now — the wizard can't reach its
+      // last step otherwise — but never guess if it somehow wasn't.
+      if (!chosenKind) {
+        Alert.alert("Pick a type first", "Choose whether this is an event or a trip.");
+        return;
+      }
       const days = computeRange(rangeStart, rangeDays);
       const slots = isTrip ? TRIP_SLOTS : ALL_SLOT_OPTIONS.filter(s => selectedSlots.has(s));
       const scope: Record<string, unknown> = adhoc
@@ -997,11 +1063,17 @@ export default function AvailabilityScreen() {
         ...scope,
         days,
         slots,
-        // Explicit type, so the server never has to infer it from the slots.
-        kind: isTrip ? "trip" : "event",
-        // Only trips carry a length — the voting window (`days`) is a separate
-        // span and must not be confused with it.
-        ...(isTrip ? { tripLengthDays: tripLength } : {}),
+        // Explicit type, chosen by the user rather than inferred from the entry
+        // point or from the slots.
+        kind: chosenKind,
+        // Duration rides on both kinds. It is omitted for a ONE-DAY plan, which
+        // is what keeps a normal event on the single-best-time answer; the
+        // voting window (`days`) is a separate span and must not be confused
+        // with it.
+        ...(() => {
+          const n = createPlanLengthValue(tripLength);
+          return n === undefined ? {} : { tripLengthDays: n };
+        })(),
         ...(fromCreate ? { forceNew: true } : {}),
       };
       if (pollTitle.trim()) body.title = pollTitle.trim();
@@ -1035,7 +1107,7 @@ export default function AvailabilityScreen() {
     } finally {
       setCreating(false);
     }
-  }, [authHeaders, squadId, eventId, adhoc, fromCreate, isTrip, tripLength, params.participantIds, pollTitle, rangeStart, rangeDays, selectedSlots, leaveAfterSuccess, draftScopeKey, rangeCustomError, tripCustomError]);
+  }, [authHeaders, squadId, eventId, adhoc, fromCreate, isTrip, chosenKind, tripLength, params.participantIds, pollTitle, rangeStart, rangeDays, selectedSlots, leaveAfterSuccess, draftScopeKey, rangeCustomError, tripCustomError]);
 
   // Silently re-fetches the poll and updates the heatmap + best-time card.
   // The user's own unsaved picks (mySet) are only synced when there are no
@@ -1180,11 +1252,13 @@ export default function AvailabilityScreen() {
         days: editDays,
         slots: editSlots,
         title: editTitle,
-        // Only a trip poll can change its length; on an event poll this stays
-        // null on both sides so it can never register as a change.
-        tripLengthDays: isTrip ? editTripLength : null,
+        // Duration is editable on BOTH kinds now, so it has to participate in
+        // the dirty check for both. Pinning it to null on events meant changing
+        // an event's length didn't count as a change: Save stayed disabled and
+        // the edit was silently discarded.
+        tripLengthDays: editTripLength,
       }),
-    [editStart, editDays, editSlots, editTitle, isTrip, editTripLength],
+    [editStart, editDays, editSlots, editTitle, editTripLength],
   );
 
   /** True when the edit sheet holds changes that Cancel would discard. */
@@ -1265,10 +1339,15 @@ export default function AvailabilityScreen() {
         if (slots.length > 0) patchBody.slots = slots;
       }
       patchBody.title = editTitle.trim();
-      // Only send a length when there IS one. A legacy trip whose length the
-      // host never set must stay length-less: sending a default here would
-      // silently convert it to a stretch-ranked poll.
-      const tripLengthPatch = editTripLengthPatchValue({ isTrip, editTripLength, editDays });
+      // Three distinct outcomes, and the difference matters on the wire:
+      // undefined = don't touch the length (a legacy trip stays length-less),
+      // null = CLEAR it (a multi-day event going back to a single day),
+      // a number = set it. Only `undefined` may be dropped from the body.
+      const tripLengthPatch = editTripLengthPatchValue({
+        editTripLength,
+        editDays,
+        loadedTripLength,
+      });
       if (tripLengthPatch !== undefined) patchBody.tripLengthDays = tripLengthPatch;
       const res = await fetch(`${API_BASE}/api/availability/polls/${data.poll.id}`, {
         method: "PATCH",
@@ -1291,7 +1370,7 @@ export default function AvailabilityScreen() {
     } finally {
       setUpdating(false);
     }
-  }, [data, authHeaders, editTitle, editStart, editDays, editSlots, editTouchesGrid, isTrip, editTripLength]);
+  }, [data, authHeaders, editTitle, editStart, editDays, editSlots, editTouchesGrid, editTripLength]);
 
   const updateRange = useCallback(() => {
     if (!data) return;
@@ -1541,42 +1620,39 @@ export default function AvailabilityScreen() {
       return;
     }
     // Squad / personal / ad-hoc flow → the poll isn't bound to anything yet, so
-    // let the user decide what they're planning: a one-off Event (keeps the
-    // winning day + time) or a Trip (multi-day — only the day matters, no time).
-    // Either way we pass the pollId so create.tsx marks the poll converted once
-    // the event/trip is made.
+    // send the winning cell through to the create form. The pollId rides along
+    // so create.tsx marks the poll converted once the plan is made.
+    //
+    // The poll's OWN kind decides where this lands. It used to pop an "Event or
+    // Trip?" prompt here, which asked the creator to re-decide something they
+    // already answered when they made the poll — and, worse, let a trip poll's
+    // result become an event (and vice versa) by a stray tap.
     const dayISO = splitCell(cell).day;
     const tripStartDay = parseISODate(dayISO) ? dayISO : undefined;
-    const goCreate = (mode: "event" | "trip") => {
-      router.push({
-        pathname: "/create",
-        params: {
-          prefillSquad: squadId ?? "",
-          ...(data?.poll.id ? { prefillPollId: data.poll.id } : {}),
-          ...(mode === "trip"
-            ? { mode: "trip", ...(tripStartDay ? { prefillTripStart: tripStartDay } : {}) }
-            : { prefillDate: friendly, ...(eventAtISO ? { prefillEventAt: eventAtISO } : {}) }),
-        },
-      } as never);
-    };
-    Alert.alert(
-      "Lock in the best time",
-      `${friendly} works best. What are you planning?`,
-      [
-        { text: "Event", onPress: () => goCreate("event") },
-        { text: "Trip", onPress: () => goCreate("trip") },
-        { text: "Cancel", style: "cancel" },
-      ],
-    );
+    router.push({
+      pathname: "/create",
+      params: {
+        prefillSquad: squadId ?? "",
+        ...(data?.poll.id ? { prefillPollId: data.poll.id } : {}),
+        ...(isTrip
+          ? { mode: "trip", ...(tripStartDay ? { prefillTripStart: tripStartDay } : {}) }
+          : { prefillDate: friendly, ...(eventAtISO ? { prefillEventAt: eventAtISO } : {}) }),
+      },
+    } as never);
   };
 
   /**
-   * Trip flow: lock in a RUN of days rather than a single cell.
+   * Lock in a RUN of days rather than a single cell — the answer any
+   * duration-aware poll gives, event or trip.
    *
    * Deliberately does not offer the "Event or Trip?" fork that `useThisTime`
-   * does — a stretch is a date RANGE, so there is nothing to ask. Both ends go
-   * through to create.tsx, and the pollId still rides along so the server
-   * claims the poll inside the create transaction.
+   * does. That fork existed because a single winning cell is ambiguous; a
+   * duration-aware poll is not — the creator already said which kind of plan
+   * they were scheduling, so asking again would be re-litigating a decision
+   * they made at the start. The poll's own kind decides where this lands.
+   *
+   * The pollId still rides along so the server claims the poll inside the
+   * create transaction.
    */
   const useThisStretch = async (startDate: string, endDate: string) => {
     if (!data) return;
@@ -1589,12 +1665,23 @@ export default function AvailabilityScreen() {
         : `${prettyDay(startDate)} – ${prettyDay(endDate)}`;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
+    // A multi-day EVENT still has times on its grid, so the winning stretch
+    // carries the best time on those days rather than a trip's 09:00–18:00
+    // placeholder. Falls back to the placeholder when nobody picked a slot.
+    const bestSlot = !isTrip && data.best?.cell ? splitCell(data.best.cell).slot : null;
+    const startISO = (() => {
+      if (bestSlot) {
+        const iso = cellToISO(`${startDate}-${bestSlot}`);
+        if (iso) return iso;
+      }
+      return new Date(`${startDate}T09:00:00`).toISOString();
+    })();
+    const endISO = new Date(`${endDate}T18:00:00`).toISOString();
+
     // Bound to an existing event/trip: update its dates in place rather than
     // creating a second plan alongside it.
     if (eventId) {
       try {
-        const startISO = new Date(`${startDate}T09:00:00`).toISOString();
-        const endISO = new Date(`${endDate}T18:00:00`).toISOString();
         const res = await fetch(`${API_BASE}/api/events/${eventId}`, {
           method: "PATCH",
           headers: authHeaders(),
@@ -1608,7 +1695,7 @@ export default function AvailabilityScreen() {
               body: JSON.stringify({ eventId }),
             }).catch(() => {});
           }
-          Alert.alert("Dates locked in", `${friendly} is now the trip.`, [
+          Alert.alert("Dates locked in", `${friendly} is now the ${planNoun(isTrip ? "trip" : "event")}.`, [
             {
               text: "Done",
               onPress: () =>
@@ -1633,9 +1720,16 @@ export default function AvailabilityScreen() {
       params: {
         prefillSquad: squadId ?? "",
         ...(data.poll.id ? { prefillPollId: data.poll.id } : {}),
-        mode: "trip",
-        prefillTripStart: startDate,
-        prefillTripEnd: endDate,
+        // A trip becomes a trip; a multi-day EVENT stays an event and carries
+        // its winning run as a start/end pair, so the creator doesn't have to
+        // re-enter the dates their squad just voted for.
+        ...(isTrip
+          ? { mode: "trip", prefillTripStart: startDate, prefillTripEnd: endDate }
+          : {
+              prefillDate: friendly,
+              prefillEventAt: startISO,
+              prefillEndAt: endISO,
+            }),
       },
     } as never);
   };
@@ -2008,6 +2102,9 @@ export default function AvailabilityScreen() {
                     setTripLength(DEFAULT_TRIP_LENGTH_DAYS);
                     setTripLengthChoice("preset");
                     setCustomTripLength(String(DEFAULT_TRIP_LENGTH_DAYS));
+                    // Starting over includes the type answer, unless the entry
+                    // point supplied one (there is nothing to re-ask then).
+                    setChosenKind(paramKind ?? null);
                     setWizardStep(0);
                     setDraftRestored(false);
                     void clearPollDraft(draftScopeKey);
@@ -2017,6 +2114,72 @@ export default function AvailabilityScreen() {
                   <Text style={[styles.draftBannerAction, { color: colors.primary }]}>Start over</Text>
                 </TouchableOpacity>
               </View>
+            )}
+
+            {currentStepId === "type" && (
+              <>
+                <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
+                  What are you planning? This decides how people vote and what the
+                  poll answers with — you can&apos;t change it later, so pick the one
+                  you mean.
+                </Text>
+
+                {([
+                  {
+                    kind: "event" as PollKind,
+                    icon: "calendar-outline" as const,
+                    title: "Event",
+                    blurb: "A get-together with a start time. People vote on the times of day that work.",
+                  },
+                  {
+                    kind: "trip" as PollKind,
+                    icon: "airplane-outline" as const,
+                    title: "Trip",
+                    blurb: "Days away. People just mark the dates they could travel — no times.",
+                  },
+                ]).map((opt) => {
+                  const active = chosenKind === opt.kind;
+                  return (
+                    <TouchableOpacity
+                      key={opt.kind}
+                      onPress={() => {
+                        stampInteraction();
+                        Haptics.selectionAsync();
+                        setChosenKind(opt.kind);
+                      }}
+                      style={[
+                        styles.kindCard,
+                        {
+                          backgroundColor: active ? colors.primary + "18" : colors.card,
+                          borderColor: active ? colors.primary : colors.border,
+                        },
+                      ]}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: active }}
+                      accessibilityLabel={`${opt.title} poll`}
+                    >
+                      <View
+                        style={[
+                          styles.kindCardIcon,
+                          { backgroundColor: active ? colors.primary : colors.background },
+                        ]}
+                      >
+                        <Ionicons name={opt.icon} size={20} color={active ? "#fff" : colors.mutedForeground} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.kindCardTitle, { color: colors.foreground }]}>{opt.title}</Text>
+                        <Text style={[styles.kindCardBlurb, { color: colors.mutedForeground }]}>{opt.blurb}</Text>
+                      </View>
+                      {active && <Ionicons name="checkmark-circle" size={22} color={colors.primary} />}
+                    </TouchableOpacity>
+                  );
+                })}
+
+                <Text style={[styles.wizardHint, { color: colors.textDim }]}>
+                  Either one can run for more than a day — you&apos;ll pick how long on
+                  the next steps.
+                </Text>
+              </>
             )}
 
             {currentStepId === "name" && (
@@ -2152,17 +2315,20 @@ export default function AvailabilityScreen() {
             {currentStepId === "length" && (
               <>
                 <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
-                  How long is the trip itself? Everyone marks every date they could travel across
-                  the range above, and we find the best run of days inside it.
+                  {isTrip
+                    ? "How long is the trip itself? Everyone marks every date they could travel across the range above, and we find the best run of days inside it."
+                    : "How long does the event run? Most are a single day. Pick more and we'll find the best run of days inside the range above instead of one best time."}
                 </Text>
 
-                <Text style={[styles.setupLabel, { color: colors.mutedForeground }]}>Trip length</Text>
+                <Text style={[styles.setupLabel, { color: colors.mutedForeground }]}>
+                  {isTrip ? "Trip length" : "Event length"}
+                </Text>
                 <View style={styles.chipRow}>
-                  {tripLengthOptionsFor(rangeDays).map((n) => {
+                  {planLengthOptionsFor(rangeDays, isTrip ? "trip" : "event").map((n) => {
                     const active = tripLengthChoice === "preset" && tripLength === n;
                     return (
                       <TouchableOpacity
-                        key={`trip-len-${n}`}
+                        key={`plan-len-${n}`}
                         onPress={() => {
                           stampInteraction();
                           Haptics.selectionAsync();
@@ -2179,7 +2345,7 @@ export default function AvailabilityScreen() {
                         ]}
                       >
                         <Text style={[styles.chipText, { color: active ? "#fff" : colors.foreground }]}>
-                          {n} days
+                          {n === 1 ? "1 day" : `${n} days`}
                         </Text>
                       </TouchableOpacity>
                     );
@@ -2199,7 +2365,7 @@ export default function AvailabilityScreen() {
                       },
                     ]}
                     accessibilityRole="button"
-                    accessibilityLabel="Choose a custom trip length"
+                    accessibilityLabel={`Choose a custom ${planNoun(isTrip ? "trip" : "event")} length`}
                   >
                     <Text style={[styles.chipText, { color: tripLengthChoice === "custom" ? "#fff" : colors.foreground }]}>Custom</Text>
                   </TouchableOpacity>
@@ -2212,25 +2378,37 @@ export default function AvailabilityScreen() {
                         value={customTripLength}
                         onChangeText={(text) => {
                           setCustomTripLength(text);
-                          if (!customTripLengthError(text, rangeDays)) setTripLength(Number(text.trim()));
+                          if (!customPlanLengthError(text, rangeDays, isTrip ? "trip" : "event")) {
+                            setTripLength(Number(text.trim()));
+                          }
                         }}
                         keyboardType="number-pad"
                         returnKeyType="done"
-                        placeholder={`${MIN_TRIP_LENGTH_DAYS}–${rangeDays}`}
+                        placeholder={`${minPlanLength(isTrip ? "trip" : "event")}–${rangeDays}`}
                         placeholderTextColor={colors.textDim}
                         style={[styles.dateBtnText, { color: colors.foreground }]}
-                        accessibilityLabel="Custom trip length days"
+                        accessibilityLabel={`Custom ${planNoun(isTrip ? "trip" : "event")} length days`}
                       />
                       <Text style={[styles.chipText, { color: colors.mutedForeground }]}>days</Text>
                     </View>
                     <Text style={[styles.wizardHint, { color: tripCustomError ? colors.destructive : colors.textDim }]}>
-                      {tripCustomError ?? `Your trip can be ${MIN_TRIP_LENGTH_DAYS} to ${rangeDays} days inside this voting window.`}
+                      {tripCustomError ??
+                        `Your ${planNoun(isTrip ? "trip" : "event")} can be ${minPlanLength(isTrip ? "trip" : "event")} to ${rangeDays} days inside this voting window.`}
                     </Text>
                   </>
                 )}
-                {tripLengthOptionsFor(rangeDays).length === 0 && (
+                {planLengthOptionsFor(rangeDays, isTrip ? "trip" : "event").length === 0 && (
                   <Text style={[styles.wizardHint, { color: colors.textDim }]}>
-                    Go back and pick at least {MIN_TRIP_LENGTH_DAYS} days to vote across.
+                    Go back and pick at least {minPlanLength(isTrip ? "trip" : "event")} days to vote across.
+                  </Text>
+                )}
+                {/* A one-day plan has no run to rank, so say plainly which
+                    answer they're going to get. */}
+                {!isTrip && (
+                  <Text style={[styles.wizardHint, { color: colors.textDim }]}>
+                    {tripLength <= 1
+                      ? "We'll find the single best day and time."
+                      : `We'll find the best ${tripLength} days in a row, then the best time on those days.`}
                   </Text>
                 )}
 
@@ -2372,16 +2550,19 @@ export default function AvailabilityScreen() {
                 </Text>
               </TouchableOpacity>
               <View style={{ flex: 1 }}>
-                {isLastWizardStep(wizardStep, isTrip) ? (
+                {isLastWizardStep(wizardStep, isTrip, needsKindStep) ? (
                   <GradientButton
                     label={creating ? "Creating…" : "Create poll"}
                     onPress={() => void createPoll()}
                     disabled={
                       creating ||
+                      !chosenKind ||
                       !canAdvanceWizard(wizardStep, isTrip, {
                         slotCount: selectedSlots.size,
                         tripLengthDays: tripLength,
                         rangeDays,
+                        kindChosen: chosenKind !== null,
+                        needsKind: needsKindStep,
                       }) ||
                       !!rangeCustomError ||
                       !!tripCustomError
@@ -2392,13 +2573,15 @@ export default function AvailabilityScreen() {
                     label="Next"
                     onPress={() => {
                       Haptics.selectionAsync();
-                      setWizardStep((i) => nextWizardStep(i, isTrip));
+                      setWizardStep((i) => nextWizardStep(i, isTrip, needsKindStep));
                     }}
                     disabled={
                       !canAdvanceWizard(wizardStep, isTrip, {
                         slotCount: selectedSlots.size,
                         tripLengthDays: tripLength,
                         rangeDays,
+                        kindChosen: chosenKind !== null,
+                        needsKind: needsKindStep,
                       }) ||
                       !!rangeCustomError ||
                       !!tripCustomError
@@ -3298,8 +3481,8 @@ export default function AvailabilityScreen() {
                         if (!canStartTripOn(data.poll.days, loadedTripLength, day)) {
                           return (
                             <Text style={[styles.cellSheetEmpty, { color: colors.mutedForeground, marginTop: 12 }]}>
-                              A {loadedTripLength}-day trip doesn&apos;t fit starting here — pick an
-                              earlier date.
+                              A {loadedTripLength}-day {planNoun(isTrip ? "trip" : "event")} doesn&apos;t
+                              fit starting here — pick an earlier date.
                             </Text>
                           );
                         }
@@ -3318,7 +3501,7 @@ export default function AvailabilityScreen() {
                               <Ionicons name="calendar-outline" size={18} color={colors.primary} />
                               <View style={{ flex: 1 }}>
                                 <Text style={[styles.cellSheetToggleBtnText, { color: colors.primary }]}>
-                                  Start the trip here
+                                  {isTrip ? "Start the trip here" : "Start the event here"}
                                 </Text>
                                 <Text style={[styles.cellSheetStretchNote, { color: colors.mutedForeground }]}>
                                   {prettyDay(stretch.startDate)} – {prettyDay(stretch.endDate)} ·{" "}
@@ -3449,50 +3632,77 @@ export default function AvailabilityScreen() {
                 })}
               </View>
 
-              {isTrip ? (
+              {/* Plan length is a different span from the voting window above,
+                  so it gets its own control and its own explanation. It is
+                  offered on BOTH kinds — a two-day event needs the best run of
+                  days just as a trip does. Changing it only re-ranks the days
+                  people already marked; no answers are trimmed. */}
+              <Text style={[styles.setupLabel, { color: colors.mutedForeground }]}>
+                {isTrip ? "How long is the trip?" : "How long is the event?"}
+              </Text>
+              <View style={styles.chipRow}>
+                {!isTrip && (
+                  // Events can be a single day, and that is the answer that
+                  // keeps them on "one best time". It must be reachable from
+                  // the editor, not only at creation.
+                  <TouchableOpacity
+                    key="edit-plan-1"
+                    onPress={() => {
+                      Haptics.selectionAsync();
+                      setEditTripLength(1);
+                    }}
+                    style={[
+                      styles.chip,
+                      {
+                        backgroundColor: editTripLength === 1 ? colors.primary : colors.card,
+                        borderColor: editTripLength === 1 ? colors.primary : colors.border,
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.chipText, { color: editTripLength === 1 ? "#fff" : colors.foreground }]}>
+                      1 day
+                    </Text>
+                  </TouchableOpacity>
+                )}
+                {tripLengthOptionsFor(editDays).map((n) => {
+                  const active = editTripLength === n;
+                  return (
+                    <TouchableOpacity
+                      key={`edit-plan-${n}`}
+                      onPress={() => {
+                        Haptics.selectionAsync();
+                        setEditTripLength(n);
+                      }}
+                      style={[
+                        styles.chip,
+                        {
+                          backgroundColor: active ? colors.primary : colors.card,
+                          borderColor: active ? colors.primary : colors.border,
+                        },
+                      ]}
+                    >
+                      <Text style={[styles.chipText, { color: active ? "#fff" : colors.foreground }]}>
+                        {n} days
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <Text style={[styles.wizardHint, { color: colors.textDim }]}>
+                {editTripLength === null
+                  ? // No length was ever chosen (a legacy trip, or a plain
+                    // single-day event), so no chip is selected and none is
+                    // assumed. Explain what picking one would change instead of
+                    // pretending a default is set.
+                    `This ${planNoun(isTrip ? "trip" : "event")} doesn't have a length yet, so we're picking the single best day. Choose a length to find the best run of days instead.`
+                  : editTripLength <= 1
+                    ? "We'll pick the single best day and time. Choose 2+ days to find the best run instead."
+                    : `We'll find the best ${editTripLength} days in a row inside this range. Changing this keeps everyone's answers.`}
+              </Text>
+
+              {!isTrip && (
                 <>
-                  {/* Trip length is a different span from the voting window
-                      above, so it gets its own control and its own explanation.
-                      Changing it only re-ranks the days people already marked —
-                      no answers are trimmed. */}
-                  <Text style={[styles.setupLabel, { color: colors.mutedForeground }]}>How long is the trip?</Text>
-                  <View style={styles.chipRow}>
-                    {tripLengthOptionsFor(editDays).map((n) => {
-                      const active = editTripLength === n;
-                      return (
-                        <TouchableOpacity
-                          key={`edit-trip-${n}`}
-                          onPress={() => {
-                            Haptics.selectionAsync();
-                            setEditTripLength(n);
-                          }}
-                          style={[
-                            styles.chip,
-                            {
-                              backgroundColor: active ? colors.primary : colors.card,
-                              borderColor: active ? colors.primary : colors.border,
-                            },
-                          ]}
-                        >
-                          <Text style={[styles.chipText, { color: active ? "#fff" : colors.foreground }]}>
-                            {n} days
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                  <Text style={[styles.wizardHint, { color: colors.textDim }]}>
-                    {editTripLength === null
-                      ? // Legacy trip: no length was ever chosen, so no chip is
-                        // selected and none is assumed. Explain what picking one
-                        // would change instead of pretending a default is set.
-                        "This trip doesn't have a length yet, so we're picking the single best day. Choose a length to find the best run of days instead."
-                      : `We'll find the best ${editTripLength} days in a row inside this range. Changing this keeps everyone's answers.`}
-                  </Text>
-                </>
-              ) : (
-                <>
-                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6, marginTop: 14 }}>
                     <Text style={[styles.setupLabel, { color: colors.mutedForeground, marginBottom: 0 }]}>Time slots</Text>
                     <Text style={[styles.chipText, { color: colors.mutedForeground }]}>{editSlots.size} selected</Text>
                   </View>
@@ -3726,6 +3936,18 @@ const styles = StyleSheet.create({
   wizardStepLabel: { fontSize: 12, fontWeight: "700" },
   wizardStepBar: { width: 22, height: 2, borderRadius: 1, marginHorizontal: 8 },
   wizardHint: { fontSize: 12, fontWeight: "600", marginTop: 8 },
+  kindCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    padding: 14,
+    marginTop: 10,
+  },
+  kindCardIcon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+  kindCardTitle: { fontSize: 16, fontWeight: "800" },
+  kindCardBlurb: { fontSize: 12, fontWeight: "600", marginTop: 2, lineHeight: 17 },
   wizardNavRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   wizardBackBtn: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 16, borderWidth: 1.5, paddingHorizontal: 16, paddingVertical: 15 },
   wizardBackText: { fontSize: 15, fontWeight: "800" },
