@@ -69,3 +69,19 @@ Expo/Metro logs can report `ReferenceError: Property 'X' doesn't exist` for a
 symbol that no longer exists anywhere in the source, with line numbers that don't
 match the file. That is a STALE BUNDLE from a mid-edit save, not a real error —
 restart the expo workflow and re-read the logs before investigating.
+
+## Launch reconciliation must apply the sync result
+
+When local RevenueCat `CustomerInfo` says "not entitled" but the server says
+Pro, `/api/iap/sync` is the authority that resolves stale local caches and
+cross-device upgrades. Await it and publish its successful entitlement result.
+
+**Why:** RevenueCat's on-device cache can be empty after reinstall or an upgrade
+on another device even while RevenueCat's server subscriber record is active.
+Fire-and-forget syncing left AppContext at the cached negative forever, so the
+personal vault showed its paywall despite both server and purchase service being
+paid.
+
+**How to apply:** in the `!local && serverPro` launch branch, only a successful
+sync result changes the client state; a failed sync must not be reinterpreted as
+"not entitled". Refresh the user badge after a successful grant.

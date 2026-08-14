@@ -114,10 +114,21 @@ export async function reconcileRcEntitlement({
       // Bust the user cache so the Pro ring shows without a manual refresh.
       refreshUsers([userId]);
     } else if (!local && serverPro) {
-      // Server thinks Pro but RC doesn't. The store is authoritative about the
-      // absence of a purchase, so we've already published the negative reading
-      // above; sync lets the server correct its own record.
-      void syncFn(authToken);
+      // The local CustomerInfo can be an empty/stale cache after an upgrade on
+      // another device or immediately after reinstall. Reconcile against
+      // RevenueCat's server record and APPLY its answer. Previously this was
+      // fire-and-forget: the local "not entitled" reading stayed in AppContext
+      // even when /iap/sync confirmed the active purchase, so the personal
+      // vault kept showing the upgrade gate forever.
+      const synced = await syncFn(authToken);
+      if (synced && typeof synced === "object" && synced.ok) {
+        onEntitlement?.({
+          resolved: true,
+          entitled: synced.entitlement.entitled,
+          tier: synced.entitlement.tier,
+          source: "server",
+        });
+      }
     } else {
       // Agreement. Publish the server reading too so the tier recorded
       // server-side (founding vs standard) wins over a local guess.

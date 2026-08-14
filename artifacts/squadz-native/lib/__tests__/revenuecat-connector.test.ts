@@ -376,6 +376,31 @@ describe("reconcileRcEntitlement: publishes to the global entitlement store", ()
     );
   });
 
+  it("adopts a successful sync when stale local info says free but the server says Pro", async () => {
+    getCustomerInfo.mockResolvedValue(customerInfoWith(false));
+    const syncMock = vi.fn().mockResolvedValue({
+      ok: true,
+      entitlement: { entitled: true, tier: "standard" },
+    });
+    const refreshUsers = vi.fn();
+    const onEntitlement = vi.fn();
+    const deps = {
+      ...makeDeps({ serverIsPro: true, syncMock, refreshUsers }),
+      onEntitlement,
+    };
+
+    await reconcileRcEntitlement(deps as unknown as ReconcileDeps);
+
+    expect(syncMock).toHaveBeenCalledWith("tok");
+    expect(onEntitlement).toHaveBeenLastCalledWith({
+      resolved: true,
+      entitled: true,
+      tier: "standard",
+      source: "server",
+    });
+    expect(refreshUsers).not.toHaveBeenCalled();
+  });
+
   it("publishes nothing on web, where the SDK can't report an entitlement", async () => {
     platform.OS = "web" as typeof platform.OS;
     const onEntitlement = vi.fn();
