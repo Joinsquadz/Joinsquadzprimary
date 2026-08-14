@@ -108,3 +108,4 @@
 - [Trip creation atomicity](trip-create-atomicity.md) — trip range + template stops (`initialItinerary`) + poll claim in ONE create txn; trip start resolves `startAt ?? eventAt`; missing end = one-day.
 - [Entitlement single source](entitlement-single-source.md) — never re-implement the Squadz+ check in a route; a Stripe-only copy reads every IAP subscriber as free → empty vault + 403 saves, silently.
 - [RN leave guards vs programmatic nav](rn-leave-guard-programmatic-nav.md) — one beforeRemove listener (not header onPress) or swipe/hardware back go unguarded; success paths need an explicit bypass ref or "leave without saving?" fires after saving.
+- [node --import needs ./](node-import-flag-bare-specifier.md) — bare relative path in `--import` = ERR_MODULE_NOT_FOUND "Cannot find package '<first-segment>'"; multi-artifact deploy stderr is untagged, blames the wrong artifact.
