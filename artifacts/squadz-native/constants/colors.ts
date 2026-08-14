@@ -27,6 +27,15 @@ const theme = {
   textSub: "#9999AA",
 };
 
+export const SQUAD_COLORS = [
+  "#FF6B2C",
+  "#4A9EFF",
+  "#2ECC8A",
+  "#A855F7",
+  "#FFB23E",
+  "#FF6B9D",
+] as const;
+
 const colors = {
   light: theme,
   dark: theme,

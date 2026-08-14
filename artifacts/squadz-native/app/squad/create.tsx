@@ -22,8 +22,8 @@ import { CelebrationOverlay } from "@/components/CelebrationOverlay";
 import { claimOnce } from "@/lib/seenFlags";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { IconPicker } from "@/components/IconPicker";
+import { SQUAD_COLORS } from "@/constants/colors";
 
-const COLORS = ["#FF6B2C", "#4A9EFF", "#2ECC8A", "#A855F7", "#FFB23E", "#FF6B9D"];
 const CATEGORIES = [
   { label: "Roommates", emoji: "🏠", name: "The Roommates" },
   { label: "Gaming", emoji: "🎮", name: "Game Night Crew" },
@@ -43,7 +43,7 @@ export default function CreateSquadScreen() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [emoji, setEmoji] = useState("🔥");
-  const [color, setColor] = useState(COLORS[0]);
+  const [color, setColor] = useState<string>(SQUAD_COLORS[0]);
   const [isPublic, setIsPublic] = useState(false);
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -177,7 +177,7 @@ export default function CreateSquadScreen() {
         <View style={styles.section}>
           <Text style={[styles.label, { color: colors.mutedForeground }]}>Squad color</Text>
           <View style={styles.colorRow}>
-            {COLORS.map((c) => (
+            {SQUAD_COLORS.map((c) => (
               <TouchableOpacity
                 key={c}
                 onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setColor(c); }}

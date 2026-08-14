@@ -47,6 +47,7 @@ import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
 import { IconPicker } from "@/components/IconPicker";
 import { AddFriendBadge } from "@/components/AddFriendBadge";
 import { FriendRulesInfo } from "@/components/FriendRulesInfo";
+import { SQUAD_COLORS } from "@/constants/colors";
 // Shared auth-race guard (see lib/vaultAuthRace.ts). Opening a squad directly on
 // a cold start (deep link / push tap) can 401 before the token restores and
 // AppContext hasn't loaded the squad yet; keep it loading + retry instead of
@@ -109,6 +110,7 @@ export default function SquadDetailScreen() {
   const [selectedToAdd, setSelectedToAdd] = useState<Set<string>>(new Set());
   const [confirmingAdd, setConfirmingAdd] = useState(false);
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
+  const [editColor, setEditColor] = useState("");
 
   const [memberProfileOpen, setMemberProfileOpen] = useState(false);
   const [profileMember, setProfileMember] = useState<ResolvedUser | null>(null);
@@ -616,6 +618,7 @@ export default function SquadDetailScreen() {
   const squadCoAdminCandidates = squad.memberIds
     .filter((uid) => uid !== creatorId && !squadCoAdminIds.includes(uid))
     .map((uid) => resolveUser(uid));
+  const canManageSquad = isCreator || squadCoAdminIds.includes(currentUser.id);
 
   const handleRemoveMember = (memberId: string, memberName: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -710,6 +713,7 @@ export default function SquadDetailScreen() {
     setEditName(squad.name);
     setEditDescription(squad.description ?? "");
     setEditEmoji(squad.emoji);
+    setEditColor(squad.color);
     // Seed local switch state from the shared context (no network round-trip needed)
     setMuted(mutedSquadIds.has(squad.id));
     setSettingsOpen(true);
@@ -749,14 +753,19 @@ export default function SquadDetailScreen() {
     }
     const name = editName.trim();
     const desc = editDescription.trim();
-    updateSquad(squad.id, { name, description: desc || null, emoji: editEmoji });
+    updateSquad(squad.id, {
+      name,
+      description: desc || null,
+      emoji: editEmoji,
+      ...(canManageSquad ? { color: editColor } : {}),
+    });
     // Pre-seed the poll baseline so the next tick doesn't mistake our own
     // optimistic write for a remote change and show a spurious "Refreshed" banner.
     lastSquadSigRef.current = squadSignature({
       name,
       emoji: editEmoji,
       description: desc || null,
-      color: squad.color,
+      color: canManageSquad ? editColor : squad.color,
       isPublic: squad.isPublic,
       membersCanInvite: squad.membersCanInvite,
       memberIds: squad.memberIds,
@@ -1344,6 +1353,43 @@ export default function SquadDetailScreen() {
             <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>Icon</Text>
             <IconPicker value={editEmoji} onChange={setEditEmoji} />
 
+            {canManageSquad && (
+              <View style={styles.colorSection}>
+                <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>Squad color</Text>
+                <Text style={[styles.actionSub, { color: colors.mutedForeground }]}>
+                  Everyone in this squad sees this color.
+                </Text>
+                <View style={styles.colorRow}>
+                  {SQUAD_COLORS.map((colorOption) => {
+                    const selected = editColor === colorOption;
+                    return (
+                      <TouchableOpacity
+                        key={colorOption}
+                        onPress={() => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          setEditColor(colorOption);
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Use ${colorOption} as the squad color`}
+                        accessibilityState={{ selected }}
+                        style={[
+                          styles.colorSwatch,
+                          {
+                            backgroundColor: colorOption,
+                            borderWidth: selected ? 3 : 0,
+                            borderColor: "#fff",
+                            opacity: selected ? 1 : 0.82,
+                          },
+                        ]}
+                      >
+                        {selected && <Ionicons name="checkmark" size={18} color="#fff" />}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
+
             <View style={[styles.actionRow, { borderColor: colors.border }]}>
               <Ionicons name={muted ? "notifications-off-outline" : "notifications-outline"} size={20} color={colors.foreground} />
               <View style={{ flex: 1 }}>
@@ -1605,6 +1651,9 @@ const styles = StyleSheet.create({
   modalCloseBtn: { position: "absolute", top: 14, left: 14, zIndex: 10, width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
   modalTitle: { fontSize: 20, fontWeight: "800", marginBottom: 16 },
   fieldLabel: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8, marginTop: 4 },
+  colorSection: { marginTop: 4 },
+  colorRow: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: 2 },
+  colorSwatch: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   modalInput: { borderRadius: 13, borderWidth: 1.5, paddingHorizontal: 14, height: 50, fontSize: 15, marginBottom: 12 },
   modalTextArea: { height: undefined, minHeight: 76, paddingTop: 12, paddingBottom: 12, textAlignVertical: "top" },
   emojiOption: { width: 48, height: 48, borderRadius: 14, borderWidth: 2, alignItems: "center", justifyContent: "center" },

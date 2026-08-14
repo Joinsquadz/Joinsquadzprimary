@@ -158,6 +158,34 @@ describe("PATCH /api/squads/:id", () => {
     expect(res.status).toBe(200);
   });
 
+  it("returns 403 when a regular member tries to change the squad color", async () => {
+    mockRows.value = [baseSquad];
+    const app = await makeApp({ id: MEMBER_ID });
+    const res = await request(app)
+      .patch("/api/squads/squad-1")
+      .send({ color: "#4A9EFF" });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain("squad color");
+  });
+
+  it("allows the squad creator to change the squad color", async () => {
+    mockRows.value = [baseSquad];
+    const app = await makeApp({ id: CREATOR_ID });
+    const res = await request(app)
+      .patch("/api/squads/squad-1")
+      .send({ color: "#4A9EFF" });
+    expect(res.status).toBe(200);
+  });
+
+  it("allows a co-admin to change the squad color", async () => {
+    mockRows.value = [{ ...baseSquad, coAdminIds: [MEMBER_ID] }];
+    const app = await makeApp({ id: MEMBER_ID });
+    const res = await request(app)
+      .patch("/api/squads/squad-1")
+      .send({ color: "#4A9EFF" });
+    expect(res.status).toBe(200);
+  });
+
   it("returns 404 when squad does not exist", async () => {
     mockRows.value = [];
     const app = await makeApp({ id: MEMBER_ID });

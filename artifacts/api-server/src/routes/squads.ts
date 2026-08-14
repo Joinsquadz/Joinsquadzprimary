@@ -743,6 +743,10 @@ router.patch("/squads/:id", requireAuth, async (req: Request, res: Response): Pr
     res.status(403).json({ error: "Only the squad creator or a co-admin can change invite permissions." });
     return;
   }
+  if (parsed.data.color !== undefined && !canManageSquad(existing, userId)) {
+    res.status(403).json({ error: "Only the squad creator or a co-admin can change the squad color." });
+    return;
+  }
 
   // Consent-gated membership: PATCH may never inject users directly into
   // memberIds. Additions become pending invites (Accept/Decline from the
