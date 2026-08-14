@@ -1,0 +1,53 @@
+Migration 0007 + Tier Backfill — Production Application
+Context (do not skip)
+
+Two separate Replit-managed databases exist in this project: "Development Database" and "Production Database." Prior agent runs resolved DATABASE_URL to the Development Database at least twice, producing false reports about production state. This prompt targets the Production Database explicitly.
+
+Do not resolve DATABASE_URL from the ambient environment for any step below. A new secret, PROD_DB_URL_VERIFIED, has been added to this Repl containing the confirmed Production Database connection string (revealed and copied directly from the Replit Database pane's Production Database Settings tab). Use PROD_DB_URL_VERIFIED explicitly for every command in every step of this prompt. If any tool or script you need to invoke only accepts a DATABASE_URL-named variable, set DATABASE_URL equal to PROD_DB_URL_VERIFIED's value for that single command's scope only — do not export it globally or let it persist for unrelated commands.
+
+Before Step 1, confirm PROD_DB_URL_VERIFIED is present and non-empty and report its host/port/dbname only (never the password) so we can visually confirm it matches the Production Database, not Development.
+
+Already confirmed against the Production Database, verified independently:
+
+users table: 0 rows
+Migration 0007 not applied (plan_ideas, idea_votes, media_backup_status tables absent; meets_min_age, birth_year, squadz_plus_period_end_ms columns absent from users)
+
+Because users has 0 rows, this migration carries no data-migration risk. There is nothing to backfill and nothing live that a schema change could corrupt. Proceed on that basis, but verify it is still true immediately before mutating (Step 1) in case anything changed since the last check.
+
+Step 1 — Pre-flight verification (report only, no mutations)
+
+Using the explicit Production Database connection string provided:
+
+Run SELECT count(*) FROM users; and report the raw result.
+Confirm migration 0007 is still unapplied (same checks as before: absence of plan_ideas, idea_votes, media_backup_status tables; absence of meets_min_age, birth_year, squadz_plus_period_end_ms columns).
+Report current storage used and a table-by-table row count for every table in the public schema, so we have a full inventory before any change is made.
+
+Stop and report back before proceeding to Step 2 if users count is anything other than 0, or if migration 0007 appears to already be partially applied.
+
+Step 2 — Apply migration 0007 (mutation)
+
+Using the same explicit Production Database connection string:
+
+Apply migration 0007 exactly as it exists in the migration chain (lib/db/migrations/), in order, against this connection only.
+Do not use schemaSync.ts for this — apply the actual migration file(s) so the migration ledger stays accurate and matches what the fresh-DB validator already proved correct.
+Report the exact SQL statements executed and their result (success/ error) for each.
+Step 3 — Post-migration verification (report only)
+Re-run the same checks from Step 1, part 2 — confirm plan_ideas, idea_votes, media_backup_status now exist, and the three users columns now exist.
+Run SELECT count(*) FROM users; again — confirm it is unchanged (still 0, since this is a schema-only change).
+Confirm no errors or warnings were emitted during migration.
+Step 4 — Tier backfill (mutation)
+
+Only proceed if Step 3 passed cleanly.
+
+Run the tier backfill script/logic against this same explicit connection.
+Since users has 0 rows, expect this to be a no-op. Report exactly how many rows were affected — this should be 0. If it is not 0, stop and report before doing anything further; that would mean an assumption in this prompt was wrong.
+Step 5 — Final report
+
+Summarize:
+
+Migration 0007 status: applied / not applied, with evidence
+Tier backfill status: run, rows affected
+Any errors, warnings, or unexpected states encountered
+Confirmation that the Development Database was not touched at any point in this process
+
+Do not proceed to any further work (RevenueCat, TestFlight, etc.) after this — this prompt's scope ends at a verified, migrated production schema.
