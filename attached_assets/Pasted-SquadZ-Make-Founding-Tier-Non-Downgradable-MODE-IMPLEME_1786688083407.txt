@@ -1,0 +1,56 @@
+SquadZ — Make Founding Tier Non-Downgradable
+
+MODE: IMPLEMENT — this is not a report-only pass.
+
+Small, targeted change. Can be folded into the trip best-stretch build.
+
+Why
+
+Your audit confirmed: tier is written by any grant-like event (INITIAL_PURCHASE, RENEWAL, PRODUCT_CHANGE, UNCANCELLATION, NON_RENEWING_PURCHASE, SUBSCRIPTION_EXTENDED, active TRANSFER) and by POST /api/iap/sync, using whatever product identifier RevenueCat reports at that moment. There is no rule preventing a stored founding tier from being overwritten with standard.
+
+Founding subscribers are a capped cohort of 500 who paid a permanently discounted rate. Their tier is the only durable record of that entitlement. It must not be able to silently degrade.
+
+The existing protections — period-end guards against stale events, and refusing to erase a known tier on a product-less event — do not cover this case.
+
+The rule
+
+Once a user's squadz_plus_tier is founding, no subsequent write may change it to standard.
+
+Specifics:
+
+Applies to every tier writer: the RevenueCat webhook grant path and POST /api/iap/sync.
+Everything else about those writes is unchanged — access state, period end, and all other entitlement fields update normally. Only the tier field becomes sticky.
+null → founding and null → standard still work normally.
+standard → founding is still permitted. A genuine upgrade should be able to land.
+Revocation is unaffected: it already passes no tier, and losing access must not clear or alter a stored tier. A lapsed founding subscriber who resubscribes should still read founding.
+Do not weaken the existing period-end guards or the unknown-product fallback.
+Telemetry
+
+When a write attempts founding → standard and is blocked, log to Sentry with the user ID, the incoming product identifier, the event type, and the source (webhook vs sync).
+
+This is the point of the change beyond safety: you currently have no visibility into whether this is happening. If these fire in production, that's evidence of a real data problem worth chasing. If they never fire, the guard costs nothing.
+
+Direction of error
+
+Deliberate: the failure mode is that someone keeps founding pricing they might not strictly be owed, which costs a few dollars a year. The opposite failure silently breaks a pricing promise to a paying customer and is invisible until they complain. Prefer the former.
+
+Constraints
+Test floor: 1284 API / 515 mobile, all green.
+No schema change required — this is write-path logic only. If you believe otherwise, stop and report before writing a migration.
+Do not modify the founding-spot ledger, founding_member_counter, founding_member_redemptions, or redeemFoundingSpot(). The audit confirmed these are correctly isolated from tier writes; leave them alone.
+Verification
+
+New tests:
+
+Webhook RENEWAL reporting the standard product against a stored founding user leaves tier as founding
+/api/iap/sync reporting standard against a stored founding user leaves tier as founding
+standard → founding still succeeds
+null → standard still succeeds
+Revocation does not clear a stored founding tier
+A blocked downgrade emits the Sentry event with the expected fields
+
+Report: suite counts against the floor, typechecks, files changed with one line each.
+
+Also report
+
+The production row for jmontoy3694@gmail.com reads standard despite a purchase made at the founding price. After this change ships, state whether that row would be corrected by any automatic path, or whether it requires a manual update. Do not update it — that account is scheduled for deletion in pre-launch cleanup.

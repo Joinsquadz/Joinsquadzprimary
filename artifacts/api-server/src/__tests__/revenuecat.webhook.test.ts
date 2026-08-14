@@ -16,6 +16,7 @@ const hoisted = vi.hoisted(() => ({
   // unordered delivery can't apply a stale event; see revenuecat.outOfOrder.
   setSquadzPlusForPeriod: vi.fn().mockResolvedValue({ applied: true }),
   redeemFoundingSpot: vi.fn().mockResolvedValue(true),
+  captureMessage: vi.fn(),
 }));
 
 vi.mock("../storage", () => ({
@@ -31,6 +32,7 @@ vi.mock("../lib/founding", () => ({ redeemFoundingSpot: hoisted.redeemFoundingSp
 vi.mock("../lib/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
+vi.mock("../services/monitoring", () => ({ captureMessage: hoisted.captureMessage }));
 
 import revenuecatRouter from "../routes/revenuecat";
 import { makeTestApp } from "./helpers/makeTestApp";
@@ -152,6 +154,62 @@ describe("POST /api/revenuecat/webhook — entitlement grant/revoke", () => {
     });
     expect(res.status).toBe(200);
     expect(hoisted.setSquadzPlusForPeriod).not.toHaveBeenCalled();
+  });
+
+  it("keeps a stored founding tier when a RENEWAL reports the standard product and emits telemetry", async () => {
+    hoisted.getUser.mockResolvedValue({ ...USER, squadzPlusTier: "founding" } as never);
+    const res = await post({
+      event: {
+        type: "RENEWAL",
+        app_user_id: "u1",
+        product_id: STANDARD,
+        entitlement_ids: ["squadz_plus"],
+      },
+    });
+
+    expect(res.status).toBe(200);
+    expect(hoisted.setSquadzPlusForPeriod).toHaveBeenCalledWith("u1", true, null, null);
+    expect(hoisted.captureMessage).toHaveBeenCalledWith(
+      "Blocked attempted founding tier downgrade",
+      "warning",
+      {
+        userId: "u1",
+        productIdentifier: STANDARD,
+        eventType: "RENEWAL",
+        source: "webhook",
+      },
+    );
+  });
+
+  it("allows a stored standard tier to upgrade to founding", async () => {
+    hoisted.getUser.mockResolvedValue({ ...USER, squadzPlusTier: "standard" } as never);
+    const res = await post({
+      event: {
+        type: "PRODUCT_CHANGE",
+        app_user_id: "u1",
+        product_id: FOUNDING,
+        entitlement_ids: ["squadz_plus"],
+      },
+    });
+
+    expect(res.status).toBe(200);
+    expect(hoisted.setSquadzPlusForPeriod).toHaveBeenCalledWith("u1", true, null, "founding");
+  });
+
+  it("does not clear a stored founding tier on revocation", async () => {
+    hoisted.getUser.mockResolvedValue({ ...USER, squadzPlusTier: "founding" } as never);
+    const res = await post({
+      event: {
+        type: "EXPIRATION",
+        app_user_id: "u1",
+        product_id: FOUNDING,
+        entitlement_ids: ["squadz_plus"],
+      },
+    });
+
+    expect(res.status).toBe(200);
+    expect(hoisted.setSquadzPlusForPeriod).toHaveBeenCalledWith("u1", false, null, null);
+    expect(hoisted.captureMessage).not.toHaveBeenCalled();
   });
 });
 

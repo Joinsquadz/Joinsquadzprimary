@@ -3,6 +3,7 @@ import { storage } from "../storage";
 import { logger } from "../lib/logger";
 import { requireAuth } from "../middleware/currentUser";
 import { redeemFoundingSpot } from "../lib/founding";
+import { captureMessage } from "../services/monitoring";
 import {
   RC_ENTITLEMENT_ID,
   decideEntitlement,
@@ -13,6 +14,29 @@ import {
 } from "../lib/revenuecat";
 
 const router: IRouter = Router();
+
+/**
+ * Founding is a pricing promise, not merely the current product SKU. Preserve it
+ * if RevenueCat later reports a standard product, while still allowing a real
+ * standard → founding upgrade. The storage layer repeats this protection as an
+ * atomic backstop for concurrent entitlement writes.
+ */
+function tierForWrite(
+  storedTier: string | null | undefined,
+  incomingTier: "founding" | "standard" | null,
+  details: {
+    userId: string;
+    productIdentifier: string | null | undefined;
+    eventType: string;
+    source: "webhook" | "sync";
+  },
+): "founding" | "standard" | null {
+  if (storedTier === "founding" && incomingTier === "standard") {
+    captureMessage("Blocked attempted founding tier downgrade", "warning", details);
+    return null;
+  }
+  return incomingTier;
+}
 
 // POST /iap/sync — reconcile the caller's Squadz+ flag against RevenueCat's
 // live subscriber state (REST API). Called after restorePurchases(), after a
@@ -49,7 +73,14 @@ router.post("/iap/sync", requireAuth, async (req: Request, res: Response): Promi
     // Tier comes from the entitlement's product identifier. Null when RevenueCat
     // didn't report one (or it isn't one of ours) — `setSquadzPlus` then leaves
     // any previously-known tier untouched rather than erasing it.
-    const tier = active ? tierForProductId(ent?.product_identifier) : null;
+    const incomingTier = active ? tierForProductId(ent?.product_identifier) : null;
+    const currentUser = await storage.getUser(userId);
+    const tier = tierForWrite(currentUser?.squadzPlusTier, incomingTier, {
+      userId,
+      productIdentifier: ent?.product_identifier,
+      eventType: "sync",
+      source: "sync",
+    });
     // Authoritative full-state read from RevenueCat, so this write is
     // unconditional — but it also advances the period marker, otherwise the next
     // webhook would compare against a stale period and could be wrongly dropped.
@@ -117,7 +148,13 @@ router.post("/revenuecat/webhook", async (req, res): Promise<void> => {
         // products. On a revoke we leave the stored tier alone — access is off
         // via the flag, and readers report tier 'none' while `isSquadzPlus` is
         // false, so the historical tier is preserved without leaking.
-        const tier = decision === "grant" ? tierForProductId(event.product_id) : null;
+        const incomingTier = decision === "grant" ? tierForProductId(event.product_id) : null;
+        const tier = tierForWrite(user.squadzPlusTier, incomingTier, {
+          userId: user.id,
+          productIdentifier: event.product_id,
+          eventType: event.type,
+          source: "webhook",
+        });
         const { applied } = await storage.setSquadzPlusForPeriod(
           user.id,
           decision === "grant",

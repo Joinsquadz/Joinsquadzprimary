@@ -78,9 +78,10 @@ export function captureException(
 export function captureMessage(
   message: string,
   level: "debug" | "info" | "warning" | "error" | "fatal" = "info",
+  context?: Record<string, unknown>,
 ): void {
   if (level === "error" || level === "fatal") {
     _recordError();
   }
-  Sentry.captureMessage(message, level);
+  Sentry.captureMessage(message, { level, extra: context });
 }

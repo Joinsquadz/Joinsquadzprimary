@@ -7,6 +7,7 @@ import request from "supertest";
 
 const setSquadzPlusMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const fetchMock = vi.hoisted(() => vi.fn());
+const captureMessageMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../storage", () => ({
   storage: {
@@ -17,6 +18,7 @@ vi.mock("../storage", () => ({
 }));
 
 vi.mock("../lib/logger");
+vi.mock("../services/monitoring", () => ({ captureMessage: captureMessageMock }));
 
 // Patch the global fetch used by the iap/sync route.
 vi.stubGlobal("fetch", fetchMock);
@@ -128,5 +130,44 @@ describe("B4 — POST /api/iap/sync — idempotent set/clear of is_squadz_plus",
   it("returns 401 when unauthenticated", async () => {
     const res = await request(makeTestApp(revenueCatRouter)).post("/api/iap/sync");
     expect(res.status).toBe(401);
+  });
+
+  it("keeps a stored founding tier when sync reports the standard product and emits telemetry", async () => {
+    const storage = await import("../storage");
+    vi.mocked(storage.storage.getUser).mockResolvedValue({
+      id: USER_ID,
+      squadzPlusTier: "founding",
+    } as never);
+    mockRcOk(rcSubscriberResponse(true, true, "com.squadz.app.squadzplus.standard.annual"));
+
+    const res = await request(makeApp()).post("/api/iap/sync");
+
+    expect(res.status).toBe(200);
+    expect(setSquadzPlusMock).toHaveBeenCalledWith(USER_ID, true, expect.any(Number), null);
+    expect(captureMessageMock).toHaveBeenCalledWith(
+      "Blocked attempted founding tier downgrade",
+      "warning",
+      {
+        userId: USER_ID,
+        productIdentifier: "com.squadz.app.squadzplus.standard.annual",
+        eventType: "sync",
+        source: "sync",
+      },
+    );
+  });
+
+  it("allows a stored standard tier to upgrade to founding", async () => {
+    const storage = await import("../storage");
+    vi.mocked(storage.storage.getUser).mockResolvedValue({
+      id: USER_ID,
+      squadzPlusTier: "standard",
+    } as never);
+    mockRcOk(rcSubscriberResponse(true, true, "com.squadz.app.squadzplus.founding.annual"));
+
+    const res = await request(makeApp()).post("/api/iap/sync");
+
+    expect(res.status).toBe(200);
+    expect(setSquadzPlusMock).toHaveBeenCalledWith(USER_ID, true, expect.any(Number), "founding");
+    expect(captureMessageMock).not.toHaveBeenCalled();
   });
 });

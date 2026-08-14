@@ -251,7 +251,18 @@ export class Storage {
         // product-id-less event can't erase a known founding tier. Callers must
         // not pass null to mean "revoked" — revocation is `isSquadzPlus=false`,
         // and readers report tier 'none' whenever the flag is false.
-        ...(tier ? { squadzPlusTier: tier } : {}),
+        // Founding is permanent pricing provenance. This CASE makes the promise
+        // race-safe even if another entitlement writer observes a stale user
+        // record between its read and this update.
+        ...(tier
+          ? {
+              squadzPlusTier: sql`CASE
+                WHEN ${usersTable.squadzPlusTier} = 'founding' AND ${tier} = 'standard'
+                  THEN 'founding'
+                ELSE ${tier}
+              END`,
+            }
+          : {}),
       })
       .where(eq(usersTable.id, userId))
       .returning();
@@ -288,7 +299,19 @@ export class Storage {
       // Tier rides the SAME period-guarded write as the flag, so a stale event
       // can't rewrite the tier of a newer period it lost the race to. Omitted
       // when unknown so a product-id-less event leaves the stored tier intact.
-      .set({ isSquadzPlus, squadzPlusPeriodEndMs: next, ...(tier ? { squadzPlusTier: tier } : {}) })
+      .set({
+        isSquadzPlus,
+        squadzPlusPeriodEndMs: next,
+        ...(tier
+          ? {
+              squadzPlusTier: sql`CASE
+                WHEN ${usersTable.squadzPlusTier} = 'founding' AND ${tier} = 'standard'
+                  THEN 'founding'
+                ELSE ${tier}
+              END`,
+            }
+          : {}),
+      })
       .where(
         and(
           eq(usersTable.id, userId),
