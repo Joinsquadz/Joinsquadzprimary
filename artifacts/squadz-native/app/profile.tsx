@@ -28,6 +28,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { profileVaultUpgradeTrigger } from "@/lib/profileVault";
 import { upgradeCtaLabel, useSquadzPlusPriceLabel } from "@/lib/squadzPlusPrice";
+import { subscriptionManagementUrl } from "@/lib/subscriptionManagement";
 // Shared auth-race guard (see lib/vaultAuthRace.ts). The profile's own on-mount
 // fetch (event count) can 401 during a slow login; keep the events stat loading
 // + retrying rather than briefly showing a misleading value before it restores.
@@ -528,21 +529,23 @@ export default function ProfileScreen() {
     }
   }
 
-  async function handlePortal() {
+  async function handleManageSubscription() {
+    const url = subscriptionManagementUrl(Platform.OS);
+    if (!url) {
+      Alert.alert(
+        "Manage Subscription",
+        "SquadZ+ subscriptions are managed in the App Store or Google Play app.",
+      );
+      return;
+    }
+
     try {
-      const res = await fetch(`${API_BASE}/api/portal`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify({}),
-      });
-      const { url, error: apiError } = await res.json() as { url?: string; error?: string };
-      if (apiError || !url) {
-        Alert.alert("Error", apiError ?? "Failed to open portal.");
-        return;
-      }
       await Linking.openURL(url);
     } catch {
-      Alert.alert("Error", "Something went wrong. Please try again.");
+      Alert.alert(
+        "Couldn't Open Subscription Settings",
+        "Please open the App Store or Google Play and manage your SquadZ+ subscription there.",
+      );
     }
   }
 
@@ -571,7 +574,7 @@ export default function ProfileScreen() {
         {
           icon: "settings-outline",
           label: "Manage Subscription",
-          onPress: handlePortal,
+          onPress: handleManageSubscription,
         },
       ]
     : [

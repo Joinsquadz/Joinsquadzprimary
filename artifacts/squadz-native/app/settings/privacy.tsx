@@ -18,6 +18,7 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AppContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
+import { subscriptionManagementUrl } from "@/lib/subscriptionManagement";
 
 type Prefs = {
   privateProfile: boolean;
@@ -221,7 +222,10 @@ export default function PrivacyScreen() {
                   Deleting your account does not cancel your App Store subscription — you will keep being billed until you cancel it separately.
                 </Text>
                 <TouchableOpacity
-                  onPress={() => { void Linking.openURL("https://apps.apple.com/account/subscriptions"); }}
+                  onPress={() => {
+                    const url = subscriptionManagementUrl("ios");
+                    if (url) void Linking.openURL(url);
+                  }}
                   style={[styles.manageSubBtn, { borderColor: colors.border }]}
                 >
                   <Text style={[styles.manageSubText, { color: colors.foreground }]}>Manage Subscription</Text>
