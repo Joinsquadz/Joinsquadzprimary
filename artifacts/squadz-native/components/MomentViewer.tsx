@@ -25,6 +25,7 @@ import { useAuth } from "@/context/AppContext";
 import { useUserCache } from "@/context/UserCacheContext";
 import { useFeedStream } from "@/hooks/useFeedStream";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
+import { momentMediaUrl, nextMomentMediaRetryAttempt } from "@/lib/momentMediaRetry";
 
 export type MomentItem = {
   id: string;
@@ -78,6 +79,9 @@ export function MomentViewer({ rings, initialRingIndex, onClose, onChanged }: Pr
   const [deleting, setDeleting] = useState(false);
   const [reacted, setReacted] = useState<string | null>(null);
   const [selfViewCount, setSelfViewCount] = useState(0);
+  const [mediaLoading, setMediaLoading] = useState(true);
+  const [mediaAttempt, setMediaAttempt] = useState(0);
+  const mediaRetryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const progress = useRef(new Animated.Value(0)).current;
 
@@ -123,6 +127,12 @@ export function MomentViewer({ rings, initialRingIndex, onClose, onChanged }: Pr
     if (!ring || !moment) return;
     setReacted(null);
     setShowViewers(false);
+    setMediaLoading(true);
+    setMediaAttempt(0);
+    if (mediaRetryTimer.current) {
+      clearTimeout(mediaRetryTimer.current);
+      mediaRetryTimer.current = null;
+    }
 
     if (!ring.isSelf && authToken) {
       fetch(`${API_BASE}/api/moments/${moment.id}/views`, {
@@ -148,6 +158,22 @@ export function MomentViewer({ rings, initialRingIndex, onClose, onChanged }: Pr
     return undefined;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ringIndex, momentIndex]);
+
+  useEffect(() => () => {
+    if (mediaRetryTimer.current) clearTimeout(mediaRetryTimer.current);
+  }, []);
+
+  const retryMomentMedia = useCallback(() => {
+    setMediaLoading(true);
+    const nextAttempt = nextMomentMediaRetryAttempt(mediaAttempt);
+    if (nextAttempt === null) {
+      setMediaLoading(false);
+      return;
+    }
+    mediaRetryTimer.current = setTimeout(() => {
+      setMediaAttempt(nextAttempt);
+    }, 300 * nextAttempt);
+  }, [mediaAttempt]);
 
   const fetchViewers = useCallback(async () => {
     if (!moment || !authToken) return;
@@ -310,12 +336,26 @@ export function MomentViewer({ rings, initialRingIndex, onClose, onChanged }: Pr
               style={StyleSheet.absoluteFillObject}
             />
           ) : (
-            <Image
-              source={{ uri: mediaSrc(moment.mediaUrl), headers: headers as Record<string, string> }}
-              style={StyleSheet.absoluteFill}
-              contentFit="contain"
-              transition={150}
-            />
+            <>
+              <Image
+                source={{
+                  uri: momentMediaUrl(mediaSrc(moment.mediaUrl), mediaAttempt, moment.id),
+                  headers: headers as Record<string, string>,
+                }}
+                style={StyleSheet.absoluteFill}
+                contentFit="contain"
+                cachePolicy="memory-disk"
+                recyclingKey={`${moment.id}-${mediaAttempt}`}
+                transition={150}
+                onLoad={() => setMediaLoading(false)}
+                onError={retryMomentMedia}
+              />
+              {mediaLoading && (
+                <View style={styles.mediaLoading} pointerEvents="none">
+                  <ActivityIndicator size="large" color="#fff" />
+                </View>
+              )}
+            </>
           )}
         </View>
 
@@ -485,6 +525,7 @@ const { width } = Dimensions.get("window");
 
 const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: "#000" },
+  mediaLoading: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
   tapLeft: { position: "absolute", top: 0, bottom: 0, left: 0, width: width * 0.35 },
   tapRight: { position: "absolute", top: 0, bottom: 0, right: 0, width: width * 0.65 },
 

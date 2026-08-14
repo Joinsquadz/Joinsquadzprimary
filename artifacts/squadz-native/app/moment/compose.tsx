@@ -20,7 +20,7 @@ import { SnapConfirm, type SnapConfirmHandle } from "@/components/SnapConfirm";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AppContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
-import { stripMediaExif } from "@/lib/imageUtils";
+import { MediaUploadError, uploadMediaDirect } from "@/lib/mediaUpload";
 
 const MAX_VIDEO_MS = 60 * 1000;
 
@@ -81,40 +81,16 @@ export default function MomentComposeScreen() {
     setPosting(true);
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
-      // 1. Request a signed upload URL.
-      const urlRes = await fetch(`${API_BASE}/api/storage/uploads/request-url`, {
-        method: "POST",
-        headers: { ...buildAuthHeaders(authToken), "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: picked.fileName,
-          size: picked.fileSize,
-          contentType: picked.mimeType,
-        }),
+      const { objectPath } = await uploadMediaDirect({
+        uri: picked.uri,
+        fileName: picked.fileName,
+        mimeType: picked.mimeType,
+        fallbackSize: picked.fileSize,
+        authToken,
+        surface: "moments",
       });
-      if (!urlRes.ok) {
-        Alert.alert("Couldn't upload", "Please try again.");
-        return;
-      }
-      const { uploadURL, objectPath } = (await urlRes.json()) as {
-        uploadURL: string;
-        objectPath: string;
-      };
 
-      // 2. Strip EXIF metadata from photos, then PUT the media bytes.
-      const { uri: uploadUri, mimeType: uploadMimeType } = await stripMediaExif(picked.uri, picked.mimeType);
-      const fileRes = await fetch(uploadUri);
-      const blob = await fileRes.blob();
-      const putRes = await fetch(uploadURL, {
-        method: "PUT",
-        body: blob,
-        headers: { "Content-Type": uploadMimeType },
-      });
-      if (!putRes.ok) {
-        Alert.alert("Couldn't upload", "Please try again.");
-        return;
-      }
-
-      // 3. Create the moment.
+      // Create the moment after the direct-to-storage upload succeeds.
       const res = await fetch(`${API_BASE}/api/moments`, {
         method: "POST",
         headers: { ...buildAuthHeaders(authToken), "Content-Type": "application/json" },
@@ -132,7 +108,11 @@ export default function MomentComposeScreen() {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       snapRef.current?.snap("Shared!");
       setTimeout(() => { if (router.canGoBack()) { router.back(); } else { router.replace("/(tabs)/feed" as never); } }, 850);
-    } catch {
+    } catch (error) {
+      if (error instanceof MediaUploadError && error.kind === "too_large") {
+        Alert.alert("Too large", "Photos and videos must be 150 MB or smaller. Try a shorter clip.");
+        return;
+      }
       Alert.alert("Couldn't share", "Please check your connection and try again.");
     } finally {
       setPosting(false);

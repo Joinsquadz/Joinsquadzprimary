@@ -92,6 +92,9 @@ type Props = {
    *  and the button is inert, so a second tap can't fire a duplicate request
    *  while the first is still copying bytes server-side. */
   savePending?: boolean;
+  /** Browse the surrounding ordered vault collection without closing detail. */
+  onPrevious?: () => void;
+  onNext?: () => void;
 };
 
 const displayName = (first?: string | null, last?: string | null): string => {
@@ -148,6 +151,8 @@ export default function VaultMediaDetail({
   savedToVault = false,
   onToggleSaveToVault,
   savePending = false,
+  onPrevious,
+  onNext,
 }: Props) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -468,6 +473,28 @@ export default function VaultMediaDetail({
                   />
                 </TouchableOpacity>
               )}
+              {onPrevious && (
+                <TouchableOpacity
+                  onPress={onPrevious}
+                  style={[styles.mediaNav, styles.mediaNavPrevious]}
+                  hitSlop={10}
+                  accessibilityRole="button"
+                  accessibilityLabel="Previous photo"
+                >
+                  <Ionicons name="chevron-back" size={30} color="#fff" />
+                </TouchableOpacity>
+              )}
+              {onNext && (
+                <TouchableOpacity
+                  onPress={onNext}
+                  style={[styles.mediaNav, styles.mediaNavNext]}
+                  hitSlop={10}
+                  accessibilityRole="button"
+                  accessibilityLabel="Next photo"
+                >
+                  <Ionicons name="chevron-forward" size={30} color="#fff" />
+                </TouchableOpacity>
+              )}
             </View>
 
             {/* Action bar */}
@@ -740,6 +767,19 @@ const styles = StyleSheet.create({
   optionText: { fontSize: 14, fontFamily: "Inter_600SemiBold", fontWeight: "600" },
   mediaWrap: { width: "100%", aspectRatio: 1, alignItems: "center", justifyContent: "center" },
   media: { width: "100%", height: "100%" },
+  mediaNav: {
+    position: "absolute",
+    top: "50%",
+    marginTop: -24,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.46)",
+  },
+  mediaNavPrevious: { left: 12 },
+  mediaNavNext: { right: 12 },
   actionBar: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingTop: 12, gap: 6 },
   action: { padding: 6 },
   saveAction: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 6, paddingHorizontal: 8 },

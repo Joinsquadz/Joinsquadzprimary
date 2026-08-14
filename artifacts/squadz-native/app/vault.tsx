@@ -38,6 +38,7 @@ import VaultShareComposer, { type VaultShareTarget } from "@/components/VaultSha
 import { API_BASE, buildAuthHeaders, fetchWithTimeout } from "@/lib/api";
 import { buildSquadVaultSections, type VaultSectionPhoto } from "@/lib/vaultSections";
 import { stripMediaExif } from "@/lib/imageUtils";
+import { galleryNeighborIndex } from "@/lib/galleryNavigation";
 import { upgradeCtaLabel, useSquadzPlusPriceLabel } from "@/lib/squadzPlusPrice";
 import {
   AUTH_RETRY_DELAY_MS,
@@ -1014,6 +1015,12 @@ export default function VaultScreen() {
 
   const selectedPhoto = visiblePhotos.find(p => p.id === selected) ?? null;
   const selectedSquadPhoto = squadPhotos.find(p => p.id === selected) ?? null;
+  // This is the same collection and ordering currently visible behind the detail
+  // view, so next/previous never jumps into a hidden filter or another vault.
+  const browseablePhotos = isSquadVault ? filteredSquadPhotos : visiblePhotos;
+  const selectedPhotoIndex = browseablePhotos.findIndex((photo) => photo.id === selected);
+  const previousPhotoIndex = galleryNeighborIndex(selectedPhotoIndex, "previous", browseablePhotos.length);
+  const nextPhotoIndex = galleryNeighborIndex(selectedPhotoIndex, "next", browseablePhotos.length);
 
   const [shareTarget, setShareTarget] = useState<VaultShareTarget | null>(null);
 
@@ -1732,6 +1739,16 @@ export default function VaultScreen() {
           if (isPro === false) { openUpgrade("durable_save"); return; }
           void toggleSaveToVault(id);
         }}
+        onPrevious={
+          previousPhotoIndex === null
+            ? undefined
+            : () => setSelected(browseablePhotos[previousPhotoIndex].id)
+        }
+        onNext={
+          nextPhotoIndex === null
+            ? undefined
+            : () => setSelected(browseablePhotos[nextPhotoIndex].id)
+        }
       />
 
       <VaultShareComposer

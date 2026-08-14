@@ -28,7 +28,7 @@ import { Bounceable } from "@/components/Bounceable";
 import { AnimatedCount } from "@/components/AnimatedCount";
 import { SnapConfirm, type SnapConfirmHandle } from "@/components/SnapConfirm";
 import { MomentsRingRow } from "@/components/MomentsRingRow";
-import { stripMediaExif } from "@/lib/imageUtils";
+import { MediaUploadError, uploadMediaDirect } from "@/lib/mediaUpload";
 import { LiveStatusBanner } from "@/components/LiveStatusBanner";
 import { ImageViewerModal } from "@/components/ImageViewerModal";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
@@ -68,10 +68,6 @@ type PickedMedia = {
   fileSize: number;
   durationMs: number | null;
 };
-
-// Single uploaded file cap — kept in sync with the server (150 MB). Videos are
-// limited by this byte size, not by duration.
-const MAX_UPLOAD_BYTES = 150 * 1024 * 1024;
 
 type FeedComment = {
   id: string;
@@ -425,49 +421,14 @@ export default function FeedScreen() {
         null;
 
       if (picked) {
-        // 1. Strip EXIF metadata from photos (removes GPS/location tags), then
-        //    read the actual bytes so we can validate the real file size.
-        const { uri: uploadUri, mimeType: uploadMimeType } = await stripMediaExif(picked.uri, picked.mimeType);
-        const fileRes = await fetch(uploadUri);
-        const blob = await fileRes.blob();
-        const byteSize = blob.size || picked.fileSize;
-        if (byteSize > MAX_UPLOAD_BYTES) {
-          Alert.alert(
-            "Too large",
-            "Photos and videos must be 150 MB or smaller. Try a shorter clip.",
-          );
-          return;
-        }
-
-        // 2. Request a signed upload URL using the real byte size.
-        const urlRes = await fetch(`${API_BASE}/api/storage/uploads/request-url`, {
-          method: "POST",
-          headers: { ...buildAuthHeaders(authToken), "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: picked.fileName,
-            size: byteSize,
-            contentType: uploadMimeType,
-          }),
+        const { objectPath } = await uploadMediaDirect({
+          uri: picked.uri,
+          fileName: picked.fileName,
+          mimeType: picked.mimeType,
+          fallbackSize: picked.fileSize,
+          authToken,
+          surface: "feed",
         });
-        if (!urlRes.ok) {
-          Alert.alert("Couldn't upload", "Please try again.");
-          return;
-        }
-        const { uploadURL, objectPath } = (await urlRes.json()) as {
-          uploadURL: string;
-          objectPath: string;
-        };
-
-        // 3. PUT the media bytes.
-        const putRes = await fetch(uploadURL, {
-          method: "PUT",
-          body: blob,
-          headers: { "Content-Type": uploadMimeType },
-        });
-        if (!putRes.ok) {
-          Alert.alert("Couldn't upload", "Please try again.");
-          return;
-        }
         media = {
           mediaUrl: objectPath,
           mediaType: picked.mediaType,
@@ -493,7 +454,11 @@ export default function FeedScreen() {
       snapRef.current?.snap("Posted!");
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       await fetchFeed();
-    } catch {
+    } catch (error) {
+      if (error instanceof MediaUploadError && error.kind === "too_large") {
+        Alert.alert("Too large", "Photos and videos must be 150 MB or smaller. Try a shorter clip.");
+        return;
+      }
       Alert.alert("Couldn't post", "Please check your connection and try again.");
     } finally {
       setPosting(false);
