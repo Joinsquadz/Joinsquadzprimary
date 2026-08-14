@@ -112,6 +112,32 @@ describe("GET /api/vault/photos subscription gate", () => {
     expect(res.body.photos[0].locked).toBeUndefined();
   });
 
+  it("IAP subscriber (is_squadz_plus, no Stripe row) gets their personal roll-up", async () => {
+    // Squadz+ is sold as a native IAP: RevenueCat's webhook sets is_squadz_plus
+    // and there is NO Stripe subscription. This route once resolved entitlement
+    // with a local Stripe-only copy of the check, so every paying mobile
+    // subscriber saw an empty vault behind an upgrade gate they'd already paid.
+    vi.mocked(storage.getUser).mockResolvedValue({
+      id: PRO_USER_ID,
+      email: "iap@example.com",
+      stripeCustomerId: null,
+      stripeSubscriptionId: null,
+      isSquadzPlus: true,
+    } as never);
+    vi.mocked(storage.getPhotosByUploaderId).mockResolvedValue([recentPhoto()] as never);
+
+    const app = await makeApp({ id: PRO_USER_ID });
+    const res = await request(app).get("/api/vault/photos");
+
+    expect(res.status).toBe(200);
+    expect(res.body.isPro).toBe(true);
+    expect(res.body.requiresPro).toBeUndefined();
+    expect(res.body.photos).toHaveLength(1);
+    // The flag alone is sufficient — no Stripe lookup should be needed at all.
+    expect(storage.getSubscription).not.toHaveBeenCalled();
+    expect(storage.getActiveSubscriptionByCustomerId).not.toHaveBeenCalled();
+  });
+
   it("Pro user gets their personal roll-up with URLs and no lock field", async () => {
     vi.mocked(storage.getUser).mockResolvedValue(proUserRow as never);
     vi.mocked(storage.getSubscription).mockResolvedValue({ status: "active" } as never);

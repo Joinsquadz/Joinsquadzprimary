@@ -13,6 +13,7 @@ import { copyStorageObject } from "../services/objectStorage";
 import { deleteOwnedMediaObject } from "../lib/accountMediaCleanup";
 import { recordActivitySafe, removeActivity } from "../lib/activity";
 import { getBlockedAndBlockerIds } from "./moderation";
+import { resolveProStatus } from "../lib/proStatus";
 
 const router: IRouter = Router();
 
@@ -54,17 +55,15 @@ const VaultPhotosQuery = z.object({
   eventId: z.string().optional(),
 });
 
-async function resolveProStatus(user: NonNullable<Awaited<ReturnType<typeof storage.getUser>>>) {
-  if (user.stripeSubscriptionId) {
-    const sub = await storage.getSubscription(user.stripeSubscriptionId);
-    return sub?.status === "active" || sub?.status === "trialing";
-  }
-  if (user.stripeCustomerId) {
-    const sub = await storage.getActiveSubscriptionByCustomerId(user.stripeCustomerId);
-    return !!sub;
-  }
-  return false;
-}
+// Entitlement is resolved through the SHARED helper, never a local copy.
+//
+// This file used to carry its own Stripe-only re-implementation. Squadz+ is now
+// sold as a native IAP and RevenueCat's webhook records it on `is_squadz_plus`
+// with no Stripe subscription row at all — so the local copy answered "free" for
+// every paying mobile subscriber. That silently emptied their personal vault
+// (the roll-up returns [] + requiresPro) and made every save/favorite 403.
+//
+// Any new Pro gate in this file must import this helper too.
 
 /**
  * GET /api/vault/photos

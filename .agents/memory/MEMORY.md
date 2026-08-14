@@ -106,4 +106,5 @@
 - [Poll nudge & scoped access](availability-poll-nudge-and-access.md) — nudge only where NO response row exists (trimmed members still count as responded); scoped polls authz on live membership, creator bypass is ad-hoc only.
 - [Event squad attachment authz](event-squad-attachment-authz.md) — squadId on plan create/move is an access edge: require live membership, derive squadName server-side; JSON-array item edits must 404 on a missing id, not silently no-op.
 - [Trip creation atomicity](trip-create-atomicity.md) — trip range + template stops (`initialItinerary`) + poll claim in ONE create txn; trip start resolves `startAt ?? eventAt`; missing end = one-day.
+- [Entitlement single source](entitlement-single-source.md) — never re-implement the Squadz+ check in a route; a Stripe-only copy reads every IAP subscriber as free → empty vault + 403 saves, silently.
 - [RN leave guards vs programmatic nav](rn-leave-guard-programmatic-nav.md) — one beforeRemove listener (not header onPress) or swipe/hardware back go unguarded; success paths need an explicit bypass ref or "leave without saving?" fires after saving.

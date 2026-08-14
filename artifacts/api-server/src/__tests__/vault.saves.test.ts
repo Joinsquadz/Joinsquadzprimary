@@ -74,6 +74,23 @@ function asProUser(): void {
   vi.mocked(storage.getSubscription).mockResolvedValue({ status: "active" } as never);
 }
 
+/**
+ * The REAL paying subscriber today: Squadz+ is a native IAP, so RevenueCat's
+ * webhook flips `is_squadz_plus` and there is no Stripe subscription row at
+ * all. A Stripe-only entitlement check reads this user as free and 403s every
+ * save they attempt, so the IAP shape gets its own coverage.
+ */
+function asIapProUser(): void {
+  vi.mocked(storage.getUser).mockResolvedValue({
+    id: SAVER_ID,
+    isSquadzPlus: true,
+    stripeCustomerId: null,
+    stripeSubscriptionId: null,
+  } as never);
+  vi.mocked(storage.getSubscription).mockResolvedValue(null as never);
+  vi.mocked(storage.getActiveSubscriptionByCustomerId).mockResolvedValue(null as never);
+}
+
 function asFreeUser(): void {
   vi.mocked(storage.getUser).mockResolvedValue({ id: SAVER_ID } as never);
   vi.mocked(storage.getSubscription).mockResolvedValue(null as never);
@@ -493,5 +510,49 @@ describe("the personal vault entitlement is enforced server-side", () => {
     expect(res.status).toBe(200);
     expect(res.body.removed).toBe(true);
     expect(deleteOwnedMediaObject).toHaveBeenCalled();
+  });
+});
+
+/**
+ * ...and the mirror image of the gate: an entitlement check that only knows how
+ * to read Stripe locks out the ONLY kind of subscriber the app actually has.
+ * Mobile IAP is the sole purchase surface, so these cases are the common path,
+ * not an edge case.
+ */
+describe("a native-IAP subscriber is entitled to the personal vault", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    asIapProUser();
+    vi.mocked(storage.getPhotoById).mockResolvedValue(sourcePhoto() as never);
+    vi.mocked(storage.canUserViewPhotoById).mockResolvedValue(true);
+    vi.mocked(storage.getSavedCopy).mockResolvedValue(null);
+    vi.mocked(copyStorageObject).mockResolvedValue("/objects/supabase/uploads/copy.jpg");
+    vi.mocked(storage.addSavedPhotoCopy).mockResolvedValue({
+      id: 99,
+      uploaderId: SAVER_ID,
+      url: "/objects/supabase/uploads/copy.jpg",
+      savedFromPhotoId: 42,
+    } as never);
+  });
+
+  it("saves for a user whose Squadz+ comes from RevenueCat, not Stripe", async () => {
+    const res = await request(makeApp({ id: SAVER_ID }))
+      .post("/api/vault/saves")
+      .send({ photoId: 42 });
+
+    expect(res.status).toBe(201);
+    expect(res.body.code).toBeUndefined();
+    expect(copyStorageObject).toHaveBeenCalled();
+    expect(storage.addSavedPhotoCopy).toHaveBeenCalled();
+  });
+
+  it("lists their saved source ids instead of an empty requiresPro stub", async () => {
+    vi.mocked(storage.getSavedSourcePhotoIds).mockResolvedValue([42, 7] as never);
+
+    const res = await request(makeApp({ id: SAVER_ID })).get("/api/vault/saves");
+
+    expect(res.status).toBe(200);
+    expect(res.body.sourceIds).toEqual([42, 7]);
+    expect(res.body.requiresPro).toBeUndefined();
   });
 });
