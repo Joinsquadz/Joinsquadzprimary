@@ -187,6 +187,30 @@ afterAll(async () => {
   }
 });
 
+describe("shared pool preserves PostgreSQL diagnostics", () => {
+  it("surfaces an undefined-column error and keeps the pool usable", async () => {
+    let queryError: unknown;
+
+    try {
+      await dbmod.pool.query(`SELECT definitely_missing_column FROM users`);
+    } catch (error) {
+      queryError = error;
+    }
+
+    expect(queryError).toBeInstanceOf(Error);
+    expect(queryError).toMatchObject({
+      code: "42703",
+    });
+    expect((queryError as Error).message).toMatch(/column .*definitely_missing_column.* does not exist/);
+    expect((queryError as { detail?: string }).detail).not.toBe(
+      "Connection terminated due to connection timeout",
+    );
+
+    const followUp = await dbmod.pool.query<{ ok: number }>("SELECT 1 AS ok");
+    expect(followUp.rows[0]?.ok).toBe(1);
+  });
+});
+
 // ── Seed helpers (raw SQL via the shared pool) ───────────────────────────────
 
 async function seedUser(id: string): Promise<void> {
