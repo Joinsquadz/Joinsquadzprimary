@@ -330,6 +330,8 @@ export default function AvailabilityScreen() {
   // what makes the Type step a real question rather than a confirmation of a
   // default. Seeded from the route param when an entry point already asked.
   const [chosenKind, setChosenKind] = useState<PollKind | null>(paramKind ?? null);
+  const chosenKindRef = useRef<PollKind | null>(paramKind ?? null);
+  const kindSelectionTouchedRef = useRef(false);
   // True when this creation flow has to ask. Entry points that pass an explicit
   // kind don't (the Home chooser already asked).
   const needsKindStep = paramKind === undefined;
@@ -425,6 +427,10 @@ export default function AvailabilityScreen() {
   // Restore any in-progress draft for THIS scope once, before the auto-save
   // effect starts writing. Without this, backing out of the wizard (or an app
   // kill) discarded the title, range and slot picks entirely.
+  //
+  // Do not depend on `isTrip` here. It is derived from `chosenKind`, so adding
+  // it would make a type tap re-run this async restore and let an older draft
+  // read overwrite the user's new Event/Trip choice.
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -443,11 +449,17 @@ export default function AvailabilityScreen() {
         // "Event or Trip?" on the way in, so a stale draft answer must not
         // overwrite it.
         const restoredKind = paramKind ?? draft.kind ?? null;
-        setChosenKind(restoredKind);
+        const effectiveKind = kindSelectionTouchedRef.current
+          ? chosenKindRef.current
+          : restoredKind;
+        if (!kindSelectionTouchedRef.current) {
+          chosenKindRef.current = restoredKind;
+          setChosenKind(restoredKind);
+        }
         // Drafts written before plan length existed simply don't carry one —
         // keep the default rather than discarding an otherwise valid draft.
         if (draft.tripLengthDays !== undefined) {
-          const kindForDraft: PollKind = restoredKind ?? "event";
+          const kindForDraft: PollKind = effectiveKind ?? "event";
           setTripLength(clampPlanLength(draft.tripLengthDays, draft.rangeDays, kindForDraft));
           setCustomTripLength(String(draft.tripLengthDays));
           setTripLengthChoice(
@@ -458,8 +470,9 @@ export default function AvailabilityScreen() {
             ),
           );
         }
+        const restoredIsTrip = effectiveKind === "trip";
         setWizardStep(
-          Math.min(draft.step, pollWizardSteps(isTrip, needsKindStep).length - 1),
+          Math.min(draft.step, pollWizardSteps(restoredIsTrip, paramKind === undefined).length - 1),
         );
         if (
           draftHasContent(draft, {
@@ -474,7 +487,7 @@ export default function AvailabilityScreen() {
       setDraftLoaded(true);
     })();
     return () => { cancelled = true; };
-  }, [draftScopeKey, isTrip, needsKindStep, paramKind]);
+  }, [draftScopeKey, paramKind]);
 
   // Persist the wizard's fields on every change while the setup form is the
   // active surface. Skipped until the initial read completes and once a poll
@@ -2145,6 +2158,8 @@ export default function AvailabilityScreen() {
                       onPress={() => {
                         stampInteraction();
                         Haptics.selectionAsync();
+                        chosenKindRef.current = opt.kind;
+                        kindSelectionTouchedRef.current = true;
                         setChosenKind(opt.kind);
                       }}
                       style={[
