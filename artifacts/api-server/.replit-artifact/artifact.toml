@@ -21,8 +21,10 @@ args = ["pnpm", "--filter", "@workspace/api-server", "run", "build"]
 NODE_ENV = "production"
 
 [services.production.run]
-# we don't run through pnpm to make startup faster in production
-args = ["node", "--enable-source-maps", "artifacts/api-server/dist/index.mjs"]
+# Keep the ESM instrumentation preload ahead of the app bundle so Sentry can
+# patch Express before it is imported. Production intentionally avoids pnpm for
+# startup speed, so this must mirror the package start script explicitly.
+args = ["node", "--import", "artifacts/api-server/dist/instrument.mjs", "--enable-source-maps", "artifacts/api-server/dist/index.mjs"]
 
 [services.production.run.env]
 PORT = "8080"

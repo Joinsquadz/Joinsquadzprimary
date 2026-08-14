@@ -57,6 +57,9 @@ async function buildAll() {
       "handlebars",
       "knex",
       "typeorm",
+      // Sentry's ESM preload hooks the runtime Express import. Bundling Express
+      // hides that import inside index.mjs and defeats automatic instrumentation.
+      "express",
       "protobufjs",
       "onnxruntime-node",
       "@tensorflow/*",
