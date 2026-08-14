@@ -1273,7 +1273,7 @@ export default function SquadDetailScreen() {
               <TouchableOpacity
                 onPress={() => { void handleConfirmAddSelected(); }}
                 disabled={confirmingAdd}
-                style={[styles.modalBtn, { backgroundColor: colors.primary, marginTop: 16 }]}
+                style={[styles.modalBtn, styles.standaloneModalBtn, { backgroundColor: colors.primary, marginTop: 16 }]}
               >
                 {confirmingAdd ? (
                   <ActivityIndicator color="#fff" />
@@ -1287,7 +1287,7 @@ export default function SquadDetailScreen() {
 
             <TouchableOpacity
               onPress={() => { setAddMemberOpen(false); resetAddMemberModal(); }}
-              style={[styles.modalBtn, { backgroundColor: selectedToAdd.size > 0 ? "transparent" : colors.primary, borderWidth: selectedToAdd.size > 0 ? 1 : 0, borderColor: colors.border, marginTop: selectedToAdd.size > 0 ? 8 : 16 }]}
+              style={[styles.modalBtn, styles.standaloneModalBtn, { backgroundColor: selectedToAdd.size > 0 ? "transparent" : colors.primary, borderWidth: selectedToAdd.size > 0 ? 1 : 0, borderColor: colors.border, marginTop: selectedToAdd.size > 0 ? 8 : 16 }]}
             >
               <Text style={[styles.modalBtnText, { color: selectedToAdd.size > 0 ? colors.foreground : "#fff" }]}>
                 {selectedToAdd.size > 0 ? "Cancel" : "Done"}
@@ -1590,9 +1590,9 @@ const styles = StyleSheet.create({
   photosSub: { fontSize: 12, marginTop: 2 },
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" },
   modalCard: { borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, padding: 20 },
-  addMemberCard: { maxHeight: "82%", flex: 1 },
+  addMemberCard: { maxHeight: "82%", flexShrink: 1 },
   addMemberTitle: { textAlign: "center", paddingHorizontal: 44 },
-  addMemberResults: { flex: 1 },
+  addMemberResults: { flexGrow: 0, flexShrink: 1, minHeight: 0 },
   modalCloseBtn: { position: "absolute", top: 14, left: 14, zIndex: 10, width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
   modalTitle: { fontSize: 20, fontWeight: "800", marginBottom: 16 },
   fieldLabel: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8, marginTop: 4 },
@@ -1607,6 +1607,7 @@ const styles = StyleSheet.create({
   coAdminName: { flex: 1, fontSize: 15, fontWeight: "600" },
   modalActions: { flexDirection: "row", gap: 10, marginTop: 20 },
   modalBtn: { flex: 1, borderRadius: 13, padding: 14, alignItems: "center" },
+  standaloneModalBtn: { flex: 0, alignSelf: "stretch" },
   modalBtnText: { fontSize: 15, fontWeight: "800" },
   searchBtn: { width: 50, height: 50, borderRadius: 13, alignItems: "center", justifyContent: "center" },
   lookupError: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 12, borderWidth: 1, padding: 12, marginBottom: 4 },
