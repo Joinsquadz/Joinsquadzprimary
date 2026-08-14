@@ -31,6 +31,7 @@ import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { TRIP_COVER_KEYS, TRIP_COVERS, formatTripRange } from "@/lib/tripUtils";
 import { getTemplate, materializeTemplateStops } from "@/lib/tripTemplates";
 import { findMyConflicts, getPlanSpan } from "@/lib/conflicts";
+import { shouldAutoSelectDefaultSquad } from "@/lib/createDefaults";
 import ConflictBanner from "@/components/ConflictBanner";
 
 function formatPickedDay(d: Date): string {
@@ -130,7 +131,7 @@ export default function CreateEventScreen() {
   const { addEvent, squads, events, currentUser } = useData();
   const { authToken, isPro, onEntitlementInvalidate } = useAuth();
   const { resolveUser } = useUserCache();
-  const prefill = useLocalSearchParams<{ prefillDate?: string; prefillEventAt?: string; prefillEndAt?: string; prefillSquad?: string; prefillTitle?: string; prefillEmoji?: string; prefillPollId?: string; prefillTripStart?: string; prefillTripEnd?: string; mode?: string; templateId?: string }>();
+  const prefill = useLocalSearchParams<{ prefillDate?: string; prefillEventAt?: string; prefillEndAt?: string; prefillSquad?: string; prefillTitle?: string; prefillEmoji?: string; prefillPollId?: string; prefillTripStart?: string; prefillTripEnd?: string; mode?: string; templateId?: string; from?: string }>();
   const [findTimeOpen, setFindTimeOpen] = useState(false);
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
@@ -195,14 +196,18 @@ export default function CreateEventScreen() {
   // user's latest plan), falling back to the only/first squad. Never overrides
   // an explicit prefill or a user choice.
   useEffect(() => {
-    if (prefill.prefillSquad || squads.length === 0) return;
+    if (!shouldAutoSelectDefaultSquad({
+      prefillSquad: prefill.prefillSquad,
+      from: prefill.from,
+      squadCount: squads.length,
+    })) return;
     const latest = [...events]
       .filter((e) => e.squadId && squads.some((s) => s.id === e.squadId))
       .sort((a, b) => (b.eventAt ?? b.startAt ?? "").localeCompare(a.eventAt ?? a.startAt ?? ""))[0];
     const target = latest?.squadId ?? squads[0].id;
     setSelectedSquad((cur) => cur ?? target);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [squads.length, events.length, prefill.prefillSquad]);
+  }, [squads.length, events.length, prefill.prefillSquad, prefill.from]);
 
   // Smart default: a plain event left untouched still yields a valid plan —
   // start defaults to the upcoming Saturday at 7 PM (editable/clearable).
