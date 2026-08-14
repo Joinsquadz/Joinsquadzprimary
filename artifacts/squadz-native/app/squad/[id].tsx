@@ -1211,62 +1211,69 @@ export default function SquadDetailScreen() {
             )}
 
             {addMemberDisplayList.length > 0 && (
-              <ScrollView style={styles.addMemberResults} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-                {addMemberDisplayList.map((user) => {
-                  const alreadyMember = squad.memberIds.includes(user.id);
-                  const isSelected = selectedToAdd.has(user.id);
-                  const isAdding = addingUserId === user.id;
-                  return (
-                    <TouchableOpacity
-                      key={user.id}
-                      onPress={() => { if (!alreadyMember) toggleSelectToAdd(user); }}
-                      disabled={alreadyMember || confirmingAdd}
-                      style={[
-                        styles.foundUserCard,
-                        {
-                          backgroundColor: isSelected ? colors.primary + "12" : colors.card,
-                          borderColor: isSelected ? colors.primary : alreadyMember ? colors.border : colors.border,
-                          opacity: alreadyMember ? 0.5 : 1,
-                        },
-                      ]}
-                    >
-                      <UserAvatar
-                        initials={getFriendCodeInitials(user)}
-                        color="#A855F7"
-                        imageUrl={user.profileImageUrl}
-                        size={40}
-                        fontSize={14}
-                      />
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.foundUserName, { color: colors.foreground }]}>{getFriendCodeDisplayName(user)}</Text>
-                        {user.friendCode && (
-                          <Text style={[styles.foundUserCode, { color: colors.mutedForeground }]}>{user.friendCode}</Text>
-                        )}
-                      </View>
-                      {alreadyMember ? (
-                        <Text style={[styles.foundUserCode, { color: colors.mutedForeground }]}>In squad</Text>
-                      ) : isAdding ? (
-                        <ActivityIndicator size="small" color={colors.primary} />
-                      ) : (
-                        <View style={[
-                          styles.addResultBtn,
+              <View style={styles.addMemberSuggestions}>
+                <ScrollView
+                  style={styles.addMemberResults}
+                  contentContainerStyle={styles.addMemberResultsContent}
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  {addMemberDisplayList.map((user) => {
+                    const alreadyMember = squad.memberIds.includes(user.id);
+                    const isSelected = selectedToAdd.has(user.id);
+                    const isAdding = addingUserId === user.id;
+                    return (
+                      <TouchableOpacity
+                        key={user.id}
+                        onPress={() => { if (!alreadyMember) toggleSelectToAdd(user); }}
+                        disabled={alreadyMember || confirmingAdd}
+                        style={[
+                          styles.foundUserCard,
                           {
-                            backgroundColor: isSelected ? colors.primary : "transparent",
-                            borderWidth: 1.5,
-                            borderColor: isSelected ? colors.primary : colors.border,
+                            backgroundColor: isSelected ? colors.primary + "12" : colors.card,
+                            borderColor: isSelected ? colors.primary : alreadyMember ? colors.border : colors.border,
+                            opacity: alreadyMember ? 0.5 : 1,
                           },
-                        ]}>
-                          <Ionicons
-                            name={isSelected ? "checkmark" : "add"}
-                            size={16}
-                            color={isSelected ? "#fff" : colors.foreground}
-                          />
+                        ]}
+                      >
+                        <UserAvatar
+                          initials={getFriendCodeInitials(user)}
+                          color="#A855F7"
+                          imageUrl={user.profileImageUrl}
+                          size={40}
+                          fontSize={14}
+                        />
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.foundUserName, { color: colors.foreground }]}>{getFriendCodeDisplayName(user)}</Text>
+                          {user.friendCode && (
+                            <Text style={[styles.foundUserCode, { color: colors.mutedForeground }]}>{user.friendCode}</Text>
+                          )}
                         </View>
-                      )}
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
+                        {alreadyMember ? (
+                          <Text style={[styles.foundUserCode, { color: colors.mutedForeground }]}>In squad</Text>
+                        ) : isAdding ? (
+                          <ActivityIndicator size="small" color={colors.primary} />
+                        ) : (
+                          <View style={[
+                            styles.addResultBtn,
+                            {
+                              backgroundColor: isSelected ? colors.primary : "transparent",
+                              borderWidth: 1.5,
+                              borderColor: isSelected ? colors.primary : colors.border,
+                            },
+                          ]}>
+                            <Ionicons
+                              name={isSelected ? "checkmark" : "add"}
+                              size={16}
+                              color={isSelected ? "#fff" : colors.foreground}
+                            />
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
             )}
 
             {selectedToAdd.size > 0 && (
@@ -1592,7 +1599,9 @@ const styles = StyleSheet.create({
   modalCard: { borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, padding: 20 },
   addMemberCard: { maxHeight: "82%", flexShrink: 1 },
   addMemberTitle: { textAlign: "center", paddingHorizontal: 44 },
+  addMemberSuggestions: { maxHeight: 280, flexShrink: 1, marginTop: 0 },
   addMemberResults: { flexGrow: 0, flexShrink: 1, minHeight: 0 },
+  addMemberResultsContent: { paddingBottom: 2 },
   modalCloseBtn: { position: "absolute", top: 14, left: 14, zIndex: 10, width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
   modalTitle: { fontSize: 20, fontWeight: "800", marginBottom: 16 },
   fieldLabel: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8, marginTop: 4 },
