@@ -1,0 +1,588 @@
+
+> @workspace/squadz-native@0.0.0 test /home/runner/workspace/artifacts/squadz-native
+> vitest run --reporter=verbose
+
+
+ RUN  v4.1.8 /home/runner/workspace/artifacts/squadz-native
+
+ ✓ lib/__tests__/ideaUtils.test.ts > groupConfirmedIdeas > only groups confirmed ideas, splitting dated vs general 7ms
+ ✓ lib/__tests__/ideaUtils.test.ts > groupConfirmedIdeas > breaks sortOrder ties (and nulls) by createdAt 11ms
+ ✓ lib/__tests__/ideaUtils.test.ts > mergedDayKeys > keeps trip day keys first and untouched 0ms
+ ✓ lib/__tests__/ideaUtils.test.ts > mergedDayKeys > appends idea-only days after the known range, sorted 0ms
+ ✓ lib/__tests__/ideaUtils.test.ts > sortPendingIdeas > puts pinned first regardless of votes 0ms
+ ✓ lib/__tests__/ideaUtils.test.ts > sortPendingIdeas > sorts newest-first under 'created' 0ms
+ ✓ lib/__tests__/ideaUtils.test.ts > sortPendingIdeas > does not mutate the input array 0ms
+ ✓ lib/__tests__/ideaUtils.test.ts > sortPendingIdeas > does not throw when createdAt is null 1ms
+ ✓ lib/__tests__/ideaUtils.test.ts > groupConfirmedIdeas — null createdAt regression > does not throw when confirmed ideas have null createdAt 1ms
+ ✓ lib/__tests__/ideaUtils.test.ts > applyVoteToggle > adds a vote when not voted 0ms
+ ✓ lib/__tests__/ideaUtils.test.ts > applyVoteToggle > removes a vote when already voted, never going negative 1ms
+ ✓ lib/__tests__/ideaUtils.test.ts > applyVoteToggle > leaves other ideas untouched 0ms
+ ✓ lib/__tests__/ideaUtils.test.ts > moveWithinGroup > swaps with the neighbor and returns the FULL id list 0ms
+ ✓ lib/__tests__/ideaUtils.test.ts > moveWithinGroup > returns null at the edges and for unknown ids 0ms
+ ✓ lib/__tests__/ideaUtils.test.ts > ideaSubmitterName > joins first/last and falls back to 'Someone' 0ms
+ ✓ lib/__tests__/ideaUtils.test.ts > GENERAL_GROUP cannot collide with ISO day keys 0ms
+ ✓ lib/__tests__/imageUtils.test.ts > stripImageExif > calls ImageManipulator.manipulateAsync for image/* mimeTypes 4ms
+ ✓ lib/__tests__/imageUtils.test.ts > stripImageExif > strips HEIC and PNG — output is always image/jpeg 1ms
+ ✓ lib/__tests__/imageUtils.test.ts > stripImageExif > returns original uri/mimeType for video/* without calling manipulator 0ms
+ ✓ lib/__tests__/imageUtils.test.ts > stripImageExif > returns original uri/mimeType for unknown mimeTypes (no manipulator call) 0ms
+ ✓ lib/__tests__/imageUtils.test.ts > stripImageExif > retries once on first failure and returns the stripped result without logging 0ms
+ ✓ lib/__tests__/imageUtils.test.ts > stripImageExif > falls back to original and fires exif_strip_fallback when both attempts fail 1ms
+ ✓ lib/__tests__/imageUtils.test.ts > stripImageExif > uses surface='unknown' in the fallback event when no surface is provided 2ms
+ ✓ lib/__tests__/imageUtils.test.ts > stripVideoExif > calls Video.compress on native for video/* mimeTypes 1ms
+ ✓ lib/__tests__/imageUtils.test.ts > stripVideoExif > is a no-op on web (Platform.OS === 'web') — never calls compressor 2ms
+ ✓ lib/__tests__/imageUtils.test.ts > stripVideoExif > returns original for non-video mimeTypes 0ms
+ ✓ lib/__tests__/imageUtils.test.ts > stripVideoExif > retries once on first failure and returns the compressed result without logging 1ms
+ ✓ lib/__tests__/imageUtils.test.ts > stripVideoExif > falls back to original and fires exif_strip_fallback when both attempts fail 1ms
+ ✓ lib/__tests__/imageUtils.test.ts > stripVideoExif > uses surface='unknown' in the fallback event when no surface is provided 1ms
+ ✓ lib/__tests__/imageUtils.test.ts > stripMediaExif > routes image/* to stripImageExif (calls manipulator) 0ms
+ ✓ lib/__tests__/imageUtils.test.ts > stripMediaExif > routes video/* to stripVideoExif (calls compressor on native) 0ms
+ ✓ lib/__tests__/imageUtils.test.ts > stripMediaExif > returns original for unknown types without calling any processor 1ms
+ ✓ lib/__tests__/imageUtils.test.ts > stripMediaExif > passes the surface label through to the image fallback event 1ms
+ ✓ lib/__tests__/imageUtils.test.ts > stripMediaExif > passes the surface label through to the video fallback event 1ms
+stderr | lib/__tests__/secureToken.test.ts > setSecureToken — failure logging > still purges the AsyncStorage legacy copy even when SecureStore throws
+[SecureStore] setItemAsync failed — session will not persist across restarts squadz.authToken Error: OS fault
+    at /home/runner/workspace/artifacts/squadz-native/lib/__tests__/secureToken.test.ts:259:63
+    at file:///home/runner/workspace/node_modules/.pnpm/@vitest+runner@4.1.8/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11
+    at file:///home/runner/workspace/node_modules/.pnpm/@vitest+runner@4.1.8/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26
+    at file:///home/runner/workspace/node_modules/.pnpm/@vitest+runner@4.1.8/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20
+    at new Promise (<anonymous>)
+    at runWithCancel (file:///home/runner/workspace/node_modules/.pnpm/@vitest+runner@4.1.8/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)
+    at file:///home/runner/workspace/node_modules/.pnpm/@vitest+runner@4.1.8/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20
+    at new Promise (<anonymous>)
+    at runWithTimeout (file:///home/runner/workspace/node_modules/.pnpm/@vitest+runner@4.1.8/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)
+    at file:///home/runner/workspace/node_modules/.pnpm/@vitest+runner@4.1.8/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64
+
+ ✓ lib/__tests__/secureToken.test.ts > getSecureToken — legacy AsyncStorage invalidation > returns null when token exists only in AsyncStorage (forces re-auth) 2ms
+ ✓ lib/__tests__/secureToken.test.ts > getSecureToken — legacy AsyncStorage invalidation > deletes the legacy AsyncStorage token after detecting it 2ms
+ ✓ lib/__tests__/secureToken.test.ts > getSecureToken — legacy AsyncStorage invalidation > does NOT write the legacy token into SecureStore 1ms
+ ✓ lib/__tests__/secureToken.test.ts > getSecureToken — legacy AsyncStorage invalidation > returns null when both stores are empty 0ms
+ ✓ lib/__tests__/secureToken.test.ts > getSecureToken — SecureStore happy path > returns the token from SecureStore when it is stored there 0ms
+ ✓ lib/__tests__/secureToken.test.ts > getSecureToken — SecureStore happy path > returns SecureStore token even when AsyncStorage also has one (no dual-read) 0ms
+ ✓ lib/__tests__/secureToken.test.ts > getSecureToken — SecureStore unavailable > returns null (no AsyncStorage fallback) when SecureStore.getItemAsync throws 0ms
+ ✓ lib/__tests__/secureToken.test.ts > setSecureToken — writes exclusively to SecureStore > writes the token to SecureStore 0ms
+ ✓ lib/__tests__/secureToken.test.ts > setSecureToken — writes exclusively to SecureStore > purges any legacy copy from AsyncStorage after writing to SecureStore 2ms
+ ✓ lib/__tests__/secureToken.test.ts > setSecureToken — writes exclusively to SecureStore > does NOT write to AsyncStorage (no dual-write or fallback) 0ms
+ ✓ lib/__tests__/secureToken.test.ts > removeSecureToken > removes the token from SecureStore 1ms
+ ✓ lib/__tests__/secureToken.test.ts > removeSecureToken > also clears any legacy AsyncStorage copy during logout 1ms
+ ✓ lib/__tests__/secureToken.test.ts > setSecureToken — failure logging > logs a warning when SecureStore.setItemAsync throws (OS-level fault) 2ms
+ ✓ lib/__tests__/secureToken.test.ts > setSecureToken — failure logging > still purges the AsyncStorage legacy copy even when SecureStore throws 7ms
+ ✓ lib/__tests__/secureToken.test.ts > cold-start session persistence > token survives a simulated app restart (write → clear memory → read) 1ms
+ ✓ lib/__tests__/secureToken.test.ts > cold-start session persistence > both auth token and refresh token survive a simulated restart 0ms
+ ✓ lib/__tests__/secureToken.test.ts > cold-start session persistence > logout clears token so user is not re-authenticated on next cold start 0ms
+ ✓ lib/__tests__/secureToken.test.ts > cold-start session persistence > re-login after logout stores new token that persists correctly 0ms
+ ✓ lib/__tests__/secureToken.test.ts > cold-start session persistence > new key format 'squadz.authToken' satisfies expo-secure-store key constraints 0ms
+ ✓ lib/__tests__/photoVaultIa.test.ts > Photo Vault IA safeguards > keeps My Photo Vault visible and sends free members to its paywall context 2ms
+ ✓ lib/__tests__/photoVaultIa.test.ts > Photo Vault IA safeguards > does not allow hardcoded user-facing annual prices outside UpgradeModal fallbacks 14ms
+ ✓ lib/__tests__/pollWizard.test.ts > wizard step navigation > asks length on both kinds and times only on events 2ms
+ ✓ lib/__tests__/pollWizard.test.ts > wizard step navigation > prepends a type step when the entry point didn't supply a kind 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > wizard step navigation > advances forward and back without leaving the range 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > wizard step navigation > treats the final step as last for each flow shape 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > wizard step navigation > advances a trip from dates into the length step 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > wizard step navigation > exits the flow only from the first step 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > wizard step navigation > lets the title step be skipped but requires at least one slot 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > wizard step navigation > never blocks a trip poll on slot count 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > wizard step navigation > blocks the type step until a kind is chosen 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > wizard step navigation > accepts a one-day event length but not a one-day trip 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > wizard step navigation > rejects a plan longer than the voting window 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > wizard step navigation > summarises the poll on the final step 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > wizard step navigation > names the length of a multi-day event but not a one-day one 3ms
+ ✓ lib/__tests__/pollWizard.test.ts > custom timeline choices > keeps an explicit Custom choice even when its numeric value is also suggested 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > custom timeline choices > allows whole-day custom voting windows only within server-supported limits 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > custom timeline choices > blocks a custom trip length that is too short or outside the voting window 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > cross-period slot visibility > orders selections by clock time regardless of insertion order 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > cross-period slot visibility > de-duplicates and pushes unknown slots to the end 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > cross-period slot visibility > maps slots to their period tab 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > cross-period slot visibility > counts selections hidden behind other period tabs 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > organizer edit loss > reports nothing dropped when the new grid still covers every selection 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > organizer edit loss > counts selections and distinct people lost when the range shrinks 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > organizer edit loss > counts losses when slots are removed even if every day is kept 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > organizer edit loss > counts a person once no matter how many of their picks are dropped 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > organizer edit loss > falls back to heatmap counts when per-member cells are absent 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > organizer edit loss > treats missing member cells as no measurable loss 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > organizer edit loss > pluralises the confirmation message and explains the responded state 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > save button state > distinguishes never-saved from just-saved 4ms
+ ✓ lib/__tests__/pollWizard.test.ts > save button state > enables the button only while there are unsaved changes 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > save button state > shows the in-flight state and blocks double submits 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > follow-up list and nudge eligibility > classifies each member exactly once 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > follow-up list and nudge eligibility > only offers Nudge for members the server will accept (no response row) 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > follow-up list and nudge eligibility > never offers Nudge to non-creators 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > follow-up list and nudge eligibility > lists everyone outstanding once, never-responded first 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > follow-up list and nudge eligibility > returns an empty list when everyone is up to date 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > follow-up list and nudge eligibility > labels each follow-up state 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > alternate-time picker ranking > ranks the poll's own cells by response count, best first 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > alternate-time picker ranking > breaks ties chronologically using the poll's declared order 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > alternate-time picker ranking > omits cells nobody picked 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > alternate-time picker ranking > ignores heatmap cells that are no longer part of the poll grid 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > alternate-time picker ranking > returns nothing when there are no responses at all 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > poll entry points > reports responses against the eligible member count when known 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > which result a poll board may show > shows the stretch whenever there is one 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > which result a poll board may show > shows NOTHING rather than a single day when a length-aware trip has no stretch 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > which result a poll board may show > still shows the single cell for event polls 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > which result a poll board may show > still shows the single cell for legacy trips with no recorded length 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > which result a poll board may show > shows nothing when there is no result at all 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > winner nudge honesty > nudges a trip only for a complete stretch that works for 2+ 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > winner nudge honesty > never nudges on a partial stretch 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > winner nudge honesty > never falls back to the single-cell best on a length-aware trip 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > winner nudge honesty > does not nudge when only one person is free for the run 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > winner nudge honesty > keeps the single-cell nudge for event and legacy-trip polls 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > winner nudge honesty > never nudges a non-creator 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > editing a LEGACY trip poll (no stored length) > opens with NO length selected instead of defaulting to one 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > editing a LEGACY trip poll (no stored length) > is not dirty when the host opens the sheet and changes nothing 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > editing a LEGACY trip poll (no stored length) > omits tripLengthDays from the PATCH so the poll stays length-less 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > editing a LEGACY trip poll (no stored length) > sends a length only once the host deliberately picks one 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > editing a LEGACY trip poll (no stored length) > still round-trips a length-aware trip untouched 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > editing a LEGACY trip poll (no stored length) > clamps a stored length that no longer fits a shrunken window 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > editing a LEGACY trip poll (no stored length) > sends a length for a multi-day event poll 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > editing a LEGACY trip poll (no stored length) > omits a one-day length instead of sending an invalid value 2ms
+ ✓ lib/__tests__/pollWizard.test.ts > editing a LEGACY trip poll (no stored length) > clears a stored length when the host picks one day 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > editing a LEGACY trip poll (no stored length) > omits the field rather than clearing a length that was never set 0ms
+ ✓ lib/__tests__/pollWizard.test.ts > editing a LEGACY trip poll (no stored length) > still sends a number when the host raises a stored length 0ms
+ ✓ lib/__tests__/revenuecat-connector.test.ts > reconcileRcEntitlement: RC=true, server=false (reinstall scenario) > calls restorePurchases exactly once 6ms
+ ✓ lib/__tests__/revenuecat-connector.test.ts > reconcileRcEntitlement: RC=true, server=false (reinstall scenario) > calls syncFn (POST /api/iap/sync) after restore 2ms
+ ✓ lib/__tests__/revenuecat-connector.test.ts > reconcileRcEntitlement: RC=true, server=false (reinstall scenario) > syncFn is called AFTER restorePurchases (ordering) 1ms
+ ✓ lib/__tests__/revenuecat-connector.test.ts > reconcileRcEntitlement: RC=true, server=false (reinstall scenario) > calls refreshUsers with the user's id so the Pro ring updates 1ms
+ ✓ lib/__tests__/revenuecat-connector.test.ts > reconcileRcEntitlement: RC=true, server=false (reinstall scenario) > passes the auth token to fetchFn and syncFn 1ms
+ ✓ lib/__tests__/revenuecat-connector.test.ts > reconcileRcEntitlement: RC=false, server=true (lapsed/refunded) > does NOT call restorePurchases 0ms
+ ✓ lib/__tests__/revenuecat-connector.test.ts > reconcileRcEntitlement: RC=false, server=true (lapsed/refunded) > still calls syncFn to let the server correct the stale Pro flag 0ms
+ ✓ lib/__tests__/revenuecat-connector.test.ts > reconcileRcEntitlement: RC=false, server=true (lapsed/refunded) > does NOT call refreshUsers (user is losing Pro, not gaining) 0ms
+ ✓ lib/__tests__/revenuecat-connector.test.ts > reconcileRcEntitlement: RC and server agree (no action needed) > skips restore and sync when both say Pro 4ms
+ ✓ lib/__tests__/revenuecat-connector.test.ts > reconcileRcEntitlement: RC and server agree (no action needed) > skips restore and sync when both say not Pro 0ms
+ ✓ lib/__tests__/revenuecat-connector.test.ts > reconcileRcEntitlement: edge cases > bails out early when /api/subscription returns a non-OK response 0ms
+ ✓ lib/__tests__/revenuecat-connector.test.ts > reconcileRcEntitlement: edge cases > bails out before fetching when the SDK is unavailable (web platform) 0ms
+ ✓ lib/__tests__/revenuecat-connector.test.ts > reconcileRcEntitlement: edge cases > does not throw when restore fails — best-effort error swallowing 1ms
+ ✓ lib/__tests__/revenuecat-connector.test.ts > reconcileRcEntitlement: edge cases > does not throw when fetchFn throws — network failure on launch 0ms
+ ✓ lib/__tests__/revenuecat-connector.test.ts > reconcileRcEntitlement: publishes to the global entitlement store > publishes the on-device reading BEFORE consulting the server 0ms
+ ✓ lib/__tests__/revenuecat-connector.test.ts > reconcileRcEntitlement: publishes to the global entitlement store > publishes the tier resolved from the store product id 2ms
+ ✓ lib/__tests__/revenuecat-connector.test.ts > reconcileRcEntitlement: publishes to the global entitlement store > adopts the post-sync server answer after a reinstall restore 3ms
+ ✓ lib/__tests__/revenuecat-connector.test.ts > reconcileRcEntitlement: publishes to the global entitlement store > publishes a negative reading when the store has no entitlement 0ms
+ ✓ lib/__tests__/revenuecat-connector.test.ts > reconcileRcEntitlement: publishes to the global entitlement store > adopts a successful sync when stale local info says free but the server says Pro 0ms
+ ✓ lib/__tests__/revenuecat-connector.test.ts > reconcileRcEntitlement: publishes to the global entitlement store > publishes nothing on web, where the SDK can't report an entitlement 0ms
+ ✓ hooks/__tests__/useSquadStream.test.ts > useSquadStream — auto-reconnect with exponential backoff > schedules a 1 s retry after the first network error (non-AbortError) 14ms
+ ✓ hooks/__tests__/useSquadStream.test.ts > useSquadStream — auto-reconnect with exponential backoff > doubles the delay on each consecutive failure (1 s → 2 s → 4 s) 4ms
+ ✓ hooks/__tests__/useSquadStream.test.ts > useSquadStream — auto-reconnect with exponential backoff > resets the backoff delay to 1 s after a successful reconnect 9ms
+ ✓ hooks/__tests__/useSquadStream.test.ts > useSquadStream — auto-reconnect with exponential backoff > reports 'connected' status while the stream is alive 3ms
+ ✓ hooks/__tests__/useSquadStream.test.ts > useSquadStream — auto-reconnect with exponential backoff > cancels a scheduled retry when the screen loses focus (blur) 3ms
+ ✓ hooks/__tests__/useSquadStream.test.ts > useSquadStream — auto-reconnect with exponential backoff > does not schedule a retry when the screen is blurred before the fetch error resolves 2ms
+ ✓ hooks/__tests__/useDelayedFlag.test.ts > useDelayedFlag > stays false until the delay elapses, then turns true 14ms
+ ✓ hooks/__tests__/useDelayedFlag.test.ts > useDelayedFlag > never turns true if active flips false before the delay (no flash) 3ms
+ ✓ hooks/__tests__/useDelayedFlag.test.ts > useDelayedFlag > resets to false immediately when active becomes false after being shown 2ms
+ ✓ hooks/__tests__/useDelayedFlag.test.ts > useDelayedFlag > clears the pending timer on unmount (no late state update) 4ms
+ ✓ lib/__tests__/settle.test.ts > computeOwed > groups what I owe by the requester and skips costs I paid 11ms
+ ✓ lib/__tests__/settle.test.ts > computeOwed > reflects paid/confirmed status and excludes confirmed from outstanding 1ms
+ ✓ lib/__tests__/settle.test.ts > computeOwed > ignores zero-amount shares 0ms
+ ✓ lib/__tests__/settle.test.ts > computeOwedToMe > groups what others owe me by debtor, only for costs I paid 0ms
+ ✓ lib/__tests__/settle.test.ts > payWithVenmoHandle > opens the venmo app deep link when installed (strips leading @) 1ms
+ ✓ lib/__tests__/settle.test.ts > payWithVenmoHandle > falls back to the web profile when the app cannot open 0ms
+ ✓ lib/__tests__/settle.test.ts > payWithVenmoHandle > uses the web URL directly on web 0ms
+ ✓ lib/__tests__/settle.test.ts > payWithCashAppHandle > opens a cashtag URL with the amount (strips leading $) 0ms
+ ✓ lib/__tests__/settle.test.ts > zelleInstructions > returns the handle unchanged (no deep link possible) 0ms
+ ✓ hooks/__tests__/useEventStream.test.ts > useEventStream — auto-reconnect with exponential backoff > schedules a 1 s retry after the first network error (non-AbortError) 20ms
+ ✓ hooks/__tests__/useEventStream.test.ts > useEventStream — auto-reconnect with exponential backoff > doubles the delay on each consecutive failure (1 s → 2 s → 4 s) 5ms
+ ✓ hooks/__tests__/useEventStream.test.ts > useEventStream — auto-reconnect with exponential backoff > resets the backoff delay to 1 s after a successful reconnect 10ms
+ ✓ hooks/__tests__/useEventStream.test.ts > useEventStream — auto-reconnect with exponential backoff > reports 'connected' status while the stream is alive 3ms
+ ✓ hooks/__tests__/useEventStream.test.ts > useEventStream — auto-reconnect with exponential backoff > cancels a scheduled retry when the screen loses focus (blur) 4ms
+ ✓ hooks/__tests__/useEventStream.test.ts > useEventStream — auto-reconnect with exponential backoff > does not schedule a retry when the screen is blurred before the fetch error resolves 4ms
+ ✓ hooks/__tests__/useEventStream.test.ts > useEventStream — auto-reconnect with exponential backoff > calls the correct event stream URL 5ms
+ ✓ hooks/__tests__/useEventChat.test.ts > useEventChat — lazy thread creation > does not touch the server while the chat tab is closed 13ms
+ ✓ hooks/__tests__/useEventChat.test.ts > useEventChat — lazy thread creation > opens the thread, loads it and marks it read once the tab is active 56ms
+ ✓ lib/__tests__/revenuecatTierMapping.test.ts > Squadz+ product constants > are the real store identifiers, not the old invented ones 2ms
+ ✓ lib/__tests__/revenuecatTierMapping.test.ts > tierForProductId — real identifiers > maps the bare App Store ids 2ms
+ ✓ lib/__tests__/revenuecatTierMapping.test.ts > tierForProductId — real identifiers > maps the Play base-plan ids 0ms
+ ✓ lib/__tests__/revenuecatTierMapping.test.ts > tierForProductId — real identifiers > does not cross-match, and rejects foreign / absent ids 1ms
+ ✓ lib/__tests__/revenuecatTierMapping.test.ts > tierForProductId — real identifiers > productMatches agrees on both forms 0ms
+ ✓ lib/__tests__/revenuecatTierMapping.test.ts > entitlementFromCustomerInfo — real identifiers > resolves founding from the real founding product (both forms) 1ms
+ ✓ lib/__tests__/revenuecatTierMapping.test.ts > entitlementFromCustomerInfo — real identifiers > resolves standard from the real standard product (both forms) 0ms
+ ✓ lib/__tests__/revenuecatTierMapping.test.ts > entitlementFromCustomerInfo — real identifiers > emits no telemetry when the product is recognised 2ms
+ ✓ lib/__tests__/revenuecatTierMapping.test.ts > entitled-but-unrecognized fallback > still grants access as standard (never 'none') 1ms
+ ✓ lib/__tests__/revenuecatTierMapping.test.ts > entitled-but-unrecognized fallback > reports the unrecognized identifier to Sentry 2ms
+ ✓ lib/__tests__/revenuecatTierMapping.test.ts > entitled-but-unrecognized fallback > reports a missing product identifier too 2ms
+ ✓ lib/__tests__/revenuecatTierMapping.test.ts > entitled-but-unrecognized fallback > reports each identifier only once per session (listener re-fires on every foreground) 1ms
+ ✓ lib/__tests__/revenuecatTierMapping.test.ts > entitled-but-unrecognized fallback > does not report when there is no active entitlement at all 2ms
+ ✓ lib/__tests__/tripUtils.test.ts > groupStopsByDay > groups stops by their day key 2ms
+ ✓ lib/__tests__/tripUtils.test.ts > groupStopsByDay > does not throw when stop.time is null 1ms
+ ✓ lib/__tests__/tripUtils.test.ts > groupStopsByDay > sorts timed stops before untimed stops within the same sortOrder tier 10ms
+ ✓ lib/__tests__/tripUtils.test.ts > groupStopsByDay > returns an empty object for an empty input 0ms
+ ✓ lib/__tests__/tripUtils.test.ts > tripDayKeys > returns a single key for a same-day trip 0ms
+ ✓ lib/__tests__/tripUtils.test.ts > tripDayKeys > returns all days inclusive for a multi-day trip 0ms
+ ✓ lib/__tests__/tripUtils.test.ts > tripDayKeys > returns [] when startAt is missing/invalid 0ms
+ ✓ lib/__tests__/tripUtils.test.ts > isTripPast > returns true for a trip that ended in the past 0ms
+ ✓ lib/__tests__/tripUtils.test.ts > isTripPast > returns false for a trip in the future 0ms
+ ✓ lib/__tests__/squadLiveRefresh.test.ts > squadSignature > returns the same value for identical inputs 2ms
+ ✓ lib/__tests__/squadLiveRefresh.test.ts > squadSignature > is sensitive to name changes 1ms
+ ✓ lib/__tests__/squadLiveRefresh.test.ts > squadSignature > is sensitive to emoji changes 0ms
+ ✓ lib/__tests__/squadLiveRefresh.test.ts > squadSignature > is sensitive to description changes 0ms
+ ✓ lib/__tests__/squadLiveRefresh.test.ts > squadSignature > is sensitive to color changes 0ms
+ ✓ lib/__tests__/squadLiveRefresh.test.ts > squadSignature > is sensitive to isPublic changes 0ms
+ ✓ lib/__tests__/squadLiveRefresh.test.ts > squadSignature > is sensitive to membersCanInvite changes 0ms
+ ✓ lib/__tests__/squadLiveRefresh.test.ts > squadSignature > is sensitive to member list changes (addition) 0ms
+ ✓ lib/__tests__/squadLiveRefresh.test.ts > squadSignature > is sensitive to member list changes (removal) 0ms
+ ✓ lib/__tests__/squadLiveRefresh.test.ts > squadSignature > is ORDER-INSENSITIVE for memberIds (sorted before hashing) 0ms
+ ✓ lib/__tests__/squadLiveRefresh.test.ts > squadSignature > treats null and empty string identically for name/emoji/description/color 0ms
+ ✓ lib/__tests__/squadLiveRefresh.test.ts > runSquadPoll > fetches the correct squad URL with the supplied headers 3ms
+ ✓ lib/__tests__/squadLiveRefresh.test.ts > runSquadPoll > stores the baseline signature on the first call without triggering refresh or banner 1ms
+ ✓ lib/__tests__/squadLiveRefresh.test.ts > runSquadPoll > does NOT call refreshSquads or onChanged when the server returns the same data 1ms
+ ✓ lib/__tests__/squadLiveRefresh.test.ts > runSquadPoll > does NOT fire the banner when the member list order changes but membership is unchanged 0ms
+ ✓ lib/__tests__/squadLiveRefresh.test.ts > runSquadPoll > calls refreshSquads and onChanged when the squad name changes 1ms
+ ✓ lib/__tests__/squadLiveRefresh.test.ts > runSquadPoll > calls refreshSquads and onChanged when the squad emoji changes 0ms
+ ✓ lib/__tests__/squadLiveRefresh.test.ts > runSquadPoll > calls refreshSquads and onChanged when a new member is added 0ms
+ ✓ lib/__tests__/squadLiveRefresh.test.ts > runSquadPoll > calls refreshSquads and onChanged when a member is removed 0ms
+ ✓ lib/__tests__/squadLiveRefresh.test.ts > runSquadPoll > calls refreshSquads and onChanged when isPublic changes 0ms
+ ✓ lib/__tests__/squadLiveRefresh.test.ts > runSquadPoll > calls refreshSquads and onChanged when membersCanInvite changes 0ms
+ ✓ lib/__tests__/squadLiveRefresh.test.ts > runSquadPoll > does NOT call onChanged when the component becomes inactive between refresh and banner 0ms
+ ✓ lib/__tests__/squadLiveRefresh.test.ts > runSquadPoll > returns early without refreshing when isActive() is false before processing 0ms
+ ✓ lib/__tests__/squadLiveRefresh.test.ts > runSquadPoll > does not throw and does not call refresh/banner when fetch throws a network error 1ms
+ ✓ lib/__tests__/squadLiveRefresh.test.ts > runSquadPoll > does not call refresh/banner when the server responds with a non-ok status 0ms
+ ✓ lib/__tests__/squadLiveRefresh.test.ts > runSquadPoll > does NOT fire the banner when the user's own optimistic edit already seeded the latest signature 0ms
+ ✓ lib/__tests__/squadLiveRefresh.test.ts > runSquadPoll > does NOT fire the banner when the user's own emoji change is pre-seeded as the baseline 0ms
+ ✓ lib/__tests__/squadLiveRefresh.test.ts > runSquadPoll > does NOT fire the banner when the user's own membersCanInvite toggle is pre-seeded as the baseline 0ms
+ ✓ lib/__tests__/squadLiveRefresh.test.ts > runSquadPoll > does NOT fire the banner when the user's own isPublic toggle is pre-seeded as the baseline 0ms
+ ✓ lib/__tests__/squadLiveRefresh.test.ts > runSquadPoll > does NOT fire the banner when saveSettings-style multi-field edit (name + emoji + description) is pre-seeded 0ms
+ ✓ lib/__tests__/squadLiveRefresh.test.ts > runSquadPoll > does NOT fire the banner when adding a member and pre-seeding the new member list 0ms
+ ✓ lib/__tests__/squadLiveRefresh.test.ts > runSquadPoll > does NOT fire the banner when removing a member and pre-seeding the reduced member list 0ms
+ ✓ lib/__tests__/squadLiveRefresh.test.ts > runSquadPoll > does NOT fire the banner when regenerating invite code and pre-seeding the existing squad signature 0ms
+ ✓ lib/__tests__/squadLiveRefresh.test.ts > runSquadPoll > still fires the banner for a DIFFERENT remote edit even after the user's own edit was pre-seeded 0ms
+ ✓ lib/__tests__/squadLiveRefresh.test.ts > runSquadPoll > updates the stored signature after a detected change so a second identical poll is a no-op 0ms
+ ✓ hooks/__tests__/useEventChat.test.ts > useEventChat — auth race vs. real access loss > keeps loading (not empty) when the thread can't be opened yet 57ms
+ ✓ hooks/__tests__/useEventChat.test.ts > useEventChat — auth race vs. real access loss > reports denied when an opened thread starts failing with nothing loaded 55ms
+ ✓ lib/__tests__/revenuecat.test.ts > productMatches (Android subId:basePlanId format) > matches the base subscription id against a Play identifier 2ms
+ ✓ lib/__tests__/revenuecat.test.ts > productMatches (Android subId:basePlanId format) > still matches the plain iOS identifier (no base-plan suffix) 0ms
+ ✓ lib/__tests__/revenuecat.test.ts > productMatches (Android subId:basePlanId format) > does not cross-match founding vs standard 0ms
+ ✓ lib/__tests__/revenuecat.test.ts > productMatches (Android subId:basePlanId format) > is false for empty / missing identifiers 0ms
+ ✓ lib/__tests__/revenuecat.test.ts > purchaseSquadzPlus on Android (Play subId:basePlanId identifiers) > selects the FOUNDING package (not the standard fallback) when founding is preferred 2ms
+ ✓ lib/__tests__/revenuecat.test.ts > purchaseSquadzPlus on Android (Play subId:basePlanId identifiers) > selects the STANDARD package when founding is not preferred 1ms
+ ✓ lib/__tests__/revenuecat.test.ts > purchaseSquadzPlus on Android (Play subId:basePlanId identifiers) > resolves the entitlement as inactive when Play grants no squadz_plus entitlement 0ms
+ ✓ lib/__tests__/revenuecat.test.ts > getSquadzPlusPrices on Android > reads live prices off Play subId:basePlanId identifiers 0ms
+ ✓ lib/__tests__/revenuecat.test.ts > getLocalEntitlementActive > returns true when the entitlement is active on-device 0ms
+ ✓ lib/__tests__/revenuecat.test.ts > getLocalEntitlementActive > returns false when the entitlement is not active 0ms
+ ✓ lib/__tests__/revenuecat.test.ts > getLocalEntitlementActive > returns null on web (SDK unavailable) 0ms
+ ✓ lib/__tests__/revenuecat.test.ts > restoreSquadzPlus > returns ok:true with isPro:true when the restored entitlement is active 0ms
+ ✓ lib/__tests__/revenuecat.test.ts > restoreSquadzPlus > returns ok:true with isPro:false when there is nothing to restore 0ms
+ ✓ lib/__tests__/revenuecat.test.ts > restoreSquadzPlus > returns ok:false with the error message on SDK failure 0ms
+ ✓ lib/__tests__/revenuecat.test.ts > auto-restore flow: server=false, RC=true → restore fires → entitlement synced > restore is called and returns isPro:true when RC has an active entitlement 1ms
+ ✓ lib/__tests__/revenuecat.test.ts > auto-restore flow: server=false, RC=true → restore fires → entitlement synced > restore is NOT called when RC and server already agree 2ms
+ ✓ lib/__tests__/revenuecat.test.ts > auto-restore flow: server=false, RC=true → restore fires → entitlement synced > restore is NOT called when RC is inactive (server=true path only syncs) 0ms
+ ✓ lib/__tests__/revenuecat.test.ts > addEntitlementListener > reports an entitlement change as a mapped RcEntitlement, not raw customer info 0ms
+ ✓ lib/__tests__/revenuecat.test.ts > addEntitlementListener > carries the tier through from the store product id (founding renewal) 0ms
+ ✓ lib/__tests__/revenuecat.test.ts > addEntitlementListener > reports a lapsed entitlement (expiry / refund arriving via the SDK) 0ms
+ ✓ lib/__tests__/revenuecat.test.ts > addEntitlementListener > unsubscribing removes the SAME listener reference it registered 0ms
+ ✓ lib/__tests__/revenuecat.test.ts > addEntitlementListener > a throwing subscriber does not break the SDK listener chain 1ms
+ ✓ lib/__tests__/revenuecat.test.ts > addEntitlementListener > is an inert no-op on web, where there is no SDK to listen to 0ms
+ ✓ lib/__tests__/pollDraft.test.ts > draft scoping > keys drafts per creation scope so squads can't cross-contaminate 2ms
+ ✓ lib/__tests__/pollDraft.test.ts > draft scoping > prefers the squad scope when both ids are present 0ms
+ ✓ lib/__tests__/pollDraft.test.ts > draft scoping > does not return one scope's draft for another scope 1ms
+ ✓ lib/__tests__/pollDraft.test.ts > save and restore > round-trips every wizard field 0ms
+ ✓ lib/__tests__/pollDraft.test.ts > save and restore > round-trips explicit Custom choices even when values match presets 0ms
+ ✓ lib/__tests__/pollDraft.test.ts > save and restore > round-trips the chosen plan type 0ms
+ ✓ lib/__tests__/pollDraft.test.ts > save and restore > restores a legacy draft with no stored type 0ms
+ ✓ lib/__tests__/pollDraft.test.ts > save and restore > discards a draft carrying an unrecognised plan type 0ms
+ ✓ lib/__tests__/pollDraft.test.ts > save and restore > stores under the dedicated key namespace with a savedAt stamp 0ms
+ ✓ lib/__tests__/pollDraft.test.ts > save and restore > returns null when nothing was ever saved 0ms
+ ✓ lib/__tests__/pollDraft.test.ts > save and restore > clears the draft once the poll is created 0ms
+ ✓ lib/__tests__/pollDraft.test.ts > expiry and corruption > keeps a draft that is under 24h old 2ms
+ ✓ lib/__tests__/pollDraft.test.ts > expiry and corruption > drops and deletes a draft older than 24h 1ms
+ ✓ lib/__tests__/pollDraft.test.ts > expiry and corruption > discards malformed JSON instead of throwing into the wizard 1ms
+ ✓ lib/__tests__/pollDraft.test.ts > expiry and corruption > discards a structurally invalid draft and clears the key 0ms
+ ✓ lib/__tests__/pollDraft.test.ts > expiry and corruption > rejects a draft with a non-positive day count 0ms
+ ✓ lib/__tests__/pollDraft.test.ts > draftHasContent > treats an untouched form as having nothing worth announcing 0ms
+ ✓ lib/__tests__/pollDraft.test.ts > draftHasContent > detects a typed title, a changed range, altered slots or progress 0ms
+ ✓ lib/__tests__/pollDraft.test.ts > draftHasContent > ignores slot ordering when comparing against the defaults 0ms
+ ✓ lib/__tests__/listAuthRace.test.ts > Events list — slow-login auth race > 401 (token not restored) then 200 with events: loading → content, never empty 3ms
+ ✓ lib/__tests__/listAuthRace.test.ts > Events list — slow-login auth race > several 401s then a 200 with events still never flashes 'No events yet' 0ms
+ ✓ lib/__tests__/listAuthRace.test.ts > Events list — slow-login auth race > genuine-empty: a single authenticated 200 with zero events DOES show empty 0ms
+ ✓ lib/__tests__/listAuthRace.test.ts > Events list — slow-login auth race > 401 then a 200 with zero events self-heals to the genuine empty state 0ms
+ ✓ lib/__tests__/listAuthRace.test.ts > Events list — slow-login auth race > exhausting retries surfaces the retryable error, never the empty state 0ms
+ ✓ lib/__tests__/listAuthRace.test.ts > SquadZ list — slow-login auth race > 401 (token not restored) then 200 with squads: loading → content, never empty 0ms
+ ✓ lib/__tests__/listAuthRace.test.ts > SquadZ list — slow-login auth race > several 401s then a 200 with squads still never flashes 'No squads yet' 0ms
+ ✓ lib/__tests__/listAuthRace.test.ts > SquadZ list — slow-login auth race > genuine-empty: a single authenticated 200 with zero squads DOES show empty 0ms
+ ✓ lib/__tests__/listAuthRace.test.ts > SquadZ list — slow-login auth race > 401 then a 200 with zero squads self-heals to the genuine empty state 0ms
+ ✓ lib/__tests__/listAuthRace.test.ts > SquadZ list — slow-login auth race > exhausting retries surfaces the retryable error, never the empty state 0ms
+ ✓ lib/__tests__/listAuthRace.test.ts > Messages inbox — slow-login auth race > both sources 401 then 200 with messages: loading → content, never empty 1ms
+ ✓ lib/__tests__/listAuthRace.test.ts > Messages inbox — slow-login auth race > one source pending while the other returns rows shows content, not loading 0ms
+ ✓ lib/__tests__/listAuthRace.test.ts > Messages inbox — slow-login auth race > both sources authenticate with zero items DOES show the genuine empty state 0ms
+ ✓ lib/__tests__/listAuthRace.test.ts > Messages inbox — slow-login auth race > 401 on both then 200 with zero items self-heals to empty 0ms
+ ✓ lib/__tests__/listAuthRace.test.ts > Messages inbox — slow-login auth race > both sources exhaust retries with nothing to show surfaces the error state 0ms
+ ✓ lib/__tests__/conflicts.test.ts > getPlanSpan > trip → date range 3ms
+ ✓ lib/__tests__/conflicts.test.ts > getPlanSpan > event with eventAt → timed span 3ms
+ ✓ lib/__tests__/conflicts.test.ts > getPlanSpan > event with only a timed display date → timed span 0ms
+ ✓ lib/__tests__/conflicts.test.ts > getPlanSpan > event with a time-less display date → day span 0ms
+ ✓ lib/__tests__/conflicts.test.ts > getPlanSpan > unusable date → null 0ms
+ ✓ lib/__tests__/conflicts.test.ts > spansOverlap > trip vs trip: intersecting ranges → hard 0ms
+ ✓ lib/__tests__/conflicts.test.ts > spansOverlap > trip vs event: day inside range → hard 0ms
+ ✓ lib/__tests__/conflicts.test.ts > spansOverlap > event vs event same day: timed overlap → hard, disjoint times → null 1ms
+ ✓ lib/__tests__/conflicts.test.ts > spansOverlap > event vs event same day: missing time → soft 1ms
+ ✓ lib/__tests__/conflicts.test.ts > isOwnPlan > events: host / going / maybe count, notgoing and strangers don't 1ms
+ ✓ lib/__tests__/conflicts.test.ts > isOwnPlan > trips: roster membership via the trip's squad + invites + host 1ms
+ ✓ lib/__tests__/conflicts.test.ts > findMyConflicts > detects cross-squad collisions but only for the user's own plans 1ms
+ ✓ lib/__tests__/conflicts.test.ts > findMyConflicts > skips the candidate itself and cancelled plans 1ms
+ ✓ lib/__tests__/conflicts.test.ts > findMyConflicts > returns [] for a null candidate 1ms
+ ✓ lib/__tests__/conflicts.test.ts > conflictMessage > null for no conflicts 0ms
+ ✓ lib/__tests__/conflicts.test.ts > conflictMessage > names the plan and squad for a single conflict 0ms
+ ✓ lib/__tests__/conflicts.test.ts > conflictMessage > counts multiple conflicts 0ms
+ ✓ hooks/__tests__/useEventChat.test.ts > useEventChat — pagination + plan switching > prepends older pages without duplicating the latest page 60ms
+ ✓ lib/__tests__/ics.test.ts > parseTimeLabel > parses 12h times 4ms
+ ✓ lib/__tests__/ics.test.ts > parseTimeLabel > parses 24h times 0ms
+ ✓ lib/__tests__/ics.test.ts > parseTimeLabel > rejects garbage 0ms
+ ✓ lib/__tests__/ics.test.ts > buildPlanIcs — events > uses eventAt as a UTC-timed VEVENT with 2h duration 4ms
+ ✓ lib/__tests__/ics.test.ts > buildPlanIcs — events > falls back to a timed floating VEVENT when only the display date carries a time 1ms
+ ✓ lib/__tests__/ics.test.ts > buildPlanIcs — events > falls back to an all-day VEVENT when the display date has no time 0ms
+ ✓ lib/__tests__/ics.test.ts > buildPlanIcs — events > returns null when no date info is usable 0ms
+ ✓ lib/__tests__/ics.test.ts > buildPlanIcs — events > omits TBD locations and escapes special characters 0ms
+ ✓ lib/__tests__/ics.test.ts > buildPlanIcs — trips > emits an all-day span VEVENT with exclusive DTEND 1ms
+ ✓ lib/__tests__/ics.test.ts > buildPlanIcs — trips > adds timed stops as floating-local VEVENTs in the same file 1ms
+ ✓ lib/__tests__/ics.test.ts > buildPlanIcs — trips > returns null for a trip without dates 0ms
+ ✓ lib/__tests__/ics.test.ts > buildPlanIcs — trips > clamps an inverted range to the start day 0ms
+ ✓ lib/__tests__/ics.test.ts > buildPlanIcs — formatting > uses CRLF line endings and folds long lines to <=75 chars 1ms
+ ✓ lib/__tests__/ics.test.ts > buildPlanIcs — formatting > produces a safe filename 0ms
+ ✓ lib/__tests__/entitlementRevocation.test.ts > expiry while backgrounded → next app-open re-locks > re-locks when BOTH the store and the server report the lapse 3ms
+ ✓ lib/__tests__/entitlementRevocation.test.ts > expiry while backgrounded → next app-open re-locks > re-locks on the STORE's word even while the server still says Pro 1ms
+ ✓ lib/__tests__/entitlementRevocation.test.ts > expiry while backgrounded → next app-open re-locks > does not restore purchases when the entitlement simply lapsed 0ms
+ ✓ lib/__tests__/entitlementRevocation.test.ts > expiry while backgrounded → next app-open re-locks > fires exactly ONE invalidation for the lock transition 1ms
+ ✓ lib/__tests__/entitlementRevocation.test.ts > expiry while backgrounded → next app-open re-locks > leaves a still-valid subscription untouched and raises no invalidation 1ms
+ ✓ lib/__tests__/entitlementRevocation.test.ts > expiry while backgrounded → next app-open re-locks > keeps the stale positive when the store is unreachable at launch 0ms
+ ✓ lib/__tests__/entitlementRevocation.test.ts > expiry while backgrounded → next app-open re-locks > re-locks a user whose entitlement was gone before this device ever saw it 0ms
+ ✓ lib/__tests__/notificationResponseHandler.test.ts > createNotificationResponseHandler – dedup logic > calls route on the very first response with a given identifier 3ms
+ ✓ lib/__tests__/notificationResponseHandler.test.ts > createNotificationResponseHandler – dedup logic > calls route when the identifier is undefined (no dedup applied) 1ms
+ ✓ lib/__tests__/notificationResponseHandler.test.ts > createNotificationResponseHandler – dedup logic > adds the identifier to handledIds after the first call 0ms
+ ✓ lib/__tests__/notificationResponseHandler.test.ts > createNotificationResponseHandler – dedup logic > does NOT call route on a second response with the same identifier 0ms
+ ✓ lib/__tests__/notificationResponseHandler.test.ts > createNotificationResponseHandler – dedup logic > does not add a duplicate to handledIds (size stays 1) 0ms
+ ✓ lib/__tests__/notificationResponseHandler.test.ts > createNotificationResponseHandler – dedup logic > routes distinct identifiers independently 0ms
+ ✓ lib/__tests__/notificationResponseHandler.test.ts > createNotificationResponseHandler – dedup logic > blocks only the repeated identifier while letting the other through 0ms
+ ✓ lib/__tests__/notificationResponseHandler.test.ts > createNotificationResponseHandler – dedup logic > simulates cold-start: live listener + getLastNotificationResponseAsync both fire, only one route 0ms
+ ✓ lib/__tests__/notificationResponseHandler.test.ts > createNotificationResponseHandler – dedup logic > routes every no-identifier response (multiple allowed) 0ms
+ ✓ lib/__tests__/notificationResponseHandler.test.ts > createNotificationResponseHandler – dedup logic > forwards undefined data to route when notification has no data 0ms
+ ✓ lib/__tests__/notificationResponseHandler.test.ts > createNotificationResponseHandler – dedup logic > forwards the full data payload to route 0ms
+ ✓ hooks/__tests__/useEventChat.test.ts > useEventChat — pagination + plan switching > clears history when the screen is reused for a different plan 111ms
+ ✓ hooks/__tests__/useEventChat.test.ts > useEventChat — sending > posts to the conversation (no event version) and appends the ack 54ms
+ ✓ hooks/__tests__/useEventChat.test.ts > useEventChat — sending > surfaces a blocked send as an error instead of silently dropping it 54ms
+ ✓ hooks/__tests__/useEventChat.test.ts > useEventChat — sending > refuses to send before the thread exists 5ms
+ ✓ lib/__tests__/costSplit.test.ts > calculateBillTotal > returns 0 when nothing is entered 2ms
+ ✓ lib/__tests__/costSplit.test.ts > calculateBillTotal > adds base, tax, flat tip and fees 0ms
+ ✓ lib/__tests__/costSplit.test.ts > calculateBillTotal > computes a percentage tip from base + tax 0ms
+ ✓ lib/__tests__/costSplit.test.ts > calculateBillTotal > rounds a percentage tip to the nearest cent 0ms
+ ✓ lib/__tests__/costSplit.test.ts > calculateBillTotal > prefers the percentage tip when both tip forms are present 0ms
+ ✓ lib/__tests__/costSplit.test.ts > calculateBillTotal > avoids float drift when summing repeating decimals 0ms
+ ✓ lib/__tests__/costSplit.test.ts > isWholeCent > accepts whole-cent values 1ms
+ ✓ lib/__tests__/costSplit.test.ts > isWholeCent > rejects sub-cent and non-finite values 1ms
+ ✓ lib/__tests__/costSplit.test.ts > computeEvenShares > splits evenly when the total divides cleanly 1ms
+ ✓ lib/__tests__/costSplit.test.ts > computeEvenShares > assigns leftover pennies in participant order 0ms
+ ✓ lib/__tests__/costSplit.test.ts > computeEvenShares > gives every leftover cent out (0.02 across 3 people) 0ms
+ ✓ lib/__tests__/costSplit.test.ts > computeEvenShares > reconciles exactly for many uneven totals and party sizes 3ms
+ ✓ lib/__tests__/costSplit.test.ts > computeEvenShares > never differs by more than a penny between participants 0ms
+ ✓ lib/__tests__/costSplit.test.ts > computeEvenShares > returns no shares for a zero total or an empty party 0ms
+ ✓ lib/__tests__/costSplit.test.ts > computeWeightedShares > distributes a 60/40 percentage split exactly 0ms
+ ✓ lib/__tests__/costSplit.test.ts > computeWeightedShares > distributes a 2:1 share weight split 0ms
+ ✓ lib/__tests__/costSplit.test.ts > computeWeightedShares > always sums to the exact total in cents 2ms
+ ✓ lib/__tests__/costSplit.test.ts > computeWeightedShares > assigns leftover pennies to largest-fractional-part participants 0ms
+ ✓ lib/__tests__/costSplit.test.ts > computeWeightedShares > one participant gets the full amount when only their weight is non-zero 0ms
+ ✓ lib/__tests__/costSplit.test.ts > computeWeightedShares > returns empty for zero total or zero total weight 0ms
+ ✓ lib/__tests__/costSplit.test.ts > computeWeightedShares > handles an uneven 3-person party-size regression 0ms
+ ✓ lib/__tests__/vaultAuthRace.test.ts > vaultRenderMode > is 'loading' on the very first fetch (loading, nothing else) 1ms
+ ✓ lib/__tests__/vaultAuthRace.test.ts > vaultRenderMode > is 'loading' — NOT 'empty' — while an auth race is pending with zero photos 0ms
+ ✓ lib/__tests__/vaultAuthRace.test.ts > vaultRenderMode > loading/authPending take precedence over authError and photoCount 0ms
+ ✓ lib/__tests__/vaultAuthRace.test.ts > vaultRenderMode > is 'error' when retries are exhausted (authError) and not loading 0ms
+ ✓ lib/__tests__/vaultAuthRace.test.ts > vaultRenderMode > is 'empty' ONLY for a genuine authenticated zero-photo response 0ms
+ ✓ lib/__tests__/vaultAuthRace.test.ts > vaultRenderMode > is 'content' once photos are present 0ms
+ ✓ lib/__tests__/vaultAuthRace.test.ts > applyVaultFetchOutcome > a 401 marks the race pending and advances the tick 1ms
+ ✓ lib/__tests__/vaultAuthRace.test.ts > applyVaultFetchOutcome > consecutive 401s keep advancing the tick while staying pending 0ms
+ ✓ lib/__tests__/vaultAuthRace.test.ts > applyVaultFetchOutcome > an authenticated 200 clears the race entirely 0ms
+ ✓ lib/__tests__/vaultAuthRace.test.ts > applyVaultFetchOutcome > a failure while pending advances the tick (keeps the bounded loop alive) 0ms
+ ✓ lib/__tests__/vaultAuthRace.test.ts > applyVaultFetchOutcome > a failure while NOT pending is a no-op (never starts a race on its own) 0ms
+ ✓ lib/__tests__/vaultAuthRace.test.ts > nextRetryDecision > is idle when no race is pending 0ms
+ ✓ lib/__tests__/vaultAuthRace.test.ts > nextRetryDecision > schedules a retry while pending and under the cap 0ms
+ ✓ lib/__tests__/vaultAuthRace.test.ts > nextRetryDecision > gives up into a retryable error once the cap is reached 0ms
+ ✓ lib/__tests__/vaultAuthRace.test.ts > resetAuthRaceState > returns a fresh, cleared state (for a manual retry) 0ms
+ ✓ lib/__tests__/vaultAuthRace.test.ts > vault slow-login sequences > 401 (token not restored) then 200 with photos: loading → content, never empty 1ms
+ ✓ lib/__tests__/vaultAuthRace.test.ts > vault slow-login sequences > several 401s then a 200 with photos still never flashes empty 0ms
+ ✓ lib/__tests__/vaultAuthRace.test.ts > vault slow-login sequences > genuine-empty: a single authenticated 200 with zero photos DOES show empty 0ms
+ ✓ lib/__tests__/vaultAuthRace.test.ts > vault slow-login sequences > 401 then a 200 with zero photos self-heals to the genuine empty state 1ms
+ ✓ lib/__tests__/vaultAuthRace.test.ts > vault slow-login sequences > exhausting retries surfaces the retryable error, never the empty state 0ms
+ ✓ lib/__tests__/routeFromNotificationData.test.ts > routeFromNotificationData > is a no-op when data is undefined 2ms
+ ✓ lib/__tests__/routeFromNotificationData.test.ts > routeFromNotificationData > is a no-op when data has no screen property 0ms
+ ✓ lib/__tests__/routeFromNotificationData.test.ts > routeFromNotificationData > is a no-op for an unknown screen value 0ms
+ ✓ lib/__tests__/routeFromNotificationData.test.ts > routeFromNotificationData > navigates to the feed tab for screen=feed 2ms
+ ✓ lib/__tests__/routeFromNotificationData.test.ts > routeFromNotificationData > pushes /activity for screen=activity 1ms
+ ✓ lib/__tests__/routeFromNotificationData.test.ts > routeFromNotificationData > pushes /friends for screen=friends 1ms
+ ✓ lib/__tests__/routeFromNotificationData.test.ts > routeFromNotificationData > pushes /availability with squadId for screen=availability + squadId 1ms
+ ✓ lib/__tests__/routeFromNotificationData.test.ts > routeFromNotificationData > pushes /availability with eventId for screen=availability + eventId (no squadId) 1ms
+ ✓ lib/__tests__/routeFromNotificationData.test.ts > routeFromNotificationData > is a no-op for screen=availability with neither squadId nor eventId 1ms
+ ✓ lib/__tests__/routeFromNotificationData.test.ts > routeFromNotificationData > pushes /conversation/[id] for screen=conversation 1ms
+ ✓ lib/__tests__/routeFromNotificationData.test.ts > routeFromNotificationData > is a no-op for screen=conversation without conversationId 0ms
+ ✓ lib/__tests__/routeFromNotificationData.test.ts > routeFromNotificationData > pushes /event/[id] for screen=event 0ms
+ ✓ lib/__tests__/routeFromNotificationData.test.ts > routeFromNotificationData > includes tab param in event push when provided 0ms
+ ✓ lib/__tests__/routeFromNotificationData.test.ts > routeFromNotificationData > is a no-op for screen=event without eventId 0ms
+ ✓ lib/__tests__/routeFromNotificationData.test.ts > routeFromNotificationData > pushes /trip/[id] for screen=trip 1ms
+ ✓ lib/__tests__/routeFromNotificationData.test.ts > routeFromNotificationData > includes tab param in trip push when provided 0ms
+ ✓ lib/__tests__/routeFromNotificationData.test.ts > routeFromNotificationData > is a no-op for screen=trip without eventId 0ms
+ ✓ lib/__tests__/routeFromNotificationData.test.ts > routeFromNotificationData > pushes /squad/[id] for screen=squad 0ms
+ ✓ lib/__tests__/routeFromNotificationData.test.ts > routeFromNotificationData > is a no-op for screen=squad without squadId 0ms
+ ✓ lib/__tests__/routeFromNotificationData.test.ts > routeFromNotificationData > pushes /vault with photoId + squadId for screen=vault + photoId 0ms
+ ✓ lib/__tests__/routeFromNotificationData.test.ts > routeFromNotificationData > pushes /vault with photoId + eventId for screen=vault + photoId + eventId 1ms
+ ✓ lib/__tests__/routeFromNotificationData.test.ts > routeFromNotificationData > pushes /vault with squadId (no photoId) for screen=vault + squadId 0ms
+ ✓ lib/__tests__/routeFromNotificationData.test.ts > routeFromNotificationData > is a no-op for screen=vault with neither photoId nor squadId 0ms
+ ✓ lib/__tests__/vaultSections.test.ts > buildSquadVaultSections (squad vault 'By Events') > produces exactly 3 sections for 2 events + event-less photos 2ms
+ ✓ lib/__tests__/vaultSections.test.ts > buildSquadVaultSections (squad vault 'By Events') > orders the newest event first, then older events, with 'All other photos' last 1ms
+ ✓ lib/__tests__/vaultSections.test.ts > buildSquadVaultSections (squad vault 'By Events') > reports the correct per-section counts (3 / 2 / 1) 0ms
+ ✓ lib/__tests__/vaultSections.test.ts > buildSquadVaultSections (squad vault 'By Events') > carries the right emoji + key per section 1ms
+ ✓ lib/__tests__/vaultSections.test.ts > buildSquadVaultSections (squad vault 'By Events') > wraps each section's photos as a single grid row and totals 6 photos 1ms
+ ✓ lib/__tests__/vaultSections.test.ts > buildSquadVaultSections (squad vault 'By Events') > keeps section ordering stable across repeated builds (toggle back and forth) 0ms
+ ✓ lib/__tests__/vaultSections.test.ts > buildSquadVaultSections (squad vault 'By Events') > does not mutate the input photos array 0ms
+ ✓ lib/__tests__/vaultSections.test.ts > buildSquadVaultSections (squad vault 'By Events') > omits the 'All other photos' section when every photo has an event 0ms
+ ✓ lib/__tests__/vaultSections.test.ts > buildSquadVaultSections (squad vault 'By Events') > returns an empty section list when there are no photos 1ms
+ ✓ lib/__tests__/vaultSections.test.ts > buildSquadVaultSections (squad vault 'By Events') > falls back to 'Event' / 🎉 for an unknown event id 0ms
+ ✓ lib/__tests__/vaultSections.test.ts > buildSquadVaultSections (squad vault 'By Events') > produces a single event section with all photos when they share one event 1ms
+ ✓ lib/__tests__/detailAuthRace.test.ts > Conversation chat — slow-login auth race > 401 (token not restored) then 200 with messages: loading → content, never empty 3ms
+ ✓ lib/__tests__/detailAuthRace.test.ts > Conversation chat — slow-login auth race > several 401s then a 200 with messages still never flashes 'No messages yet' 1ms
+ ✓ lib/__tests__/detailAuthRace.test.ts > Conversation chat — slow-login auth race > genuine-empty: a single authenticated 200 with zero messages DOES show empty 0ms
+ ✓ lib/__tests__/detailAuthRace.test.ts > Conversation chat — slow-login auth race > 401 then a 200 with zero messages self-heals to the genuine empty state 1ms
+ ✓ lib/__tests__/detailAuthRace.test.ts > Conversation chat — slow-login auth race > exhausting retries surfaces the retryable error, never the empty state 0ms
+ ✓ lib/__tests__/detailAuthRace.test.ts > Squad detail — slow-login auth race > 401 (token not restored) then 200 with the squad: loading → content, never 'Squad not found' 0ms
+ ✓ lib/__tests__/detailAuthRace.test.ts > Squad detail — slow-login auth race > several 401s then a 200 with the squad never flashes 'Squad not found' 0ms
+ ✓ lib/__tests__/detailAuthRace.test.ts > Squad detail — slow-login auth race > genuine not-found: a single authenticated 200 that lacks the squad DOES show empty 0ms
+ ✓ lib/__tests__/detailAuthRace.test.ts > Squad detail — slow-login auth race > exhausting retries surfaces the retryable error, never a false 'Squad not found' 0ms
+ ✓ lib/__tests__/detailAuthRace.test.ts > Event detail — slow-login auth race > 401 (token not restored) then 200 with the event: loading → content, never 'Event not found' 0ms
+ ✓ lib/__tests__/detailAuthRace.test.ts > Event detail — slow-login auth race > several 401s then a 200 with the event never flashes 'Event not found' 0ms
+ ✓ lib/__tests__/detailAuthRace.test.ts > Event detail — slow-login auth race > genuine not-found: a single authenticated 200 that lacks the event DOES show empty 0ms
+ ✓ lib/__tests__/detailAuthRace.test.ts > Event detail — slow-login auth race > exhausting retries surfaces the retryable error, never a false 'Event not found' 0ms
+ ✓ lib/__tests__/detailAuthRace.test.ts > Trip detail (fallback fetch) — slow-login auth race > 401 (token not restored) then 200 with the trip: loading → content, never 'not available' 0ms
+ ✓ lib/__tests__/detailAuthRace.test.ts > Trip detail (fallback fetch) — slow-login auth race > several 401s then a 200 with the trip never flashes 'This trip isn't available' 0ms
+ ✓ lib/__tests__/detailAuthRace.test.ts > Trip detail (fallback fetch) — slow-login auth race > a non-401 failure while a race is pending keeps retrying, not a false empty 0ms
+ ✓ lib/__tests__/detailAuthRace.test.ts > Trip detail (fallback fetch) — slow-login auth race > genuine not-found: a single authenticated 200 that lacks the trip DOES show empty 0ms
+ ✓ lib/__tests__/detailAuthRace.test.ts > Trip detail (fallback fetch) — slow-login auth race > exhausting retries surfaces the retryable error, never a false 'not available' 1ms
+ ✓ lib/__tests__/entitlement.test.ts > applyEntitlement — first reading > adopts any reading over the unresolved initial state 2ms
+ ✓ lib/__tests__/entitlement.test.ts > applyEntitlement — the post-purchase race (the actual bug) > does NOT let a lagging server 'not entitled' overwrite a store-confirmed purchase 0ms
+ ✓ lib/__tests__/entitlement.test.ts > applyEntitlement — the post-purchase race (the actual bug) > protects an optimistic post-purchase reading the same way 0ms
+ ✓ lib/__tests__/entitlement.test.ts > applyEntitlement — the post-purchase race (the actual bug) > adopts the server once it CONFIRMS the entitlement (tier becomes authoritative) 0ms
+ ✓ lib/__tests__/entitlement.test.ts > applyEntitlement — genuine downgrades still apply > accepts a store-sourced 'not entitled' (expiry / refund / nothing to restore) 0ms
+ ✓ lib/__tests__/entitlement.test.ts > applyEntitlement — genuine downgrades still apply > accepts a server 'not entitled' when the current reading also came from the server 0ms
+ ✓ lib/__tests__/entitlement.test.ts > applyEntitlement — genuine downgrades still apply > accepts a server 'not entitled' when the user was already not entitled 0ms
+ ✓ lib/__tests__/entitlement.test.ts > applyEntitlement — upgrades always win > adopts a positive reading from any source over a negative one 0ms
+ ✓ lib/__tests__/entitlement.test.ts > unresolved is not 'free' > starts unresolved so gated screens can show a spinner instead of a paywall 0ms
+ ✓ lib/__tests__/squadCostMutation.test.ts > C4 — updateSquad: optimistic patch reverts on failure > returns {} on success 2ms
+ ✓ lib/__tests__/squadCostMutation.test.ts > C4 — updateSquad: optimistic patch reverts on failure > returns { error: 'Couldn't save changes.' } on a non-ok server error 0ms
+ ✓ lib/__tests__/squadCostMutation.test.ts > C4 — updateSquad: optimistic patch reverts on failure > returns { error: 'Network error.' } on a network exception (triggers rollback) 0ms
+ ✓ lib/__tests__/squadCostMutation.test.ts > C4 — updateSquad: optimistic patch reverts on failure > on 409 conflict flag, returns {} and defers to a squad refresh 0ms
+ ✓ lib/__tests__/squadCostMutation.test.ts > C4 — updateSquad: optimistic patch reverts on failure > on 409 non-conflict (e.g. validation), surfaces the server error copy 0ms
+ ✓ lib/__tests__/squadCostMutation.test.ts > C4 — updateSquad: optimistic patch reverts on failure > rolls back the squad to prevSquad on failure (state machine invariant) 0ms
+ ✓ lib/__tests__/squadCostMutation.test.ts > C5 — markSharePaid: reverts paidAt on failure, no blocking on refresh > captures prevPaidAt before the optimistic update 1ms
+ ✓ lib/__tests__/squadCostMutation.test.ts > C5 — markSharePaid: reverts paidAt on failure, no blocking on refresh > reverts paidAt to null when the original value was null 0ms
+ ✓ lib/__tests__/squadCostMutation.test.ts > C5 — markSharePaid: reverts paidAt on failure, no blocking on refresh > rollback does NOT wait for refreshEvents — called synchronously, refresh is fire-and-forget 0ms
+ ✓ lib/__tests__/squadCostMutation.test.ts > C5 — markSharePaid: reverts paidAt on failure, no blocking on refresh > toast message matches the verbatim copy expected by the UI 0ms
+ ✓ lib/__tests__/squadCostMutation.test.ts > D5 — cost affordance: only payer or host may edit/delete > payer sees edit/delete affordances for their own cost 0ms
+ ✓ lib/__tests__/squadCostMutation.test.ts > D5 — cost affordance: only payer or host may edit/delete > host sees edit/delete affordances for any cost 0ms
+ ✓ lib/__tests__/squadCostMutation.test.ts > D5 — cost affordance: only payer or host may edit/delete > neither payer nor host — no affordances rendered 0ms
+ ✓ lib/__tests__/squadCostMutation.test.ts > D5 — cost affordance: only payer or host may edit/delete > payer who is also host is still allowed (no double-gate) 0ms
+ ✓ lib/__tests__/squadCostMutation.test.ts > D5 — 409 paymentsInProgress message surfaced verbatim > non-conflict 409 passes the server error message through unchanged 0ms
+ ✓ lib/__tests__/squadCostMutation.test.ts > D5 — 409 paymentsInProgress message surfaced verbatim > conflict 409 returns the standard conflict copy (not the payments message) 0ms
+ ✓ lib/__tests__/squadCostMutation.test.ts > D5 — 409 paymentsInProgress message surfaced verbatim > non-conflict 409 without server message falls back to the editing copy 1ms
+ ✓ lib/__tests__/entitlementInvalidation.test.ts > shouldInvalidateForEntitlement — real changes > invalidates on the first resolved reading of the session 3ms
+ ✓ lib/__tests__/entitlementInvalidation.test.ts > shouldInvalidateForEntitlement — real changes > invalidates when the user unlocks SquadZ+ 1ms
+ ✓ lib/__tests__/entitlementInvalidation.test.ts > shouldInvalidateForEntitlement — real changes > invalidates when the entitlement lapses 1ms
+ ✓ lib/__tests__/entitlementInvalidation.test.ts > shouldInvalidateForEntitlement — real changes > invalidates on a tier change while still entitled (paywall/badge copy) 1ms
+ ✓ lib/__tests__/entitlementInvalidation.test.ts > shouldInvalidateForEntitlement — noise that must be ignored > ignores a same-value re-report 0ms
+ ✓ lib/__tests__/entitlementInvalidation.test.ts > shouldInvalidateForEntitlement — noise that must be ignored > ignores a source change alone (server confirming the store's answer) 0ms
+ ✓ lib/__tests__/entitlementInvalidation.test.ts > shouldInvalidateForEntitlement — noise that must be ignored > ignores a tier difference while NOT entitled 0ms
+ ✓ lib/__tests__/entitlementInvalidation.test.ts > shouldInvalidateForEntitlement — noise that must be ignored > never invalidates towards an unresolved state 0ms
+ ✓ lib/__tests__/entitlementInvalidation.test.ts > createEntitlementInvalidator > notifies every subscriber, so an unmounted-then-remounted screen isn't missed 4ms
+ ✓ lib/__tests__/entitlementInvalidation.test.ts > createEntitlementInvalidator > stops notifying after unsubscribe 0ms
+ ✓ lib/__tests__/entitlementInvalidation.test.ts > createEntitlementInvalidator > passes a narrowed target list through untouched 1ms
+ ✓ lib/__tests__/entitlementInvalidation.test.ts > createEntitlementInvalidator > keeps notifying the remaining subscribers when one throws 1ms
+ ✓ lib/__tests__/entitlementInvalidation.test.ts > createEntitlementInvalidator > covers plan caps, squad caps, vault access and paywall copy 0ms
+ ✓ lib/__tests__/pollEntryPoints.test.ts > inline active-poll capping > shows every poll and hides none while under the cap 3ms
+ ✓ lib/__tests__/pollEntryPoints.test.ts > inline active-poll capping > shows exactly the cap with nothing hidden at the boundary 1ms
+ ✓ lib/__tests__/pollEntryPoints.test.ts > inline active-poll capping > caps the list and reports the remainder once there are more 0ms
+ ✓ lib/__tests__/pollEntryPoints.test.ts > inline active-poll capping > never reports a negative hidden count for an empty scope 0ms
+ ✓ lib/__tests__/pollEntryPoints.test.ts > wizard abandonment guard > stays silent for an untouched wizard 0ms
+ ✓ lib/__tests__/pollEntryPoints.test.ts > wizard abandonment guard > treats a title, a step forward, a changed length or a moved start as input 0ms
+ ✓ lib/__tests__/pollEntryPoints.test.ts > wizard abandonment guard > ignores a whitespace-only title 0ms
+ ✓ lib/__tests__/pollEntryPoints.test.ts > wizard abandonment guard > compares calendar days, not timestamps 0ms
+ ✓ lib/__tests__/pollEntryPoints.test.ts > edit-range discard guard > is clean when the sheet is closed exactly as it opened 0ms
+ ✓ lib/__tests__/pollEntryPoints.test.ts > edit-range discard guard > ignores slot re-ordering — the same set is not a change 0ms
+ ✓ lib/__tests__/pollEntryPoints.test.ts > edit-range discard guard > catches a moved start, a changed length, changed slots and a retitle 1ms
+ ✓ lib/__tests__/pollEntryPoints.test.ts > edit-range discard guard > is clean with no baseline — the sheet never opened 0ms
+ ✓ lib/__tests__/stopVoting.test.ts > STOP_VOTING_ENABLED flag > is false — stop voting is soft-deprecated 2ms
+ ✓ lib/__tests__/stopVoting.test.ts > stop vote affordance when STOP_VOTING_ENABLED = false > hides the proposed badge 0ms
+ ✓ lib/__tests__/stopVoting.test.ts > stop vote affordance when STOP_VOTING_ENABLED = false > hides the 'Suggested by' attribution line 0ms
+ ✓ lib/__tests__/stopVoting.test.ts > stop vote affordance when STOP_VOTING_ENABLED = false > hides the vote heart, even when the stop already has votes 0ms
+ ✓ lib/__tests__/stopVoting.test.ts > stop vote affordance when STOP_VOTING_ENABLED = false > hides the voter avatar stack, even when votes exist 0ms
+ ✓ lib/__tests__/stopVoting.test.ts > stop vote affordance when STOP_VOTING_ENABLED = false > still exposes the host Confirm button (management action, not voting UI) 0ms
+ ✓ lib/__tests__/stopVoting.test.ts > stop vote affordance when STOP_VOTING_ENABLED = false > confirmed stops are also unaffected regardless of the flag 0ms
+ ✓ lib/__tests__/stopVoting.test.ts > legacy proposed stop data integrity > retains title 0ms
+ ✓ lib/__tests__/stopVoting.test.ts > legacy proposed stop data integrity > retains day 0ms
+ ✓ lib/__tests__/stopVoting.test.ts > legacy proposed stop data integrity > retains time 0ms
+ ✓ lib/__tests__/stopVoting.test.ts > legacy proposed stop data integrity > retains votes array (data is untouched by the flag) 1ms
+ ✓ lib/__tests__/stopVoting.test.ts > legacy proposed stop data integrity > status is still 'proposed' in stored data 0ms
+ ✓ lib/__tests__/stopVoting.test.ts > smoke: re-enabling the flag restores all affordances > proposed badge shows when flag is true 0ms
+ ✓ lib/__tests__/stopVoting.test.ts > smoke: re-enabling the flag restores all affordances > vote heart shows when flag is true 0ms
+ ✓ lib/__tests__/stopVoting.test.ts > smoke: re-enabling the flag restores all affordances > voter stack shows when flag is true and votes exist 0ms
+ ✓ lib/__tests__/stopVoting.test.ts > smoke: re-enabling the flag restores all affordances > suggested-by line shows when flag is true 0ms
+ ✓ lib/__tests__/age.test.ts > isValidBirthYear > accepts plausible four-digit years 3ms
+ ✓ lib/__tests__/age.test.ts > isValidBirthYear > rejects blank and malformed years 0ms
+ ✓ lib/__tests__/age.test.ts > isValidBirthYear > rejects years outside the plausible range 0ms
+ ✓ lib/__tests__/age.test.ts > meetsMinAge > allows the newest eligible birth year 0ms
+ ✓ lib/__tests__/age.test.ts > meetsMinAge > blocks a clearly under-13 birth year 0ms
+ ✓ lib/__tests__/age.test.ts > meetsMinAge > blocks an invalid or missing birth year rather than defaulting to allowed 0ms
+ ✓ lib/__tests__/age.test.ts > meetsMinAge > uses the same minimum the server enforces 0ms
+ ✓ lib/__tests__/pendingInvite.test.ts > B6 — savePendingInviteCode > stores the code normalized to uppercase with a savedAt timestamp 2ms
+ ✓ lib/__tests__/pendingInvite.test.ts > B6 — savePendingInviteCode > is a no-op for an empty string (guards against saving an unusable code) 0ms
+ ✓ lib/__tests__/pendingInvite.test.ts > B6 — savePendingInviteCode > trims whitespace before storing 0ms
+ ✓ lib/__tests__/pendingInvite.test.ts > B6 — readPendingInviteCode > returns the stored code when called within 24h 0ms
+ ✓ lib/__tests__/pendingInvite.test.ts > B6 — readPendingInviteCode > returns null and clears storage when the saved code is older than 24h (expired) 0ms
+ ✓ lib/__tests__/pendingInvite.test.ts > B6 — readPendingInviteCode > returns null and does not throw on malformed JSON 0ms
+ ✓ lib/__tests__/pendingInvite.test.ts > B6 — readPendingInviteCode > returns null when the stored entry is missing the code field 0ms
+ ✓ lib/__tests__/pendingInvite.test.ts > B6 — readPendingInviteCode > returns null when the stored entry is missing the savedAt field 0ms
+ ✓ lib/__tests__/pendingInvite.test.ts > B6 — readPendingInviteCode > returns null when nothing has been stored 1ms
+ ✓ lib/__tests__/pendingInvite.test.ts > B6 — clearPendingInviteCode > removes the stored code so subsequent reads return null 0ms
+ ✓ lib/__tests__/pendingInvite.test.ts > B6 — clearPendingInviteCode > is a no-op when nothing is stored (does not throw) 1ms
+ ✓ lib/__tests__/friendsProfileAuthRace.test.ts > Friends screen — slow-login auth race > 401 (token not restored) then 200 with friends: loading → content, never empty 4ms
+ ✓ lib/__tests__/friendsProfileAuthRace.test.ts > Friends screen — slow-login auth race > several 401s then a 200 with friends still never flashes 'No friends yet' 1ms
+ ✓ lib/__tests__/friendsProfileAuthRace.test.ts > Friends screen — slow-login auth race > genuine-empty: a single authenticated 200 with zero friends DOES show empty 0ms
+ ✓ lib/__tests__/friendsProfileAuthRace.test.ts > Friends screen — slow-login auth race > 401 then a 200 with zero friends self-heals to the genuine empty state 0ms
+ ✓ lib/__tests__/friendsProfileAuthRace.test.ts > Friends screen — slow-login auth race > exhausting retries surfaces the retryable error, never the empty state 1ms
+ ✓ lib/__tests__/friendsProfileAuthRace.test.ts > Profile screen — event-count slow-login auth race > 401 then 200 with events: stat stays not-ready then becomes ready, never a false-0 1ms
+ ✓ lib/__tests__/friendsProfileAuthRace.test.ts > Profile screen — event-count slow-login auth race > several 401s then a 200 keeps the stat not-ready during the whole race 0ms
+ ✓ lib/__tests__/friendsProfileAuthRace.test.ts > Profile screen — event-count slow-login auth race > a genuine authenticated 0-event response IS ready (shows the real zero) 0ms
+ ✓ lib/__tests__/friendsProfileAuthRace.test.ts > Profile screen — event-count slow-login auth race > exhausting retries surfaces the error and never becomes falsely ready 1ms
+ ✓ lib/__tests__/feedAuthRace.test.ts > Vibe feed — slow-login auth race > 401 (token not restored) then 200 with posts: loading → content, never empty 3ms
+ ✓ lib/__tests__/feedAuthRace.test.ts > Vibe feed — slow-login auth race > several 401s then a 200 with posts still never flashes 'No vibes yet' 0ms
+ ✓ lib/__tests__/feedAuthRace.test.ts > Vibe feed — slow-login auth race > genuine-empty: a single authenticated 200 with zero posts DOES show empty 0ms
+ ✓ lib/__tests__/feedAuthRace.test.ts > Vibe feed — slow-login auth race > 401 then a 200 with zero posts self-heals to the genuine empty state 0ms
+ ✓ lib/__tests__/feedAuthRace.test.ts > Vibe feed — slow-login auth race > a transient non-401 blip mid auth-race keeps loading, never a false empty 0ms
+ ✓ lib/__tests__/feedAuthRace.test.ts > Vibe feed — slow-login auth race > exhausting retries surfaces the retryable error, never the empty state 0ms
+ ✓ lib/__tests__/tripTemplates.test.ts > materializeTemplateStops > places each stop on the calendar day its dayIndex points at 2ms
+ ✓ lib/__tests__/tripTemplates.test.ts > materializeTemplateStops > drops stops that fall past a shorter chosen range 0ms
+ ✓ lib/__tests__/tripTemplates.test.ts > materializeTemplateStops > keeps only the first day for a single-day trip 0ms
+ ✓ lib/__tests__/tripTemplates.test.ts > materializeTemplateStops > crosses a month boundary without skipping days 0ms
+ ✓ lib/__tests__/syncIapEntitlement.test.ts > syncIapEntitlement — success > returns the entitlement and tier reported by the server 9ms
+ ✓ lib/__tests__/syncIapEntitlement.test.ts > syncIapEntitlement — success > reports tier 'none' when the user is not entitled 0ms
+ ✓ lib/__tests__/syncIapEntitlement.test.ts > syncIapEntitlement — success > falls back to 'standard' for an entitled user when the server omits tier 0ms
+ ✓ lib/__tests__/syncIapEntitlement.test.ts > syncIapEntitlement — failure carries no entitlement > marks a 5xx as retryable 0ms
+ ✓ lib/__tests__/syncIapEntitlement.test.ts > syncIapEntitlement — failure carries no entitlement > marks a 401 as NOT retryable (a retry will fail identically) 0ms
+ ✓ lib/__tests__/syncIapEntitlement.test.ts > syncIapEntitlement — failure carries no entitlement > marks a thrown network error as retryable 0ms
+ ✓ lib/__tests__/syncIapEntitlement.test.ts > syncIapEntitlement — failure carries no entitlement > never reports a failure as an un-entitled reading 1ms
+ ✓ lib/__tests__/subscriptionManagement.test.ts > subscriptionManagementUrl > opens the App Store subscription manager on iOS 1ms
+ ✓ lib/__tests__/subscriptionManagement.test.ts > subscriptionManagementUrl > opens this app's Google Play subscription manager on Android 0ms
+ ✓ lib/__tests__/subscriptionManagement.test.ts > subscriptionManagementUrl > does not offer a native subscription manager on web 0ms
+ ✓ lib/__tests__/profileActions.test.ts > friendCtaFor > offers Add friend to a stranger 2ms
+ ✓ lib/__tests__/profileActions.test.ts > friendCtaFor > shows the pending state after a request is sent 0ms
+ ✓ lib/__tests__/profileActions.test.ts > friendCtaFor > offers Remove friend to an actual friend 0ms
+ ✓ lib/__tests__/profileActions.test.ts > friendCtaFor > hides every friend action once a block exists, even with a stale friends list 0ms
+ ✓ lib/__tests__/profileActions.test.ts > friendCtaFor > never offers friend actions on your own profile 0ms
+ ✓ lib/__tests__/api.test.ts > resolveUploadedUrl > returns a full public Supabase URL verbatim (public avatar upload) 1ms
+ ✓ lib/__tests__/api.test.ts > resolveUploadedUrl > also passes through plain http URLs 0ms
+ ✓ lib/__tests__/api.test.ts > resolveUploadedUrl > proxies a relative protected object path through /api/storage 0ms
+ ✓ lib/__tests__/api.test.ts > resolveUploadedUrl > does not prepend the proxy prefix to an https URL (regression for broken avatar) 0ms
+ ✓ lib/__tests__/mapLink.test.ts > mapsUrl > builds an Apple Maps URL on iOS 2ms
+ ✓ lib/__tests__/mapLink.test.ts > mapsUrl > builds a geo: URL on Android 0ms
+ ✓ lib/__tests__/mapLink.test.ts > mapsUrl > builds a Google Maps search URL on web/other 0ms
+ ✓ lib/__tests__/mapLink.test.ts > mapsUrl > trims surrounding whitespace before encoding 0ms
+ ✓ lib/__tests__/createDefaults.test.ts > shouldAutoSelectDefaultSquad > does not select a squad for plans started on Home 1ms
+ ✓ lib/__tests__/createDefaults.test.ts > shouldAutoSelectDefaultSquad > does not replace an explicitly standalone squad choice 0ms
+ ✓ lib/__tests__/createDefaults.test.ts > shouldAutoSelectDefaultSquad > keeps the default for squad-oriented entry points without a selection 0ms
+ ✓ lib/__tests__/createDefaults.test.ts > shouldAutoSelectDefaultSquad > does not select when the user has no squads 0ms
+
+ Test Files  42 passed (42)
+      Tests  561 passed (561)
+   Start at  06:53:24
+   Duration  1.89s (transform 1.44s, setup 0ms, import 2.89s, tests 1.05s, environment 1.40s)
+
+EXIT_STATUS=0

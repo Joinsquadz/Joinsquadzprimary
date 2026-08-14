@@ -65,3 +65,17 @@ id = "XHBi7zV4qOm21jaN0bZ0G"
 uri = "file://audit-screenshots/flow-1/01-home-logged-in.png"
 type = "image"
 title = "flow-1/01-home-logged-in.png"
+
+[[outputs]]
+id = "byI1EMuW0G9CrQtiA9Nj8"
+uri = "file://attached_assets/test-runs/api-last-verbose.txt"
+type = "text"
+title = "API verbose test output"
+description = "Unedited stdout/stderr from the last API test run, including every pass/fail line and final counts."
+
+[[outputs]]
+id = "smPcKxDUF0wNMKV7JI-JL"
+uri = "file://attached_assets/test-runs/mobile-last-verbose.txt"
+type = "text"
+title = "Mobile verbose test output"
+description = "Unedited stdout/stderr from the last mobile test run, including every pass/fail line and final counts."
