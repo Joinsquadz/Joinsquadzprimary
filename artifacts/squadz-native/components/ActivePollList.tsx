@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Alert, View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from "react-native";
+import { Alert, View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
@@ -113,7 +113,9 @@ export function ActivePollList({ scope, onSeeAll, refreshKey = 0 }: ActivePollLi
   };
 
   if (loading) {
-    return <ActivityIndicator color={colors.primary} style={{ marginTop: 10 }} />;
+    // Polls are auxiliary content. Keep their first fetch silent so a delayed
+    // response does not insert/remove a spinner and shift the squad screen.
+    return null;
   }
 
   if (failed) {
