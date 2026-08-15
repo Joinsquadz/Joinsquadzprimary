@@ -13,6 +13,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { KeyboardDismissControl } from "@/components/KeyboardDismissControl";
+import { KeyboardAvoidingSheet } from "@/components/KeyboardAvoidingSheet";
 import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
 import { UserAvatar } from "@/components/UserAvatar";
 import { SettleUp } from "@/components/SettleUp";
@@ -534,11 +535,11 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
 
       {/* ---- Add Expense Modal ---- */}
       <Modal visible={costModal} transparent animationType="slide" onRequestClose={() => setCostModal(false)}>
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingSheet style={styles.modalOverlay}>
           <View style={[styles.modalCardLarge, { backgroundColor: colors.surface, borderColor: colors.border, paddingBottom: botPad + 16 }]}>
             <Text style={[styles.modalTitle, { color: colors.foreground }]}>{editingCostId ? "Edit expense" : "Add expense"}</Text>
             <Text style={[styles.modalHint, { color: colors.mutedForeground }]}>You paid. Choose how to split the bill.</Text>
-            <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
               <TextInput
                 placeholder="What's it for? (e.g. Pizza)"
                 placeholderTextColor={colors.textDim}
@@ -725,7 +726,7 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingSheet>
         <KeyboardDismissControl />
       </Modal>
 
@@ -752,7 +753,7 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
 
       {/* ---- Budget Modal ---- */}
       <Modal visible={budgetModal} transparent animationType="fade" onRequestClose={() => setBudgetModal(false)}>
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingSheet style={styles.modalOverlay}>
           <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <Text style={[styles.modalTitle, { color: colors.foreground }]}>Group budget</Text>
             <View style={[styles.modalInput, styles.amountRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -781,7 +782,7 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingSheet>
         <KeyboardDismissControl />
       </Modal>
     </View>
@@ -816,8 +817,8 @@ const styles = StyleSheet.create({
   emptyTitle: { fontSize: 17, fontWeight: "800" },
   emptySub: { fontSize: 14, textAlign: "center", lineHeight: 20 },
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" },
-  modalCard: { borderTopLeftRadius: 22, borderTopRightRadius: 22, borderWidth: 1, padding: 20, gap: 12 },
-  modalCardLarge: { borderTopLeftRadius: 22, borderTopRightRadius: 22, borderWidth: 1, padding: 20, gap: 10 },
+  modalCard: { borderTopLeftRadius: 22, borderTopRightRadius: 22, borderWidth: 1, padding: 20, gap: 12, maxHeight: "92%" },
+  modalCardLarge: { borderTopLeftRadius: 22, borderTopRightRadius: 22, borderWidth: 1, padding: 20, gap: 10, maxHeight: "92%" },
   modalTitle: { fontSize: 19, fontWeight: "800" },
   modalHint: { fontSize: 13, marginTop: -4 },
   modalInput: { borderRadius: 12, borderWidth: 1.5, paddingHorizontal: 14, height: 50, fontSize: 15, marginTop: 8 },

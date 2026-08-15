@@ -51,6 +51,7 @@ import { claimOnce } from "@/lib/seenFlags";
 import { goingCount, eventRosterKey } from "@/lib/eventUtils";
 import { IdeaSheet } from "@/components/IdeaSheet";
 import { KeyboardDismissControl } from "@/components/KeyboardDismissControl";
+import { KeyboardAvoidingSheet } from "@/components/KeyboardAvoidingSheet";
 import { IdeaCard } from "@/components/IdeaCard";
 import {
   listIdeas,
@@ -2415,7 +2416,7 @@ export default function EventDetailScreen() {
 
       {/* ---- Add Food Item Modal ---- */}
       <Modal visible={foodModal} transparent animationType="fade" onRequestClose={() => setFoodModal(false)}>
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingSheet style={styles.modalOverlay}>
           <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <Text style={[styles.modalTitle, { color: colors.foreground }]}>Add to food list</Text>
             <TextInput
@@ -2435,13 +2436,13 @@ export default function EventDetailScreen() {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingSheet>
         <KeyboardDismissControl />
       </Modal>
 
       {/* ---- Add Task Modal ---- */}
       <Modal visible={taskModal} transparent animationType="fade" onRequestClose={() => setTaskModal(false)}>
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingSheet style={styles.modalOverlay}>
           <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <Text style={[styles.modalTitle, { color: colors.foreground }]}>Add a task</Text>
             <TextInput
@@ -2469,19 +2470,19 @@ export default function EventDetailScreen() {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingSheet>
         <KeyboardDismissControl />
       </Modal>
 
       {/* ---- Add Expense Modal ---- */}
       <Modal visible={costModal} transparent animationType="slide" onRequestClose={() => setCostModal(false)}>
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingSheet style={styles.modalOverlay}>
           <View style={[styles.modalCardLarge, { backgroundColor: colors.surface, borderColor: colors.border, paddingBottom: botPad + 16 }]}>
             <Text style={[styles.modalTitle, { color: colors.foreground }]}>{editingCostId ? "Edit expense" : "Add expense"}</Text>
             <Text style={[styles.modalHint, { color: colors.mutedForeground }]}>
               You paid. Choose how to split the bill.
             </Text>
-            <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
               <TextInput
                 placeholder="What's it for? (e.g. Pizza)"
                 placeholderTextColor={colors.textDim}
@@ -2647,16 +2648,16 @@ export default function EventDetailScreen() {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingSheet>
         <KeyboardDismissControl />
       </Modal>
 
       {/* ---- New Poll Modal ---- */}
       <Modal visible={pollModal} transparent animationType="slide" onRequestClose={() => setPollModal(false)}>
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingSheet style={styles.modalOverlay}>
           <View style={[styles.modalCardLarge, { backgroundColor: colors.surface, borderColor: colors.border, paddingBottom: botPad + 16 }]}>
             <Text style={[styles.modalTitle, { color: colors.foreground }]}>New poll</Text>
-            <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
               <TextInput
                 placeholder="Ask a question..."
                 placeholderTextColor={colors.textDim}
@@ -2698,16 +2699,16 @@ export default function EventDetailScreen() {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingSheet>
         <KeyboardDismissControl />
       </Modal>
 
       {/* ---- Edit Event Modal ---- */}
       <Modal visible={editModal} transparent animationType="slide" onRequestClose={() => setEditModal(false)}>
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingSheet style={styles.modalOverlay}>
           <View style={[styles.modalCardLarge, { backgroundColor: colors.surface, borderColor: colors.border, paddingBottom: botPad + 16 }]}>
             <Text style={[styles.modalTitle, { color: colors.foreground }]}>Edit event</Text>
-            <ScrollView style={{ maxHeight: 460 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
               <Text style={[styles.assignLabel, { color: colors.mutedForeground }]}>Icon</Text>
               <IconPicker value={edit.emoji} onChange={(e) => setEdit((p) => ({ ...p, emoji: e }))} />
               <TextInput
@@ -2795,7 +2796,7 @@ export default function EventDetailScreen() {
               </View>
             </View>
           )}
-        </View>
+        </KeyboardAvoidingSheet>
         <KeyboardDismissControl />
       </Modal>
 
@@ -2812,7 +2813,7 @@ export default function EventDetailScreen() {
 
       {/* ---- Budget Modal ---- */}
       <Modal visible={budgetModal} transparent animationType="fade" onRequestClose={() => setBudgetModal(false)}>
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingSheet style={styles.modalOverlay}>
           <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <Text style={[styles.modalTitle, { color: colors.foreground }]}>Group budget</Text>
             <Text style={[styles.modalHint, { color: colors.mutedForeground }]}>
@@ -2845,7 +2846,7 @@ export default function EventDetailScreen() {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingSheet>
         <KeyboardDismissControl />
       </Modal>
 
@@ -3060,8 +3061,8 @@ const styles = StyleSheet.create({
   sendBtn: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
   // modals
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" },
-  modalCard: { borderTopLeftRadius: 22, borderTopRightRadius: 22, borderWidth: 1, padding: 20, gap: 12 },
-  modalCardLarge: { borderTopLeftRadius: 22, borderTopRightRadius: 22, borderWidth: 1, padding: 20, gap: 10 },
+  modalCard: { borderTopLeftRadius: 22, borderTopRightRadius: 22, borderWidth: 1, padding: 20, gap: 12, maxHeight: "92%" },
+  modalCardLarge: { borderTopLeftRadius: 22, borderTopRightRadius: 22, borderWidth: 1, padding: 20, gap: 10, maxHeight: "92%" },
   modalTitle: { fontSize: 19, fontWeight: "800" },
   modalHint: { fontSize: 13, marginTop: -4 },
   modalInput: { borderRadius: 12, borderWidth: 1.5, paddingHorizontal: 14, height: 50, fontSize: 15, marginTop: 8 },

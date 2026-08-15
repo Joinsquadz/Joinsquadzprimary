@@ -13,6 +13,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
+import { KeyboardAvoidingSheet } from "@/components/KeyboardAvoidingSheet";
 import { KeyboardDismissControl } from "@/components/KeyboardDismissControl";
 import { EMOJI_CATEGORIES, CURATED_EMOJIS } from "@/constants/emojis";
 
@@ -123,7 +124,7 @@ export function IconPicker({ value, onChange, accent }: IconPickerProps) {
       </View>
 
       <Modal visible={open} transparent animationType="slide" onRequestClose={closeSheet}>
-        <View style={styles.overlay}>
+        <KeyboardAvoidingSheet style={styles.overlay}>
           {/* Tap-away to dismiss */}
           <TouchableOpacity style={styles.overlayTap} activeOpacity={1} onPress={closeSheet} />
           <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border, paddingBottom: botPad + 12 }]}>
@@ -199,7 +200,7 @@ export function IconPicker({ value, onChange, accent }: IconPickerProps) {
               )}
             </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingSheet>
         <KeyboardDismissControl />
       </Modal>
     </>

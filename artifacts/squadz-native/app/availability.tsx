@@ -31,6 +31,8 @@ import { useToastBanner } from "@/context/ToastBannerContext";
 import { claimOnce } from "@/lib/seenFlags";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { GradientButton } from "@/components/GradientButton";
+import { KeyboardAvoidingSheet } from "@/components/KeyboardAvoidingSheet";
+import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { SkeletonBox } from "@/components/SkeletonBox";
 import { KeyboardDismissControl } from "@/components/KeyboardDismissControl";
 import {
@@ -2046,7 +2048,8 @@ export default function AvailabilityScreen() {
         </View>
       ) : needsSetup ? (
         <>
-          <ScrollView
+          <KeyboardAwareScrollViewCompat
+            bottomOffset={24}
             style={styles.body}
             contentContainerStyle={{ paddingBottom: botPad + 120, paddingHorizontal: 20 }}
             showsVerticalScrollIndicator={false}
@@ -2560,7 +2563,7 @@ export default function AvailabilityScreen() {
                 </View>
               </>
             )}
-          </ScrollView>
+          </KeyboardAwareScrollViewCompat>
 
           <View style={[styles.bottomBar, { borderTopColor: colors.border, paddingBottom: botPad + 12, backgroundColor: colors.background }]}>
             <View style={styles.wizardNavRow}>
@@ -2662,7 +2665,8 @@ export default function AvailabilityScreen() {
         </>
       ) : data ? (
         <>
-          <ScrollView
+          <KeyboardAwareScrollViewCompat
+            bottomOffset={24}
             style={styles.body}
             contentContainerStyle={{ paddingBottom: botPad + 140, paddingHorizontal: 20 }}
             showsVerticalScrollIndicator={false}
@@ -3310,7 +3314,7 @@ export default function AvailabilityScreen() {
                 )}
               </View>
             )}
-          </ScrollView>
+          </KeyboardAwareScrollViewCompat>
 
           <View style={[styles.bottomBar, { borderTopColor: colors.border, paddingBottom: botPad + 12, backgroundColor: colors.background }]}>
             {droppedNotice !== null && (
@@ -3580,7 +3584,7 @@ export default function AvailabilityScreen() {
         transparent
         onRequestClose={closeEditRange}
       >
-        <View style={styles.pickerOverlay}>
+        <KeyboardAvoidingSheet style={styles.pickerOverlay}>
           <View style={[styles.editSheet, { backgroundColor: colors.background, paddingBottom: botPad + 12 }]}>
             <View style={[styles.pickerToolbar, { borderBottomColor: colors.border }]}>
               <TouchableOpacity onPress={closeEditRange} style={styles.pickerBtn}>
@@ -3841,7 +3845,7 @@ export default function AvailabilityScreen() {
               </View>
             )}
           </View>
-        </View>
+        </KeyboardAvoidingSheet>
         <KeyboardDismissControl />
       </Modal>
     </View>

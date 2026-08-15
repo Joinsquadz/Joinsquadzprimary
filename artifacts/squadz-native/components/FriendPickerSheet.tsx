@@ -13,6 +13,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
+import { KeyboardAvoidingSheet } from "@/components/KeyboardAvoidingSheet";
 import { KeyboardDismissControl } from "@/components/KeyboardDismissControl";
 import { useData } from "@/context/AppContext";
 import { useUserCache } from "@/context/UserCacheContext";
@@ -107,7 +108,7 @@ export default function FriendPickerSheet({
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.backdrop}>
+      <KeyboardAvoidingSheet style={styles.backdrop}>
         <View
           style={[
             styles.sheet,
@@ -234,7 +235,7 @@ export default function FriendPickerSheet({
             )}
           </TouchableOpacity>
         </View>
-      </View>
+      </KeyboardAvoidingSheet>
       <KeyboardDismissControl />
     </Modal>
   );

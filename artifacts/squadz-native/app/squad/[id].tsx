@@ -15,7 +15,6 @@ import {
   ActivityIndicator,
   Animated,
   Switch,
-  KeyboardAvoidingView,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useTips } from "@/context/TipsContext";
@@ -46,6 +45,7 @@ import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
 
 import { IconPicker } from "@/components/IconPicker";
 import { KeyboardDismissControl } from "@/components/KeyboardDismissControl";
+import { KeyboardAvoidingSheet } from "@/components/KeyboardAvoidingSheet";
 import { AddFriendBadge } from "@/components/AddFriendBadge";
 import { FriendRulesInfo } from "@/components/FriendRulesInfo";
 import { SQUAD_COLORS } from "@/constants/colors";
@@ -1169,10 +1169,7 @@ export default function SquadDetailScreen() {
         animationType="slide"
         onRequestClose={() => { setAddMemberOpen(false); resetAddMemberModal(); }}
       >
-        <KeyboardAvoidingView
-          style={styles.modalOverlay}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-        >
+        <KeyboardAvoidingSheet style={styles.modalOverlay}>
           <View style={[styles.modalCard, styles.addMemberCard, { backgroundColor: colors.surface, borderColor: colors.border, paddingBottom: botPad + 16 }]}>
             {/* Persistent close (X) — left side, always visible above scrolling content */}
             <TouchableOpacity
@@ -1311,7 +1308,7 @@ export default function SquadDetailScreen() {
               </Text>
             </TouchableOpacity>
           </View>
-        </KeyboardAvoidingView>
+        </KeyboardAvoidingSheet>
         <KeyboardDismissControl />
       </Modal>
 
@@ -1326,7 +1323,7 @@ export default function SquadDetailScreen() {
           if (newInviteDismissTimer.current) clearTimeout(newInviteDismissTimer.current);
         }}
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingSheet style={styles.modalOverlay}>
           <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border, paddingBottom: botPad + 16, maxHeight: "92%" }]}>
             <Text style={[styles.modalTitle, { color: colors.foreground }]}>Squad settings</Text>
 
@@ -1610,7 +1607,7 @@ export default function SquadDetailScreen() {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingSheet>
         <KeyboardDismissControl />
       </Modal>
     </View>

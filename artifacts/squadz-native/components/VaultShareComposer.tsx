@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
   Modal,
   Platform,
   StyleSheet,
@@ -16,6 +15,7 @@ import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { KeyboardDismissControl } from "@/components/KeyboardDismissControl";
+import { KeyboardAvoidingSheet } from "@/components/KeyboardAvoidingSheet";
 import { useToast } from "@/context/ToastContext";
 import { API_BASE, buildAuthHeaders, resolveUploadedUrl } from "@/lib/api";
 import AttachmentVideo from "@/components/AttachmentVideo";
@@ -88,11 +88,8 @@ export default function VaultShareComposer({ visible, target, authToken, onClose
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-          style={styles.kav}
-        >
+      <KeyboardAvoidingSheet style={styles.backdrop}>
+        <View style={styles.kav}>
           <View style={[styles.sheet, { backgroundColor: colors.background, paddingBottom: Math.max(insets.bottom, 16) }]}>
             <View style={styles.handle} />
             <View style={styles.header}>
@@ -150,8 +147,8 @@ export default function VaultShareComposer({ visible, target, authToken, onClose
               <Ionicons name="lock-closed" size={15} color={colors.mutedForeground} />
             </View>
           </View>
-        </KeyboardAvoidingView>
-      </View>
+        </View>
+      </KeyboardAvoidingSheet>
       <KeyboardDismissControl />
     </Modal>
   );

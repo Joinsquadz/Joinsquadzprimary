@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
+import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { useAuth, useData } from "@/context/AppContext";
 import { UserAvatar } from "@/components/UserAvatar";
 import { ImageViewerModal } from "@/components/ImageViewerModal";
@@ -644,9 +645,10 @@ export default function ProfileScreen() {
         <Text style={[styles.topBarTitle, { color: colors.foreground }]}>You</Text>
         <View style={{ width: 40 }} />
       </View>
-      <ScrollView
+      <KeyboardAwareScrollViewCompat
         contentContainerStyle={{ paddingBottom: botPad }}
         showsVerticalScrollIndicator={false}
+        bottomOffset={24}
       >
         {showSuccessBanner && (
           <Animated.View style={[styles.successBanner, { backgroundColor: colors.green + "18", borderColor: colors.green + "50", opacity: bannerOpacity, marginTop: 12 }]}>
@@ -1158,7 +1160,7 @@ export default function ProfileScreen() {
             )}
           </View>
         ) : null}
-      </ScrollView>
+      </KeyboardAwareScrollViewCompat>
 
       <UpgradeModal
         visible={upgradeModalVisible}

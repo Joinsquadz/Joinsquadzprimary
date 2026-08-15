@@ -21,6 +21,7 @@ import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import AttachmentVideo from "@/components/AttachmentVideo";
 import { useColors } from "@/hooks/useColors";
+import { renderKeyboardAwareScroll } from "@/components/KeyboardAwareScrollViewCompat";
 import { useAuth, useData } from "@/context/AppContext";
 import { useUserCache } from "@/context/UserCacheContext";
 import { ProAvatar } from "@/components/ProAvatar";
@@ -746,6 +747,7 @@ export default function FeedScreen() {
         contentContainerStyle={{ paddingBottom: botPad }}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        renderScrollComponent={renderKeyboardAwareScroll}
         initialNumToRender={6}
         maxToRenderPerBatch={6}
         windowSize={11}

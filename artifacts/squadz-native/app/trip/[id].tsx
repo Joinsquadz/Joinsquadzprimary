@@ -44,6 +44,7 @@ import { attendingIds } from "@/lib/eventUtils";
 import { TAB_BAR_HEIGHT } from "@/constants/layout";
 import { AddFriendBadge } from "@/components/AddFriendBadge";
 import { KeyboardDismissControl } from "@/components/KeyboardDismissControl";
+import { KeyboardAvoidingSheet } from "@/components/KeyboardAvoidingSheet";
 // Shared auth-race guard (see lib/vaultAuthRace.ts). Opening a trip directly on a
 // cold start (deep link / push tap / past trip from the Past hub) fetches the
 // single event; a pre-token-restore 401 must keep it loading + retry instead of
@@ -1849,7 +1850,7 @@ export default function TripDetailScreen() {
 
       {/* ---- Admin sheet ---- */}
       <Modal visible={adminOpen} transparent animationType="slide" onRequestClose={() => setAdminOpen(false)}>
-        <View style={styles.adminBackdrop}>
+        <KeyboardAvoidingSheet style={styles.adminBackdrop}>
           <View style={[styles.adminSheet, { backgroundColor: colors.background, maxHeight: "88%" }]}>
             <View style={styles.adminHeader}>
               <Text style={[styles.adminTitle, { color: colors.foreground }]}>Manage trip</Text>
@@ -2093,7 +2094,7 @@ export default function TripDetailScreen() {
               </View>
             </View>
           ) : null}
-        </View>
+        </KeyboardAvoidingSheet>
         <KeyboardDismissControl />
       </Modal>
 
@@ -2239,7 +2240,7 @@ const styles = StyleSheet.create({
   fabText: { color: "#fff", fontSize: 15, fontWeight: "800" },
 
   adminBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" },
-  adminSheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 20, paddingTop: 16 },
+  adminSheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 20, paddingTop: 16, flexShrink: 1 },
   adminHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
   adminTitle: { fontSize: 19, fontWeight: "800" },
   adminCloseBtn: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },

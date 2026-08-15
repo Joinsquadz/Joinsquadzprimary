@@ -112,4 +112,5 @@
 - [Open plan detail freshness](open-plan-freshness.md) — detail screens must refetch the SINGLE plan (list is paginated/upcoming-only) and key user prefetch on the roster, not the plan id.
 - [Refetch flicker from object deps](refetch-flicker-object-deps.md) — self-fetching lists must key on a primitive scope string; inline prop objects + SSE re-renders = content that vanishes and returns on a rhythm.
 - [Keyboard dismiss + sticky index](rn-keyboard-dismiss-and-sticky-index.md) — RN Modals hide the root-mounted "Done" control (re-mount inside each sheet; null on web); stickyHeaderIndices counts DIRECT children only.
+- [RN Modal keyboard avoidance](rn-modal-keyboard-avoidance.md) — screen-level avoidance NEVER reaches Modal content (own native window); every input modal needs KeyboardAvoidingSheet + a shrinkable (%) maxHeight.
 - [node --import needs ./](node-import-flag-bare-specifier.md) — bare relative path in `--import` = ERR_MODULE_NOT_FOUND "Cannot find package '<first-segment>'"; multi-artifact deploy stderr is untagged, blames the wrong artifact.
