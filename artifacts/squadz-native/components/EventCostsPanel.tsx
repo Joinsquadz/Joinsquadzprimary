@@ -12,6 +12,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
+import { KeyboardDismissControl } from "@/components/KeyboardDismissControl";
 import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
 import { UserAvatar } from "@/components/UserAvatar";
 import { SettleUp } from "@/components/SettleUp";
@@ -725,6 +726,7 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
             </View>
           </View>
         </View>
+        <KeyboardDismissControl />
       </Modal>
 
       {/* ---- Receipt full-screen viewer ---- */}
@@ -780,6 +782,7 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
             </View>
           </View>
         </View>
+        <KeyboardDismissControl />
       </Modal>
     </View>
   );

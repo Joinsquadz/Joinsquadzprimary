@@ -18,6 +18,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
+import { KeyboardDismissControl } from "@/components/KeyboardDismissControl";
 import { useToast } from "@/context/ToastContext";
 import { API_BASE, buildAuthHeaders, resolveUploadedUrl } from "@/lib/api";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -730,6 +731,7 @@ export default function VaultMediaDetail({
           />
         )}
       </View>
+      <KeyboardDismissControl />
     </Modal>
   );
 }

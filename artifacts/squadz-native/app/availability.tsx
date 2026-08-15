@@ -32,6 +32,7 @@ import { claimOnce } from "@/lib/seenFlags";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { GradientButton } from "@/components/GradientButton";
 import { SkeletonBox } from "@/components/SkeletonBox";
+import { KeyboardDismissControl } from "@/components/KeyboardDismissControl";
 import {
   DAY_COUNT_OPTIONS,
   DEFAULT_DAY_COUNT,
@@ -3841,6 +3842,7 @@ export default function AvailabilityScreen() {
             )}
           </View>
         </View>
+        <KeyboardDismissControl />
       </Modal>
     </View>
   );

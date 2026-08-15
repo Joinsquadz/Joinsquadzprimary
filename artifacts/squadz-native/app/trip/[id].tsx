@@ -43,6 +43,7 @@ import ConflictBanner from "@/components/ConflictBanner";
 import { attendingIds } from "@/lib/eventUtils";
 import { TAB_BAR_HEIGHT } from "@/constants/layout";
 import { AddFriendBadge } from "@/components/AddFriendBadge";
+import { KeyboardDismissControl } from "@/components/KeyboardDismissControl";
 // Shared auth-race guard (see lib/vaultAuthRace.ts). Opening a trip directly on a
 // cold start (deep link / push tap / past trip from the Past hub) fetches the
 // single event; a pre-token-restore 401 must keep it loading + retry instead of
@@ -1215,7 +1216,11 @@ export default function TripDetailScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: insets.bottom + 120 }}
         stickyHeaderIndices={[1]}
+        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
       >
+        {/* This one direct child contains all hero/roster content. Keeping the
+            tab bar as child index 1 prevents the attendee panel from sticking. */}
+        <View>
         {/* Cover header */}
         <LinearGradient colors={cover} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.cover, { paddingTop: insets.top + (Platform.OS === "web" ? 67 : 12) }]}>
           <View style={styles.coverTopRow}>
@@ -1345,6 +1350,7 @@ export default function TripDetailScreen() {
               </TouchableOpacity>
             )}
           </View>
+        </View>
         </View>
 
         {/* Sticky tab bar */}
@@ -2088,6 +2094,7 @@ export default function TripDetailScreen() {
             </View>
           ) : null}
         </View>
+        <KeyboardDismissControl />
       </Modal>
 
       {/* Android native date dialog (safe outside the modal; web uses inline <input type="date">) */}

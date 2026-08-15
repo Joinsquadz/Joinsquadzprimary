@@ -45,6 +45,7 @@ import { goingCount } from "@/lib/eventUtils";
 import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
 
 import { IconPicker } from "@/components/IconPicker";
+import { KeyboardDismissControl } from "@/components/KeyboardDismissControl";
 import { AddFriendBadge } from "@/components/AddFriendBadge";
 import { FriendRulesInfo } from "@/components/FriendRulesInfo";
 import { SQUAD_COLORS } from "@/constants/colors";
@@ -1311,6 +1312,7 @@ export default function SquadDetailScreen() {
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
+        <KeyboardDismissControl />
       </Modal>
 
       {/* ---- Settings Modal ---- */}
@@ -1609,6 +1611,7 @@ export default function SquadDetailScreen() {
             </View>
           </View>
         </View>
+        <KeyboardDismissControl />
       </Modal>
     </View>
   );

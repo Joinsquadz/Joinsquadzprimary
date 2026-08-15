@@ -20,6 +20,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
+import { KeyboardDismissControl } from "@/components/KeyboardDismissControl";
 import { useData, useAuth } from "@/context/AppContext";
 import { FindTimeChooser } from "@/components/FindTimeChooser";
 import { useUserCache } from "@/context/UserCacheContext";
@@ -1128,6 +1129,7 @@ export default function CreateEventScreen() {
               />
             </View>
           </View>
+          <KeyboardDismissControl />
         </Modal>
       )}
 
@@ -1170,6 +1172,7 @@ export default function CreateEventScreen() {
               />
             </View>
           </View>
+          <KeyboardDismissControl />
         </Modal>
       )}
 
@@ -1210,6 +1213,7 @@ export default function CreateEventScreen() {
               />
             </View>
           </View>
+          <KeyboardDismissControl />
         </Modal>
       )}
 

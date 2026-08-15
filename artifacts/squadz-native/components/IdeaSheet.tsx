@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
+import { KeyboardDismissControl } from "@/components/KeyboardDismissControl";
 import type { IdeaCategory, PlanIdea } from "@/types";
 import { IDEA_CATEGORIES, IDEA_CATEGORY_META } from "@/lib/ideaUtils";
 import type { IdeaPatch, NewIdeaInput } from "@/lib/ideas";
@@ -243,6 +244,7 @@ export function IdeaSheet({
           </View>
         </View>
       </KeyboardAvoidingView>
+      <KeyboardDismissControl />
     </Modal>
   );
 }

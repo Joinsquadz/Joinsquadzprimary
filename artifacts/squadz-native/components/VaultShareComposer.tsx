@@ -15,6 +15,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
+import { KeyboardDismissControl } from "@/components/KeyboardDismissControl";
 import { useToast } from "@/context/ToastContext";
 import { API_BASE, buildAuthHeaders, resolveUploadedUrl } from "@/lib/api";
 import AttachmentVideo from "@/components/AttachmentVideo";
@@ -151,6 +152,7 @@ export default function VaultShareComposer({ visible, target, authToken, onClose
           </View>
         </KeyboardAvoidingView>
       </View>
+      <KeyboardDismissControl />
     </Modal>
   );
 }

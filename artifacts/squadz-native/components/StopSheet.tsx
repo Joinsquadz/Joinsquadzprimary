@@ -16,6 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { useColors } from "@/hooks/useColors";
+import { KeyboardDismissControl } from "@/components/KeyboardDismissControl";
 import type { ItineraryStop, StopCategory } from "@/types";
 import { STOP_CATEGORIES, STOP_CATEGORY_META, formatDayHeading } from "@/lib/tripUtils";
 import { STOP_VOTING_ENABLED } from "@/lib/tripApi";
@@ -457,6 +458,7 @@ export function StopSheet({
           />
         )}
       </KeyboardAvoidingView>
+      <KeyboardDismissControl />
     </Modal>
   );
 }

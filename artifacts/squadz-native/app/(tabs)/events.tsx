@@ -19,6 +19,7 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useData, useAuth, dbEventToEvent } from "@/context/AppContext";
 import { EventCard } from "@/components/EventCard";
+import { KeyboardDismissControl } from "@/components/KeyboardDismissControl";
 import { TripCard } from "@/components/TripCard";
 import type { Event } from "@/types";
 import { goingCount, parseEventDate } from "@/lib/eventUtils";
@@ -232,6 +233,7 @@ function JoinCodeModal({
           )}
         </View>
       </KeyboardAvoidingView>
+      <KeyboardDismissControl />
     </Modal>
   );
 }

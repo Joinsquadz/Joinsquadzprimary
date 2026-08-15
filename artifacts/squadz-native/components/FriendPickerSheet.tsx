@@ -13,6 +13,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
+import { KeyboardDismissControl } from "@/components/KeyboardDismissControl";
 import { useData } from "@/context/AppContext";
 import { useUserCache } from "@/context/UserCacheContext";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -234,6 +235,7 @@ export default function FriendPickerSheet({
           </TouchableOpacity>
         </View>
       </View>
+      <KeyboardDismissControl />
     </Modal>
   );
 }

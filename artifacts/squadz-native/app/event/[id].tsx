@@ -50,6 +50,7 @@ import { CelebrationOverlay } from "@/components/CelebrationOverlay";
 import { claimOnce } from "@/lib/seenFlags";
 import { goingCount, eventRosterKey } from "@/lib/eventUtils";
 import { IdeaSheet } from "@/components/IdeaSheet";
+import { KeyboardDismissControl } from "@/components/KeyboardDismissControl";
 import { IdeaCard } from "@/components/IdeaCard";
 import {
   listIdeas,
@@ -2435,6 +2436,7 @@ export default function EventDetailScreen() {
             </View>
           </View>
         </View>
+        <KeyboardDismissControl />
       </Modal>
 
       {/* ---- Add Task Modal ---- */}
@@ -2468,6 +2470,7 @@ export default function EventDetailScreen() {
             </View>
           </View>
         </View>
+        <KeyboardDismissControl />
       </Modal>
 
       {/* ---- Add Expense Modal ---- */}
@@ -2645,6 +2648,7 @@ export default function EventDetailScreen() {
             </View>
           </View>
         </View>
+        <KeyboardDismissControl />
       </Modal>
 
       {/* ---- New Poll Modal ---- */}
@@ -2695,6 +2699,7 @@ export default function EventDetailScreen() {
             </View>
           </View>
         </View>
+        <KeyboardDismissControl />
       </Modal>
 
       {/* ---- Edit Event Modal ---- */}
@@ -2791,6 +2796,7 @@ export default function EventDetailScreen() {
             </View>
           )}
         </View>
+        <KeyboardDismissControl />
       </Modal>
 
       {/* Android end-time picker (native dialog — safe outside the modal) */}
@@ -2840,6 +2846,7 @@ export default function EventDetailScreen() {
             </View>
           </View>
         </View>
+        <KeyboardDismissControl />
       </Modal>
 
       <FindTimeChooser

@@ -13,6 +13,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
+import { KeyboardDismissControl } from "@/components/KeyboardDismissControl";
 import { EMOJI_CATEGORIES, CURATED_EMOJIS } from "@/constants/emojis";
 
 interface IconPickerProps {
@@ -199,6 +200,7 @@ export function IconPicker({ value, onChange, accent }: IconPickerProps) {
             </ScrollView>
           </View>
         </View>
+        <KeyboardDismissControl />
       </Modal>
     </>
   );
