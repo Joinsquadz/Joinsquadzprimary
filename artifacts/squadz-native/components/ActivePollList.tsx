@@ -7,6 +7,7 @@ import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AppContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { pollStatusLabel, INLINE_POLL_CAP, splitInlinePolls } from "@/lib/pollWizard";
+import { activePollScopeQuery } from "@/lib/activePollScope";
 
 // INLINE_POLL_CAP / splitInlinePolls live in lib/pollWizard (React-free) so the
 // capping rule is unit-tested without mounting this component. Re-exported here
@@ -50,14 +51,17 @@ export function ActivePollList({ scope, onSeeAll, refreshKey = 0 }: ActivePollLi
   const [polls, setPolls] = useState<ActivePollSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
+  // Squad and event detail screens construct `scope` inline, so it is a new
+  // object on every parent render. Depend on its primitive request identity,
+  // not object identity, or each unrelated refresh briefly removes this list.
+  const scopeQuery = activePollScopeQuery(scope);
 
   const load = useCallback(async () => {
     if (!authToken) return;
     setLoading(true);
     setFailed(false);
     try {
-      const qs = scope.type === "squad" ? `squadId=${scope.squadId}` : `eventId=${scope.eventId}`;
-      const res = await fetch(`${API_BASE}/api/availability/polls?${qs}`, {
+      const res = await fetch(`${API_BASE}/api/availability/polls?${scopeQuery}`, {
         headers: { "Content-Type": "application/json", ...buildAuthHeaders(authToken) },
       });
       if (!res.ok) {
@@ -73,7 +77,7 @@ export function ActivePollList({ scope, onSeeAll, refreshKey = 0 }: ActivePollLi
     } finally {
       setLoading(false);
     }
-  }, [authToken, scope]);
+  }, [authToken, scopeQuery]);
 
   useEffect(() => {
     void load();

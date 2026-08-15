@@ -18,10 +18,11 @@ import { useColors } from "@/hooks/useColors";
 import { useAuth, useData } from "@/context/AppContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { pollStatusLabel } from "@/lib/pollWizard";
+import { activePollScopeQuery } from "@/lib/activePollScope";
+import type { ActivePollScope } from "@/components/ActivePollList";
 
 export type FindTimeScope =
-  | { type: "squad"; squadId: string }
-  | { type: "event"; eventId: string }
+  | ActivePollScope
   | { type: "personal" };
 
 interface PollSummary {
@@ -63,6 +64,7 @@ export function FindTimeChooser({ visible, scope, onClose, onStartNew }: FindTim
   const [loading, setLoading] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const scopeQuery = scope.type === "personal" ? "scope=personal" : activePollScopeQuery(scope);
 
   const headers = useCallback(
     (): Record<string, string> => ({ "Content-Type": "application/json", ...buildAuthHeaders(authToken) }),
@@ -77,13 +79,7 @@ export function FindTimeChooser({ visible, scope, onClose, onStartNew }: FindTim
       // Every scope lists ALL of its active polls. Event scope used to resolve
       // a single board via /find, which hid every earlier active poll for that
       // event behind the newest one.
-      const qs =
-        scope.type === "squad"
-          ? `squadId=${scope.squadId}`
-          : scope.type === "event"
-          ? `eventId=${scope.eventId}`
-          : "scope=personal";
-      const res = await fetch(`${API_BASE}/api/availability/polls?${qs}`, { headers: headers() });
+      const res = await fetch(`${API_BASE}/api/availability/polls?${scopeQuery}`, { headers: headers() });
       if (res.ok) {
         const body = (await res.json()) as { polls: PollSummary[] };
         setPolls(body.polls ?? []);
@@ -100,7 +96,7 @@ export function FindTimeChooser({ visible, scope, onClose, onStartNew }: FindTim
     } finally {
       setLoading(false);
     }
-  }, [authToken, headers, scope]);
+  }, [authToken, headers, scopeQuery]);
 
   useEffect(() => {
     if (visible) void load();
