@@ -30,6 +30,7 @@ vi.mock("../stripeService", () => ({
   stripeService: {
     createCustomer: vi.fn().mockResolvedValue({ id: "cus_new" }),
     createCheckoutSession: vi.fn().mockResolvedValue({ url: "https://checkout.example/abc" }),
+    createCustomerPortalSession: vi.fn().mockResolvedValue({ url: "https://billing.example/portal" }),
   },
 }));
 
@@ -44,19 +45,8 @@ import { storage } from "../storage";
 
 const makeApp = (user?: TestUser) => makeTestApp(stripeRouter, user);
 
-const VERIFIED_CUSTOMER = {
-  id: "u1",
-  email: "u1@example.test",
-  emailVerified: true,
-  stripeCustomerId: "cus_1",
-  stripeSubscriptionId: null,
-};
-
 beforeEach(() => {
   vi.clearAllMocks();
-  foundingMock.priceIdForTier.mockImplementation((tier) =>
-    tier === "founding" ? "price_founding" : "price_standard",
-  );
 });
 
 describe("GET /api/subscription/founding-status (public)", () => {
@@ -88,90 +78,48 @@ describe("GET /api/subscription/founding-status (public)", () => {
   });
 });
 
-describe("POST /api/checkout — server-chosen tier", () => {
-  it("requires authentication", async () => {
+describe("POST /api/checkout — intentionally disabled", () => {
+  it("returns an intentional deprecation response without authentication", async () => {
     const res = await request(makeApp()).post("/api/checkout").send({});
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(410);
+    expect(res.body).toEqual({
+      error: "Stripe Checkout has been permanently disabled",
+      code: "STRIPE_CHECKOUT_DISABLED",
+    });
   });
 
-  it("applies the founding price when a spot is claimed and returns the tier", async () => {
-    vi.mocked(storage.getUser).mockResolvedValue(VERIFIED_CUSTOMER as never);
-    foundingMock.decideCheckoutTier.mockResolvedValue("founding");
-
-    const res = await request(makeApp({ id: "u1", email: "u1@example.test" }))
-      .post("/api/checkout")
-      .send({});
-
-    expect(res.status).toBe(200);
-    expect(res.body.tier).toBe("founding");
-    expect(res.body.priceId).toBe("price_founding");
-    expect(res.body.url).toBe("https://checkout.example/abc");
-
-    const { stripeService } = await import("../stripeService");
-    expect(vi.mocked(stripeService.createCheckoutSession)).toHaveBeenCalledWith(
-      "cus_1",
-      "price_founding",
-      expect.any(String),
-      expect.any(String),
-      expect.objectContaining({ userId: "u1", tier: "founding" }),
-    );
-  });
-
-  it("falls back to the standard price when founding is sold out", async () => {
-    vi.mocked(storage.getUser).mockResolvedValue(VERIFIED_CUSTOMER as never);
-    foundingMock.decideCheckoutTier.mockResolvedValue("standard");
-
-    const res = await request(makeApp({ id: "u1", email: "u1@example.test" }))
-      .post("/api/checkout")
-      .send({});
-
-    expect(res.status).toBe(200);
-    expect(res.body.tier).toBe("standard");
-    expect(res.body.priceId).toBe("price_standard");
-  });
-
-  it("ignores any client-supplied priceId (cannot self-select founding)", async () => {
-    vi.mocked(storage.getUser).mockResolvedValue(VERIFIED_CUSTOMER as never);
-    foundingMock.decideCheckoutTier.mockResolvedValue("standard");
-
+  it("does not invoke Stripe or founding-tier logic", async () => {
     const res = await request(makeApp({ id: "u1", email: "u1@example.test" }))
       .post("/api/checkout")
       .send({ priceId: "price_founding" });
 
-    expect(res.status).toBe(200);
-    expect(res.body.tier).toBe("standard");
-    expect(res.body.priceId).toBe("price_standard");
-  });
-
-  it("allows checkout for an unverified email (verification no longer gates upgrade)", async () => {
-    vi.mocked(storage.getUser).mockResolvedValue({
-      ...VERIFIED_CUSTOMER,
-      emailVerified: false,
-    } as never);
-    foundingMock.decideCheckoutTier.mockResolvedValue("standard");
-
-    const res = await request(makeApp({ id: "u1", email: "u1@example.test" }))
-      .post("/api/checkout")
-      .send({});
-
-    expect(res.status).toBe(200);
-    expect(res.body.tier).toBe("standard");
-    expect(res.body.url).toBe("https://checkout.example/abc");
-    expect(foundingMock.decideCheckoutTier).toHaveBeenCalled();
-  });
-
-  it("blocks checkout when the user already has an active subscription", async () => {
-    vi.mocked(storage.getUser).mockResolvedValue({
-      ...VERIFIED_CUSTOMER,
-      stripeSubscriptionId: "sub_active",
-    } as never);
-    vi.mocked(storage.getSubscription).mockResolvedValue({ status: "active" } as never);
-
-    const res = await request(makeApp({ id: "u1", email: "u1@example.test" }))
-      .post("/api/checkout")
-      .send({});
-
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(410);
     expect(foundingMock.decideCheckoutTier).not.toHaveBeenCalled();
+    const { stripeService } = await import("../stripeService");
+    expect(vi.mocked(stripeService.createCustomer)).not.toHaveBeenCalled();
+    expect(vi.mocked(stripeService.createCheckoutSession)).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/portal", () => {
+  it("returns an intentional deprecation response without authentication", async () => {
+    const res = await request(makeApp()).post("/api/portal").send({});
+
+    expect(res.status).toBe(410);
+    expect(res.body).toEqual({
+      error: "Stripe Billing Portal has been permanently disabled",
+      code: "STRIPE_PORTAL_DISABLED",
+    });
+  });
+
+  it("does not invoke Stripe customer lookup or portal creation", async () => {
+    const res = await request(makeApp({ id: "u1", email: "u1@example.test" }))
+      .post("/api/portal")
+      .send({});
+
+    expect(res.status).toBe(410);
+    const { stripeService } = await import("../stripeService");
+    expect(vi.mocked(stripeService.createCustomerPortalSession)).not.toHaveBeenCalled();
+    expect(vi.mocked(storage.getUser)).not.toHaveBeenCalled();
   });
 });

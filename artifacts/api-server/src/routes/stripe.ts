@@ -1,12 +1,10 @@
 import { Router, type IRouter } from 'express';
 import { storage } from '../storage';
-import { stripeService } from '../stripeService';
 import { requireAuth } from '../middleware/currentUser';
 import { logger } from '../lib/logger';
 import { buildProWelcomeHtml } from '../emailService';
 import { getBaseUrl } from '../lib/urls';
-import { trackEvent } from '../services/analytics';
-import { decideCheckoutTier, priceIdForTier, getFoundingStatus } from '../lib/founding';
+import { getFoundingStatus } from '../lib/founding';
 import { resolveProStatus } from '../lib/proStatus';
 
 const router: IRouter = Router();
@@ -79,68 +77,14 @@ router.get('/products-with-prices', async (_req, res): Promise<void> => {
   }
 });
 
-// All billing endpoints require authentication.
-// User identity comes from the session (set by authMiddleware), never from the client.
-router.post('/checkout', requireAuth, async (req, res): Promise<void> => {
-  try {
-    // The client no longer chooses the price — the server decides the tier
-    // (founding vs standard) atomically and picks the matching price id from
-    // env. Any priceId in the body is ignored on purpose so a client can't
-    // self-select the cheaper founding price after the spots are gone.
-    // requireAuth guarantees req.user is defined
-    const { id: userId, email } = req.user!;
-
-    let user = await storage.getUser(userId);
-    if (!user) {
-      user = await storage.upsertUser(userId, email ?? '');
-    }
-
-    // Block checkout if user already has an active subscription
-    if (user.stripeSubscriptionId) {
-      const existingSub = await storage.getSubscription(user.stripeSubscriptionId);
-      if (existingSub?.status === 'active' || existingSub?.status === 'trialing') {
-        res.status(400).json({ error: 'You already have an active SquadZ Pro subscription' });
-        return;
-      }
-    } else if (user.stripeCustomerId) {
-      const existingSub = await storage.getActiveSubscriptionByCustomerId(user.stripeCustomerId);
-      if (existingSub) {
-        res.status(400).json({ error: 'You already have an active SquadZ Pro subscription' });
-        return;
-      }
-    }
-
-    let customerId = user.stripeCustomerId;
-    if (!customerId) {
-      const customer = await stripeService.createCustomer(email ?? userId, userId);
-      user = await storage.updateUserStripeInfo(userId, { stripeCustomerId: customer.id });
-      customerId = customer.id;
-    }
-
-    // Server decides the tier (founding while spots remain, else standard) from
-    // the live count — WITHOUT consuming a spot. The spot is only redeemed when
-    // Stripe confirms payment (checkout.session.completed webhook), so an
-    // abandoned checkout never burns a founding spot. The matching price id
-    // comes from server env, never the client. The tier is stamped onto the
-    // session metadata so the webhook knows whether to redeem a founding spot.
-    const tier = await decideCheckoutTier();
-    const priceId = priceIdForTier(tier);
-
-    const baseUrl = getBaseUrl();
-    const session = await stripeService.createCheckoutSession(
-      customerId!,
-      priceId,
-      `${baseUrl}/home?checkout=success`,
-      `${baseUrl}/home?checkout=cancel`,
-      { userId, tier },
-    );
-
-    trackEvent(userId, 'checkout_started', { priceId, tier });
-    res.json({ url: session.url, tier, priceId });
-  } catch (err) {
-    logger.error({ err }, 'Error creating checkout session');
-    res.status(500).json({ error: 'Failed to create checkout session' });
-  }
+// Stripe payment creation is intentionally disabled. SquadZ+ is sold through
+// RevenueCat/App Store/Google Play, and the shipped clients do not call these
+// legacy web-billing endpoints.
+router.post('/checkout', (_req, res): void => {
+  res.status(410).json({
+    error: 'Stripe Checkout has been permanently disabled',
+    code: 'STRIPE_CHECKOUT_DISABLED',
+  });
 });
 
 router.get('/subscription', requireAuth, async (req, res): Promise<void> => {
@@ -223,27 +167,11 @@ router.get('/calendar-sync', requireAuth, async (req, res): Promise<void> => {
   }
 });
 
-router.post('/portal', requireAuth, async (req, res): Promise<void> => {
-  try {
-    const { id: userId } = req.user!;
-
-    const user = await storage.getUser(userId);
-    if (!user?.stripeCustomerId) {
-      res.status(404).json({ error: 'No Stripe customer found for this user' });
-      return;
-    }
-
-    const baseUrl = getBaseUrl();
-    const session = await stripeService.createCustomerPortalSession(
-      user.stripeCustomerId,
-      `${baseUrl}/`,
-    );
-
-    res.json({ url: session.url });
-  } catch (err) {
-    logger.error({ err }, 'Error creating portal session');
-    res.status(500).json({ error: 'Failed to create portal session' });
-  }
+router.post('/portal', (_req, res): void => {
+  res.status(410).json({
+    error: 'Stripe Billing Portal has been permanently disabled',
+    code: 'STRIPE_PORTAL_DISABLED',
+  });
 });
 
 // Dev-only: render the Pro welcome email HTML in the browser for visual testing.
