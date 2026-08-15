@@ -13,7 +13,12 @@ export function routeFromNotificationData(data?: Record<string, string>): void {
 
   switch (data.screen) {
     case "availability":
-      if (data.squadId) {
+      // Poll nudges carry only a pollId (no scope), and the availability screen
+      // resolves a poll directly from it — without this branch those taps did
+      // nothing at all.
+      if (data.pollId) {
+        router.push({ pathname: "/availability", params: { pollId: data.pollId } } as never);
+      } else if (data.squadId) {
         router.push({ pathname: "/availability", params: { squadId: data.squadId } } as never);
       } else if (data.eventId) {
         router.push({ pathname: "/availability", params: { eventId: data.eventId } } as never);
@@ -47,6 +52,11 @@ export function routeFromNotificationData(data?: Record<string, string>): void {
       if (data.squadId) {
         router.push({ pathname: "/squad/[id]", params: { id: data.squadId } } as never);
       }
+      break;
+    case "squads":
+      // Squad deleted / removed-from-squad pushes: the squad detail route no
+      // longer resolves for this user, so land on the squads list instead.
+      router.navigate("/(tabs)/squads" as never);
       break;
     case "vault":
       // Vault comment notifications carry a photoId so the tap opens the

@@ -35,7 +35,6 @@ import FriendPickerSheet from "@/components/FriendPickerSheet";
 import { ChatMessages, ChatComposer } from "@/components/EventChatPanel";
 import { useEventChat } from "@/hooks/useEventChat";
 import { EventCostsPanel } from "@/components/EventCostsPanel";
-import { EventVaultPanel } from "@/components/EventVaultPanel";
 import { API_BASE, buildAuthHeaders, fetchWithTimeout } from "@/lib/api";
 import { buildPlanIcs } from "@/lib/ics";
 import { shareIcsFile } from "@/lib/shareIcs";
@@ -262,9 +261,16 @@ export default function TripDetailScreen() {
         return;
       }
       if (track) {
-        setAuthRace((prev) =>
-          applyVaultFetchOutcome(prev, { kind: res.status === 401 ? "unauthorized" : "failure" }),
-        );
+        // 403/404 are authenticated "you can't see this" answers — terminal, so
+        // they must resolve to the error state instead of spinning forever
+        // (a pending invitee tapping an invite push lands here).
+        const kind =
+          res.status === 401
+            ? "unauthorized"
+            : res.status === 403 || res.status === 404
+              ? "denied"
+              : "failure";
+        setAuthRace((prev) => applyVaultFetchOutcome(prev, { kind }));
       }
     } catch {
       // Network unavailable — keep whatever we have.
@@ -321,8 +327,20 @@ export default function TripDetailScreen() {
   }, [fetchDetail]);
 
   const [tab, setTab] = useState<TripTab>(
-    TRIP_TABS.includes(tabParam as TripTab) ? (tabParam as TripTab) : "itinerary",
+    tabParam !== "vault" && TRIP_TABS.includes(tabParam as TripTab) ? (tabParam as TripTab) : "itinerary",
   );
+  const openedVaultParam = useRef(false);
+
+  // Preserve old direct links to the trip Vault tab now that the complete,
+  // event-scoped vault is presented as its own screen.
+  useEffect(() => {
+    if (tabParam !== "vault" || !event || openedVaultParam.current) return;
+    openedVaultParam.current = true;
+    router.replace({
+      pathname: "/vault",
+      params: { eventId: event.id, eventName: event.title },
+    } as never);
+  }, [tabParam, event]);
 
   // T205: vault photo count for the past-trip recap strip (null = not loaded).
   const [recapPhotoCount, setRecapPhotoCount] = useState<number | null>(null);
@@ -1339,7 +1357,26 @@ export default function TripDetailScreen() {
           {TRIP_TABS.map((t) => {
             const active = tab === t;
             return (
-              <TouchableOpacity key={t} onPress={() => { Haptics.selectionAsync(); setTab(t); }} style={styles.tabBtn}>
+              <TouchableOpacity
+                key={t}
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  if (t === "vault") {
+                    // The event-scoped Photo Vault owns the full gallery
+                    // experience (uploads, detail, sharing, and auth-race
+                    // states). Opening it as its own screen also avoids a
+                    // nested virtualized gallery inside this trip ScrollView.
+                    setTab("itinerary");
+                    router.push({
+                      pathname: "/vault",
+                      params: { eventId: event.id, eventName: event.title },
+                    } as never);
+                    return;
+                  }
+                  setTab(t);
+                }}
+                style={styles.tabBtn}
+              >
                 <Text style={[styles.tabText, { color: active ? colors.primary : colors.mutedForeground }]}>{TRIP_TAB_LABELS[t]}</Text>
                 {active ? <View style={[styles.tabUnderline, { backgroundColor: colors.primary }]} /> : null}
               </TouchableOpacity>
@@ -1358,13 +1395,6 @@ export default function TripDetailScreen() {
         {tab === "costs" ? (
           <View style={styles.tabBody}>
             <EventCostsPanel event={event} isHost={isHost} botPad={insets.bottom} participants={costParticipants} />
-          </View>
-        ) : null}
-
-        {/* VAULT */}
-        {tab === "vault" ? (
-          <View style={styles.tabBody}>
-            <EventVaultPanel event={event} authToken={authToken} />
           </View>
         ) : null}
 

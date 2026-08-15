@@ -88,6 +88,25 @@ describe("routeFromNotificationData", () => {
     });
   });
 
+  it("opens the poll directly for screen=availability with a pollId", () => {
+    // Poll nudges carry ONLY a pollId (no squad/event scope). Without the
+    // pollId branch these taps fell through and did nothing at all.
+    routeFromNotificationData({ screen: "availability", pollId: "poll9" });
+    expect(mockRouterPush).toHaveBeenCalledOnce();
+    expect(mockRouterPush).toHaveBeenCalledWith({
+      pathname: "/availability",
+      params: { pollId: "poll9" },
+    });
+  });
+
+  it("prefers the pollId over a scope when both are present", () => {
+    routeFromNotificationData({ screen: "availability", pollId: "poll9", squadId: "sq1" });
+    expect(mockRouterPush).toHaveBeenCalledWith({
+      pathname: "/availability",
+      params: { pollId: "poll9" },
+    });
+  });
+
   it("is a no-op for screen=availability with neither squadId nor eventId", () => {
     routeFromNotificationData({ screen: "availability" });
     expect(mockRouterPush).not.toHaveBeenCalled();
@@ -170,6 +189,17 @@ describe("routeFromNotificationData", () => {
 
   it("is a no-op for screen=squad without squadId", () => {
     routeFromNotificationData({ screen: "squad" });
+    expect(mockRouterPush).not.toHaveBeenCalled();
+  });
+
+  // ── squads (list) ─────────────────────────────────────────────────────────
+  // "Squad deleted" / "removed from squad" pushes: the squad detail route no
+  // longer resolves for this user, so the server sends screen=squads.
+
+  it("navigates to the squads tab for screen=squads", () => {
+    routeFromNotificationData({ screen: "squads" });
+    expect(mockRouterNavigate).toHaveBeenCalledOnce();
+    expect(mockRouterNavigate).toHaveBeenCalledWith("/(tabs)/squads");
     expect(mockRouterPush).not.toHaveBeenCalled();
   });
 

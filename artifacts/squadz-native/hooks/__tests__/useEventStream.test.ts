@@ -235,4 +235,27 @@ describe("useEventStream — auto-reconnect with exponential backoff", () => {
       expect.objectContaining({ headers: expect.objectContaining({ Accept: "text/event-stream" }) }),
     );
   });
+
+  it("notifies the detail screen when an update frame uses CRLF line endings", async () => {
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const onUpdate = vi.fn();
+    fetchMock.mockResolvedValue({
+      ok: true,
+      body: new ReadableStream<Uint8Array>({
+        start(streamController) {
+          controller = streamController;
+        },
+      }),
+    });
+
+    renderHook(() => useEventStream({ ...defaultOpts, onUpdate }));
+    await simulateFocus();
+
+    await act(async () => {
+      controller.enqueue(new TextEncoder().encode("event: update\r\ndata: {\"eventId\":\"event-abc\"}\r\n\r\n"));
+      await Promise.resolve();
+    });
+
+    expect(onUpdate).toHaveBeenCalledTimes(1);
+  });
 });

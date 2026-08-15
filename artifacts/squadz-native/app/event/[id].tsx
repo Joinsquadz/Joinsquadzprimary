@@ -48,7 +48,7 @@ import AddressLink from "@/components/AddressLink";
 import FriendPickerSheet from "@/components/FriendPickerSheet";
 import { CelebrationOverlay } from "@/components/CelebrationOverlay";
 import { claimOnce } from "@/lib/seenFlags";
-import { goingCount } from "@/lib/eventUtils";
+import { goingCount, eventRosterKey } from "@/lib/eventUtils";
 import { IdeaSheet } from "@/components/IdeaSheet";
 import { IdeaCard } from "@/components/IdeaCard";
 import {
@@ -151,6 +151,7 @@ export default function EventDetailScreen() {
     votePoll,
     setPollClosed,
     refreshEvents,
+    refreshEvent,
     inviteToEvent,
     uninviteFromEvent,
     getSquad,
@@ -193,14 +194,31 @@ export default function EventDetailScreen() {
         return;
       }
       if (track) {
-        setFallbackAuthRace((prev) =>
-          applyVaultFetchOutcome(prev, { kind: res.status === 401 ? "unauthorized" : "failure" }),
-        );
+        // 403/404 are authenticated "you can't see this" answers — terminal, so
+        // they must resolve to the error state instead of spinning forever
+        // (a pending invitee tapping an invite push lands here).
+        const kind =
+          res.status === 401
+            ? "unauthorized"
+            : res.status === 403 || res.status === 404
+              ? "denied"
+              : "failure";
+        setFallbackAuthRace((prev) => applyVaultFetchOutcome(prev, { kind }));
       }
     } catch {
       if (track) setFallbackAuthRace((prev) => applyVaultFetchOutcome(prev, { kind: "failure" }));
     }
   }, [id, authToken]);
+
+  // Keep the currently open plan authoritative. The upcoming-events list is a
+  // useful cache for cards, but RSVP changes on an already open detail need to
+  // replace this one record immediately (and past plans live only in the
+  // screen-local fallback).
+  const refreshCurrentEvent = useCallback(async () => {
+    if (!id) return;
+    const updated = await refreshEvent(id);
+    if (updated) setFallbackEvent(updated);
+  }, [id, refreshEvent]);
 
   // On mount / when context misses (past event), hydrate the fallback.
   useEffect(() => {
@@ -320,7 +338,11 @@ export default function EventDetailScreen() {
     return () => setEventCostAnchor(null);
   }, [setEventCostAnchor]);
 
-  // Pre-load all user profiles referenced in this event
+  // Pre-load all user profiles referenced in this event.
+  // Keyed on the roster itself (not just event.id): when someone RSVPs or is
+  // invited while this screen is open, their id is new to the user cache and
+  // would otherwise render as a "..." placeholder until the screen remounts.
+  const rosterKey = event ? eventRosterKey(event) : "";
   useEffect(() => {
     if (!event) return;
     const s = getSquad(event.squadId);
@@ -328,12 +350,13 @@ export default function EventDetailScreen() {
       event.hostId,
       ...(s?.memberIds ?? []),
       ...Object.keys(event.rsvps),
+      ...(event.invitedUserIds ?? []),
       ...event.tasks.filter((t) => t.assigneeId).map((t) => t.assigneeId!),
       ...event.costs.map((c) => c.paidById),
     ];
     prefetchUsers(ids);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [event?.id]);
+  }, [event?.id, rosterKey]);
   const [newResponseCount, setNewResponseCount] = useState(0);
   const [pollListRefreshKey, setPollListRefreshKey] = useState(0);
   const [firstRsvpCelebration, setFirstRsvpCelebration] = useState(false);
@@ -380,6 +403,7 @@ export default function EventDetailScreen() {
       if (!id) return;
       let active = true;
       const avKey = `availability_lastviewed_${id}`;
+      void refreshCurrentEvent();
       // Re-fetch the inline active-poll list whenever this screen regains focus.
       setPollListRefreshKey((k) => k + 1);
       // Badge spans ALL of the caller's active polls for this event, not just
@@ -405,7 +429,7 @@ export default function EventDetailScreen() {
         setNewResponseCount(count);
       });
       return () => { active = false; };
-    }, [id, authHeaders, currentUser.id])
+    }, [id, authHeaders, currentUser.id, refreshCurrentEvent])
   );
 
   // SSE stream: instantly refreshes event data (RSVPs, messages, tasks, costs,
@@ -413,15 +437,15 @@ export default function EventDetailScreen() {
   useEventStream({
     eventId: id ?? null,
     authToken,
-    onUpdate: useCallback(() => { void refreshEvents(); }, [refreshEvents]),
+    onUpdate: refreshCurrentEvent,
   });
 
   // 30 s safety-net poll: catches any updates missed when the stream is
   // temporarily unavailable (network blip, proxy timeout, etc.).
   useEffect(() => {
-    const interval = setInterval(() => { void refreshEvents(); }, 30000);
+    const interval = setInterval(() => { void refreshCurrentEvent(); }, 30000);
     return () => clearInterval(interval);
-  }, [refreshEvents]);
+  }, [refreshCurrentEvent]);
 
   // Load payment handles when the Costs tab is opened, to power settle-up deep links.
   useEffect(() => {

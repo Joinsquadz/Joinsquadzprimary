@@ -39,6 +39,12 @@ export type VaultFetchOutcome =
   | { kind: "unauthorized" }
   // HTTP 200 — authenticated response arrived (may contain zero photos).
   | { kind: "ok" }
+  // HTTP 403/404 — an AUTHENTICATED answer of "you can't see this". Terminal:
+  // retrying cannot change it, so it must resolve immediately to a visible
+  // state. Distinct from `failure`, which is a no-op outside a pending race and
+  // would otherwise strand a screen on a permanent spinner (a pending invitee
+  // tapping an invite push gets 403, not 401).
+  | { kind: "denied" }
   // Non-401 !ok response OR a thrown network error.
   | { kind: "failure" };
 
@@ -55,6 +61,9 @@ export function applyVaultFetchOutcome(
       return { authPending: true, authError: false, tick: prev.tick + 1 };
     case "ok":
       return { authPending: false, authError: false, tick: 0 };
+    case "denied":
+      // Terminal: end any in-flight race and surface the error state now.
+      return { authPending: false, authError: true, tick: prev.tick };
     case "failure":
       return prev.authPending ? { ...prev, tick: prev.tick + 1 } : prev;
   }

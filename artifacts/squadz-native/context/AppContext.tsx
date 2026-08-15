@@ -346,6 +346,10 @@ type AppContextType = {
   votePoll: (eventId: string, pollId: string, optionId: string) => void;
   setPollClosed: (eventId: string, pollId: string, closed: boolean) => void;
   refreshEvents: () => Promise<void>;
+  // Refetch a SINGLE plan and replace it in the cache. The list endpoint is
+  // paginated/upcoming-only, so an open detail screen (incl. past plans that
+  // live only in the screen-local fallback) needs its own freshness path.
+  refreshEvent: (eventId: string) => Promise<Event | null>;
   refreshSquads: () => Promise<void>;
   conflictEventId: string | null;
   conflictSnapshot: ConflictSnapshot | null;
@@ -475,6 +479,7 @@ const AppContext = createContext<AppContextType>({
   votePoll: noop,
   setPollClosed: noop,
   refreshEvents: async () => {},
+  refreshEvent: async () => null,
   refreshSquads: async () => {},
   conflictEventId: null,
   conflictSnapshot: null,
@@ -1129,6 +1134,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setEvents(data.map(dbEventToEvent));
     } catch {
       // Network unavailable — keep current data
+    }
+  }, [apiFetch]);
+
+  // Single-plan refetch. Used by the open event/trip detail screen so RSVPs and
+  // other teammates' edits land immediately, without depending on the plan
+  // being present in the paginated upcoming-events list.
+  const refreshEvent = useCallback(async (eventId: string): Promise<Event | null> => {
+    try {
+      const res = await apiFetch(`/api/events/${eventId}`);
+      if (!res.ok) return null;
+      const data = await res.json() as Record<string, unknown>;
+      const mapped = dbEventToEvent(data);
+      setEvents((prev) => prev.map((e) => (e.id === mapped.id ? mapped : e)));
+      return mapped;
+    } catch {
+      // Network unavailable — keep current data
+      return null;
     }
   }, [apiFetch]);
 
@@ -2978,6 +3000,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       votePoll,
       setPollClosed,
       refreshEvents,
+      refreshEvent,
       refreshSquads,
       conflictEventId,
       conflictSnapshot,
@@ -3065,6 +3088,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       votePoll,
       setPollClosed,
       refreshEvents,
+      refreshEvent,
       refreshSquads,
       conflictEventId,
       conflictSnapshot,

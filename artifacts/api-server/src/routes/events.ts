@@ -63,10 +63,16 @@ async function filterInvitableTargets(
 
 // Fire-and-forget push to friends who were invited directly (not via the squad
 // fan-out). Respects the Event Invites preference and squad mute.
+// `pendingAcceptance` = the invitee has an unaccepted event_invites row and does
+// NOT yet have access to the plan. Sending them to the plan detail screen would
+// 403, so their tap must land on Activity where the Accept button lives.
+// Create-time invites are written straight into invitedUserIds (real access), so
+// those keep routing to the plan itself.
 async function notifyInvitees(
   event: typeof eventsTable.$inferSelect,
   inviterId: string,
   inviteeIds: string[],
+  pendingAcceptance = false,
 ): Promise<void> {
   try {
     const recipients = inviteeIds.filter((id) => id !== inviterId);
@@ -85,10 +91,12 @@ async function notifyInvitees(
       {
         title: `${event.emoji} ${event.title}`,
         body: `${displayName(inviter)} invited you to ${kind}`,
-        data: {
-          screen: event.type === "trip" ? "trip" : "event",
-          eventId: event.id,
-        },
+        data: pendingAcceptance
+          ? { screen: "activity", eventId: event.id }
+          : {
+              screen: event.type === "trip" ? "trip" : "event",
+              eventId: event.id,
+            },
       },
       { onStaleToken: (token) => storage.clearPushToken(token) },
     );
@@ -789,8 +797,8 @@ router.post("/events", requireAuth, async (req: Request, res: Response): Promise
             tokens,
             {
               title: `${event.emoji} ${event.title}`,
-              body: `${displayName(host)} invited you to an event`,
-              data: { screen: "event", eventId: event.id },
+              body: `${displayName(host)} invited you to ${event.type === "trip" ? "a trip" : "an event"}`,
+              data: { screen: event.type === "trip" ? "trip" : "event", eventId: event.id },
             },
             { onStaleToken: (token) => storage.clearPushToken(token) },
           );
@@ -913,7 +921,7 @@ router.post("/events/join", requireAuth, async (req: Request, res: Response): Pr
           {
             title: `${event.emoji} ${event.title}`,
             body: `${displayName(responder)} ${label}`,
-            data: { screen: "event", eventId: event.id },
+            data: { screen: event.type === "trip" ? "trip" : "event", eventId: event.id },
           },
           { onStaleToken: (token) => storage.clearPushToken(token) },
         );
@@ -1067,7 +1075,7 @@ router.patch("/events/:id", requireAuth, async (req: Request, res: Response): Pr
             body: hasCosts
               ? "This plan is off. Any costs already logged still appear in settle-up."
               : "This plan is off.",
-            data: { screen: "event", eventId: event.id },
+            data: { screen: event.type === "trip" ? "trip" : "event", eventId: event.id },
           },
           { onStaleToken: (token) => storage.clearPushToken(token) },
         );
@@ -1144,12 +1152,12 @@ router.patch("/events/:id", requireAuth, async (req: Request, res: Response): Pr
             ? {
                 title: `${event.emoji} ${event.title}`,
                 body: `The time is set: ${newDate}`,
-                data: { screen: "event", eventId: event.id },
+                data: { screen: event.type === "trip" ? "trip" : "event", eventId: event.id },
               }
             : {
                 title: `${event.title} was updated`,
                 body,
-                data: { screen: "event", eventId: event.id },
+                data: { screen: event.type === "trip" ? "trip" : "event", eventId: event.id },
               },
           { onStaleToken: (token) => storage.clearPushToken(token) },
         );
@@ -1371,7 +1379,7 @@ router.post("/events/:id/rsvp", requireAuth, async (req: Request, res: Response)
           {
             title: `${event.emoji} ${event.title}`,
             body: `${displayName(responder)} ${label}`,
-            data: { screen: "event", eventId: event.id },
+            data: { screen: event.type === "trip" ? "trip" : "event", eventId: event.id },
           },
           { onStaleToken: (token) => storage.clearPushToken(token) },
         );
@@ -1504,7 +1512,9 @@ router.post("/events/:id/invite", requireAuth, async (req: Request, res: Respons
   // Push notify invitees — same helper as creation-time invites (#14/#15) so
   // title, preference gate (requireNotifyEventInvites), and mute logic match.
   if (inserted.length > 0) {
-    void notifyInvitees(existing, userId, inserted.map((i) => i.invitedUserId));
+    // These are PENDING invites — the invitee has no plan access until they
+    // accept, so route the tap to Activity (Accept lives there), not the plan.
+    void notifyInvitees(existing, userId, inserted.map((i) => i.invitedUserId), true);
   }
 });
 
@@ -1690,7 +1700,7 @@ router.post("/events/:id/costs", requireAuth, async (req: Request, res: Response
           {
             title: "💸 New expense to settle",
             body: `You owe ${payerName} $${debtor.amount.toFixed(2)} for ${newCost.description}`,
-            data: { screen: "event", eventId: id, tab: "costs" },
+            data: { screen: existing.type === "trip" ? "trip" : "event", eventId: id, tab: "costs" },
           },
           { onStaleToken: (token) => storage.clearPushToken(token) },
         );
@@ -1772,7 +1782,7 @@ router.post("/events/:id/costs/:costId/mark-paid", requireAuth, async (req: Requ
           {
             title: "✅ Payment marked as sent",
             body: `${displayName(debtor)} marked $${share.amount.toFixed(2)} as paid for ${cost.description}`,
-            data: { screen: "event", eventId: id, tab: "costs" },
+            data: { screen: existing.type === "trip" ? "trip" : "event", eventId: id, tab: "costs" },
           },
           { onStaleToken: (token) => storage.clearPushToken(token) },
         );
@@ -2111,7 +2121,7 @@ router.patch("/events/:id/costs/:costId", requireAuth, async (req: Request, res:
           {
             title: `${editorName} updated a cost`,
             body: `Your share of '${updatedCost.description}' is now $${debtor.amount.toFixed(2)} for ${existing.title}`,
-            data: { screen: "event", eventId: id, tab: "costs" },
+            data: { screen: existing.type === "trip" ? "trip" : "event", eventId: id, tab: "costs" },
           },
           { onStaleToken: (token) => storage.clearPushToken(token) },
         );
@@ -2174,7 +2184,7 @@ router.delete("/events/:id/costs/:costId", requireAuth, async (req: Request, res
           {
             title: `${payerName} removed a cost`,
             body: `'${cost.description}' ($${cost.amount.toFixed(2)}) was deleted from ${existing.title}`,
-            data: { screen: "event", eventId: id, tab: "costs" },
+            data: { screen: existing.type === "trip" ? "trip" : "event", eventId: id, tab: "costs" },
           },
           { onStaleToken: (token) => storage.clearPushToken(token) },
         );
@@ -2760,7 +2770,7 @@ router.post("/events/:id/remind", requireAuth, async (req: Request, res: Respons
           {
             title: `${event.emoji} ${event.title}`,
             body,
-            data: { screen: "event", eventId: event.id },
+            data: { screen: event.type === "trip" ? "trip" : "event", eventId: event.id },
           },
           { onStaleToken: (token) => storage.clearPushToken(token) },
         );

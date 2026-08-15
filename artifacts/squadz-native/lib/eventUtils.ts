@@ -31,6 +31,28 @@ export function attendingCount(event: Event, squadMemberIds: readonly string[] =
   return attendingIds(event, squadMemberIds).length;
 }
 
+/**
+ * Deterministic key for every user id an open plan screen has to display.
+ *
+ * The detail screen prefetches display names/photos for these ids. Keying that
+ * prefetch on `event.id` alone means a guest who RSVPs (or is invited) while the
+ * screen is open never gets fetched, so they render as a "..." placeholder — or,
+ * for the host watching the guest list fill in, appear only after a remount.
+ * Sorted so an unchanged roster in a different server order is not a change.
+ */
+export function eventRosterKey(event: Pick<Event, "hostId" | "rsvps" | "invitedUserIds" | "tasks" | "costs">): string {
+  return [
+    event.hostId,
+    ...Object.keys(event.rsvps ?? {}),
+    ...(event.invitedUserIds ?? []),
+    ...(event.tasks ?? []).map((t) => t.assigneeId).filter((v): v is string => !!v),
+    ...(event.costs ?? []).map((c) => c.paidById),
+  ]
+    .filter(Boolean)
+    .sort()
+    .join(",");
+}
+
 const MONTHS: Record<string, number> = {
   Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
   Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11,

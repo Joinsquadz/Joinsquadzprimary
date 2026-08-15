@@ -88,6 +88,7 @@
 - [Account deletion media bytes](account-media-deletion.md) — media ownership comes from upload provenance (never a path prefix, flat `uploads/` namespace); collect before the purge tx, delete bytes after commit, queue failures.
 - [Account deletion tombstones](account-deletion-tombstones.md) — login upsert resurrects "deleted" accounts; tombstone auth SUBJECT ids in the purge tx + check in syncSupabaseUser; linkedUserId subjects differ from user id.
 - [Squadz web E2E quirks](squadz-web-e2e-quirks.md) — tester nav drops ".expo." from the dev host (fake 502s) → JS-forced nav + atomic host check; Screenshot tool lands inside the 1s splash gate; adjudicate ambiguous reports server-side.
+- [Push taps must land on an openable screen](push-tap-dead-destination.md) — pending-invite pushes → Activity (plan GET 403s until accepted); detail fetches must treat 403/404 as terminal or the tap spins forever.
 - [Push-tap routing contract](push-tap-routing.md) — every push `data.screen` needs a matching client router case (+tab forwarding); new activity types need label AND navigate cases; new hot tables need schemaSync indexes.
 - [Router back fallback](router-back-fallback.md) — router.back() no-ops without history (reload/deep-link); every custom back button uses canGoBack() ? back() : replace(fallback), app-wide.
 - [Plan Ideas feature](plan-ideas-feature.md) — ideas are separate tables (NO version checks); confirmed ideas merge into itinerary render-only (stops first); reorder needs the FULL group; readOnly flag gates idea UI only.
@@ -108,5 +109,6 @@
 - [Trip creation atomicity](trip-create-atomicity.md) — trip range + template stops (`initialItinerary`) + poll claim in ONE create txn; trip start resolves `startAt ?? eventAt`; missing end = one-day.
 - [Entitlement single source](entitlement-single-source.md) — never re-implement the Squadz+ check in a route; a Stripe-only copy reads every IAP subscriber as free → empty vault + 403 saves, silently.
 - [RN leave guards vs programmatic nav](rn-leave-guard-programmatic-nav.md) — one beforeRemove listener (not header onPress) or swipe/hardware back go unguarded; success paths need an explicit bypass ref or "leave without saving?" fires after saving.
+- [Open plan detail freshness](open-plan-freshness.md) — detail screens must refetch the SINGLE plan (list is paginated/upcoming-only) and key user prefetch on the roster, not the plan id.
 - [Refetch flicker from object deps](refetch-flicker-object-deps.md) — self-fetching lists must key on a primitive scope string; inline prop objects + SSE re-renders = content that vanishes and returns on a rhythm.
 - [node --import needs ./](node-import-flag-bare-specifier.md) — bare relative path in `--import` = ERR_MODULE_NOT_FOUND "Cannot find package '<first-segment>'"; multi-artifact deploy stderr is untagged, blames the wrong artifact.

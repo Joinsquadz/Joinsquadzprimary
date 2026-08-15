@@ -127,8 +127,10 @@ export function useEventStream({ eventId, authToken, onUpdate }: Options): { sta
 
           buffer += decoder.decode(value, { stream: true });
 
-          // SSE messages are separated by blank lines (\n\n).
-          const blocks = buffer.split("\n\n");
+          // SSE messages are separated by blank lines. Some proxies normalize
+          // line endings to CRLF, so accept either framing instead of silently
+          // ignoring otherwise-valid update frames.
+          const blocks = buffer.split(/\r?\n\r?\n/);
           buffer = blocks.pop() ?? "";
 
           for (const block of blocks) {

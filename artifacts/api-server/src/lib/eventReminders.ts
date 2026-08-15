@@ -90,7 +90,7 @@ export async function runEventReminderScan(): Promise<void> {
         {
           title: `${event.emoji} ${event.title}`,
           body: `Starting soon — ${event.date}`,
-          data: { screen: 'event', eventId: event.id },
+          data: { screen: event.type === 'trip' ? 'trip' : 'event', eventId: event.id },
         },
         { onStaleToken: (token) => storage.clearPushToken(token) },
       );
@@ -154,7 +154,7 @@ export async function runDayOfReminderScan(): Promise<void> {
         {
           title: `${event.emoji} ${event.title}`,
           body,
-          data: { screen: 'event', eventId: event.id },
+          data: { screen: event.type === 'trip' ? 'trip' : 'event', eventId: event.id },
         },
         { onStaleToken: (token) => storage.clearPushToken(token) },
       );
@@ -227,7 +227,7 @@ export async function run3DayReminderScan(): Promise<void> {
         {
           title: `${event.emoji} ${event.title}`,
           body,
-          data: { screen: 'event', eventId: event.id },
+          data: { screen: event.type === 'trip' ? 'trip' : 'event', eventId: event.id },
         },
         { onStaleToken: (token) => storage.clearPushToken(token) },
       );
@@ -293,7 +293,12 @@ export async function runEventRecapScan(): Promise<void> {
         {
           title: `📸 How was ${event.title}?`,
           body: 'Drop your photos in the squad vault before they get lost!',
-          data: { screen: 'event', eventId: event.id, tab: 'photos' },
+          // The trip screen's media tab is "vault"; the event screen's is
+          // "photos". Sending the wrong one silently falls back to the default
+          // tab, so the tap misses the thing the copy asks for.
+          data: event.type === 'trip'
+            ? { screen: 'trip', eventId: event.id, tab: 'vault' }
+            : { screen: 'event', eventId: event.id, tab: 'photos' },
         },
         { onStaleToken: (token) => storage.clearPushToken(token) },
       );

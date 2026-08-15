@@ -211,3 +211,56 @@ describe("Trip detail (fallback fetch) — slow-login auth race", () => {
     expect(modes).not.toContain("empty");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Denied (403/404) — an AUTHENTICATED "you can't see this". Unlike a 401 this
+// can never resolve by retrying, so it must surface immediately.
+//
+// Regression: a user tapping an event-invite push before accepting the invite
+// has no plan access yet, so /api/events/:id answers 403. `failure` is a no-op
+// outside a pending race, so the screen sat on a spinner forever ("blank page
+// with a loading circle that never loads").
+// ---------------------------------------------------------------------------
+describe("Plan detail — denied (403/404) response", () => {
+  it("a 403 on the very first fetch resolves to the error state, never a permanent spinner", () => {
+    const state = applyVaultFetchOutcome(INITIAL_AUTH_RACE_STATE, { kind: "denied" });
+    expect(state.authPending).toBe(false);
+    expect(state.authError).toBe(true);
+    expect(
+      vaultRenderMode({
+        loading: false,
+        authPending: state.authPending,
+        authError: state.authError,
+        photoCount: 0,
+      }),
+    ).toBe("error");
+  });
+
+  it("a denied response stops the retry loop instead of scheduling more attempts", () => {
+    const state = applyVaultFetchOutcome(INITIAL_AUTH_RACE_STATE, { kind: "denied" });
+    expect(nextRetryDecision(state).action).toBe("idle");
+  });
+
+  it("a 403 arriving mid auth-race also ends the race in the error state", () => {
+    let state = applyVaultFetchOutcome(INITIAL_AUTH_RACE_STATE, { kind: "unauthorized" });
+    expect(state.authPending).toBe(true);
+    state = applyVaultFetchOutcome(state, { kind: "denied" });
+    expect(state.authPending).toBe(false);
+    expect(state.authError).toBe(true);
+  });
+
+  it("distinguishes denied from a transient failure: only denied resolves immediately", () => {
+    // A transient network failure outside a race stays a no-op (the screen keeps
+    // whatever it has); a denied answer is terminal.
+    const afterFailure = applyVaultFetchOutcome(INITIAL_AUTH_RACE_STATE, { kind: "failure" });
+    expect(afterFailure).toEqual(INITIAL_AUTH_RACE_STATE);
+    const afterDenied = applyVaultFetchOutcome(INITIAL_AUTH_RACE_STATE, { kind: "denied" });
+    expect(afterDenied.authError).toBe(true);
+  });
+
+  it("a manual retry after a denied response can still recover (invite since accepted)", () => {
+    const denied = applyVaultFetchOutcome(INITIAL_AUTH_RACE_STATE, { kind: "denied" });
+    const recovered = applyVaultFetchOutcome(denied, { kind: "ok" });
+    expect(recovered).toEqual({ authPending: false, authError: false, tick: 0 });
+  });
+});
