@@ -279,6 +279,10 @@ export default function AvailabilityScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const { authToken, currentUser } = useAuth();
+  // AppContext replaces the current-user object when account data refreshes.
+  // Poll loading only needs this stable identity; depending on the entire object
+  // reran the full, visible board load for unrelated profile refreshes.
+  const currentUserId = currentUser?.id;
   const { showBanner } = useToastBanner();
   const params = useLocalSearchParams<{ squadId?: string; eventId?: string; pollId?: string; from?: string; adhoc?: string; participantIds?: string; kind?: string }>();
   const squadId = params.squadId || undefined;
@@ -316,6 +320,9 @@ export default function AvailabilityScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<PollPayload | null>(null);
+  // Route params can change before a previous scope/poll fetch settles. Keep an
+  // older response from overwriting the board that the user just selected.
+  const loadRequestRef = useRef(0);
   const [mySet, setMySet] = useState<Set<string>>(new Set());
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -854,6 +861,8 @@ export default function AvailabilityScreen() {
     // automatically once authToken becomes available (loadPoll is recreated).
     if (!authToken) return;
 
+    const request = ++loadRequestRef.current;
+    const isCurrentRequest = () => request === loadRequestRef.current;
     setLoading(true);
     setError(null);
     setNeedsSetup(false);
@@ -869,6 +878,7 @@ export default function AvailabilityScreen() {
       const stored = await AsyncStorage.getItem(avKey);
       if (stored) lastViewedAt = new Date(Number(stored));
     } catch { /* ignore */ }
+    if (!isCurrentRequest()) return;
 
     // Abort the request after 15 s to prevent an infinite loading state on
     // slow or unresponsive network conditions.
@@ -900,12 +910,14 @@ export default function AvailabilityScreen() {
           headers: authHeaders(),
           signal: controller.signal,
         });
+        if (!isCurrentRequest()) return;
         if (!listRes.ok) {
           const body = (await listRes.json().catch(() => ({}))) as { error?: string };
           setError(body.error ?? "Could not load availability.");
           return;
         }
         const list = (await listRes.json()) as { polls?: { id: string }[] };
+        if (!isCurrentRequest()) return;
         const active = list.polls ?? [];
         if (active.length === 0) {
           setData(null);
@@ -925,6 +937,7 @@ export default function AvailabilityScreen() {
           signal: controller.signal,
         });
       }
+      if (!isCurrentRequest()) return;
       if (res.status === 404) {
         // No poll yet — let the creator choose the date range.
         setData(null);
@@ -939,6 +952,7 @@ export default function AvailabilityScreen() {
         return;
       }
       const raw = (await res.json().catch(() => null)) as unknown;
+      if (!isCurrentRequest()) return;
       if (!raw || typeof raw !== "object" || !("poll" in raw) || !(raw as PollPayload).poll?.id) {
         setError("Could not load availability.");
         return;
@@ -962,7 +976,7 @@ export default function AvailabilityScreen() {
       setDirty(false);
       // Show the "range updated" banner for non-creators when the host has
       // updated the date range more recently than the member last responded.
-      if (payload.poll.updatedAt && payload.poll.createdBy !== currentUser?.id) {
+      if (payload.poll.updatedAt && payload.poll.createdBy !== currentUserId) {
         const rangeTs = payload.poll.updatedAt;
         const responseTs = payload.myResponseUpdatedAt;
         const shouldShow =
@@ -975,9 +989,9 @@ export default function AvailabilityScreen() {
 
       // Show "new responses" banner when the viewer IS the host and members
       // have responded since the host's last visit.
-      if (payload.poll.createdBy === currentUser?.id && lastViewedAt !== null) {
+      if (payload.poll.createdBy === currentUserId && lastViewedAt !== null) {
         const count = (payload.members ?? []).filter((m) => {
-          if (m.id === currentUser.id) return false;
+          if (m.id === currentUserId) return false;
           if (!m.respondedAt) return false;
           return new Date(m.respondedAt) > lastViewedAt!;
         }).length;
@@ -989,6 +1003,7 @@ export default function AvailabilityScreen() {
       // Record this view so the next open uses now as the baseline.
       try { await AsyncStorage.setItem(avKey, String(Date.now())); } catch { /* ignore */ }
     } catch (err) {
+      if (!isCurrentRequest()) return;
       if (err instanceof Error && err.name === "AbortError") {
         setError("Request timed out. Check your connection and try again.");
       } else {
@@ -996,9 +1011,9 @@ export default function AvailabilityScreen() {
       }
     } finally {
       clearTimeout(timeoutId);
-      setLoading(false);
+      if (isCurrentRequest()) setLoading(false);
     }
-  }, [authToken, authHeaders, squadId, eventId, pollId, currentUser]);
+  }, [authToken, authHeaders, squadId, eventId, pollId, currentUserId]);
 
   // B7: poll-resolution nudge — when the creator's poll has a clear winner
   // (2+ people free), nudge them once to lock it in.
@@ -1171,7 +1186,7 @@ export default function AvailabilityScreen() {
       setLastRefreshed(new Date());
       // Re-evaluate the banner on every background refresh so members are
       // notified even if the host updates the range while they're on screen.
-      if (payload.poll.updatedAt && payload.poll.createdBy !== currentUser?.id) {
+      if (payload.poll.updatedAt && payload.poll.createdBy !== currentUserId) {
         const rangeTs = payload.poll.updatedAt;
         const responseTs = payload.myResponseUpdatedAt;
         const shouldShow =
@@ -1184,7 +1199,7 @@ export default function AvailabilityScreen() {
     } catch {
       // Ignore network errors during background refresh — never surface them
     }
-  }, [authHeaders, squadId, eventId, pollId, showUpdateIndicator, currentUser]);
+  }, [authHeaders, showUpdateIndicator, currentUserId]);
 
   // Live updates: subscribe to the poll's SSE stream so changes (a member
   // submits, the host edits the range, or a nudge) reflect immediately. The

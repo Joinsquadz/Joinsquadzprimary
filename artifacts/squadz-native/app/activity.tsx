@@ -20,6 +20,7 @@ import { useAuth, useData } from "@/context/AppContext";
 import { useActivity } from "@/context/ActivityContext";
 import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
 import { ProAvatar } from "@/components/ProAvatar";
+import { acceptedInviteRoute, type InvitedPlanType } from "@/lib/acceptedInviteRoute";
 
 type ActivityMeta = {
   commentPreview?: string;
@@ -32,7 +33,7 @@ type ActivityMeta = {
   photoId?: number;
   thumbUrl?: string;
   ideaTitle?: string;
-  planType?: string;
+  planType?: InvitedPlanType;
 };
 
 type ActivityItem = {
@@ -338,7 +339,7 @@ export default function ActivityScreen() {
   );
 
   const handleAcceptEventInvite = useCallback(
-    async (inviteId: string, eventId?: string) => {
+    async (inviteId: string, eventId?: string, planType?: InvitedPlanType) => {
       if (processing.has(inviteId)) return;
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       setProcessing((prev) => new Set(prev).add(inviteId));
@@ -350,7 +351,8 @@ export default function ActivityScreen() {
         if (res.ok) {
           void loadFirst();
           void refreshEvents();
-          if (eventId) router.push({ pathname: "/event/[id]", params: { id: eventId } } as never);
+          const destination = acceptedInviteRoute(eventId, planType);
+          if (destination) router.push(destination as never);
         }
       } catch {
         /* silently ignore */
@@ -553,7 +555,7 @@ export default function ActivityScreen() {
               {inviteId ? (
                 <View style={styles.requestActions}>
                   <TouchableOpacity
-                    onPress={() => { void handleAcceptEventInvite(inviteId, eventId); }}
+                    onPress={() => { void handleAcceptEventInvite(inviteId, eventId, meta.planType); }}
                     disabled={isProcessing}
                     activeOpacity={0.8}
                     style={[styles.acceptBtn, { backgroundColor: colors.primary, opacity: isProcessing ? 0.6 : 1 }]}

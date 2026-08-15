@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Modal,
   View,
@@ -64,6 +64,8 @@ export function FindTimeChooser({ visible, scope, onClose, onStartNew }: FindTim
   const [loading, setLoading] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const hasLoadedRef = useRef(false);
+  const requestRef = useRef(0);
   const scopeQuery = scope.type === "personal" ? "scope=personal" : activePollScopeQuery(scope);
 
   const headers = useCallback(
@@ -73,36 +75,49 @@ export function FindTimeChooser({ visible, scope, onClose, onStartNew }: FindTim
 
   const load = useCallback(async () => {
     if (!authToken) return;
-    setLoading(true);
+    const request = ++requestRef.current;
+    const initialLoad = !hasLoadedRef.current;
+    if (initialLoad) setLoading(true);
     setLoadFailed(false);
     try {
       // Every scope lists ALL of its active polls. Event scope used to resolve
       // a single board via /find, which hid every earlier active poll for that
       // event behind the newest one.
       const res = await fetch(`${API_BASE}/api/availability/polls?${scopeQuery}`, { headers: headers() });
+      if (request !== requestRef.current) return;
       if (res.ok) {
         const body = (await res.json()) as { polls: PollSummary[] };
+        if (request !== requestRef.current) return;
         setPolls(body.polls ?? []);
+        hasLoadedRef.current = true;
       } else {
         // A failed fetch is NOT "there are no polls" — silently showing an
         // empty list here is what pushed people into starting duplicate polls
         // on top of boards their squad had already answered.
+        if (initialLoad) {
+          setPolls([]);
+          setLoadFailed(true);
+        }
+      }
+    } catch {
+      if (request !== requestRef.current) return;
+      if (initialLoad) {
         setPolls([]);
         setLoadFailed(true);
       }
-    } catch {
-      setPolls([]);
-      setLoadFailed(true);
     } finally {
-      setLoading(false);
+      if (request === requestRef.current) setLoading(false);
     }
   }, [authToken, headers, scopeQuery]);
 
   useEffect(() => {
     if (visible) void load();
     else {
+      requestRef.current += 1;
+      hasLoadedRef.current = false;
       setPolls([]);
       setLoadFailed(false);
+      setLoading(false);
     }
   }, [visible, load]);
 

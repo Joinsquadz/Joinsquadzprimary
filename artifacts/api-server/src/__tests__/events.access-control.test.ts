@@ -9,6 +9,7 @@ const capturedUpdateWhere = vi.hoisted(() => ({ arg: null as unknown }));
 // Captures the onConflictDoUpdate config so tests can assert the upsert never
 // downgrades an already-accepted invite (the setWhere guard).
 const capturedUpsertConfig = vi.hoisted(() => ({ arg: null as unknown }));
+const recordedActivities = vi.hoisted(() => ({ value: [] as unknown[] }));
 
 vi.mock("@workspace/db", () => ({
   db: {
@@ -86,6 +87,12 @@ vi.mock("../storage", () => ({
 }));
 
 vi.mock("../lib/logger");
+vi.mock("../lib/activity", () => ({
+  recordActivitySafe: (activity: unknown) => {
+    recordedActivities.value.push(activity);
+  },
+  removeActivity: vi.fn(),
+}));
 
 // `vi.mock` is hoisted above this import, so the static import below still
 // resolves against the mocked modules. Importing the router here at collection
@@ -370,6 +377,7 @@ describe("personal invites (events.invitedUserIds)", () => {
     storageMock.getSquad.mockResolvedValue(null);
     storageMock.getSquadIdsForUser.mockResolvedValue([]);
     storageMock.getFriendIds.mockResolvedValue([]);
+    recordedActivities.value = [];
   });
 
   it("grants GET access to a directly-invited non-member", async () => {
@@ -401,6 +409,25 @@ describe("personal invites (events.invitedUserIds)", () => {
     expect(res.body.inviteCount).toBe(1);
     // The upsert must carry a guard so a concurrent accept is never downgraded.
     expect((capturedUpsertConfig.arg as { setWhere?: unknown }).setWhere).toBeDefined();
+  });
+
+  it("records whether an activity invite is for a trip so mobile can open the right detail screen", async () => {
+    mockRows.value = [makeBaseEvent({ type: "trip" })];
+    storageMock.getFriendIds.mockResolvedValue([INVITED_ID]);
+    mockUpdateRows.value = [{ id: "invite-1", invitedUserId: INVITED_ID, eventId: "evt-1" }];
+    const app = await makeApp({ id: HOST_ID });
+
+    const res = await request(app)
+      .post("/api/events/evt-1/invite")
+      .send({ userIds: [INVITED_ID] });
+
+    expect(res.status).toBe(200);
+    expect(recordedActivities.value).toContainEqual(
+      expect.objectContaining({
+        type: "event_invite",
+        meta: expect.objectContaining({ eventId: "evt-1", planType: "trip" }),
+      }),
+    );
   });
 
   it("POST /invite drops a non-friend / non-member target (idempotent no-op)", async () => {

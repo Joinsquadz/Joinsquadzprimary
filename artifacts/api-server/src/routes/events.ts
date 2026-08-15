@@ -1489,7 +1489,15 @@ router.post("/events/:id/invite", requireAuth, async (req: Request, res: Respons
       type: "event_invite",
       subjectType: "event",
       subjectId: inv.id,
-      meta: { subjectName: existing.title, subjectEmoji: existing.emoji ?? "🗓️", eventId: id },
+      meta: {
+        subjectName: existing.title,
+        subjectEmoji: existing.emoji ?? "🗓️",
+        eventId: id,
+        // The Activity accept action needs this to choose the correct detail
+        // route. Trips share the events table but intentionally have their own
+        // mobile screen.
+        planType: existing.type,
+      },
     });
   }
 

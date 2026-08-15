@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -51,6 +51,8 @@ export function ActivePollList({ scope, onSeeAll, refreshKey = 0 }: ActivePollLi
   const [polls, setPolls] = useState<ActivePollSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
+  const hasLoadedRef = useRef(false);
+  const requestRef = useRef(0);
   // Squad and event detail screens construct `scope` inline, so it is a new
   // object on every parent render. Depend on its primitive request identity,
   // not object identity, or each unrelated refresh briefly removes this list.
@@ -58,24 +60,37 @@ export function ActivePollList({ scope, onSeeAll, refreshKey = 0 }: ActivePollLi
 
   const load = useCallback(async () => {
     if (!authToken) return;
-    setLoading(true);
+    const request = ++requestRef.current;
+    const initialLoad = !hasLoadedRef.current;
+    if (initialLoad) setLoading(true);
     setFailed(false);
     try {
       const res = await fetch(`${API_BASE}/api/availability/polls?${scopeQuery}`, {
         headers: { "Content-Type": "application/json", ...buildAuthHeaders(authToken) },
       });
+      if (request !== requestRef.current) return;
       if (!res.ok) {
-        setPolls([]);
-        setFailed(true);
+        // Keep a successful list visible if a later, background refresh fails.
+        // Replacing it with nothing makes a transient network hiccup look like
+        // the squad's polls were deleted.
+        if (initialLoad) {
+          setPolls([]);
+          setFailed(true);
+        }
         return;
       }
       const body = (await res.json()) as { polls?: ActivePollSummary[] };
+      if (request !== requestRef.current) return;
       setPolls(body.polls ?? []);
+      hasLoadedRef.current = true;
     } catch {
-      setPolls([]);
-      setFailed(true);
+      if (request !== requestRef.current) return;
+      if (initialLoad) {
+        setPolls([]);
+        setFailed(true);
+      }
     } finally {
-      setLoading(false);
+      if (request === requestRef.current) setLoading(false);
     }
   }, [authToken, scopeQuery]);
 
@@ -116,7 +131,7 @@ export function ActivePollList({ scope, onSeeAll, refreshKey = 0 }: ActivePollLi
     ]);
   };
 
-  if (loading) {
+  if (loading && !hasLoadedRef.current) {
     // Polls are auxiliary content. Keep their first fetch silent so a delayed
     // response does not insert/remove a spinner and shift the squad screen.
     return null;
