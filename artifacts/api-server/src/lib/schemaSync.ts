@@ -474,6 +474,8 @@ async function addMissingColumns(): Promise<void> {
     `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "zelle_handle" text`,
     `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "bio" text`,
     `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "hometown" text`,
+    `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "timezone" text`,
+    `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "timezone_mode" text DEFAULT 'automatic' NOT NULL`,
     `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "activity_last_read_at" timestamp with time zone`,
     `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "moderation_hidden" boolean DEFAULT false NOT NULL`,
     `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "is_squadz_plus" boolean DEFAULT false NOT NULL`,

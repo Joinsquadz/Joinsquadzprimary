@@ -20,6 +20,7 @@ const storageMock = vi.hoisted(() => ({
   getAvailabilityPollRoster: vi.fn(),
   getAvailabilityResponses: vi.fn(),
   getPushTokensForUsers: vi.fn(),
+  getPushRecipientsForUsers: vi.fn(),
   filterUnmutedForSquad: vi.fn(),
   clearPushToken: vi.fn(),
 }));
@@ -77,6 +78,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   storageMock.filterUnmutedForSquad.mockImplementation(async (ids: string[]) => ids);
   storageMock.getPushTokensForUsers.mockResolvedValue(["ExponentPushToken[x]"]);
+  storageMock.getPushRecipientsForUsers.mockResolvedValue([{ pushToken: "ExponentPushToken[x]", timezone: null }]);
   storageMock.markEventDayOfReminderSent.mockResolvedValue(undefined);
   storageMock.tryClaimDayOfReminderSend.mockResolvedValue(true);
   storageMock.unclaimDayOfReminderSend.mockResolvedValue(undefined);
@@ -100,12 +102,100 @@ describe("runDayOfReminderScan", () => {
 
     await runDayOfReminderScan();
 
-    const [recipientIds, opts] = storageMock.getPushTokensForUsers.mock.calls[0] as [string[], { requireNotifyReminders?: boolean }];
+    const [recipientIds, opts] = storageMock.getPushRecipientsForUsers.mock.calls[0] as [string[], { requireNotifyReminders?: boolean }];
     expect(recipientIds).toEqual([GOING]);
     expect(opts.requireNotifyReminders).toBe(true);
     expect(sendPushNotificationsMock).toHaveBeenCalledTimes(1);
     // Atomic claim marks before the send; direct mark is for retirement only.
     expect(storageMock.tryClaimDayOfReminderSend).toHaveBeenCalledWith("evt-1");
+    expect(storageMock.markEventDayOfReminderSent).not.toHaveBeenCalled();
+  });
+
+  it("writes one push per distinct recipient timezone, each on that reader's clock", async () => {
+    // Same instant, two readers, ~11h out (inside the day-of window). In LA the
+    // event is 6:00 PM *today*; in Tokyo the same instant is already 10:00 AM
+    // *tomorrow*. One shared body necessarily misdates it for one of them.
+    const fakeNow = new Date("2026-07-15T14:00:00Z");
+    vi.useFakeTimers({ now: fakeNow });
+    storageMock.getEventsPendingDayOfReminder.mockResolvedValue([
+      evt({ eventAt: new Date("2026-07-16T01:00:00Z"), timezone: "America/Los_Angeles" }),
+    ]);
+    storageMock.getPushRecipientsForUsers.mockResolvedValue([
+      { pushToken: "ExponentPushToken[la]", timezone: "America/Los_Angeles" },
+      { pushToken: "ExponentPushToken[tokyo]", timezone: "Asia/Tokyo" },
+    ]);
+
+    await runDayOfReminderScan();
+    vi.useRealTimers();
+
+    expect(sendPushNotificationsMock).toHaveBeenCalledTimes(2);
+    const bodies = sendPushNotificationsMock.mock.calls.map(
+      (c) => (c as [string[], { body: string }])[1].body,
+    );
+    const tokenGroups = sendPushNotificationsMock.mock.calls.map((c) => (c as [string[]])[0]);
+    expect(tokenGroups).toEqual([["ExponentPushToken[la]"], ["ExponentPushToken[tokyo]"]]);
+    expect(bodies[0]).toContain("Wed, Jul 15 · 6:00 PM PDT");
+    expect(bodies[0]).toMatch(/\btoday\b/i);
+    // Tokyo is already on the next calendar day for the same instant.
+    expect(bodies[1]).toContain("Thu, Jul 16 · 10:00 AM");
+    expect(bodies[1]).toMatch(/\btomorrow\b/i);
+  });
+
+  it("falls back to the event's timezone for recipients who have not set one", async () => {
+    const fakeNow = new Date("2026-07-15T14:00:00Z");
+    vi.useFakeTimers({ now: fakeNow });
+    storageMock.getEventsPendingDayOfReminder.mockResolvedValue([
+      evt({ eventAt: new Date("2026-07-16T01:00:00Z"), timezone: "America/Los_Angeles" }),
+    ]);
+    storageMock.getPushRecipientsForUsers.mockResolvedValue([
+      { pushToken: "ExponentPushToken[none]", timezone: null },
+    ]);
+
+    await runDayOfReminderScan();
+    vi.useRealTimers();
+
+    expect(sendPushNotificationsMock).toHaveBeenCalledTimes(1);
+    const [, payload] = sendPushNotificationsMock.mock.calls[0] as [unknown, { body: string }];
+    expect(payload.body).toContain("Wed, Jul 15 · 6:00 PM PDT");
+  });
+
+  it("degrades to the event's date text when neither reader nor event has a timezone", async () => {
+    const fakeNow = new Date("2026-07-15T14:00:00Z");
+    vi.useFakeTimers({ now: fakeNow });
+    storageMock.getEventsPendingDayOfReminder.mockResolvedValue([
+      evt({
+        eventAt: new Date("2026-07-16T01:00:00Z"),
+        date: "Wed, Jul 15 · 6:00 PM",
+        timezone: null,
+      }),
+    ]);
+    storageMock.getPushRecipientsForUsers.mockResolvedValue([
+      { pushToken: "ExponentPushToken[none]", timezone: null },
+    ]);
+
+    await runDayOfReminderScan();
+    vi.useRealTimers();
+
+    const [, payload] = sendPushNotificationsMock.mock.calls[0] as [unknown, { body: string }];
+    // No trustworthy local time and no day label — the stored text stands alone.
+    expect(payload.body).toBe("Wed, Jul 15 · 6:00 PM");
+  });
+
+  it("does not confirm the send when any timezone group fails, so the claim is released", async () => {
+    storageMock.getEventsPendingDayOfReminder.mockResolvedValue([
+      evt({ date: dateStr(8 * 60 * 60 * 1000), timezone: "UTC" }),
+    ]);
+    storageMock.getPushRecipientsForUsers.mockResolvedValue([
+      { pushToken: "ExponentPushToken[a]", timezone: "UTC" },
+      { pushToken: "ExponentPushToken[b]", timezone: "Asia/Tokyo" },
+    ]);
+    sendPushNotificationsMock
+      .mockResolvedValueOnce({ staleTokens: [], okCount: 1, hadSendError: false })
+      .mockResolvedValueOnce({ staleTokens: [], okCount: 0, hadSendError: true });
+
+    await runDayOfReminderScan();
+
+    expect(storageMock.unclaimDayOfReminderSend).toHaveBeenCalledWith("evt-1");
     expect(storageMock.markEventDayOfReminderSent).not.toHaveBeenCalled();
   });
 
@@ -338,7 +428,7 @@ describe("run3DayReminderScan", () => {
       evt3day(48 * 60 * 60 * 1000, 5 * 24 * 60 * 60 * 1000),
     ]);
     await run3DayReminderScan();
-    const [recipientIds, opts] = storageMock.getPushTokensForUsers.mock.calls[0] as [string[], { requireNotifyReminders?: boolean }];
+    const [recipientIds, opts] = storageMock.getPushRecipientsForUsers.mock.calls[0] as [string[], { requireNotifyReminders?: boolean }];
     expect(recipientIds).toEqual([GOING]);
     expect(opts.requireNotifyReminders).toBe(true);
     expect(sendPushNotificationsMock).toHaveBeenCalledTimes(1);
@@ -383,7 +473,7 @@ describe("run3DayReminderScan", () => {
       }),
     ]);
     await run3DayReminderScan();
-    const [recipientIds] = storageMock.getPushTokensForUsers.mock.calls[0] as [string[]];
+    const [recipientIds] = storageMock.getPushRecipientsForUsers.mock.calls[0] as [string[]];
     expect(recipientIds).toEqual([GOING]);
     expect(recipientIds).not.toContain(MAYBE);
   });

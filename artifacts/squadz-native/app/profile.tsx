@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
+import { useTimezone, zoneLabel } from "@/context/TimezoneContext";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { useAuth, useData } from "@/context/AppContext";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -595,6 +596,10 @@ export default function ProfileScreen() {
       ];
 
   const { friends } = useData();
+  const { timezone: viewerTimezone, mode: timezoneMode, formatEventTime } = useTimezone();
+  // "Automatic" is the state the user chose; the resolved zone is the detail.
+  const timezoneRowValue =
+    timezoneMode === "automatic" ? "Automatic" : zoneLabel(viewerTimezone);
 
   const SETTINGS: SettingItem[][] = [
     [
@@ -613,6 +618,7 @@ export default function ProfileScreen() {
       },
       { icon: "people-outline", label: "Friends", value: String(friends.length), onPress: () => router.push("/friends" as never) },
       { icon: "notifications-outline", label: "Notifications", onPress: () => router.push("/settings/notifications" as never) },
+      { icon: "globe-outline", label: "Time Zone", value: timezoneRowValue, onPress: () => router.push("/settings/timezone" as never) },
       { icon: "lock-closed-outline", label: "Privacy", onPress: () => router.push("/settings/privacy" as never) },
       { icon: "ban-outline", label: "Blocked Users", onPress: () => router.push("/settings/blocked" as never) },
     ],
@@ -905,7 +911,7 @@ export default function ProfileScreen() {
               >
                 <Text style={styles.eventEmoji}>{e.emoji}</Text>
                 <Text style={[styles.eventTitle, { color: colors.foreground }]} numberOfLines={1}>{e.title}</Text>
-                <Text style={[styles.eventDate, { color: colors.mutedForeground }]} numberOfLines={1}>{e.date}</Text>
+                <Text style={[styles.eventDate, { color: colors.mutedForeground }]} numberOfLines={1}>{formatEventTime(e)}</Text>
               </TouchableOpacity>
             ))}
           </View>

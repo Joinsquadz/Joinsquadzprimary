@@ -80,7 +80,7 @@ export function calendarDaysUntil(now: Date, start: Date, tz: string | null | un
 }
 
 /** True when `tz` is a timezone the runtime actually recognises. */
-function isUsableTimeZone(tz: string | null | undefined): tz is string {
+export function isUsableTimeZone(tz: string | null | undefined): tz is string {
   if (!tz) return false;
   try {
     new Intl.DateTimeFormat("en-CA", { timeZone: tz });
@@ -112,4 +112,35 @@ export function relativeDayLabel(
   if (!isUsableTimeZone(tz)) return null;
   const days = calendarDaysUntil(now, start, tz);
   return days === 0 ? "today" : days === 1 ? "tomorrow" : null;
+}
+
+/**
+ * "Sat, Jun 7 · 5:00 PM PDT" — an event's absolute start rendered on the
+ * *reader's* clock. Returns null for an unusable timezone so callers fall back
+ * to the event's own stored date text rather than printing a wrong local time.
+ *
+ * The zone abbreviation comes from Intl, so it is daylight-aware (PDT in
+ * summer, PST in winter) instead of a hardcoded per-zone string.
+ */
+export function formatEventTimeIn(start: Date, tz: string | null | undefined): string | null {
+  if (!isUsableTimeZone(tz)) return null;
+  if (Number.isNaN(start.getTime())) return null;
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "short",
+    }).formatToParts(start);
+    const get = (type: string): string => parts.find((p) => p.type === type)?.value ?? "";
+    const day = `${get("weekday")}, ${get("month")} ${get("day")}`;
+    const time = `${get("hour")}:${get("minute")} ${get("dayPeriod")}`;
+    const zone = get("timeZoneName");
+    return zone ? `${day} · ${time} ${zone}` : `${day} · ${time}`;
+  } catch {
+    return null;
+  }
 }

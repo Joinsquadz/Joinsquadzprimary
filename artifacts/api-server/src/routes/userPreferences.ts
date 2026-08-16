@@ -7,6 +7,15 @@ import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
+function isValidTimeZone(timezone: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: timezone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // Calendar Sync was removed in favor of per-plan "Add to calendar" (.ics
 // export on the client). Stale clients that still PATCH calendarSyncEnabled
 // are safe: this schema is non-strict, so unknown keys are stripped, not 400d.
@@ -20,8 +29,11 @@ const PatchPreferencesBody = z.object({
   notifyPayments: z.boolean().optional(),
   privateProfile: z.boolean().optional(),
   showRsvpActivity: z.boolean().optional(),
+  timezone: z.string().trim().min(1).max(100).optional(),
+  timezoneMode: z.enum(["automatic", "manual"]).optional(),
 });
 
+/** Boolean toggles, safe to copy across in a loop. */
 const PREF_FIELDS = [
   "notifyEventInvites",
   "notifyReminders",
@@ -80,6 +92,8 @@ router.get("/user/preferences", requireAuth, async (req: Request, res: Response)
       zelleHandle: usersTable.zelleHandle,
       bio: usersTable.bio,
       hometown: usersTable.hometown,
+      timezone: usersTable.timezone,
+      timezoneMode: usersTable.timezoneMode,
     }).from(usersTable).where(eq(usersTable.id, userId));
 
     if (!user) {
@@ -158,6 +172,19 @@ router.patch("/user/preferences", requireAuth, async (req: Request, res: Respons
       if (value !== undefined) patch[field] = value;
     }
 
+    // Validate BEFORE writing: an unrecognised zone name would render every
+    // future date for this user as a fallback string, silently.
+    if (parsed.data.timezone !== undefined) {
+      if (!isValidTimeZone(parsed.data.timezone)) {
+        res.status(400).json({ error: "Please choose a valid timezone." });
+        return;
+      }
+      patch.timezone = parsed.data.timezone;
+    }
+    if (parsed.data.timezoneMode !== undefined) {
+      patch.timezoneMode = parsed.data.timezoneMode;
+    }
+
     const [updated] = await db.update(usersTable)
       .set({ ...patch, updatedAt: new Date() })
       .where(eq(usersTable.id, userId))
@@ -171,6 +198,8 @@ router.patch("/user/preferences", requireAuth, async (req: Request, res: Respons
         notifyPayments: usersTable.notifyPayments,
         privateProfile: usersTable.privateProfile,
         showRsvpActivity: usersTable.showRsvpActivity,
+        timezone: usersTable.timezone,
+        timezoneMode: usersTable.timezoneMode,
       });
 
     res.json(updated);

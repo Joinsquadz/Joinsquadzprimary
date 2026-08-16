@@ -24,6 +24,7 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useData, useAuth, dbEventToEvent } from "@/context/AppContext";
 import { useUserCache } from "@/context/UserCacheContext";
+import { useTimezone } from "@/context/TimezoneContext";
 import { useEventStream } from "@/hooks/useEventStream";
 import { UserAvatar } from "@/components/UserAvatar";
 import AddressLink from "@/components/AddressLink";
@@ -236,6 +237,7 @@ export default function TripDetailScreen() {
     removeEventCoAdmin,
   } = useData();
   const { resolveUser, prefetchUsers } = useUserCache();
+  const { formatTripDateRange } = useTimezone();
   const { authToken } = useAuth();
 
   // Past trips live in the Plans→Past segment but are NOT in the upcoming-only
@@ -1264,7 +1266,7 @@ export default function TripDetailScreen() {
           <Text style={styles.coverTitle}>{event.title}</Text>
           <View style={styles.coverMetaRow}>
             <Ionicons name="calendar-outline" size={14} color="rgba(255,255,255,0.92)" />
-            <Text style={styles.coverMeta}>{formatTripRange(event)}</Text>
+            <Text style={styles.coverMeta}>{formatTripDateRange(event)}</Text>
             <Text style={styles.coverDot}>·</Text>
             <Text style={styles.coverMeta}>{nights} {nights === 1 ? "night" : "nights"}</Text>
           </View>

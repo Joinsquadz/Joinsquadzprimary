@@ -17,6 +17,7 @@ import { useColors } from "@/hooks/useColors";
 import { useData } from "@/context/AppContext";
 import { goingCount } from "@/lib/eventUtils";
 import { useUserCache } from "@/context/UserCacheContext";
+import { useTimezone } from "@/context/TimezoneContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
 export default function InviteScreen() {
@@ -24,6 +25,7 @@ export default function InviteScreen() {
   const insets = useSafeAreaInsets();
   const { events, eventsLoading, authToken } = useData();
   const { resolveUser, prefetchUsers } = useUserCache();
+  const { formatEventTime } = useTimezone();
   const params = useLocalSearchParams<{ eventId?: string; code?: string }>();
   const [accepted, setAccepted] = useState(false);
   const [joining, setJoining] = useState(false);
@@ -128,7 +130,7 @@ export default function InviteScreen() {
         <View style={[styles.detailCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           {[
             { icon: "person-outline" as const, text: `Hosted by ${host.name}` },
-            { icon: "calendar-outline" as const, text: event.date },
+            { icon: "calendar-outline" as const, text: formatEventTime(event) },
             { icon: "location-outline" as const, text: event.location },
             { icon: "people-outline" as const, text: `${goingCount(event)} going · ${event.squadName}` },
           ].map((row, i) => (

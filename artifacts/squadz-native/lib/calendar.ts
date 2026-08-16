@@ -31,3 +31,25 @@ export function parseEventStart(
   }
   return result;
 }
+
+/**
+ * The event's true start *instant*, for anything that does time math:
+ * countdowns, past/upcoming checks, reminder scheduling.
+ *
+ * Prefer the stored absolute timestamp. `parseEventStart` is a legacy fallback
+ * only — it reads a year-less wall-clock string as the *device's* local time,
+ * so for a viewer in another timezone it silently yields the wrong moment (a
+ * countdown hours off, an RSVP nudge fired on the wrong day). Events created
+ * before absolute timestamps existed have nothing else to go on.
+ */
+export function resolveEventStart(
+  plan: { date?: string | null; eventAt?: string | null; startAt?: string | null } | null | undefined,
+): Date | null {
+  if (!plan) return null;
+  for (const iso of [plan.startAt, plan.eventAt]) {
+    if (!iso) continue;
+    const d = new Date(iso);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  return parseEventStart(plan.date ?? "");
+}

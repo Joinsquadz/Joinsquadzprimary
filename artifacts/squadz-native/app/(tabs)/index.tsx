@@ -37,6 +37,7 @@ import { claimOnce } from "@/lib/seenFlags";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { STOP_VOTING_ENABLED } from "@/lib/tripApi";
 import { useToast } from "@/context/ToastContext";
+import { useTimezone } from "@/context/TimezoneContext";
 import { todayKey } from "@/lib/tripUtils";
 
 /** Open the platform maps app pointed at a freeform location string. */
@@ -107,6 +108,7 @@ export default function HomeScreen() {
   const { unreadCount: unreadActivity } = useActivity();
   const { events, squads, friends, eventsLoading, squadsLoading, joinEvent, joinSquad, friendCode, refreshEvents, refreshSquads } = useData();
   const { showToast } = useToast();
+  const { formatEventTime } = useTimezone();
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = useCallback(async () => {
@@ -477,7 +479,7 @@ export default function HomeScreen() {
       if (e.type === "event" && e.hostId !== me && e.rsvps[me] === undefined) {
         items.push({
           key: `rsvp-${e.id}`, icon: "help-circle", tint: "#FF6B2C",
-          title: `RSVP to ${e.title}`, sub: e.date || "Date TBD",
+          title: `RSVP to ${e.title}`, sub: formatEventTime(e) || "Date TBD",
           route: `/event/${e.id}`,
         });
       }
@@ -648,7 +650,7 @@ export default function HomeScreen() {
                     <Ionicons name="chevron-forward" size={12} color="rgba(255,255,255,0.8)" />
                   </TouchableOpacity>
                 ) : (
-                  <Text style={styles.heroSub}>{upNext.location} · {upNext.date}</Text>
+                  <Text style={styles.heroSub}>{upNext.location} · {formatEventTime(upNext)}</Text>
                 )}
                 {dayOf && dayOf.todayStops.length > 0 ? (
                   <View style={styles.heroStops}>
@@ -909,6 +911,9 @@ export default function HomeScreen() {
                   emoji={item.emoji}
                   title={item.title}
                   date={item.date}
+                  eventAt={item.eventAt}
+                  startAt={item.startAt}
+                  allDay={item.allDay}
                   location={item.location}
                   hostId={item.hostId}
                   attendeeCount={goingCount(item)}
@@ -1051,7 +1056,7 @@ export default function HomeScreen() {
                     <Text style={styles.discoverEmoji}>{ev.emoji}</Text>
                   </View>
                   <Text style={[styles.discoverTitle, { color: colors.foreground }]} numberOfLines={2}>{ev.title}</Text>
-                  <Text style={[styles.discoverSub, { color: colors.mutedForeground }]} numberOfLines={1}>{ev.date}</Text>
+                  <Text style={[styles.discoverSub, { color: colors.mutedForeground }]} numberOfLines={1}>{formatEventTime(ev)}</Text>
                   <View style={[styles.discoverJoinBtn, { backgroundColor: colors.primary }]}>
                     <Text style={styles.discoverJoinText}>Join →</Text>
                   </View>

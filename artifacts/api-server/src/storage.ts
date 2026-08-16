@@ -2603,6 +2603,49 @@ export class Storage {
   }
 
   /**
+   * Same filtering as getPushTokensForUsers, but returns each recipient's
+   * effective display timezone alongside their token so notification copy can
+   * be composed in the *reader's* local time rather than one shared string.
+   *
+   * `timezone` is null when the user has never had one resolved; callers fall
+   * back to the event's stored timezone (the creator's) for those recipients.
+   */
+  async getPushRecipientsForUsers(
+    userIds: string[],
+    opts: {
+      requireNotifyReminders?: boolean;
+      requireNotifySquadJoin?: boolean;
+      requireNotifySquadLeave?: boolean;
+      requireNotifyMessages?: boolean;
+      requireNotifyEventInvites?: boolean;
+      requireNotifyFriendActivity?: boolean;
+      requireNotifyPayments?: boolean;
+    } = {},
+  ): Promise<Array<{ userId: string; pushToken: string; timezone: string | null }>> {
+    if (userIds.length === 0) return [];
+    const conditions = [inArray(usersTable.id, userIds)];
+    if (opts.requireNotifyReminders) conditions.push(eq(usersTable.notifyReminders, true));
+    if (opts.requireNotifySquadJoin) conditions.push(eq(usersTable.notifySquadJoin, true));
+    if (opts.requireNotifySquadLeave) conditions.push(eq(usersTable.notifySquadLeave, true));
+    if (opts.requireNotifyMessages) conditions.push(eq(usersTable.notifyMessages, true));
+    if (opts.requireNotifyEventInvites) conditions.push(eq(usersTable.notifyEventInvites, true));
+    if (opts.requireNotifyFriendActivity) conditions.push(eq(usersTable.notifyFriendActivity, true));
+    if (opts.requireNotifyPayments) conditions.push(eq(usersTable.notifyPayments, true));
+    const rows = await db
+      .select({
+        userId: usersTable.id,
+        pushToken: usersTable.pushToken,
+        timezone: usersTable.timezone,
+      })
+      .from(usersTable)
+      .where(and(...conditions));
+    return rows
+      .filter((r): r is { userId: string; pushToken: string; timezone: string | null } =>
+        Boolean(r.pushToken))
+      .map((r) => ({ userId: r.userId, pushToken: r.pushToken, timezone: r.timezone ?? null }));
+  }
+
+  /**
    * Events eligible for an automatic "starting soon" reminder scan: not
    * cancelled, no reminder sent yet, and with a concrete (non-TBD) date string.
    * The caller best-effort parses the free-form `date` text to decide whether

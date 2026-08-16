@@ -1,7 +1,7 @@
 import { logger } from './logger';
 import { sendPushNotifications } from './pushNotifications';
 import { storage } from '../storage';
-import { parseEventStart, relativeDayLabel } from './eventDate';
+import { parseEventStart, relativeDayLabel, formatEventTimeIn } from './eventDate';
 
 // Automatic "starting soon" event reminders. Event `date` is free-form text
 // (e.g. "Sat, Jun 7 · 5:00 PM"), so we best-effort parse it and notify the
@@ -48,6 +48,80 @@ function eventStartFor(
   return parseEventStart(event.date, now);
 }
 
+export type PushRecipient = { pushToken: string; timezone: string | null };
+
+/**
+ * Group recipients by the timezone their copy should be written in, so one
+ * event produces one push per distinct zone instead of one shared string.
+ *
+ * A recipient with no saved timezone inherits the event's stored zone (the
+ * creator's). When that is also missing the group's zone is null and callers
+ * degrade to the event's own date text — never to a UTC guess, which silently
+ * misdates evening events in behind-UTC zones.
+ */
+export function groupRecipientsByZone(
+  recipients: PushRecipient[],
+  eventTimezone: string | null,
+): Array<{ timezone: string | null; tokens: string[] }> {
+  const groups = new Map<string, { timezone: string | null; tokens: string[] }>();
+  for (const recipient of recipients) {
+    const zone = recipient.timezone ?? eventTimezone ?? null;
+    const key = zone ?? '\u0000none';
+    let group = groups.get(key);
+    if (!group) {
+      group = { timezone: zone, tokens: [] };
+      groups.set(key, group);
+    }
+    group.tokens.push(recipient.pushToken);
+  }
+  return [...groups.values()];
+}
+
+/**
+ * Send the same notification to several timezone groups, composing the body
+ * separately for each. Results are folded into one {@link SendPushResult}-shaped
+ * summary so fire-once callers keep their existing claim/retry semantics: any
+ * group failing marks the whole send unconfirmed and releases the claim.
+ */
+async function sendPerZone(
+  groups: Array<{ timezone: string | null; tokens: string[] }>,
+  build: (zone: string | null) => { title: string; body: string; data?: Record<string, unknown> },
+): Promise<{ okCount: number; hadSendError: boolean }> {
+  let okCount = 0;
+  let hadSendError = false;
+  for (const group of groups) {
+    if (group.tokens.length === 0) continue;
+    const result = await sendPushNotifications(
+      group.tokens,
+      build(group.timezone),
+      { onStaleToken: (token) => storage.clearPushToken(token) },
+    );
+    okCount += result.okCount;
+    if (result.hadSendError) hadSendError = true;
+  }
+  return { okCount, hadSendError };
+}
+
+/**
+ * Reminder body copy in a single reader's timezone. Falls back to the event's
+ * stored date text whenever the zone can't render a trustworthy local time.
+ */
+export function reminderBodyFor(
+  opts: {
+    now: Date;
+    start: Date;
+    zone: string | null;
+    eventDateText: string;
+    prefix?: string;
+  },
+): string {
+  const { now, start, zone, eventDateText, prefix } = opts;
+  const localTime = formatEventTimeIn(start, zone) ?? eventDateText;
+  const dayLabel = relativeDayLabel(now, start, zone);
+  if (prefix) return `${prefix} — ${localTime}`;
+  return dayLabel != null ? `Coming up ${dayLabel} — ${localTime}` : localTime;
+}
+
 export async function runEventReminderScan(): Promise<void> {
   const events = await storage.getEventsPendingReminder();
   const now = new Date();
@@ -75,8 +149,8 @@ export async function runEventReminderScan(): Promise<void> {
       : goingIds;
     if (recipientIds.length === 0) continue;
 
-    const tokens = await storage.getPushTokensForUsers(recipientIds, { requireNotifyReminders: true });
-    if (tokens.length === 0) continue;
+    const recipients = await storage.getPushRecipientsForUsers(recipientIds, { requireNotifyReminders: true });
+    if (recipients.length === 0) continue;
 
     // Atomic claim: sets reminderSentAt = NOW() only when still NULL. If two
     // instances race on the same event, only one UPDATE returns a row; the
@@ -85,14 +159,16 @@ export async function runEventReminderScan(): Promise<void> {
     if (!claimed) continue; // another instance already claimed it
 
     try {
-      const result = await sendPushNotifications(
-        tokens,
-        {
+      const eventTz = (event as { timezone?: string | null }).timezone ?? null;
+      const result = await sendPerZone(
+        groupRecipientsByZone(recipients, eventTz),
+        (zone) => ({
           title: `${event.emoji} ${event.title}`,
-          body: `Starting soon — ${event.date}`,
+          body: reminderBodyFor({
+            now, start, zone, eventDateText: event.date, prefix: 'Starting soon',
+          }),
           data: { screen: event.type === 'trip' ? 'trip' : 'event', eventId: event.id },
-        },
-        { onStaleToken: (token) => storage.clearPushToken(token) },
+        }),
       );
       if (result.okCount > 0 && !result.hadSendError) {
         // Already marked by the atomic claim — nothing more to do.
@@ -137,27 +213,27 @@ export async function runDayOfReminderScan(): Promise<void> {
       : goingIds;
     if (recipientIds.length === 0) continue;
 
-    const tokens = await storage.getPushTokensForUsers(recipientIds, { requireNotifyReminders: true });
-    if (tokens.length === 0) continue;
+    const recipients = await storage.getPushRecipientsForUsers(recipientIds, { requireNotifyReminders: true });
+    if (recipients.length === 0) continue;
 
     const claimed = await storage.tryClaimDayOfReminderSend(event.id);
     if (!claimed) continue;
 
     try {
-      // Compute a calendar-day-aware label using the event's stored timezone so
-      // the copy is correct in the creator's locale, not just the server's UTC.
-      // Events with no stored timezone get no label at all — see
-      // relativeDayLabel for why UTC is not a safe default here.
-      const dayLabel = relativeDayLabel(now, start, (event as { timezone?: string | null }).timezone ?? null);
-      const body = dayLabel != null ? `Coming up ${dayLabel} — ${event.date}` : event.date;
-      const result = await sendPushNotifications(
-        tokens,
-        {
+      // The "today"/"tomorrow" label and the printed clock time are both
+      // computed per recipient: a guest in Tokyo and a host in Los Angeles are
+      // often on different calendar days for the same instant. Recipients with
+      // no saved zone fall back to the event's stored (creator's) zone, and
+      // when that is missing too the body degrades to the event's date text —
+      // see relativeDayLabel for why UTC is not a safe default here.
+      const eventTz = (event as { timezone?: string | null }).timezone ?? null;
+      const result = await sendPerZone(
+        groupRecipientsByZone(recipients, eventTz),
+        (zone) => ({
           title: `${event.emoji} ${event.title}`,
-          body,
+          body: reminderBodyFor({ now, start, zone, eventDateText: event.date }),
           data: { screen: event.type === 'trip' ? 'trip' : 'event', eventId: event.id },
-        },
-        { onStaleToken: (token) => storage.clearPushToken(token) },
+        }),
       );
       if (result.okCount > 0 && !result.hadSendError) {
         // Already marked by the atomic claim.
@@ -213,23 +289,21 @@ export async function run3DayReminderScan(): Promise<void> {
       : goingIds;
     if (recipientIds.length === 0) continue;
 
-    const tokens = await storage.getPushTokensForUsers(recipientIds, { requireNotifyReminders: true });
-    if (tokens.length === 0) continue;
+    const recipients = await storage.getPushRecipientsForUsers(recipientIds, { requireNotifyReminders: true });
+    if (recipients.length === 0) continue;
 
     const claimed = await storage.tryClaimEvent3DayReminderSend(event.id);
     if (!claimed) continue;
 
     try {
-      const dayLabel = relativeDayLabel(now, start, (event as { timezone?: string | null }).timezone ?? null);
-      const body = dayLabel != null ? `Coming up ${dayLabel} — ${event.date}` : event.date;
-      const result = await sendPushNotifications(
-        tokens,
-        {
+      const eventTz = (event as { timezone?: string | null }).timezone ?? null;
+      const result = await sendPerZone(
+        groupRecipientsByZone(recipients, eventTz),
+        (zone) => ({
           title: `${event.emoji} ${event.title}`,
-          body,
+          body: reminderBodyFor({ now, start, zone, eventDateText: event.date }),
           data: { screen: event.type === 'trip' ? 'trip' : 'event', eventId: event.id },
-        },
-        { onStaleToken: (token) => storage.clearPushToken(token) },
+        }),
       );
       if (result.okCount > 0 && !result.hadSendError) {
         // Already marked by the atomic claim.

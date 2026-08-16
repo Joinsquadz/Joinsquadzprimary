@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useColors } from "@/hooks/useColors";
 import { useData } from "@/context/AppContext";
+import { useTimezone } from "@/context/TimezoneContext";
 import { useUserCache } from "@/context/UserCacheContext";
 import { ProAvatar } from "./ProAvatar";
 
@@ -11,7 +12,12 @@ interface EventCardProps {
   id: string;
   emoji: string;
   title: string;
+  /** Stored display text — the fallback for TBD/all-day/legacy events. */
   date: string;
+  /** Absolute start instant; when present the card renders it in the viewer's zone. */
+  eventAt?: string | null;
+  startAt?: string | null;
+  allDay?: boolean;
   location: string;
   hostId: string;
   attendeeCount: number;
@@ -23,6 +29,9 @@ function EventCardBase({
   emoji,
   title,
   date,
+  eventAt,
+  startAt,
+  allDay,
   location,
   hostId,
   attendeeCount,
@@ -30,9 +39,11 @@ function EventCardBase({
 }: EventCardProps) {
   const colors = useColors();
   const { currentUser } = useData();
+  const { formatEventTime } = useTimezone();
   const { resolveUser, prefetchUsers } = useUserCache();
   const host = resolveUser(hostId);
   const isHost = hostId === currentUser.id;
+  const whenLabel = formatEventTime({ date, eventAt, startAt, allDay });
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { prefetchUsers([hostId]); }, [hostId]);
@@ -66,7 +77,7 @@ function EventCardBase({
           )}
         </View>
         <Text style={[styles.date, { color: colors.primary }]} numberOfLines={1}>
-          {date}
+          {whenLabel}
         </Text>
         <Text style={[styles.location, { color: colors.mutedForeground }]} numberOfLines={1}>
           {location}

@@ -22,8 +22,9 @@ import { EventCard } from "@/components/EventCard";
 import { KeyboardDismissControl } from "@/components/KeyboardDismissControl";
 import { TripCard } from "@/components/TripCard";
 import type { Event } from "@/types";
-import { goingCount, parseEventDate } from "@/lib/eventUtils";
+import { goingCount } from "@/lib/eventUtils";
 import { isTripPast, isHappeningNow } from "@/lib/tripUtils";
+import { resolveEventStart } from "@/lib/calendar";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { Image } from "expo-image";
 // Shared auth-race guard (see lib/vaultAuthRace.ts). This screen has its own
@@ -357,7 +358,10 @@ export default function PlansScreen() {
 
   const isPastPlan = useCallback((e: Event): boolean => {
     if (e.type === "trip") return isTripPast(e);
-    const d = parseEventDate(e.date);
+    // Past-vs-upcoming must key on the absolute instant. Reading the creator's
+    // wall-clock text as device-local time files a plan under the wrong tab for
+    // any viewer in another zone.
+    const d = resolveEventStart(e);
     return !!d && d < new Date();
   }, []);
 
@@ -403,6 +407,9 @@ export default function PlansScreen() {
         emoji={item.emoji}
         title={item.title}
         date={item.date}
+        eventAt={item.eventAt}
+        startAt={item.startAt}
+        allDay={item.allDay}
         location={item.location}
         hostId={item.hostId}
         attendeeCount={goingCount(item)}

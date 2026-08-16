@@ -20,7 +20,7 @@ import {
 import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { SettleUp } from "@/components/SettleUp";
 import type { Event as SquadzEvent } from "@/types";
-import { parseEventStart } from "@/lib/calendar";
+import { resolveEventStart } from "@/lib/calendar";
 import { buildPlanIcs } from "@/lib/ics";
 import { shareIcsFile } from "@/lib/shareIcs";
 import { findMyConflicts, getPlanSpan } from "@/lib/conflicts";
@@ -70,6 +70,7 @@ import type { PlanIdea } from "@/types";
 import type { RsvpStatus } from "@/types";
 import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
 import { useTips } from "@/context/TipsContext";
+import { useTimezone } from "@/context/TimezoneContext";
 import { IconPicker } from "@/components/IconPicker";
 import { EventVaultPanel } from "@/components/EventVaultPanel";
 import { AddFriendBadge } from "@/components/AddFriendBadge";
@@ -168,6 +169,7 @@ export default function EventDetailScreen() {
     eventsAuthError,
     retryEvents,
   } = useData();
+  const { formatEventTime, formatInstant } = useTimezone();
 
   // Past events are NOT in the upcoming-only AppContext.events list. When
   // getEvent returns undefined (past event, deep-link cold-start, etc.),
@@ -389,7 +391,7 @@ export default function EventDetailScreen() {
   // count comes from the vault; attendance/costs are already on the event.
   useEffect(() => {
     if (!event || !id) return;
-    const start = parseEventStart(event.date);
+    const start = resolveEventStart(event);
     if (!start || start >= new Date()) return;
     fetch(`${API_BASE}/api/vault/photos?eventId=${id}`, { headers: authHeaders() })
       .then((r) => (r.ok ? r.json() : null))
@@ -883,7 +885,7 @@ export default function EventDetailScreen() {
 
   const handleRemindRsvp = async () => {
     if (remBusy) return;
-    const start = parseEventStart(event.date);
+    const start = resolveEventStart(event);
     if (!start) {
       Alert.alert("Can't set a reminder", "This event doesn't have a clear date yet.");
       return;
@@ -1138,11 +1140,7 @@ export default function EventDetailScreen() {
     setEditEndAt(event.endAt ?? null);
     setEditModal(true);
   };
-  const eventStart = event?.startAt
-    ? new Date(event.startAt)
-    : event?.eventAt
-      ? new Date(event.eventAt)
-      : parseEventStart(event?.date ?? "");
+  const eventStart = resolveEventStart(event);
   const isCancelled = !!event.cancelled;
   const isPastEvent = eventStart != null && eventStart.getTime() < Date.now();
   const saveEdit = () => {
@@ -1275,10 +1273,10 @@ export default function EventDetailScreen() {
             alignSelf: "center",
           }}
         >
-          <Text style={styles.heroDate}>{event.date}</Text>
+          <Text style={styles.heroDate}>{formatEventTime(event)}</Text>
         </Animated.View>
         {event.endAt ? (
-          <Text style={styles.heroDate}>Ends {formatEndLabel(event.endAt)}</Text>
+          <Text style={styles.heroDate}>Ends {formatInstant(event.endAt) || formatEndLabel(event.endAt)}</Text>
         ) : null}
         <Animated.View
           style={{
@@ -1297,7 +1295,7 @@ export default function EventDetailScreen() {
         </Animated.View>
 
         {(() => {
-          const start = parseEventStart(event.date ?? "");
+          const start = resolveEventStart(event);
           const cd = start ? formatCountdown(start, nowTick) : null;
           if (!cd) return null;
           return (
@@ -1456,7 +1454,7 @@ export default function EventDetailScreen() {
         {tab === "overview" && (
           <View style={{ gap: 16 }}>
             {(() => {
-              const start = parseEventStart(event.date);
+              const start = resolveEventStart(event);
               if (!start || start >= new Date()) return null;
               const went = goingCount(event);
               const total = event.costs.reduce((s, c) => s + c.amount, 0);

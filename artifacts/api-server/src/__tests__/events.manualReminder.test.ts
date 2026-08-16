@@ -32,6 +32,7 @@ const storageMock = vi.hoisted(() => ({
   getSquad: vi.fn(),
   filterUnmutedForSquad: vi.fn(),
   getPushTokensForUsers: vi.fn(),
+  getPushRecipientsForUsers: vi.fn(),
   markManualReminderSent: vi.fn(),
   markManualReminderSentAtomic: vi.fn(),
   clearPushToken: vi.fn(),
@@ -87,6 +88,7 @@ beforeEach(() => {
   storageMock.getSquad.mockResolvedValue({ id: "squad-1", name: "Crew", memberIds: [HOST, ALICE, BOB, CAROL] });
   storageMock.filterUnmutedForSquad.mockImplementation(async (ids: string[]) => ids);
   storageMock.getPushTokensForUsers.mockResolvedValue([]);
+  storageMock.getPushRecipientsForUsers.mockResolvedValue([]);
   storageMock.markManualReminderSent.mockResolvedValue(undefined);
   // BUG-03: default to "won the race" so happy-path tests proceed normally.
   storageMock.markManualReminderSentAtomic.mockResolvedValue({ won: true });
@@ -118,6 +120,7 @@ describe("POST /api/events/:id/remind", () => {
   it("allows a co-admin (not host) to send a reminder", async () => {
     dbState.selectRows = [makeEvent({ hostId: "someone-else", coAdminIds: [HOST] })];
     storageMock.getPushTokensForUsers.mockResolvedValue(["ExponentPushToken[a]"]);
+    storageMock.getPushRecipientsForUsers.mockResolvedValue([{ pushToken: "ExponentPushToken[a]", timezone: null }]);
     const app = await makeApp({ id: HOST });
     const res = await request(app).post("/api/events/evt-1/remind").send({ type: "general" });
     expect(res.status).toBe(200);
@@ -142,10 +145,11 @@ describe("POST /api/events/:id/remind", () => {
     it("sends to going + maybe RSVPs, excluding the sender, respecting requireNotifyReminders", async () => {
       dbState.selectRows = [makeEvent({ rsvps: { [ALICE]: "going", [BOB]: "maybe", [HOST]: "going" } })];
       storageMock.getPushTokensForUsers.mockResolvedValue(["ExponentPushToken[a]", "ExponentPushToken[b]"]);
+      storageMock.getPushRecipientsForUsers.mockResolvedValue([{ pushToken: "ExponentPushToken[a]", timezone: null }, { pushToken: "ExponentPushToken[b]", timezone: null }]);
       const app = await makeApp({ id: HOST });
       await request(app).post("/api/events/evt-1/remind").send({ type: "general" });
       await vi.waitFor(() => expect(sendPushNotificationsMock).toHaveBeenCalled());
-      const [recipientIds, opts] = storageMock.getPushTokensForUsers.mock.calls[0] as [
+      const [recipientIds, opts] = storageMock.getPushRecipientsForUsers.mock.calls[0] as [
         string[],
         { requireNotifyReminders?: boolean },
       ];
@@ -158,10 +162,11 @@ describe("POST /api/events/:id/remind", () => {
     it("excludes users with 'not going' from the general audience", async () => {
       dbState.selectRows = [makeEvent({ rsvps: { [ALICE]: "not going", [BOB]: "going" } })];
       storageMock.getPushTokensForUsers.mockResolvedValue(["ExponentPushToken[b]"]);
+      storageMock.getPushRecipientsForUsers.mockResolvedValue([{ pushToken: "ExponentPushToken[b]", timezone: null }]);
       const app = await makeApp({ id: HOST });
       await request(app).post("/api/events/evt-1/remind").send({ type: "general" });
       await vi.waitFor(() => expect(sendPushNotificationsMock).toHaveBeenCalled());
-      const [recipientIds] = storageMock.getPushTokensForUsers.mock.calls[0] as [string[]];
+      const [recipientIds] = storageMock.getPushRecipientsForUsers.mock.calls[0] as [string[]];
       expect(recipientIds).not.toContain(ALICE);
       expect(recipientIds).toContain(BOB);
     });
@@ -184,10 +189,11 @@ describe("POST /api/events/:id/remind", () => {
       dbState.selectRows = [makeEvent({ rsvps: { [ALICE]: "going", [BOB]: "going" } })];
       storageMock.filterUnmutedForSquad.mockResolvedValue([ALICE]);
       storageMock.getPushTokensForUsers.mockResolvedValue(["ExponentPushToken[a]"]);
+      storageMock.getPushRecipientsForUsers.mockResolvedValue([{ pushToken: "ExponentPushToken[a]", timezone: null }]);
       const app = await makeApp({ id: HOST });
       await request(app).post("/api/events/evt-1/remind").send({ type: "general" });
       await vi.waitFor(() => expect(sendPushNotificationsMock).toHaveBeenCalled());
-      const [recipientIds] = storageMock.getPushTokensForUsers.mock.calls[0] as [string[]];
+      const [recipientIds] = storageMock.getPushRecipientsForUsers.mock.calls[0] as [string[]];
       expect(recipientIds).toEqual([ALICE]);
     });
 
@@ -223,10 +229,11 @@ describe("POST /api/events/:id/remind", () => {
       dbState.selectRows = [makeEvent({ rsvps: { [ALICE]: "going" }, invitedUserIds: [] })];
       storageMock.getSquad.mockResolvedValue({ id: "squad-1", memberIds: [HOST, ALICE, BOB, CAROL] });
       storageMock.getPushTokensForUsers.mockResolvedValue(["ExponentPushToken[b]", "ExponentPushToken[c]"]);
+      storageMock.getPushRecipientsForUsers.mockResolvedValue([{ pushToken: "ExponentPushToken[b]", timezone: null }, { pushToken: "ExponentPushToken[c]", timezone: null }]);
       const app = await makeApp({ id: HOST });
       await request(app).post("/api/events/evt-1/remind").send({ type: "rsvp" });
       await vi.waitFor(() => expect(sendPushNotificationsMock).toHaveBeenCalled());
-      const [recipientIds, opts] = storageMock.getPushTokensForUsers.mock.calls[0] as [
+      const [recipientIds, opts] = storageMock.getPushRecipientsForUsers.mock.calls[0] as [
         string[],
         { requireNotifyReminders?: boolean },
       ];
@@ -242,10 +249,11 @@ describe("POST /api/events/:id/remind", () => {
       dbState.selectRows = [makeEvent({ rsvps: {}, invitedUserIds: [FRIEND], squadId: "" })];
       storageMock.getSquad.mockResolvedValue(null);
       storageMock.getPushTokensForUsers.mockResolvedValue(["ExponentPushToken[f]"]);
+      storageMock.getPushRecipientsForUsers.mockResolvedValue([{ pushToken: "ExponentPushToken[f]", timezone: null }]);
       const app = await makeApp({ id: HOST });
       await request(app).post("/api/events/evt-1/remind").send({ type: "rsvp" });
       await vi.waitFor(() => expect(sendPushNotificationsMock).toHaveBeenCalled());
-      const [recipientIds] = storageMock.getPushTokensForUsers.mock.calls[0] as [string[]];
+      const [recipientIds] = storageMock.getPushRecipientsForUsers.mock.calls[0] as [string[]];
       expect(recipientIds).toContain(FRIEND);
     });
 
@@ -324,10 +332,11 @@ describe("POST /api/events/:id/remind", () => {
       memberIds: ["some-host", HOST, CO_ADMIN, ALICE, BOB],
     });
     storageMock.getPushTokensForUsers.mockResolvedValue(["ExponentPushToken[a]"]);
+    storageMock.getPushRecipientsForUsers.mockResolvedValue([{ pushToken: "ExponentPushToken[a]", timezone: null }]);
     const app = await makeApp({ id: HOST });
     await request(app).post("/api/events/evt-1/remind").send({ type: "rsvp" });
     await vi.waitFor(() => expect(storageMock.markManualReminderSentAtomic).toHaveBeenCalled());
-    const [recipientIds] = storageMock.getPushTokensForUsers.mock.calls[0] as [string[]];
+    const [recipientIds] = storageMock.getPushRecipientsForUsers.mock.calls[0] as [string[]];
     expect(recipientIds).not.toContain("some-host"); // host excluded
     expect(recipientIds).not.toContain(HOST);        // sender+co-admin excluded
     expect(recipientIds).not.toContain(CO_ADMIN);    // co-admin excluded
@@ -341,11 +350,62 @@ describe("POST /api/events/:id/remind", () => {
       makeEvent({ eventAt: tomorrowAt, timezone: "UTC", rsvps: { [ALICE]: "going" } }),
     ];
     storageMock.getPushTokensForUsers.mockResolvedValue(["ExponentPushToken[a]"]);
+    storageMock.getPushRecipientsForUsers.mockResolvedValue([{ pushToken: "ExponentPushToken[a]", timezone: null }]);
     const app = await makeApp({ id: HOST });
     await request(app).post("/api/events/evt-1/remind").send({ type: "general" });
     await vi.waitFor(() => expect(sendPushNotificationsMock).toHaveBeenCalled());
     const [, payload] = sendPushNotificationsMock.mock.calls[0] as [unknown, { body: string }];
     expect(payload.body).toContain("tomorrow");
+  });
+
+  it("writes one push per recipient timezone, each on that reader's clock", async () => {
+    // 11h out: 6:00 PM Jul 15 in LA is 10:00 AM Jul 16 in Tokyo — same instant,
+    // different calendar day, so a single shared body can't be right for both.
+    vi.useFakeTimers({ now: new Date("2026-07-15T14:00:00Z") });
+    dbState.selectRows = [
+      makeEvent({
+        eventAt: "2026-07-16T01:00:00.000Z",
+        timezone: "America/Los_Angeles",
+        rsvps: { [ALICE]: "going", [BOB]: "going" },
+      }),
+    ];
+    storageMock.getPushRecipientsForUsers.mockResolvedValue([
+      { pushToken: "ExponentPushToken[la]", timezone: "America/Los_Angeles" },
+      { pushToken: "ExponentPushToken[tokyo]", timezone: "Asia/Tokyo" },
+    ]);
+    const app = await makeApp({ id: HOST });
+    await request(app).post("/api/events/evt-1/remind").send({ type: "general" });
+    await vi.waitFor(() => expect(sendPushNotificationsMock).toHaveBeenCalledTimes(2));
+    vi.useRealTimers();
+
+    const calls = sendPushNotificationsMock.mock.calls as Array<[string[], { body: string }]>;
+    expect(calls[0][0]).toEqual(["ExponentPushToken[la]"]);
+    expect(calls[0][1].body).toContain("today");
+    expect(calls[1][0]).toEqual(["ExponentPushToken[tokyo]"]);
+    expect(calls[1][1].body).toContain("tomorrow");
+  });
+
+  it("prints the reader's local clock time when the day label doesn't apply", async () => {
+    // Four days out — too far for today/tomorrow, so the body should carry an
+    // explicit local time rather than the creator's stored date text.
+    dbState.selectRows = [
+      makeEvent({
+        eventAt: "2026-07-19T01:00:00.000Z",
+        date: "Wed, Jul 15 · 6:00 PM",
+        timezone: "America/Los_Angeles",
+        rsvps: { [ALICE]: "going" },
+      }),
+    ];
+    storageMock.getPushRecipientsForUsers.mockResolvedValue([
+      { pushToken: "ExponentPushToken[tokyo]", timezone: "Asia/Tokyo" },
+    ]);
+    const app = await makeApp({ id: HOST });
+    await request(app).post("/api/events/evt-1/remind").send({ type: "general" });
+    await vi.waitFor(() => expect(sendPushNotificationsMock).toHaveBeenCalled());
+    const [, payload] = sendPushNotificationsMock.mock.calls[0] as [unknown, { body: string }];
+    expect(payload.body).toContain("Sun, Jul 19 · 10:00 AM");
+    // The creator's stored text must NOT leak into a reader in another zone.
+    expect(payload.body).not.toContain("Wed, Jul 15 · 6:00 PM");
   });
 
   it("falls back to the event's date text when the event has no stored timezone", async () => {
@@ -362,6 +422,7 @@ describe("POST /api/events/:id/remind", () => {
       }),
     ];
     storageMock.getPushTokensForUsers.mockResolvedValue(["ExponentPushToken[a]"]);
+    storageMock.getPushRecipientsForUsers.mockResolvedValue([{ pushToken: "ExponentPushToken[a]", timezone: null }]);
     const app = await makeApp({ id: HOST });
     await request(app).post("/api/events/evt-1/remind").send({ type: "general" });
     await vi.waitFor(() => expect(sendPushNotificationsMock).toHaveBeenCalled());

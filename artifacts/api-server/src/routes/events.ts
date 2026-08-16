@@ -18,7 +18,8 @@ import { logger } from "../lib/logger";
 import { sendPushNotifications } from "../lib/pushNotifications";
 import { emitEventUpdate, onEventUpdate } from "../lib/eventUpdates";
 import { recordActivitySafe, removeActivity } from "../lib/activity";
-import { parseEventStart, relativeDayLabel } from "../lib/eventDate";
+import { parseEventStart, relativeDayLabel, formatEventTimeIn } from "../lib/eventDate";
+import { groupRecipientsByZone } from "../lib/eventReminders";
 import { resolveProStatus } from "../lib/proStatus";
 import {
   FREE_PLAN_LIMIT,
@@ -476,7 +477,13 @@ router.get("/events/preview", async (req: Request, res: Response): Promise<void>
       emoji: event.emoji,
       title: event.title,
       hostName,
+      // `date` is the creator's stored display text; the absolute fields let the
+      // client render the start on the *viewer's* clock instead. Kept as a
+      // fallback for all-day/TBD/legacy events that have no instant.
       date: event.date,
+      eventAt: event.eventAt,
+      startAt: event.startAt,
+      allDay: event.allDay,
       location: event.location,
       goingCount,
     });
@@ -2699,10 +2706,7 @@ router.post("/events/:id/remind", requireAuth, async (req: Request, res: Respons
       return;
     }
 
-    const tz = (event as { timezone?: string | null }).timezone ?? null;
-    // No stored timezone => no relative label; fall back to the event's own
-    // date text, which is always accurate. See relativeDayLabel.
-    const relativeTime = relativeDayLabel(nowDate, start, tz) ?? event.date;
+    const eventTz = (event as { timezone?: string | null }).timezone ?? null;
 
     const rsvps = (event.rsvps ?? {}) as Record<string, string>;
     let audienceIds: string[];
@@ -2760,22 +2764,39 @@ router.post("/events/:id/remind", requireAuth, async (req: Request, res: Respons
 
     void (async () => {
       try {
-        const tokens = await storage.getPushTokensForUsers(filteredIds, { requireNotifyReminders: true });
-        if (tokens.length === 0) return;
-        const body =
-          type === "general"
-            ? `${event.emoji} ${event.title} is ${relativeTime === "today" || relativeTime === "tomorrow" ? relativeTime : `on ${relativeTime}`} — don't forget!`
-            : `${event.emoji} ${event.title} is ${relativeTime === "today" || relativeTime === "tomorrow" ? relativeTime : `on ${relativeTime}`} — RSVP so the squad knows you're in.`;
-        const result = await sendPushNotifications(
-          tokens,
-          {
-            title: `${event.emoji} ${event.title}`,
-            body,
-            data: { screen: event.type === "trip" ? "trip" : "event", eventId: event.id },
-          },
-          { onStaleToken: (token) => storage.clearPushToken(token) },
-        );
-        logger.info({ eventId: event.id, type, okCount: result.okCount }, "Manual event reminder sent");
+        const recipients = await storage.getPushRecipientsForUsers(filteredIds, { requireNotifyReminders: true });
+        if (recipients.length === 0) return;
+
+        // Each recipient reads the time on their own clock. Recipients with no
+        // saved timezone inherit the event's stored (creator's) zone; with
+        // neither we fall back to the event's own date text, which is always
+        // accurate. See relativeDayLabel for why UTC is not a safe default.
+        let okCount = 0;
+        for (const group of groupRecipientsByZone(recipients, eventTz)) {
+          const relativeTime =
+            relativeDayLabel(nowDate, start, group.timezone)
+            ?? formatEventTimeIn(start, group.timezone)
+            ?? event.date;
+          const whenPhrase =
+            relativeTime === "today" || relativeTime === "tomorrow"
+              ? relativeTime
+              : `on ${relativeTime}`;
+          const body =
+            type === "general"
+              ? `${event.emoji} ${event.title} is ${whenPhrase} — don't forget!`
+              : `${event.emoji} ${event.title} is ${whenPhrase} — RSVP so the squad knows you're in.`;
+          const result = await sendPushNotifications(
+            group.tokens,
+            {
+              title: `${event.emoji} ${event.title}`,
+              body,
+              data: { screen: event.type === "trip" ? "trip" : "event", eventId: event.id },
+            },
+            { onStaleToken: (token) => storage.clearPushToken(token) },
+          );
+          okCount += result.okCount;
+        }
+        logger.info({ eventId: event.id, type, okCount }, "Manual event reminder sent");
       } catch (err) {
         logger.error({ err, eventId: event.id, type }, "Manual reminder push failed");
       }

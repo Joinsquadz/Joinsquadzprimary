@@ -68,6 +68,12 @@ export const usersTable = pgTable("users", {
   zelleHandle: text("zelle_handle"),
   bio: text("bio"),
   hometown: text("hometown"),
+  // User-facing display timezone. Events are stored as absolute timestamps;
+  // this controls how each person sees those timestamps and their reminder copy.
+  timezone: text("timezone"),
+  // Automatic = the app keeps timezone in sync with the runtime device/browser
+  // zone. Manual = a user-selected zone that automatic sync must never replace.
+  timezoneMode: text("timezone_mode").notNull().default("automatic"),
   pushToken: text("push_token"),
   friendCode: text("friend_code").unique(),
   activityLastReadAt: timestamp("activity_last_read_at", { withTimezone: true }),

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseEventStart, calendarDaysUntil } from "../lib/eventDate";
+import { parseEventStart, calendarDaysUntil, formatEventTimeIn } from "../lib/eventDate";
 
 describe("parseEventStart", () => {
   const NOW = new Date("2026-06-01T12:00:00.000Z");
@@ -119,5 +119,34 @@ describe("calendarDaysUntil", () => {
   it("falls back gracefully for an invalid timezone (no throw, UTC result)", () => {
     expect(() => calendarDaysUntil(THU_22_UTC, FRI_8_UTC, "Fake/Zone")).not.toThrow();
     expect(calendarDaysUntil(THU_22_UTC, FRI_8_UTC, "Fake/Zone")).toBe(1);
+  });
+});
+
+describe("formatEventTimeIn", () => {
+  // 2026-07-16T02:00:00Z = Jul 15, 7:00 PM in Los Angeles (PDT) but already
+  // Jul 16, 11:00 AM in Tokyo — the same instant on two calendar days.
+  const INSTANT = new Date("2026-07-16T02:00:00.000Z");
+
+  it("renders the instant on the reader's clock, not the server's", () => {
+    expect(formatEventTimeIn(INSTANT, "America/Los_Angeles")).toBe("Wed, Jul 15 · 7:00 PM PDT");
+    expect(formatEventTimeIn(INSTANT, "Asia/Tokyo")).toBe("Thu, Jul 16 · 11:00 AM GMT+9");
+  });
+
+  it("uses daylight-aware abbreviations rather than a fixed per-zone string", () => {
+    const summer = formatEventTimeIn(new Date("2026-07-16T19:00:00.000Z"), "America/New_York");
+    const winter = formatEventTimeIn(new Date("2026-01-16T19:00:00.000Z"), "America/New_York");
+    expect(summer).toContain("EDT");
+    expect(winter).toContain("EST");
+  });
+
+  it("returns null for a missing or unusable timezone so callers can fall back", () => {
+    expect(formatEventTimeIn(INSTANT, null)).toBeNull();
+    expect(formatEventTimeIn(INSTANT, undefined)).toBeNull();
+    expect(formatEventTimeIn(INSTANT, "")).toBeNull();
+    expect(formatEventTimeIn(INSTANT, "Not/AZone")).toBeNull();
+  });
+
+  it("returns null for an invalid date", () => {
+    expect(formatEventTimeIn(new Date("nope"), "UTC")).toBeNull();
   });
 });

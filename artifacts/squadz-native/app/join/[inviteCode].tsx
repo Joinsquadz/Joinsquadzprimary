@@ -15,12 +15,17 @@ import { useColors } from "@/hooks/useColors";
 import { useData, useAuth } from "@/context/AppContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { savePendingEventCode, clearPendingEventCode } from "@/lib/pendingInvite";
+import { useTimezone } from "@/context/TimezoneContext";
 
 type EventPreview = {
   emoji: string;
   title: string;
   hostName: string | null;
+  /** Creator's stored text — fallback only; prefer the absolute fields below. */
   date: string;
+  eventAt?: string | null;
+  startAt?: string | null;
+  allDay?: boolean;
   location: string;
   goingCount: number;
 };
@@ -38,6 +43,7 @@ export default function EventJoinScreen() {
   const insets = useSafeAreaInsets();
   const { isLoggedIn, refreshEvents } = useData();
   const { isLoggedIn: authIsLoggedIn, authToken } = useAuth();
+  const { formatEventTime } = useTimezone();
   const params = useLocalSearchParams<{ inviteCode?: string }>();
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
@@ -209,7 +215,9 @@ export default function EventJoinScreen() {
           <View style={[styles.detailsCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <View style={styles.detailRow}>
               <Ionicons name="calendar-outline" size={18} color={colors.primary} />
-              <Text style={[styles.detailText, { color: colors.foreground }]}>{preview.date}</Text>
+              <Text style={[styles.detailText, { color: colors.foreground }]}>
+                {formatEventTime(preview)}
+              </Text>
             </View>
             <View style={styles.detailRow}>
               <Ionicons name="location-outline" size={18} color={colors.primary} />

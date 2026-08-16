@@ -1127,6 +1127,9 @@ export default function SquadDetailScreen() {
                 emoji={e.emoji}
                 title={e.title}
                 date={e.date}
+                eventAt={e.eventAt}
+                startAt={e.startAt}
+                allDay={e.allDay}
                 location={e.location}
                 hostId={e.hostId}
                 attendeeCount={goingCount(e)}

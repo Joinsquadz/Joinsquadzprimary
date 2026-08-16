@@ -28,6 +28,7 @@ import { UserCacheProvider } from "@/context/UserCacheContext";
 import { MutedSquadsProvider } from "@/context/MutedSquadsContext";
 import { TipsProvider } from "@/context/TipsContext";
 import { ActivityProvider } from "@/context/ActivityContext";
+import { TimezoneProvider } from "@/context/TimezoneContext";
 import { ToastBannerProvider } from "@/context/ToastBannerContext";
 import { ActivityBannerSurfacer } from "@/components/ActivityBannerSurfacer";
 import { TipCoachMark } from "@/components/TipCoachMark";
@@ -499,6 +500,7 @@ export default function RootLayout() {
             <KeyboardProvider>
               <ToastProvider>
               <AppProvider>
+                <TimezoneProvider>
                 <MutedSquadsConnector>
                   <UserCacheProvider>
                     <MessagesProvider>
@@ -513,6 +515,7 @@ export default function RootLayout() {
                     </MessagesProvider>
                   </UserCacheProvider>
                 </MutedSquadsConnector>
+                </TimezoneProvider>
               </AppProvider>
               </ToastProvider>
             </KeyboardProvider>

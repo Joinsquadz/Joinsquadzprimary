@@ -5,7 +5,7 @@ const storageMock = vi.hoisted(() => ({
   markEventReminderSent: vi.fn(),      // retirement (past events) only
   tryClaimEventReminderSend: vi.fn(),  // atomic claim before live send
   unclaimEventReminderSend: vi.fn(),   // release claim on send failure
-  getPushTokensForUsers: vi.fn(),
+  getPushRecipientsForUsers: vi.fn(),
   filterUnmutedForSquad: vi.fn(),
   clearPushToken: vi.fn(),
 }));
@@ -50,7 +50,7 @@ function evt(over: Partial<Record<string, unknown>> = {}): Record<string, unknow
 beforeEach(() => {
   vi.clearAllMocks();
   storageMock.filterUnmutedForSquad.mockImplementation(async (ids: string[]) => ids);
-  storageMock.getPushTokensForUsers.mockResolvedValue(["ExponentPushToken[x]"]);
+  storageMock.getPushRecipientsForUsers.mockResolvedValue([{ pushToken: "ExponentPushToken[x]", timezone: null }]);
   storageMock.markEventReminderSent.mockResolvedValue(undefined);
   storageMock.tryClaimEventReminderSend.mockResolvedValue(true); // default: claim succeeds
   storageMock.unclaimEventReminderSend.mockResolvedValue(undefined);
@@ -64,7 +64,7 @@ describe("runEventReminderScan", () => {
 
     await runEventReminderScan();
 
-    const [recipientIds, opts] = storageMock.getPushTokensForUsers.mock.calls[0] as [string[], { requireNotifyReminders?: boolean }];
+    const [recipientIds, opts] = storageMock.getPushRecipientsForUsers.mock.calls[0] as [string[], { requireNotifyReminders?: boolean }];
     expect(recipientIds).toEqual([GOING]);
     expect(opts.requireNotifyReminders).toBe(true);
     expect(sendPushNotificationsMock).toHaveBeenCalledTimes(1);
@@ -185,7 +185,7 @@ describe("runEventReminderScan", () => {
 
   it("suppresses when 'going' users have the Reminders pref off (no tokens) — no claim attempted", async () => {
     storageMock.getEventsPendingReminder.mockResolvedValue([evt()]);
-    storageMock.getPushTokensForUsers.mockResolvedValue([]); // pref off / no device
+    storageMock.getPushRecipientsForUsers.mockResolvedValue([]); // pref off / no device
 
     await runEventReminderScan();
 

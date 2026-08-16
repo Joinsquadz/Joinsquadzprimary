@@ -25,6 +25,9 @@ vi.mock("@workspace/db", () => ({
     hostId: "host_id",
     rsvps: "rsvps",
     cancelled: "cancelled",
+    eventAt: "event_at",
+    startAt: "start_at",
+    allDay: "all_day",
   },
   usersTable: {
     id: "id",
@@ -99,6 +102,31 @@ describe("GET /api/events/preview", () => {
     expect(res.body.rsvps).toBeUndefined();
     expect(res.body.messages).toBeUndefined();
     expect(res.body.costs).toBeUndefined();
+  });
+
+  it("exposes the absolute start so the joiner sees it on their own clock", async () => {
+    // The stored `date` is the creator's wall-clock text. Without the absolute
+    // instant the invite screen can only echo the creator's timezone, which
+    // misdates the event for anyone joining from elsewhere.
+    mockEventRows.value = [
+      makeBaseEvent({
+        date: "Wed, Jul 15 · 6:00 PM",
+        eventAt: "2026-07-16T01:00:00.000Z",
+        startAt: "2026-07-16T01:00:00.000Z",
+        allDay: false,
+      }),
+    ];
+    mockUserRows.value = [{ firstName: "Sam", lastName: "Rivera" }];
+
+    const app = makeApp();
+    const res = await request(app).get("/api/events/preview?code=SQ-ABCD");
+
+    expect(res.status).toBe(200);
+    expect(res.body.eventAt).toBe("2026-07-16T01:00:00.000Z");
+    expect(res.body.startAt).toBe("2026-07-16T01:00:00.000Z");
+    expect(res.body.allDay).toBe(false);
+    // The creator's text stays as the fallback for all-day/TBD/legacy events.
+    expect(res.body.date).toBe("Wed, Jul 15 · 6:00 PM");
   });
 
   it("returns null hostName when the host has no name", async () => {

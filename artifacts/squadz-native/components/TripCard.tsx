@@ -4,11 +4,13 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { useColors } from "@/hooks/useColors";
+import { useTimezone } from "@/context/TimezoneContext";
 import type { Event } from "@/types";
-import { coverFor, formatTripRange, tripNights, isHappeningNow } from "@/lib/tripUtils";
+import { coverFor, tripNights, isHappeningNow } from "@/lib/tripUtils";
 
 function TripCardBase({ trip }: { trip: Event }) {
   const colors = useColors();
+  const { formatTripDateRange } = useTimezone();
   const cover = coverFor(trip.coverStyle);
   const nights = tripNights(trip);
   const stopCount = trip.itinerary?.length ?? 0;
@@ -36,7 +38,9 @@ function TripCardBase({ trip }: { trip: Event }) {
           ) : null}
         </View>
         <Text style={styles.coverTitle} numberOfLines={1}>{trip.title}</Text>
-        <Text style={styles.coverRange}>{formatTripRange(trip)}</Text>
+        <Text style={styles.coverRange}>
+          {formatTripDateRange(trip)}
+        </Text>
       </LinearGradient>
 
       <View style={[styles.meta, { backgroundColor: colors.card }]}>
