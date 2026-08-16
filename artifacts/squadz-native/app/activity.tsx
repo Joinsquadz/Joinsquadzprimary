@@ -15,10 +15,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
-import { API_BASE, buildAuthHeaders, resolveUploadedUrl } from "@/lib/api";
+import { API_BASE, buildAuthHeaders, friendlyHttpError, resolveUploadedUrl } from "@/lib/api";
 import { useAuth, useData } from "@/context/AppContext";
 import { useActivity } from "@/context/ActivityContext";
 import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
+import { useToast } from "@/context/ToastContext";
 import { ProAvatar } from "@/components/ProAvatar";
 import { acceptedInviteRoute, type InvitedPlanType } from "@/lib/acceptedInviteRoute";
 
@@ -51,6 +52,30 @@ type ActivityItem = {
 
 const PAGE_LIMIT = 30;
 
+type InviteAcceptResponse = {
+  ok?: boolean;
+  squadId?: string;
+  eventId?: string;
+  code?: string;
+};
+
+async function inviteAcceptError(res: Response): Promise<string> {
+  let body: InviteAcceptResponse | null = null;
+  try {
+    body = (await res.json()) as InviteAcceptResponse;
+  } catch {
+    // A non-JSON failure still gets a safe, useful message below.
+  }
+
+  if (res.status === 403 && (body?.code === "SQUAD_LIMIT" || body?.code === "PLAN_LIMIT")) {
+    return "You've reached your free plan limit. Upgrade to join this invite.";
+  }
+  if (res.status === 404) return "This invite is no longer available.";
+  if (res.status === 409) return "This invite was already accepted.";
+  if (res.status === 401) return "Please sign in again, then try this invite.";
+  return friendlyHttpError(res.status);
+}
+
 function relativeTime(iso: string): string {
   const then = new Date(iso).getTime();
   if (Number.isNaN(then)) return "";
@@ -80,6 +105,7 @@ export default function ActivityScreen() {
   const { authToken } = useAuth();
   const { markAllRead, subscribe } = useActivity();
   const { resolveUser, prefetchUsers } = useUserCache();
+  const { showToast } = useToast();
 
   const [items, setItems] = useState<ActivityItem[]>([]);
   const [page, setPage] = useState(0);
@@ -297,12 +323,23 @@ export default function ActivityScreen() {
           headers: buildAuthHeaders(authToken),
         });
         if (res.ok) {
+          const accepted = (await res.json()) as InviteAcceptResponse;
+          // Remove it optimistically so the completed action is visible even if
+          // the follow-up activity refresh is delayed or temporarily unavailable.
+          setItems((prev) => prev.filter((item) => item.subjectId !== inviteId));
           void loadFirst();
           void refreshSquads();
-          if (squadId) router.push({ pathname: "/squad/[id]", params: { id: squadId } } as never);
+          const destinationSquadId = accepted.squadId ?? squadId;
+          if (destinationSquadId) {
+            router.push({ pathname: "/squad/[id]", params: { id: destinationSquadId } } as never);
+          } else {
+            showToast("Joined the squad.");
+          }
+        } else {
+          showToast(await inviteAcceptError(res), { durationMs: 6000 });
         }
       } catch {
-        /* silently ignore */
+        showToast("Couldn't reach Squadz. Check your connection and try again.", { durationMs: 6000 });
       } finally {
         setProcessing((prev) => {
           const next = new Set(prev);
@@ -311,7 +348,7 @@ export default function ActivityScreen() {
         });
       }
     },
-    [authToken, loadFirst, processing, refreshSquads],
+    [authToken, loadFirst, processing, refreshSquads, showToast],
   );
 
   const handleDeclineSquadInvite = useCallback(
@@ -349,13 +386,20 @@ export default function ActivityScreen() {
           headers: buildAuthHeaders(authToken),
         });
         if (res.ok) {
+          const accepted = (await res.json()) as InviteAcceptResponse;
+          // Use the server's id rather than relying on optional activity metadata:
+          // older notifications can render correctly without carrying eventId.
+          setItems((prev) => prev.filter((item) => item.subjectId !== inviteId));
           void loadFirst();
           void refreshEvents();
-          const destination = acceptedInviteRoute(eventId, planType);
+          const destination = acceptedInviteRoute(accepted.eventId ?? eventId, planType);
           if (destination) router.push(destination as never);
+          else showToast("Invite accepted.");
+        } else {
+          showToast(await inviteAcceptError(res), { durationMs: 6000 });
         }
       } catch {
-        /* silently ignore */
+        showToast("Couldn't reach Squadz. Check your connection and try again.", { durationMs: 6000 });
       } finally {
         setProcessing((prev) => {
           const next = new Set(prev);
@@ -364,7 +408,7 @@ export default function ActivityScreen() {
         });
       }
     },
-    [authToken, loadFirst, processing, refreshEvents],
+    [authToken, loadFirst, processing, refreshEvents, showToast],
   );
 
   const handleDeclineEventInvite = useCallback(
