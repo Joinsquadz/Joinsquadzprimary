@@ -18,7 +18,7 @@ import { logger } from "../lib/logger";
 import { sendPushNotifications } from "../lib/pushNotifications";
 import { emitEventUpdate, onEventUpdate } from "../lib/eventUpdates";
 import { recordActivitySafe, removeActivity } from "../lib/activity";
-import { parseEventStart, calendarDaysUntil } from "../lib/eventDate";
+import { parseEventStart, relativeDayLabel } from "../lib/eventDate";
 import { resolveProStatus } from "../lib/proStatus";
 import {
   FREE_PLAN_LIMIT,
@@ -2700,8 +2700,9 @@ router.post("/events/:id/remind", requireAuth, async (req: Request, res: Respons
     }
 
     const tz = (event as { timezone?: string | null }).timezone ?? null;
-    const daysUntil = calendarDaysUntil(nowDate, start, tz);
-    const relativeTime = daysUntil === 0 ? "today" : daysUntil === 1 ? "tomorrow" : event.date;
+    // No stored timezone => no relative label; fall back to the event's own
+    // date text, which is always accurate. See relativeDayLabel.
+    const relativeTime = relativeDayLabel(nowDate, start, tz) ?? event.date;
 
     const rsvps = (event.rsvps ?? {}) as Record<string, string>;
     let audienceIds: string[];

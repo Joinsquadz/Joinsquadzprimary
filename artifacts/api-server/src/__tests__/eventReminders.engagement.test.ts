@@ -109,13 +109,13 @@ describe("runDayOfReminderScan", () => {
     expect(storageMock.markEventDayOfReminderSent).not.toHaveBeenCalled();
   });
 
-  it("body says 'today' when the event is the same calendar day (UTC, no timezone)", async () => {
+  it("body says 'today' when the event is the same calendar day in the event timezone", async () => {
     // Pin 'now' to noon UTC so that 8h later (20:00 UTC) is still the same
     // calendar day regardless of when the CI runner executes.
     const fakeNow = new Date("2026-07-16T12:00:00Z");
     vi.useFakeTimers({ now: fakeNow });
     storageMock.getEventsPendingDayOfReminder.mockResolvedValue([
-      evt({ date: dateStr(8 * 60 * 60 * 1000), timezone: null }),
+      evt({ date: dateStr(8 * 60 * 60 * 1000), timezone: "UTC" }),
     ]);
     await runDayOfReminderScan();
     vi.useRealTimers();
@@ -123,7 +123,7 @@ describe("runDayOfReminderScan", () => {
     expect(payload.body).toMatch(/\btoday\b/i);
   });
 
-  it("body says 'tomorrow' when the event is the next calendar day (UTC, no timezone)", async () => {
+  it("body says 'tomorrow' when the event is the next calendar day in the event timezone", async () => {
     // Fake now = 22:00 UTC. Event is 8h later = 06:00 UTC next day → daysUntil=1
     // in UTC ("tomorrow"). 8h is inside DAY_OF_LEAD_MS (14h) and outside
     // REMINDER_LEAD_MS (2h), so the scanner fires.
@@ -131,12 +131,68 @@ describe("runDayOfReminderScan", () => {
     vi.useFakeTimers({ now: fakeNow });
     const dateString = dateStr(8 * 60 * 60 * 1000);
     storageMock.getEventsPendingDayOfReminder.mockResolvedValue([
-      evt({ date: dateString, timezone: null }),
+      evt({ date: dateString, timezone: "UTC" }),
     ]);
     await runDayOfReminderScan();
     vi.useRealTimers();
     const [, payload] = sendPushNotificationsMock.mock.calls[0] as [unknown, { body: string }];
     expect(payload.body).toMatch(/\btomorrow\b/i);
+  });
+
+  it("omits the day label entirely when the event has no stored timezone", async () => {
+    // Regression: a 9 PM Pacific event stored without a timezone was compared
+    // on the UTC calendar, where it had already rolled into the next day. The
+    // push read "Coming up tomorrow — Sun, Aug 16 · 9:00 PM" — a label
+    // contradicting the date printed beside it. With no timezone we now emit
+    // the date text alone rather than guessing.
+    const fakeNow = new Date("2026-08-16T14:41:00Z");
+    vi.useFakeTimers({ now: fakeNow });
+    const dateString = "Sun, Aug 16 · 9:00 PM";
+    storageMock.getEventsPendingDayOfReminder.mockResolvedValue([
+      evt({
+        date: dateString,
+        eventAt: "2026-08-17T04:00:00Z", // 9 PM Pacific = next calendar day in UTC
+        timezone: null,
+      }),
+    ]);
+    await runDayOfReminderScan();
+    vi.useRealTimers();
+    const [, payload] = sendPushNotificationsMock.mock.calls[0] as [unknown, { body: string }];
+    expect(payload.body).not.toMatch(/\btomorrow\b/i);
+    expect(payload.body).not.toMatch(/\btoday\b/i);
+    expect(payload.body).toBe(dateString);
+  });
+
+  it("says 'today' for that same 9 PM Pacific event once the timezone is stored", async () => {
+    const fakeNow = new Date("2026-08-16T14:41:00Z");
+    vi.useFakeTimers({ now: fakeNow });
+    storageMock.getEventsPendingDayOfReminder.mockResolvedValue([
+      evt({
+        date: "Sun, Aug 16 · 9:00 PM",
+        eventAt: "2026-08-17T04:00:00Z",
+        timezone: "America/Los_Angeles",
+      }),
+    ]);
+    await runDayOfReminderScan();
+    vi.useRealTimers();
+    const [, payload] = sendPushNotificationsMock.mock.calls[0] as [unknown, { body: string }];
+    expect(payload.body).toMatch(/\btoday\b/i);
+  });
+
+  it("omits the day label for an unrecognised timezone rather than guessing UTC", async () => {
+    const fakeNow = new Date("2026-08-16T14:41:00Z");
+    vi.useFakeTimers({ now: fakeNow });
+    storageMock.getEventsPendingDayOfReminder.mockResolvedValue([
+      evt({
+        date: "Sun, Aug 16 · 9:00 PM",
+        eventAt: "2026-08-17T04:00:00Z",
+        timezone: "Fake/Zone",
+      }),
+    ]);
+    await runDayOfReminderScan();
+    vi.useRealTimers();
+    const [, payload] = sendPushNotificationsMock.mock.calls[0] as [unknown, { body: string }];
+    expect(payload.body).toBe("Sun, Aug 16 · 9:00 PM");
   });
 
   it("uses timezone to determine 'today' vs 'tomorrow' across midnight boundaries", async () => {
@@ -332,19 +388,34 @@ describe("run3DayReminderScan", () => {
     expect(recipientIds).not.toContain(MAYBE);
   });
 
-  it("body uses calendarDaysUntil 'today'/'tomorrow' labels via the event timezone", async () => {
+  it("body uses 'today'/'tomorrow' labels via the event timezone", async () => {
     // Pin now to midnight UTC (00:00). Event is 20h away = 20:00 UTC same day.
     // 20h is inside the 3-day window (< 72h) and outside the day-of window (> 14h),
     // so the scanner fires and the label should be "today".
     const fakeNow = new Date("2026-07-16T00:00:00Z");
     vi.useFakeTimers({ now: fakeNow });
     storageMock.getEventsPending3DayReminder.mockResolvedValue([
-      evt3day(20 * 60 * 60 * 1000, 7 * 24 * 60 * 60 * 1000, { timezone: null }),
+      evt3day(20 * 60 * 60 * 1000, 7 * 24 * 60 * 60 * 1000, { timezone: "UTC" }),
     ]);
     await run3DayReminderScan();
     vi.useRealTimers();
     const [, payload] = sendPushNotificationsMock.mock.calls[0] as [unknown, { body: string }];
     expect(payload.body).toMatch(/\btoday\b/i);
+  });
+
+  it("omits the day label when the event has no stored timezone", async () => {
+    const fakeNow = new Date("2026-07-16T00:00:00Z");
+    vi.useFakeTimers({ now: fakeNow });
+    storageMock.getEventsPending3DayReminder.mockResolvedValue([
+      evt3day(20 * 60 * 60 * 1000, 7 * 24 * 60 * 60 * 1000, {
+        date: "Thu, Jul 16 · 8:00 PM",
+        timezone: null,
+      }),
+    ]);
+    await run3DayReminderScan();
+    vi.useRealTimers();
+    const [, payload] = sendPushNotificationsMock.mock.calls[0] as [unknown, { body: string }];
+    expect(payload.body).toBe("Thu, Jul 16 · 8:00 PM");
   });
 
   it("skips events with no going RSVPs without marking sent (fire-and-forget would be wasteful)", async () => {

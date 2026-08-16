@@ -78,3 +78,38 @@ export function calendarDaysUntil(now: Date, start: Date, tz: string | null | un
   const startDay = toCalendarDayId(start, zone);
   return Math.round((startDay - nowDay) / (24 * 60 * 60 * 1000));
 }
+
+/** True when `tz` is a timezone the runtime actually recognises. */
+function isUsableTimeZone(tz: string | null | undefined): tz is string {
+  if (!tz) return false;
+  try {
+    new Intl.DateTimeFormat("en-CA", { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export type RelativeDayLabel = "today" | "tomorrow" | null;
+
+/**
+ * Day label for notification copy, or null when we cannot say confidently.
+ *
+ * Returns null for a missing/invalid timezone rather than assuming UTC. The
+ * UTC assumption is not a neutral default: an event stored without a timezone
+ * is compared on the UTC calendar, so any evening event in a behind-UTC zone
+ * has already rolled over to the next UTC day. A 9 PM Pacific event on Aug 16
+ * is Aug 17 in UTC, which produced pushes reading
+ * "Coming up tomorrow — Sun, Aug 16 · 9:00 PM" — a label contradicting the
+ * date printed beside it. Every caller degrades to showing the event's own
+ * date text alone, which is always accurate.
+ */
+export function relativeDayLabel(
+  now: Date,
+  start: Date,
+  tz: string | null | undefined,
+): RelativeDayLabel {
+  if (!isUsableTimeZone(tz)) return null;
+  const days = calendarDaysUntil(now, start, tz);
+  return days === 0 ? "today" : days === 1 ? "tomorrow" : null;
+}

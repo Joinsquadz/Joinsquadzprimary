@@ -114,3 +114,4 @@
 - [Keyboard dismiss + sticky index](rn-keyboard-dismiss-and-sticky-index.md) — RN Modals hide the root-mounted "Done" control (re-mount inside each sheet; null on web); stickyHeaderIndices counts DIRECT children only.
 - [RN Modal keyboard avoidance](rn-modal-keyboard-avoidance.md) — screen-level avoidance NEVER reaches Modal content (own native window); every input modal needs KeyboardAvoidingSheet + a shrinkable (%) maxHeight.
 - [node --import needs ./](node-import-flag-bare-specifier.md) — bare relative path in `--import` = ERR_MODULE_NOT_FOUND "Cannot find package '<first-segment>'"; multi-artifact deploy stderr is untagged, blames the wrong artifact.
+- [Reminder day labels](reminder-day-label-timezone.md) — "today"/"tomorrow" must never fall back to UTC; a null event timezone made evening Pacific events read "tomorrow" beside their own date.

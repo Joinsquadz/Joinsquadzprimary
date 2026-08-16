@@ -1,7 +1,7 @@
 import { logger } from './logger';
 import { sendPushNotifications } from './pushNotifications';
 import { storage } from '../storage';
-import { parseEventStart, calendarDaysUntil } from './eventDate';
+import { parseEventStart, relativeDayLabel } from './eventDate';
 
 // Automatic "starting soon" event reminders. Event `date` is free-form text
 // (e.g. "Sat, Jun 7 · 5:00 PM"), so we best-effort parse it and notify the
@@ -146,8 +146,9 @@ export async function runDayOfReminderScan(): Promise<void> {
     try {
       // Compute a calendar-day-aware label using the event's stored timezone so
       // the copy is correct in the creator's locale, not just the server's UTC.
-      const daysUntil = calendarDaysUntil(now, start, (event as { timezone?: string | null }).timezone ?? null);
-      const dayLabel = daysUntil === 0 ? 'today' : daysUntil === 1 ? 'tomorrow' : null;
+      // Events with no stored timezone get no label at all — see
+      // relativeDayLabel for why UTC is not a safe default here.
+      const dayLabel = relativeDayLabel(now, start, (event as { timezone?: string | null }).timezone ?? null);
       const body = dayLabel != null ? `Coming up ${dayLabel} — ${event.date}` : event.date;
       const result = await sendPushNotifications(
         tokens,
@@ -219,8 +220,7 @@ export async function run3DayReminderScan(): Promise<void> {
     if (!claimed) continue;
 
     try {
-      const daysUntil = calendarDaysUntil(now, start, (event as { timezone?: string | null }).timezone ?? null);
-      const dayLabel = daysUntil === 0 ? 'today' : daysUntil === 1 ? 'tomorrow' : null;
+      const dayLabel = relativeDayLabel(now, start, (event as { timezone?: string | null }).timezone ?? null);
       const body = dayLabel != null ? `Coming up ${dayLabel} — ${event.date}` : event.date;
       const result = await sendPushNotifications(
         tokens,

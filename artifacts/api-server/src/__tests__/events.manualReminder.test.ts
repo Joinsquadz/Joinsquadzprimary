@@ -337,12 +337,36 @@ describe("POST /api/events/:id/remind", () => {
 
   it("push body includes a relative date label (tomorrow, in N days, etc.)", async () => {
     const tomorrowAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-    dbState.selectRows = [makeEvent({ eventAt: tomorrowAt, rsvps: { [ALICE]: "going" } })];
+    dbState.selectRows = [
+      makeEvent({ eventAt: tomorrowAt, timezone: "UTC", rsvps: { [ALICE]: "going" } }),
+    ];
     storageMock.getPushTokensForUsers.mockResolvedValue(["ExponentPushToken[a]"]);
     const app = await makeApp({ id: HOST });
     await request(app).post("/api/events/evt-1/remind").send({ type: "general" });
     await vi.waitFor(() => expect(sendPushNotificationsMock).toHaveBeenCalled());
     const [, payload] = sendPushNotificationsMock.mock.calls[0] as [unknown, { body: string }];
     expect(payload.body).toContain("tomorrow");
+  });
+
+  it("falls back to the event's date text when the event has no stored timezone", async () => {
+    // Without a timezone the server used to compare calendar days in UTC, which
+    // labels any evening event in a behind-UTC zone as "tomorrow" even when the
+    // date printed beside it says today. Prefer the unambiguous date text.
+    const tomorrowAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    dbState.selectRows = [
+      makeEvent({
+        eventAt: tomorrowAt,
+        timezone: null,
+        date: "Fri, Jul 25 · 6:00 PM",
+        rsvps: { [ALICE]: "going" },
+      }),
+    ];
+    storageMock.getPushTokensForUsers.mockResolvedValue(["ExponentPushToken[a]"]);
+    const app = await makeApp({ id: HOST });
+    await request(app).post("/api/events/evt-1/remind").send({ type: "general" });
+    await vi.waitFor(() => expect(sendPushNotificationsMock).toHaveBeenCalled());
+    const [, payload] = sendPushNotificationsMock.mock.calls[0] as [unknown, { body: string }];
+    expect(payload.body).not.toContain("tomorrow");
+    expect(payload.body).toContain("Fri, Jul 25 · 6:00 PM");
   });
 });
