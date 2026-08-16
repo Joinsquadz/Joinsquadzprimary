@@ -70,7 +70,8 @@ import type { PlanIdea } from "@/types";
 import type { RsvpStatus } from "@/types";
 import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
 import { useTips } from "@/context/TipsContext";
-import { useTimezone } from "@/context/TimezoneContext";
+import { useTimezone, runtimeTimezone, zoneLabel } from "@/context/TimezoneContext";
+import { deviceWallClockToZoneIso, instantToZoneWallClockDate } from "@/lib/timezoneFormat";
 import { IconPicker } from "@/components/IconPicker";
 import { EventVaultPanel } from "@/components/EventVaultPanel";
 import { AddFriendBadge } from "@/components/AddFriendBadge";
@@ -169,7 +170,11 @@ export default function EventDetailScreen() {
     eventsAuthError,
     retryEvents,
   } = useData();
-  const { formatEventTime, formatInstant } = useTimezone();
+  const { formatEventTime, formatInstant, timezone } = useTimezone();
+  // Times entered on this screen (edit modal end-time picker) are wall clocks
+  // in the user's *effective* zone, which can differ from the device zone.
+  const deviceZone = runtimeTimezone();
+  const zoneDiffers = timezone !== deviceZone;
 
   // Past events are NOT in the upcoming-only AppContext.events list. When
   // getEvent returns undefined (past event, deep-link cold-start, etc.),
@@ -1148,6 +1153,9 @@ export default function EventDetailScreen() {
       Alert.alert("Missing info", "Event needs a title.");
       return;
     }
+    // editEndAt is ALWAYS an absolute instant: the picker works on a
+    // chosen-zone wall-clock surrogate and converts back on confirm, so no
+    // reinterpretation is needed (or safe) here.
     if (editEndAt && eventStart && new Date(editEndAt).getTime() < eventStart.getTime()) {
       Alert.alert("Check the end time", "The end time can't be before the event starts.");
       return;
@@ -1165,16 +1173,27 @@ export default function EventDetailScreen() {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
+  // The native picker can only display a Date's *device-local* fields, but
+  // times on this screen are wall clocks in the user's chosen zone. So the
+  // picker works on a surrogate: existing instants are converted to their
+  // chosen-zone wall clock before seeding, and the picked wall clock is
+  // converted back to an absolute instant on confirm. When the chosen zone
+  // matches the device zone both conversions are identities.
   const openEndPicker = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setEndPickerDate(editEndAt ? new Date(editEndAt) : eventStart ?? new Date());
+    setEndPickerDate(
+      instantToZoneWallClockDate(editEndAt ? new Date(editEndAt) : eventStart ?? new Date(), timezone),
+    );
     setEndPickerStep("date");
   };
+  // Floor for the picker in the same surrogate space (chosen-zone wall clock
+  // of the event's start) — the real instant would block valid end times.
+  const endPickerMinimum = eventStart ? instantToZoneWallClockDate(eventStart, timezone) : undefined;
   const handleEndIOSConfirm = () => {
     if (endPickerStep === "date") {
       setEndPickerStep("time");
     } else {
-      setEditEndAt(endPickerDate.toISOString());
+      setEditEndAt(deviceWallClockToZoneIso(endPickerDate, timezone));
       setEndPickerStep(null);
     }
   };
@@ -1188,7 +1207,7 @@ export default function EventDetailScreen() {
     } else {
       updated.setHours(d.getHours(), d.getMinutes());
       setEndPickerDate(updated);
-      setEditEndAt(updated.toISOString());
+      setEditEndAt(deviceWallClockToZoneIso(updated, timezone));
       setEndPickerStep(null);
     }
   };
@@ -2731,7 +2750,7 @@ export default function EventDetailScreen() {
                 >
                   <Ionicons name="time-outline" size={18} color={editEndAt ? colors.primary : colors.mutedForeground} />
                   <Text style={[styles.endPickText, { color: editEndAt ? colors.foreground : colors.textDim }]} numberOfLines={1}>
-                    {editEndAt ? formatEndLabel(editEndAt) : "Add an end time"}
+                    {editEndAt ? formatInstant(editEndAt) || formatEndLabel(editEndAt) : "Add an end time"}
                   </Text>
                 </TouchableOpacity>
                 {editEndAt ? (
@@ -2740,6 +2759,11 @@ export default function EventDetailScreen() {
                   </TouchableOpacity>
                 ) : null}
               </View>
+              {zoneDiffers ? (
+                <Text style={[styles.assignLabel, { color: colors.primary, marginTop: 4 }]}>
+                  Times are in {zoneLabel(timezone)} — your chosen time zone (device is in {zoneLabel(deviceZone)})
+                </Text>
+              ) : null}
               <TextInput
                 placeholder="Location"
                 placeholderTextColor={colors.textDim}
@@ -2786,7 +2810,7 @@ export default function EventDetailScreen() {
                   value={endPickerDate}
                   mode={endPickerStep}
                   display="spinner"
-                  minimumDate={eventStart ?? undefined}
+                  minimumDate={endPickerMinimum}
                   onChange={(_, d) => { if (d) setEndPickerDate(d); }}
                   themeVariant="dark"
                   style={{ width: "100%", height: 200 }}
@@ -2804,7 +2828,7 @@ export default function EventDetailScreen() {
           value={endPickerDate}
           mode={endPickerStep}
           display="default"
-          minimumDate={eventStart ?? undefined}
+          minimumDate={endPickerMinimum}
           onChange={handleEndAndroidChange}
         />
       )}

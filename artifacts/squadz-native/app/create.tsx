@@ -33,6 +33,8 @@ import { TRIP_COVER_KEYS, TRIP_COVERS, formatTripRange } from "@/lib/tripUtils";
 import { getTemplate, materializeTemplateStops } from "@/lib/tripTemplates";
 import { findMyConflicts, getPlanSpan } from "@/lib/conflicts";
 import { shouldAutoSelectDefaultSquad } from "@/lib/createDefaults";
+import { useTimezone, runtimeTimezone, zoneLabel } from "@/context/TimezoneContext";
+import { deviceWallClockToZoneIso } from "@/lib/timezoneFormat";
 import ConflictBanner from "@/components/ConflictBanner";
 
 function formatPickedDay(d: Date): string {
@@ -132,6 +134,11 @@ export default function CreateEventScreen() {
   const { addEvent, squads, events, currentUser } = useData();
   const { authToken, isPro, onEntitlementInvalidate } = useAuth();
   const { resolveUser } = useUserCache();
+  // The user's *effective* zone (Profile → Time Zone), which can differ from
+  // the device zone. Times typed on this screen are wall clocks in THIS zone.
+  const { timezone } = useTimezone();
+  const deviceZone = runtimeTimezone();
+  const zoneDiffers = timezone !== deviceZone;
   const prefill = useLocalSearchParams<{ prefillDate?: string; prefillEventAt?: string; prefillEndAt?: string; prefillSquad?: string; prefillTitle?: string; prefillEmoji?: string; prefillPollId?: string; prefillTripStart?: string; prefillTripEnd?: string; mode?: string; templateId?: string; from?: string }>();
   const [findTimeOpen, setFindTimeOpen] = useState(false);
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
@@ -338,19 +345,29 @@ export default function CreateEventScreen() {
     setCreating(true);
     try {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      const deviceTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      // Instants picked on this screen carry the DEVICE wall clock; when the
+      // user's effective zone differs, reinterpret that wall clock in their
+      // chosen zone so the stored instant matches the time they typed, in the
+      // zone shown to them. Prefilled instants (poll "best time") are already
+      // absolute and must pass through untouched.
+      const inChosenZone = (iso: string): string =>
+        deviceWallClockToZoneIso(new Date(iso), timezone);
+      const resolvedEventAt =
+        eventAtISO && eventAtISO !== prefill.prefillEventAt ? inChosenZone(eventAtISO) : eventAtISO;
+      const resolvedEndAt =
+        endAtISO && endAtISO !== prefill.prefillEndAt ? inChosenZone(endAtISO) : endAtISO;
       let id: string;
       if (kind === "trip" && tripStart) {
         const end = tripEnd ?? tripStart;
-        const startISO = dayAt(tripStart, 9);
-        const endISO = dayAt(end, 18);
+        const startISO = inChosenZone(dayAt(tripStart, 9));
+        const endISO = inChosenZone(dayAt(end, 18));
         id = await addEvent({
           title: title.trim(), emoji: selectedEmoji,
           date: formatTripRange({ startAt: startISO, endAt: endISO }),
           location: location.trim(), description: description.trim(),
           squadId: selectedSquad, isPublic,
           type: "trip", startAt: startISO, endAt: endISO, allDay, coverStyle,
-          invitedUserIds, timezone: deviceTimezone,
+          invitedUserIds, timezone,
           // Templates are part of the same create request, not a series of
           // post-create writes. That means a poll conversion produces one
           // complete trip, and a retry can never duplicate template stops.
@@ -370,12 +387,12 @@ export default function CreateEventScreen() {
       } else {
         id = await addEvent({
           title: title.trim(), emoji: selectedEmoji,
-          date: date.trim(), eventAt: eventAtISO,
+          date: date.trim(), eventAt: resolvedEventAt,
           // Only send an end time when there's a concrete start to anchor it to.
-          endAt: eventAtISO ? endAtISO : undefined,
+          endAt: resolvedEventAt ? resolvedEndAt : undefined,
           location: location.trim(),
           description: description.trim(), squadId: selectedSquad,
-          isPublic, invitedUserIds, timezone: deviceTimezone,
+          isPublic, invitedUserIds, timezone,
           ...(prefill.prefillPollId ? { sourcePollId: prefill.prefillPollId } : {}),
         });
       }
@@ -651,6 +668,14 @@ export default function CreateEventScreen() {
                   </TouchableOpacity>
                 </View>
               )}
+              {zoneDiffers ? (
+                <View style={styles.zoneHintRow}>
+                  <Ionicons name="globe-outline" size={13} color={colors.primary} />
+                  <Text style={[styles.zoneHintText, { color: colors.primary }]}>
+                    Dates are in {zoneLabel(timezone)} — your chosen time zone (device is in {zoneLabel(deviceZone)})
+                  </Text>
+                </View>
+              ) : null}
               {tripStart ? (
                 <Text style={[styles.rangePreview, { color: colors.primary }]}>
                   {formatTripRange({ startAt: dayAt(tripStart, 9), endAt: dayAt(tripEnd ?? tripStart, 18) })}
@@ -771,6 +796,14 @@ export default function CreateEventScreen() {
               <Ionicons name="chevron-forward" size={16} color={colors.textDim} />
             </TouchableOpacity>
           )}
+          {zoneDiffers ? (
+            <View style={styles.zoneHintRow}>
+              <Ionicons name="globe-outline" size={13} color={colors.primary} />
+              <Text style={[styles.zoneHintText, { color: colors.primary }]}>
+                Times are in {zoneLabel(timezone)} — your chosen time zone (device is in {zoneLabel(deviceZone)})
+              </Text>
+            </View>
+          ) : null}
           <View style={styles.quickChipRow}>
             {quickStartSuggestions().map((sug) => (
               <TouchableOpacity
@@ -1297,6 +1330,8 @@ const styles = StyleSheet.create({
   editDateText: { fontSize: 12 },
   bestTimeBtn: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 12, borderWidth: 1.5, paddingHorizontal: 14, paddingVertical: 11, marginTop: 10 },
   quickChipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 },
+  zoneHintRow: { flexDirection: "row", alignItems: "flex-start", gap: 5, marginTop: 8 },
+  zoneHintText: { flex: 1, fontSize: 12, fontWeight: "600", lineHeight: 16 },
   quickChip: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 16, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 7 },
   quickChipText: { fontSize: 13, fontWeight: "700" },
   moreOptionsBtn: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 12, borderWidth: 1.5, borderStyle: "dashed", paddingHorizontal: 14, paddingVertical: 12, marginBottom: 24 },

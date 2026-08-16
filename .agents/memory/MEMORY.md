@@ -116,3 +116,4 @@
 - [node --import needs ./](node-import-flag-bare-specifier.md) — bare relative path in `--import` = ERR_MODULE_NOT_FOUND "Cannot find package '<first-segment>'"; multi-artifact deploy stderr is untagged, blames the wrong artifact.
 - [Reminder day labels](reminder-day-label-timezone.md) — "today"/"tomorrow" must never fall back to UTC; a null event timezone made evening Pacific events read "tomorrow" beside their own date.
 - [Viewer-local event times](viewer-local-times.md) — store instants, convert at render/notify only; manual tz never overwritten by detection; any time-bearing endpoint must expose the absolute instant.
+- [Timezone picker surrogates](timezone-picker-surrogates.md) — native pickers show device-local fields only; seed via instantToZoneWallClockDate, save via deviceWallClockToZoneIso; stamp events with the effective zone, not the device's.

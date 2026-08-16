@@ -50,6 +50,96 @@ export function zoneLabel(timezone: string, at: Date = new Date()): string {
   return abbr === timezone ? city : `${city} (${abbr})`;
 }
 
+/**
+ * Convert a wall-clock reading ("June 7, 6:00 PM") *in a given IANA zone* to
+ * the absolute instant it names. This is the inverse of formatting: the native
+ * date pickers hand back a Date whose device-local fields ARE the wall clock
+ * the user picked, so persisting must interpret those fields in the user's
+ * *chosen* zone — not the device zone — or the stored instant drifts by the
+ * zone offset difference.
+ *
+ * Uses the standard two-pass Intl round-trip (guess in UTC, see what wall
+ * clock that renders as in the zone, correct by the difference; second pass
+ * settles DST edges). Returns null when the zone id is unusable.
+ */
+export function wallClockToInstant(
+  parts: { year: number; month: number; day: number; hour: number; minute: number },
+  timezone: string,
+): Date | null {
+  try {
+    const target = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute);
+    let ts = target;
+    for (let i = 0; i < 2; i++) {
+      const rendered = new Intl.DateTimeFormat("en-US", {
+        timeZone: timezone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      }).formatToParts(new Date(ts));
+      const get = (type: string) => Number(rendered.find((p) => p.type === type)?.value ?? "0");
+      let hour = get("hour");
+      if (hour === 24) hour = 0; // some engines render midnight as "24"
+      const asUtc = Date.UTC(get("year"), get("month") - 1, get("day"), hour, get("minute"));
+      ts += target - asUtc;
+    }
+    return Number.isNaN(ts) ? null : new Date(ts);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Reinterpret the *device-local* wall clock of `d` as the same wall clock in
+ * `timezone`, returning the ISO instant. When `timezone` matches the device
+ * zone this is exactly `d.toISOString()` (also the fallback on any failure),
+ * so it is always safe to route picker output through this.
+ */
+export function deviceWallClockToZoneIso(d: Date, timezone: string): string {
+  const converted = wallClockToInstant(
+    {
+      year: d.getFullYear(),
+      month: d.getMonth() + 1,
+      day: d.getDate(),
+      hour: d.getHours(),
+      minute: d.getMinutes(),
+    },
+    timezone,
+  );
+  return (converted ?? d).toISOString();
+}
+
+/**
+ * The inverse surrogate of deviceWallClockToZoneIso: render an absolute
+ * instant as its wall clock in `timezone`, returned as a *device-local* Date
+ * carrying those wall-clock fields. Native date pickers can only display a
+ * Date's device-local fields, so seeding a picker with this surrogate makes
+ * it show the chosen-zone wall clock; the picked result must then go back
+ * through deviceWallClockToZoneIso to become an instant. Falls back to the
+ * instant itself when the zone id is unusable.
+ */
+export function instantToZoneWallClockDate(d: Date, timezone: string): Date {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(d);
+    const get = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? "0");
+    let hour = get("hour");
+    if (hour === 24) hour = 0; // some engines render midnight as "24"
+    return new Date(get("year"), get("month") - 1, get("day"), hour, get("minute"), 0, 0);
+  } catch {
+    return d;
+  }
+}
+
 export function parseIso(iso: string | null | undefined): Date | null {
   if (!iso) return null;
   const d = new Date(iso);
