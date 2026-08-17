@@ -76,6 +76,7 @@
     "expo-secure-store": "^15.0.8",
     "expo-sharing": "~14.0.8",
     "expo-sms": "~14.0.8",
+    "expo-updates": "~29.0.19",
     "expo-video": "~3.0.16",
     "posthog-react-native": "^4.46.19",
     "react-native-compressor": "^1.19.4",

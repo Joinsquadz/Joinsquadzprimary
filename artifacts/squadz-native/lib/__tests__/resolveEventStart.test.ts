@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { resolveEventStart } from "@/lib/calendar";
+import { resolveEventStart, resolvePlanCompletion, sortPastPlansNewestFirst } from "@/lib/calendar";
 
 /**
  * resolveEventStart backs everything that does *time math* on an event:
@@ -75,5 +75,39 @@ describe("resolveEventStart", () => {
     vi.useFakeTimers({ now: new Date("2026-07-16T05:00:00Z") });
     const start = resolveEventStart({ date: CREATOR_TEXT, eventAt: INSTANT });
     expect(start!.getTime() < Date.now()).toBe(true);
+  });
+});
+
+describe("past plan archive ordering", () => {
+  it("puts the most recently completed plan first, using trip end times", () => {
+    const alaskaCruise = {
+      id: "alaska",
+      type: "trip" as const,
+      date: "Jul 16 – 23, 2026",
+      startAt: "2026-07-16T16:00:00.000Z",
+      endAt: "2026-07-24T01:00:00.000Z",
+    };
+    const happyHour = {
+      id: "happy-hour",
+      type: "event" as const,
+      date: "Sun, Aug 16 · 6:00 PM",
+      eventAt: "2026-08-17T01:00:00.000Z",
+    };
+
+    expect(resolvePlanCompletion(alaskaCruise)?.toISOString()).toBe(alaskaCruise.endAt);
+    expect(sortPastPlansNewestFirst([alaskaCruise, happyHour]).map((plan) => plan.id)).toEqual([
+      "happy-hour",
+      "alaska",
+    ]);
+  });
+
+  it("keeps undated legacy records behind timestamped plans without reshuffling them", () => {
+    const ordered = sortPastPlansNewestFirst([
+      { id: "legacy-one", type: "event" as const, date: "TBD" },
+      { id: "recent", type: "event" as const, date: "Fri, Aug 21", eventAt: "2026-08-21T20:00:00.000Z" },
+      { id: "legacy-two", type: "trip" as const, date: "Dates TBD" },
+    ]);
+
+    expect(ordered.map((plan) => plan.id)).toEqual(["recent", "legacy-one", "legacy-two"]);
   });
 });

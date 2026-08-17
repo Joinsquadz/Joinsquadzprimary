@@ -24,7 +24,7 @@ import { TripCard } from "@/components/TripCard";
 import type { Event } from "@/types";
 import { goingCount } from "@/lib/eventUtils";
 import { isTripPast, isHappeningNow } from "@/lib/tripUtils";
-import { resolveEventStart } from "@/lib/calendar";
+import { resolveEventStart, sortPastPlansNewestFirst } from "@/lib/calendar";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { Image } from "expo-image";
 // Shared auth-race guard (see lib/vaultAuthRace.ts). This screen has its own
@@ -386,7 +386,10 @@ export default function PlansScreen() {
     return {
       trips: tripList,
       events: upcoming.filter((e) => e.type !== "trip"),
-      past: filtered.filter((e) => isPastPlan(e)),
+      // The API's normal event order is oldest-first. An archive should instead
+      // lead with the plan people wrapped up most recently (a trip ends on its
+      // endAt; a one-off event completes at its absolute start).
+      past: sortPastPlansNewestFirst(filtered.filter((e) => isPastPlan(e))),
     };
   }, [allPlans, matchesSearch, isPastPlan]);
 
