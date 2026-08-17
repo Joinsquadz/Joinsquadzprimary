@@ -26,7 +26,6 @@ import { goingCount } from "@/lib/eventUtils";
 import { isTripPast, isHappeningNow } from "@/lib/tripUtils";
 import { resolveEventStart, sortPastPlansNewestFirst } from "@/lib/calendar";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
-import { Image } from "expo-image";
 // Shared auth-race guard (see lib/vaultAuthRace.ts). This screen has its own
 // events fetch (includePast), so a cold-start / slow-login 401 here must keep it
 // loading + retrying instead of flashing the "No trips/events yet" empty state.
@@ -39,56 +38,28 @@ import {
   type AuthRaceState,
 } from "@/lib/vaultAuthRace";
 
-// T210: session-level cache of past-plan photo thumbnails so scrolling the Past
-// list doesn't refetch the vault for every card remount.
-const pastPhotoCache = new Map<string, string[]>();
-
-function PastPhotoStrip({ eventId }: { eventId: string }) {
-  const { authToken } = useAuth();
-  const [urls, setUrls] = useState<string[] | null>(pastPhotoCache.get(eventId) ?? null);
-
-  useEffect(() => {
-    if (pastPhotoCache.has(eventId) || !authToken) return;
-    let active = true;
-    fetch(`${API_BASE}/api/vault/photos?eventId=${eventId}`, { headers: buildAuthHeaders(authToken) })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: { photos?: { url: string; mediaType?: string }[] } | null) => {
-        const imgs = (data?.photos ?? [])
-          .filter((p) => p.mediaType !== "video")
-          .slice(0, 4)
-          .map((p) => `${API_BASE}/api/storage${p.url}`);
-        pastPhotoCache.set(eventId, imgs);
-        if (active) setUrls(imgs);
-      })
-      .catch(() => {});
-    return () => { active = false; };
-  }, [eventId, authToken]);
-
-  if (!urls || urls.length === 0) return null;
-  const headers = buildAuthHeaders(authToken) as Record<string, string>;
-  return (
-    <View style={styles.pastStrip}>
-      {urls.map((uri) => (
-        <Image
-          key={uri}
-          source={{ uri, headers }}
-          style={styles.pastStripThumb}
-          contentFit="cover"
-          cachePolicy="memory-disk"
-          recyclingKey={uri}
-          transition={150}
-        />
-      ))}
-    </View>
-  );
-}
-
 type Segment = "trips" | "events" | "past";
 const SEGMENTS: { key: Segment; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { key: "trips", label: "Trips", icon: "airplane-outline" },
   { key: "events", label: "Events", icon: "calendar-outline" },
   { key: "past", label: "Past", icon: "time-outline" },
 ];
+
+function PastPlanRow({ plan }: { plan: Event }) {
+  const colors = useColors();
+  return (
+    <TouchableOpacity
+      onPress={() => router.push(plan.type === "trip" ? `/trip/${plan.id}` : `/event/${plan.id}`)}
+      activeOpacity={0.75}
+      style={[styles.pastPlanRow, { backgroundColor: colors.card, borderColor: colors.border }]}
+    >
+      <Text style={[styles.pastPlanTitle, { color: colors.foreground }]} numberOfLines={2}>
+        {plan.title}
+      </Text>
+      <Ionicons name="chevron-forward" size={16} color={colors.textDim} />
+    </TouchableOpacity>
+  );
+}
 
 function JoinCodeModal({
   visible,
@@ -402,6 +373,8 @@ export default function PlansScreen() {
   }, [segment]);
 
   const renderItem = useCallback(({ item }: { item: Event }) => {
+    if (segment === "past") return <PastPlanRow plan={item} />;
+
     const card = item.type === "trip" ? (
       <TripCard trip={item} />
     ) : (
@@ -418,17 +391,8 @@ export default function PlansScreen() {
         attendeeCount={goingCount(item)}
       />
     );
-    // T210: past cards get a thumbnail strip when vault photos exist.
-    if (isPastPlan(item)) {
-      return (
-        <View>
-          {card}
-          <PastPhotoStrip eventId={item.id} />
-        </View>
-      );
-    }
     return card;
-  }, [isPastPlan]);
+  }, [segment]);
 
   const emptyCopy: Record<Segment, { icon: keyof typeof Ionicons.glyphMap; title: string; sub: string; cta?: string }> = {
     trips: { icon: "airplane-outline", title: "No trips yet", sub: "Plan a multi-day getaway with your squad — build an itinerary together.", cta: "Start a Trip" },
@@ -578,8 +542,18 @@ export default function PlansScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  pastStrip: { flexDirection: "row", gap: 6, marginTop: 8 },
-  pastStripThumb: { flex: 1, height: 64, borderRadius: 10 },
+  pastPlanRow: {
+    minHeight: 56,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginBottom: 10,
+  },
+  pastPlanTitle: { flex: 1, fontSize: 16, fontWeight: "700", marginRight: 12 },
   header: { paddingHorizontal: 20, paddingBottom: 8 },
   titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
   title: { fontSize: 28, fontWeight: "900" },
