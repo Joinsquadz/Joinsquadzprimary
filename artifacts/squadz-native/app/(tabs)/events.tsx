@@ -18,6 +18,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useData, useAuth, dbEventToEvent } from "@/context/AppContext";
+import { useTimezone } from "@/context/TimezoneContext";
 import { EventCard } from "@/components/EventCard";
 import { KeyboardDismissControl } from "@/components/KeyboardDismissControl";
 import { TripCard } from "@/components/TripCard";
@@ -47,15 +48,27 @@ const SEGMENTS: { key: Segment; label: string; icon: keyof typeof Ionicons.glyph
 
 function PastPlanRow({ plan }: { plan: Event }) {
   const colors = useColors();
+  const { formatDateRange, formatTripDateRange } = useTimezone();
+  const dateLabel = plan.type === "trip"
+    ? formatTripDateRange(plan)
+    : (() => {
+      const formatted = formatDateRange(plan.startAt ?? plan.eventAt, plan.startAt ?? plan.eventAt);
+      return formatted === "Dates TBD" ? plan.date : formatted;
+    })();
   return (
     <TouchableOpacity
       onPress={() => router.push(plan.type === "trip" ? `/trip/${plan.id}` : `/event/${plan.id}`)}
       activeOpacity={0.75}
       style={[styles.pastPlanRow, { backgroundColor: colors.card, borderColor: colors.border }]}
     >
-      <Text style={[styles.pastPlanTitle, { color: colors.foreground }]} numberOfLines={2}>
-        {plan.title}
-      </Text>
+      <View style={styles.pastPlanCopy}>
+        <Text style={[styles.pastPlanTitle, { color: colors.foreground }]} numberOfLines={1}>
+          {plan.title}
+        </Text>
+        <Text style={[styles.pastPlanDate, { color: colors.mutedForeground }]} numberOfLines={1}>
+          {dateLabel}
+        </Text>
+      </View>
       <Ionicons name="chevron-forward" size={16} color={colors.textDim} />
     </TouchableOpacity>
   );
@@ -553,7 +566,9 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     marginBottom: 10,
   },
-  pastPlanTitle: { flex: 1, fontSize: 16, fontWeight: "700", marginRight: 12 },
+  pastPlanCopy: { flex: 1, gap: 3, marginRight: 12 },
+  pastPlanTitle: { fontSize: 16, fontWeight: "700" },
+  pastPlanDate: { fontSize: 13, fontWeight: "500" },
   header: { paddingHorizontal: 20, paddingBottom: 8 },
   titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
   title: { fontSize: 28, fontWeight: "900" },

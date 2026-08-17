@@ -117,3 +117,4 @@
 - [Reminder day labels](reminder-day-label-timezone.md) — "today"/"tomorrow" must never fall back to UTC; a null event timezone made evening Pacific events read "tomorrow" beside their own date.
 - [Viewer-local event times](viewer-local-times.md) — store instants, convert at render/notify only; manual tz never overwritten by detection; any time-bearing endpoint must expose the absolute instant.
 - [Timezone picker surrogates](timezone-picker-surrogates.md) — native pickers show device-local fields only; seed via instantToZoneWallClockDate, save via deviceWallClockToZoneIso; stamp events with the effective zone, not the device's.
+- [Native Intl time formatting](native-intl-time-format.md) — combined native Intl parts can omit a clock; format date/time separately and reject partial labels.

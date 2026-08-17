@@ -149,18 +149,30 @@ export function parseIso(iso: string | null | undefined): Date | null {
 /** "Sat, Jun 7 · 8:00 PM PDT" for an absolute instant in a given zone. */
 export function formatInstantIn(date: Date, timezone: string): string {
   try {
-    const parts = new Intl.DateTimeFormat("en-US", {
+    const dateParts = new Intl.DateTimeFormat("en-US", {
       timeZone: timezone,
       weekday: "short",
       month: "short",
       day: "numeric",
+    }).formatToParts(date);
+    const getDatePart = (type: string) => dateParts.find((part) => part.type === type)?.value ?? "";
+    const weekday = getDatePart("weekday");
+    const month = getDatePart("month");
+    const dayOfMonth = getDatePart("day");
+    if (!weekday || !month || !dayOfMonth) return "";
+
+    // Keep the clock separate from the calendar formatter. Some native Intl
+    // implementations omit time fields when all are requested together, which
+    // previously produced labels such as "Sat, Aug 22 · : · PDT".
+    const clock = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
       hour: "numeric",
       minute: "2-digit",
-    }).formatToParts(date);
-    const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
-    const day = `${get("weekday")}, ${get("month")} ${get("day")}`;
-    const time = `${get("hour")}:${get("minute")} ${get("dayPeriod")}`;
-    return `${day} · ${time} ${zoneAbbreviation(date, timezone)}`;
+      hour12: true,
+    }).format(date);
+    if (!/\d/.test(clock)) return "";
+
+    return `${weekday}, ${month} ${dayOfMonth} · ${clock} ${zoneAbbreviation(date, timezone)}`;
   } catch {
     return "";
   }

@@ -2760,10 +2760,25 @@ export default function EventDetailScreen() {
                 ) : null}
               </View>
               {zoneDiffers ? (
-                <Text style={[styles.assignLabel, { color: colors.primary, marginTop: 4 }]}>
-                  Times are in {zoneLabel(timezone)} — your chosen time zone (device is in {zoneLabel(deviceZone)})
+                <Text style={[styles.assignLabel, { color: colors.mutedForeground, marginTop: 4 }]}>
+                  Your device is in {zoneLabel(deviceZone)}
                 </Text>
               ) : null}
+              <TouchableOpacity
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  router.push("/settings/timezone" as never);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={`Change display time zone, currently ${zoneLabel(timezone)}`}
+                style={styles.timezoneControl}
+              >
+                <Ionicons name="globe-outline" size={13} color={colors.mutedForeground} />
+                <Text style={[styles.timezoneControlText, { color: colors.mutedForeground }]} numberOfLines={1}>
+                  Showing times in {zoneLabel(timezone)}
+                </Text>
+                <Ionicons name="chevron-forward" size={13} color={colors.textDim} />
+              </TouchableOpacity>
               <TextInput
                 placeholder="Location"
                 placeholderTextColor={colors.textDim}
@@ -3097,6 +3112,8 @@ const styles = StyleSheet.create({
   assignLabel: { fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.8, marginTop: 14, marginBottom: 6 },
   endRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   endPickBtn: { flex: 1, flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 12, borderWidth: 1.5, paddingHorizontal: 14, height: 50 },
+  timezoneControl: { flexDirection: "row", alignItems: "center", alignSelf: "flex-start", gap: 5, paddingVertical: 8 },
+  timezoneControlText: { fontSize: 12, fontWeight: "600" },
   endPickText: { flex: 1, fontSize: 15, fontWeight: "600" },
   endPickerOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end", zIndex: 50 },
   endPickerSheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24 },
