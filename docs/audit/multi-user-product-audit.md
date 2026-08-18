@@ -232,3 +232,29 @@ messaging.
 `feed.hiddenPerIdAccess.test.ts`,
 `revenuecat.outOfOrder.test.ts`, plus **SIM-11** in
 `__tests__/concurrency/multiUserSim.realDb.test.ts` (real Postgres).
+
+---
+
+## 6. Reliability follow-up sweep
+
+The follow-up sweep addressed failure recovery rather than changing product
+behavior:
+
+- Pull-to-refresh always clears its spinner, even when a squad or plan request
+  fails.
+- Invalid, expired, or inaccessible plan invites now become a terminal
+  explanation with a safe way home instead of leaving an actionable accept
+  button behind.
+- A conversation is marked read only after its thread is successfully loaded
+  and the server confirms the read receipt; a failed request preserves the
+  local unread indicator for reconciliation.
+- Event and squad live-update streams re-check access both before updates and
+  during heartbeats. A removal/revocation closes the stream with a terminal
+  signal, and the mobile client stops retrying access-denied streams.
+- Notification destinations are drained one at a time after authenticated
+  startup, avoiding competing stack transitions when more than one tap is
+  received during a cold start.
+
+Focused native stream coverage verifies both immediate access denial and a
+mid-stream authorization-revoked frame. The complete API and native suites,
+including their typechecks, pass after these changes.

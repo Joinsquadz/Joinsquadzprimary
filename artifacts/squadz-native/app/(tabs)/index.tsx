@@ -113,8 +113,13 @@ export default function HomeScreen() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([refreshEvents(), refreshSquads()]);
-    setRefreshing(false);
+    try {
+      await Promise.all([refreshEvents(), refreshSquads()]);
+    } finally {
+      // A rejected refresh must never leave the native RefreshControl spinning
+      // forever. The individual loaders retain the last good data on failure.
+      setRefreshing(false);
+    }
   }, [refreshEvents, refreshSquads]);
   const [discoverEvents, setDiscoverEvents] = useState<DiscoverEvent[]>([]);
   const [discoverSquads, setDiscoverSquads] = useState<DiscoverSquad[]>([]);

@@ -47,11 +47,13 @@ is wrong whenever partial failure is possible.
 A push can launch the process from a fully-killed state. Two things break:
 
 1. **Routing before auth is restored.** The detail screen fetches the plan with
-   missing or stale credentials, fails, and shows its generic "couldn't load"
-   state — for a plan the user can actually access. Queue the validated payload
-   and route only once the session is usable. Queue in arrival order, not a
-   single slot: two notifications arriving together otherwise overwrite each
-   other and only the last tap survives.
+    missing or stale credentials, fails, and shows its generic "couldn't load"
+    state — for a plan the user can actually access. Queue the validated payload
+    and route only once the session is usable. Queue in arrival order, not a
+    single slot: two notifications arriving together otherwise overwrite each
+    other and only the last tap survives. Drain one item per completed navigation
+    interaction; issuing every stack route in one render still makes transitions
+    compete and leaves an arbitrary destination on top.
 2. **Raw fetch in detail screens.** Cold fallback fetches must use the shared
    authenticated fetch wrapper, which serializes token refresh and distinguishes
    a confirmed-expired session from a transient failure.

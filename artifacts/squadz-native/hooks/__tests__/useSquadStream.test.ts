@@ -261,4 +261,44 @@ describe("useSquadStream — auto-reconnect with exponential backoff", () => {
     // focusedRef.current (set to false by blur) before scheduling — no timer.
     expect(scheduledDelays()).toHaveLength(0);
   });
+
+  it("treats an initial access denial as terminal instead of scheduling retries", async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 403 });
+
+    const { result } = renderHook(() => useSquadStream(defaultOpts));
+    await simulateFocus();
+
+    expect(result.current.status).toBe("revoked");
+    expect(scheduledDelays()).toHaveLength(0);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops reconnecting when an open stream reports authorization_revoked", async () => {
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    fetchMock.mockResolvedValue({
+      ok: true,
+      body: new ReadableStream<Uint8Array>({
+        start(streamController) {
+          controller = streamController;
+        },
+      }),
+    });
+
+    const { result } = renderHook(() => useSquadStream(defaultOpts));
+    await simulateFocus();
+    await act(async () => {
+      controller.enqueue(
+        new TextEncoder().encode(
+          'event: authorization_revoked\ndata: {"code":"AUTHORIZATION_REVOKED"}\n\n',
+        ),
+      );
+      await Promise.resolve();
+    });
+
+    expect(result.current.status).toBe("revoked");
+    expect(scheduledDelays()).toHaveLength(0);
+  });
 });

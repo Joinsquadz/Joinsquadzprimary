@@ -813,6 +813,12 @@ export default function SquadDetailScreen() {
           <Text style={styles.reconnectBannerText}>Live updates unavailable · Tap to retry</Text>
         </TouchableOpacity>
       )}
+      {streamStatus === "revoked" && (
+        <View style={styles.reconnectBanner}>
+          <Ionicons name="information-circle-outline" size={14} color="#6B7280" style={{ marginRight: 6 }} />
+          <Text style={styles.reconnectBannerText}>This squad is no longer available to you.</Text>
+        </View>
+      )}
 
       {/* Conflict refresh banner */}
       <Animated.View

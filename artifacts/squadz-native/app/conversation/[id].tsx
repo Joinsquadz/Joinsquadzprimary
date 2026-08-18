@@ -170,12 +170,13 @@ export default function ConversationScreen() {
     // true (a pre-token-restore 401 keeps the screen loading instead of flashing
     // the empty state); silent SSE/poll refreshes pass false (a transient 401
     // there must not yank an already-populated thread back to a spinner).
-    async (showSpinner: boolean, track = false) => {
+    async (showSpinner: boolean, track = false): Promise<boolean> => {
       if (showSpinner) setLoading(true);
-      const result = await fetchThread(conversationId);
-      if (result.kind === "ok") {
-        const data = result.data;
-        setMessages((prev) => {
+      try {
+        const result = await fetchThread(conversationId);
+        if (result.kind === "ok") {
+          const data = result.data;
+          setMessages((prev) => {
           const serverIds = new Set(data.messages.map((m) => m.id));
           // Preserve already-loaded OLDER pages (merge by id) so a poll/SSE
           // refresh of the latest page never wipes them out. Pending/failed
@@ -189,20 +190,23 @@ export default function ConversationScreen() {
           );
           const keptPending = pending.filter((p) => !serverIds.has(p.id));
           return [...merged, ...keptPending];
-        });
-        setParticipants(data.participants);
-        setConvType(data.conversation.type === "squad" ? "squad" : "direct");
-        // Only seed hasMore/nextCursor from the latest page until the user has
-        // paged back — after that, loadOlder owns the cursor.
-        if (!hasPagedRef.current) {
-          setHasMore(data.hasMore);
-          setNextCursor(data.nextCursor);
+          });
+          setParticipants(data.participants);
+          setConvType(data.conversation.type === "squad" ? "squad" : "direct");
+          // Only seed hasMore/nextCursor from the latest page until the user has
+          // paged back — after that, loadOlder owns the cursor.
+          if (!hasPagedRef.current) {
+            setHasMore(data.hasMore);
+            setNextCursor(data.nextCursor);
+          }
         }
+        if (track) {
+          setAuthRace((prev) => applyVaultFetchOutcome(prev, { kind: result.kind }));
+        }
+        return result.kind === "ok";
+      } finally {
+        if (showSpinner) setLoading(false);
       }
-      if (track) {
-        setAuthRace((prev) => applyVaultFetchOutcome(prev, { kind: result.kind }));
-      }
-      if (showSpinner) setLoading(false);
     },
     [conversationId, fetchThread],
   );
@@ -211,8 +215,9 @@ export default function ConversationScreen() {
     // Reset per-conversation state when the screen instance is reused for a
     // different conversation — the blocked notice must never leak across threads.
     setBlocked(false);
-    void loadThread(true, true);
-    void markRead(conversationId);
+    void loadThread(true, true).then((loaded) => {
+      if (loaded) void markRead(conversationId);
+    });
   }, [loadThread, markRead, conversationId]);
 
   // Retry driver: while the initial load is auth-pending (401 before the token
@@ -276,7 +281,9 @@ export default function ConversationScreen() {
     conversationId,
     authToken,
     onUpdate: useCallback(() => {
-      void loadThread(false).then(() => markRead(conversationId));
+      void loadThread(false).then((loaded) => {
+        if (loaded) void markRead(conversationId);
+      });
     }, [loadThread, markRead, conversationId]),
   });
   // Only show "Reconnecting…" if the stream is still down after 3s.
@@ -286,7 +293,9 @@ export default function ConversationScreen() {
   // temporarily unavailable (network blip, proxy timeout, etc.).
   useEffect(() => {
     const interval = setInterval(() => {
-      void loadThread(false).then(() => markRead(conversationId));
+      void loadThread(false).then((loaded) => {
+        if (loaded) void markRead(conversationId);
+      });
     }, 30000);
     return () => clearInterval(interval);
   }, [loadThread, markRead, conversationId]);

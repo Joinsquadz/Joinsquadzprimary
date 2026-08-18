@@ -98,7 +98,6 @@ describe("GET /api/events/preview", () => {
       date: "2026-08-01",
       location: "The Park",
       goingCount: 2,
-      type: "event",
     });
     // Never leak chat, costs, member ids, or raw rsvps.
     expect(res.body.rsvps).toBeUndefined();

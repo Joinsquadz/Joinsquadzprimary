@@ -236,6 +236,20 @@ describe("useEventStream — auto-reconnect with exponential backoff", () => {
     );
   });
 
+  it("treats an initial access denial as terminal instead of scheduling retries", async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 403 });
+
+    const { result } = renderHook(() => useEventStream(defaultOpts));
+    await simulateFocus();
+
+    expect(result.current.status).toBe("revoked");
+    expect(scheduledDelays()).toHaveLength(0);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("notifies the detail screen when an update frame uses CRLF line endings", async () => {
     let controller!: ReadableStreamDefaultController<Uint8Array>;
     const onUpdate = vi.fn();
@@ -257,5 +271,31 @@ describe("useEventStream — auto-reconnect with exponential backoff", () => {
     });
 
     expect(onUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops reconnecting when an open stream reports authorization_revoked", async () => {
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    fetchMock.mockResolvedValue({
+      ok: true,
+      body: new ReadableStream<Uint8Array>({
+        start(streamController) {
+          controller = streamController;
+        },
+      }),
+    });
+
+    const { result } = renderHook(() => useEventStream(defaultOpts));
+    await simulateFocus();
+    await act(async () => {
+      controller.enqueue(
+        new TextEncoder().encode(
+          'event: authorization_revoked\ndata: {"code":"AUTHORIZATION_REVOKED"}\n\n',
+        ),
+      );
+      await Promise.resolve();
+    });
+
+    expect(result.current.status).toBe("revoked");
+    expect(scheduledDelays()).toHaveLength(0);
   });
 });

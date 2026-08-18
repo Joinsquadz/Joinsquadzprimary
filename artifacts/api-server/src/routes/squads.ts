@@ -704,19 +704,62 @@ router.get("/squads/:id/stream", requireAuth, async (req: Request, res: Response
   // Confirm connection to the client.
   res.write("event: connected\ndata: {}\n\n");
 
-  const unsubscribe = onSquadUpdate(id, () => {
-    res.write(`event: update\ndata: {"squadId":"${id}"}\n\n`);
+  let closed = false;
+  let unsubscribe: () => void = () => {};
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
+
+  const closeStream = (): void => {
+    if (closed) return;
+    closed = true;
+    if (heartbeat) clearInterval(heartbeat);
+    unsubscribe();
+    res.end();
+  };
+
+  // A squad removal emits an update after the membership write. Re-checking
+  // here prevents the removed device from learning even that a squad changed;
+  // heartbeats cover idle streams and any missed update signal.
+  const stillAllowed = async (): Promise<boolean> => {
+    try {
+      const current = await getSquadIfMember(id, userId);
+      return current.squad !== null && current.isMember;
+    } catch (err) {
+      logger.error({ err, squadId: id }, "Error revalidating squad stream access");
+      return false;
+    }
+  };
+
+  const revokeStream = (): void => {
+    if (closed) return;
+    res.write('event: authorization_revoked\ndata: {"code":"AUTHORIZATION_REVOKED"}\n\n');
+    closeStream();
+  };
+
+  unsubscribe = onSquadUpdate(id, () => {
+    void (async () => {
+      if (closed) return;
+      if (!(await stillAllowed())) {
+        revokeStream();
+        return;
+      }
+      if (!closed) res.write(`event: update\ndata: {"squadId":"${id}"}\n\n`);
+    })();
   });
 
   // Keep-alive heartbeat every 25 s to prevent proxy/mobile connection timeouts.
-  const heartbeat = setInterval(() => {
-    res.write(": heartbeat\n\n");
+  // It doubles as a periodic authorization check for an idle detail screen.
+  heartbeat = setInterval(() => {
+    void (async () => {
+      if (closed) return;
+      if (!(await stillAllowed())) {
+        revokeStream();
+        return;
+      }
+      if (!closed) res.write(": heartbeat\n\n");
+    })();
   }, 25000);
 
-  req.on("close", () => {
-    clearInterval(heartbeat);
-    unsubscribe();
-  });
+  req.on("close", closeStream);
 });
 
 router.patch("/squads/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {

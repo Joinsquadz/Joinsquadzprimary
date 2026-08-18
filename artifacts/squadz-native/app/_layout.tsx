@@ -14,7 +14,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { router, Stack, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Linking, Platform, View } from "react-native";
+import { InteractionManager, Linking, Platform, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -39,6 +39,7 @@ import { installWebShare } from "@/lib/webShare";
 import { logOutRevenueCat, addEntitlementListener } from "@/lib/revenuecat";
 import { reconcileRcEntitlement } from "@/lib/rcReconcile";
 import { routeFromNotificationData } from "@/lib/routeFromNotificationData";
+import { createNotificationRouteDrainer } from "@/lib/notificationRouteQueue";
 import { createNotificationResponseHandler } from "@/lib/notificationResponseHandler";
 import { decidePushPermissionAction } from "@/lib/pushPermissionAction";
 import { useUserCache } from "@/context/UserCacheContext";
@@ -131,6 +132,23 @@ function PushNotificationHandler() {
   const checkedRef = useRef(false);
   const handledNotificationIds = useRef<Set<string>>(new Set());
   const [pendingNotificationRoutes, setPendingNotificationRoutes] = useState<Record<string, string>[]>([]);
+  const notificationQueueMountedRef = useRef(true);
+  const notificationDrainerRef = useRef<ReturnType<
+    typeof createNotificationRouteDrainer<Record<string, string>>
+  > | null>(null);
+  if (!notificationDrainerRef.current) {
+    notificationDrainerRef.current = createNotificationRouteDrainer<Record<string, string>>(
+      (data) => routeFromNotificationData(data),
+      (done) => {
+        InteractionManager.runAfterInteractions(done);
+      },
+      () => {
+        if (notificationQueueMountedRef.current) {
+          setPendingNotificationRoutes((prev) => prev.slice(1));
+        }
+      },
+    );
+  }
   const [showBanner, setShowBanner] = useState(false);
   const [registering, setRegistering] = useState(false);
 
@@ -251,14 +269,23 @@ function PushNotificationHandler() {
   );
 
   // A notification can launch the process before auth hydration completes.
-  // Retain validated payloads, then route them in arrival order once detail
-  // screens can use the shared authenticated request path.
+  // Retain validated payloads, then route exactly ONE at a time in arrival
+  // order once detail screens can use the shared authenticated request path.
+  // Calling router.push for the whole queue in one render races Stack
+  // transitions and leaves an arbitrary destination on top.
   useEffect(() => {
     if (pendingNotificationRoutes.length === 0 || !isLoggedIn || !authToken) return;
-    // Clear first so a re-render mid-routing cannot replay the same taps.
-    setPendingNotificationRoutes([]);
-    for (const data of pendingNotificationRoutes) routeFromNotificationData(data);
+    // The drainer owns the in-flight navigation and survives queue appends. A
+    // second tap arriving mid-transition must NOT cancel the first route's
+    // completion callback, or the rest of the queue is stranded forever.
+    notificationDrainerRef.current?.drain(pendingNotificationRoutes[0]);
   }, [pendingNotificationRoutes, isLoggedIn, authToken]);
+
+  useEffect(() => {
+    return () => {
+      notificationQueueMountedRef.current = false;
+    };
+  }, []);
 
   // Deep-link listener for notification taps. Handles taps while the app is
   // running (foreground/background) AND the launch notification when the app is

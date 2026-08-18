@@ -8,7 +8,7 @@ import { useFocusEffect } from "expo-router";
 import { fetch as streamFetch } from "expo/fetch";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 
-export type EventStreamStatus = "connected" | "reconnecting" | "error";
+export type EventStreamStatus = "connected" | "reconnecting" | "error" | "revoked";
 
 type Options = {
   eventId: string | null;
@@ -53,6 +53,9 @@ export function useEventStream({ eventId, authToken, onUpdate }: Options): { sta
   const retryCountRef = useRef(0);
   // Holds the setTimeout handle for a pending reconnect attempt.
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Set after a terminal 401/403/404 or the server's revocation frame. These
+  // aren't network errors, so retrying would hammer an access-controlled route.
+  const terminalRef = useRef(false);
 
   const [status, setStatus] = useState<EventStreamStatus>("reconnecting");
 
@@ -67,7 +70,7 @@ export function useEventStream({ eventId, authToken, onUpdate }: Options): { sta
   }, []);
 
   const connect = useCallback(() => {
-    if (!eventId) return;
+    if (!eventId || terminalRef.current) return;
 
     // Cancel any pending retry and tear down any existing connection.
     cancelRetry();
@@ -79,7 +82,7 @@ export function useEventStream({ eventId, authToken, onUpdate }: Options): { sta
     setStatus("reconnecting");
 
     const scheduleRetry = () => {
-      if (controller.signal.aborted || !focusedRef.current) return;
+      if (terminalRef.current || controller.signal.aborted || !focusedRef.current) return;
 
       retryCountRef.current += 1;
       if (retryCountRef.current > MAX_RETRIES) {
@@ -107,7 +110,17 @@ export function useEventStream({ eventId, authToken, onUpdate }: Options): { sta
           signal: controller.signal,
         });
 
-        if (!response.ok || !response.body) {
+        if (!response.ok) {
+          if (response.status === 401 || response.status === 403 || response.status === 404) {
+            terminalRef.current = true;
+            cancelRetry();
+            setStatus("revoked");
+            return;
+          }
+          scheduleRetry();
+          return;
+        }
+        if (!response.body) {
           scheduleRetry();
           return;
         }
@@ -134,6 +147,13 @@ export function useEventStream({ eventId, authToken, onUpdate }: Options): { sta
           buffer = blocks.pop() ?? "";
 
           for (const block of blocks) {
+            if (block.includes("event: authorization_revoked")) {
+              terminalRef.current = true;
+              cancelRetry();
+              setStatus("revoked");
+              controller.abort();
+              return;
+            }
             if (block.includes("event: update")) {
               onUpdateRef.current();
             }
@@ -163,6 +183,7 @@ export function useEventStream({ eventId, authToken, onUpdate }: Options): { sta
   useFocusEffect(
     useCallback(() => {
       focusedRef.current = true;
+      terminalRef.current = false;
       retryCountRef.current = 0;
       retryDelayRef.current = INITIAL_BACKOFF_MS;
       connect();
@@ -172,7 +193,7 @@ export function useEventStream({ eventId, authToken, onUpdate }: Options): { sta
         cancelRetry();
         abortRef.current?.abort();
         abortRef.current = null;
-        setStatus("reconnecting");
+        if (!terminalRef.current) setStatus("reconnecting");
       };
     }, [connect, cancelRetry]),
   );
@@ -184,7 +205,7 @@ export function useEventStream({ eventId, authToken, onUpdate }: Options): { sta
   // to the background — the focus-restore path above will handle reconnection.
   useEffect(() => {
     const sub = AppState.addEventListener("change", (nextState) => {
-      if (nextState === "active" && focusedRef.current) {
+      if (nextState === "active" && focusedRef.current && !terminalRef.current) {
         retryCountRef.current = 0;
         retryDelayRef.current = INITIAL_BACKOFF_MS;
         connect();
@@ -200,6 +221,7 @@ export function useEventStream({ eventId, authToken, onUpdate }: Options): { sta
   // Used by the "Live updates unavailable" banner so the user can recover after
   // the automatic retries are exhausted.
   const retry = useCallback(() => {
+    if (terminalRef.current) return;
     if (!focusedRef.current) focusedRef.current = true;
     retryCountRef.current = 0;
     retryDelayRef.current = INITIAL_BACKOFF_MS;

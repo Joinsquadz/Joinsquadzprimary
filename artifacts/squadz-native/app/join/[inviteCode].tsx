@@ -59,6 +59,7 @@ export default function EventJoinScreen() {
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<EventPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(true);
+  const [previewUnavailable, setPreviewUnavailable] = useState(false);
 
   // Fetch a read-only preview so a SIGNED-IN visitor can see what they're
   // joining (title, host, date, location) before committing. Privacy: the
@@ -71,6 +72,8 @@ export default function EventJoinScreen() {
       return;
     }
     setPreviewLoading(true);
+    setPreviewUnavailable(false);
+    setError(null);
     try {
       const res = await fetch(`${API_BASE}/api/events/preview?code=${encodeURIComponent(code)}`, {
         headers: buildAuthHeaders(authToken),
@@ -78,8 +81,20 @@ export default function EventJoinScreen() {
       if (res.ok) {
         const data = (await res.json()) as EventPreview;
         setPreview(data);
-      } else if (res.status === 410) {
-        setError("This event has been cancelled.");
+        setError(null);
+      } else if (res.status === 404 || res.status === 410 || res.status === 403) {
+        // These are terminal link states, not a failed preview. Do not leave a
+        // live Accept button on a code the API has already said cannot be used.
+        void clearPendingEventCode();
+        setPreview(null);
+        setPreviewUnavailable(true);
+        setError(
+          res.status === 410
+            ? "This event has been cancelled."
+            : res.status === 403
+              ? "You no longer have access to this invite."
+              : "This invite is no longer available.",
+        );
       }
     } catch {
       // Non-fatal: fall back to the generic invite hero if the preview fails.
@@ -255,17 +270,26 @@ export default function EventJoinScreen() {
           </View>
         )}
 
-        <TouchableOpacity
-          onPress={handleJoin}
-          disabled={joining}
-          style={[styles.btn, { backgroundColor: joining ? colors.mutedForeground : colors.primary, opacity: joining ? 0.7 : 1 }]}
-        >
-          {joining ? (
-            <ActivityIndicator color="#fff" size="small" />
-          ) : (
-            <Text style={[styles.btnText, { color: "#fff" }]}>Accept Invite →</Text>
-          )}
-        </TouchableOpacity>
+        {previewUnavailable ? (
+          <TouchableOpacity
+            onPress={goHome}
+            style={[styles.btn, { backgroundColor: colors.primary }]}
+          >
+            <Text style={[styles.btnText, { color: "#fff" }]}>Go Home</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            onPress={handleJoin}
+            disabled={joining}
+            style={[styles.btn, { backgroundColor: joining ? colors.mutedForeground : colors.primary, opacity: joining ? 0.7 : 1 }]}
+          >
+            {joining ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <Text style={[styles.btnText, { color: "#fff" }]}>Accept Invite →</Text>
+            )}
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );

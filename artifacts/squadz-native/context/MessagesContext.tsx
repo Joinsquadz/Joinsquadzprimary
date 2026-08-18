@@ -267,16 +267,18 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
 
   const markRead = useCallback(
     async (conversationId: string) => {
-      // Optimistically zero the unread badge for this conversation.
-      setConversations((prev) =>
-        prev.map((c) => (c.id === conversationId ? { ...c, unreadCount: 0 } : c)),
-      );
       try {
-        await apiFetch(`/api/conversations/${conversationId}/read`, { method: "POST" });
+        const res = await apiFetch(`/api/conversations/${conversationId}/read`, { method: "POST" });
+        // Do not erase the local row's unread state if the server couldn't
+        // confirm the receipt (for example after removal from a conversation).
+        if (!res.ok) return;
+        setConversations((prev) =>
+          prev.map((c) => (c.id === conversationId ? { ...c, unreadCount: 0 } : c)),
+        );
+        void refreshUnread();
       } catch {
-        // Best-effort; next poll will reconcile.
+        // Keep the unread indicator. A later successful fetch/read can reconcile it.
       }
-      void refreshUnread();
     },
     [apiFetch, refreshUnread],
   );

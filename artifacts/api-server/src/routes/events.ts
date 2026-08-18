@@ -490,9 +490,6 @@ router.get("/events/preview", async (req: Request, res: Response): Promise<void>
       allDay: event.allDay,
       location: event.location,
       goingCount,
-      // Expose plan type so the join screen can route directly to /trip/[id]
-      // instead of /event/[id] without a round-trip after the user accepts.
-      type: event.type ?? "event",
     });
   } catch (err) {
     logger.error({ err }, "Error fetching event preview");
@@ -2261,19 +2258,64 @@ router.get("/events/:id/stream", requireAuth, async (req: Request, res: Response
   // Confirm connection to the client.
   res.write("event: connected\ndata: {}\n\n");
 
-  const unsubscribe = onEventUpdate(id, () => {
-    res.write(`event: update\ndata: {"eventId":"${id}"}\n\n`);
+  let closed = false;
+  let unsubscribe: () => void = () => {};
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
+
+  const closeStream = (): void => {
+    if (closed) return;
+    closed = true;
+    if (heartbeat) clearInterval(heartbeat);
+    unsubscribe();
+    res.end();
+  };
+
+  // Authorization at connection time is not enough: membership and invite
+  // access can change while this socket remains open. Re-check before each
+  // payload and on idle heartbeats, failing closed if the DB cannot confirm it.
+  const stillAllowed = async (): Promise<boolean> => {
+    try {
+      const [current] = await db.select().from(eventsTable).where(eq(eventsTable.id, id));
+      return !!current && (await userCanAccessEvent(current, userId));
+    } catch (err) {
+      logger.error({ err, eventId: id }, "Error revalidating event stream access");
+      return false;
+    }
+  };
+
+  const revokeStream = (): void => {
+    if (closed) return;
+    // A terminal frame tells mobile clients this is an access change, not a
+    // temporary network failure that should trigger endless reconnects.
+    res.write('event: authorization_revoked\ndata: {"code":"AUTHORIZATION_REVOKED"}\n\n');
+    closeStream();
+  };
+
+  unsubscribe = onEventUpdate(id, () => {
+    void (async () => {
+      if (closed) return;
+      if (!(await stillAllowed())) {
+        revokeStream();
+        return;
+      }
+      if (!closed) res.write(`event: update\ndata: {"eventId":"${id}"}\n\n`);
+    })();
   });
 
   // Keep-alive heartbeat every 25 s to prevent proxy/mobile connection timeouts.
-  const heartbeat = setInterval(() => {
-    res.write(": heartbeat\n\n");
+  // It also makes idle streams respect access removal promptly.
+  heartbeat = setInterval(() => {
+    void (async () => {
+      if (closed) return;
+      if (!(await stillAllowed())) {
+        revokeStream();
+        return;
+      }
+      if (!closed) res.write(": heartbeat\n\n");
+    })();
   }, 25000);
 
-  req.on("close", () => {
-    clearInterval(heartbeat);
-    unsubscribe();
-  });
+  req.on("close", closeStream);
 });
 
 router.get('/events/:id/photos', requireAuth, async (req, res): Promise<void> => {
