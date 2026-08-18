@@ -59,7 +59,12 @@ vi.mock("drizzle-orm", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
   const sqlFn = (strings: TemplateStringsArray, ...vals: unknown[]) => {
     const arr = vals.find((v) => Array.isArray(v)) as string[] | undefined;
-    return arr ? { __friendIds: arr } : {};
+    const joined = vals.find((v) => v && typeof v === "object" && "__friendIds" in v) as
+      | { __friendIds?: string[] }
+      | undefined;
+    if (arr) return { __friendIds: arr };
+    if (joined) return joined;
+    return typeof vals[0] === "string" ? { __friendId: vals[0] } : {};
   };
   return {
     ...actual,
@@ -67,7 +72,12 @@ vi.mock("drizzle-orm", async (importOriginal) => {
     eq: () => ({}),
     ne: () => ({}),
     inArray: () => ({}),
-    sql: Object.assign(sqlFn, { raw: () => ({}) }),
+    sql: Object.assign(sqlFn, {
+      raw: () => ({}),
+      join: (items: { __friendId?: string }[]) => ({
+        __friendIds: items.map((item) => item.__friendId).filter((id): id is string => !!id),
+      }),
+    }),
   };
 });
 

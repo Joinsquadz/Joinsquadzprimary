@@ -61,7 +61,11 @@ router.get("/discover", requireAuth, async (req: Request, res: Response): Promis
       return;
     }
 
-    // Public squads where at least one friend is a member (jsonb array overlap) and user is not
+    // Public squads where at least one friend is a member (jsonb array overlap)
+    // and user is not. Build a PostgreSQL array expression from individually
+    // bound values: binding a JS string[] directly here makes pg receive a
+    // scalar UUID for `::text[]`, which is not a valid array literal.
+    const friendIdArray = sql.join(friendIds.map((friendId) => sql`${friendId}`), sql`, `);
     const rawSquads = await db
       .select()
       .from(squadsTable)
@@ -69,7 +73,7 @@ router.get("/discover", requireAuth, async (req: Request, res: Response): Promis
         and(
           eq(squadsTable.isPublic, true),
           sql`NOT (${squadsTable.memberIds} @> ${JSON.stringify([userId])}::jsonb)`,
-          sql`${squadsTable.memberIds} ?| ${friendIds}::text[]`,
+          sql`${squadsTable.memberIds} ?| ARRAY[${friendIdArray}]::text[]`,
         ),
       )
       .orderBy(squadsTable.createdAt)

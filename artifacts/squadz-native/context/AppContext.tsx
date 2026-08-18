@@ -29,6 +29,11 @@ import {
 import { ME } from "@/data/mock";
 import type { Event, Squad, RsvpStatus, Cost, CostShare, ItineraryStop } from "@/types";
 import { track, identify, reset as analyticsReset } from "@/lib/analytics";
+import {
+  classifyEmailLoginResponse,
+  type EmailLoginPayload,
+} from "@/lib/emailLoginResponse";
+import { shouldInvalidateConfirmedSession } from "@/lib/sessionRecovery";
 // Shared auth-race guard (see lib/vaultAuthRace.ts). A cold-start / slow-login
 // 401 on the events or squads fetch must NOT collapse the list screens to a
 // false "nothing here" empty state — keep them loading and retry until an
@@ -299,6 +304,9 @@ type AppContextType = {
   deleteAccount: () => Promise<AuthResult>;
   refreshUser: () => Promise<void>;
   setInviteCtx: (ctx: InviteCtx | null) => void;
+  /** Auth-aware request helper for protected data reads. A confirmed-session
+   *  401 clears unusable credentials and returns the user to login. */
+  apiFetch: (path: string, options?: RequestInit) => Promise<Response>;
 
   eventsLoading: boolean;
   squadsLoading: boolean;
@@ -439,6 +447,7 @@ const AppContext = createContext<AppContextType>({
   deleteAccount: async () => ({ ok: false }),
   refreshUser: async () => {},
   setInviteCtx: noop,
+  apiFetch: async () => new Response(null, { status: 401 }),
   eventsLoading: true,
   squadsLoading: true,
   eventsAuthPending: false,
@@ -737,7 +746,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 // clear state and show an explanatory toast. Cold-start auth-race
                 // 401s (isSessionValidated still false) are handled by the retry
                 // loops in fetchEvents / fetchSquads / fetchFriends instead.
-                if (isSessionValidatedRef.current) {
+                if (
+                  shouldInvalidateConfirmedSession({
+                    path,
+                    isSessionValidated: isSessionValidatedRef.current,
+                    hasSessionToken: !!authTokenRef.current,
+                  })
+                ) {
                   handleSessionExpiryRef.current();
                 } else {
                   // Partial cleanup only — session never established.
@@ -764,7 +779,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             const retryHeaders = { ...headers, Authorization: `Bearer ${newToken}` };
             return timedFetch(`${API_BASE}${path}`, { ...options, headers: retryHeaders });
           }
-        } else if (!isAuthRoute && !refreshTokenRef.current && isSessionValidatedRef.current) {
+        } else if (
+          !refreshTokenRef.current &&
+          shouldInvalidateConfirmedSession({
+            path,
+            isSessionValidated: isSessionValidatedRef.current,
+            hasSessionToken: !!authTokenRef.current,
+          })
+        ) {
           // No refresh token available and a mid-session 401 — the token is
           // simply expired with no recovery path. Sign the user out.
           handleSessionExpiryRef.current();
@@ -1525,6 +1547,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setPhone(payload.phone ?? null);
       currentUserIdRef.current = payload.user.id;
       // A fresh server-issued session is validated by definition.
+      // Set the ref in the same turn as state: foreground reads kicked off by
+      // the new token must treat a 401 as an invalid session, not as the
+      // cold-start restoration race that only applies to stored credentials.
+      isSessionValidatedRef.current = true;
       setIsSessionValidated(true);
       if (markLoggedIn) {
         AsyncStorage.removeItem(ONBOARDING_PENDING_KEY).catch(() => {});
@@ -1590,24 +1616,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email, password }),
         });
-        const data = (await res.json().catch(() => ({}))) as {
-          token?: string;
+        const data = (await res.json().catch(() => ({}))) as EmailLoginPayload;
+        const outcome = classifyEmailLoginResponse(res.status, data);
+        if (outcome.kind !== "success") {
+          if (outcome.kind === "malformed-success") {
+            // Do not attach the email, password, token, or response body. This
+            // is an API-contract incident, not a credential error.
+            void import("@/lib/monitoring")
+              .then(({ Sentry }) =>
+                Sentry.captureMessage(
+                  `Email login returned ${res.status} without a usable session`,
+                  "error",
+                ),
+              )
+              .catch(() => {});
+          }
+          return { ok: false, error: outcome.error };
+        }
+        const session = data as {
+          token: string;
           refreshToken?: string;
-          user?: ApiUser;
+          user: ApiUser;
           emailVerified?: boolean;
           phone?: string | null;
-          error?: string;
         };
-        if (!res.ok || !data.token || !data.user) {
-          return { ok: false, error: data.error ?? "Incorrect email or password." };
-        }
         applyAuthSession(
-          data.token,
-          { user: data.user, emailVerified: data.emailVerified, phone: data.phone },
+          session.token,
+          { user: session.user, emailVerified: session.emailVerified, phone: session.phone },
           true,
-          data.refreshToken,
+          session.refreshToken,
         );
-        identify(data.user.id, { email: data.user.email ?? undefined });
+        identify(session.user.id, { email: session.user.email ?? undefined });
         track("login", { method: "email" });
         return { ok: true };
       } catch {
@@ -2960,6 +2999,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       deleteAccount,
       refreshUser,
       setInviteCtx,
+      apiFetch,
       eventsLoading,
       squadsLoading,
       eventsAuthPending: eventsAuth.authPending,
@@ -3051,6 +3091,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       deleteAccount,
       refreshUser,
       setInviteCtx,
+      apiFetch,
       eventsLoading,
       squadsLoading,
       eventsAuth,

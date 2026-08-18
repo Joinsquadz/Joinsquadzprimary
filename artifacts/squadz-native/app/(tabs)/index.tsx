@@ -34,7 +34,7 @@ import { GradientButton } from "@/components/GradientButton";
 import { LiveStatusBanner } from "@/components/LiveStatusBanner";
 import { CelebrationOverlay } from "@/components/CelebrationOverlay";
 import { claimOnce } from "@/lib/seenFlags";
-import { API_BASE, buildAuthHeaders } from "@/lib/api";
+import { API_BASE } from "@/lib/api";
 import { STOP_VOTING_ENABLED } from "@/lib/tripApi";
 import { useToast } from "@/context/ToastContext";
 import { useTimezone } from "@/context/TimezoneContext";
@@ -104,7 +104,7 @@ function webCopy(text: string): boolean {
 export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { currentUser, authToken } = useAuth();
+  const { currentUser, authToken, apiFetch } = useAuth();
   const { unreadCount: unreadActivity } = useActivity();
   const { events, squads, friends, eventsLoading, squadsLoading, joinEvent, joinSquad, friendCode, refreshEvents, refreshSquads } = useData();
   const { showToast } = useToast();
@@ -146,7 +146,7 @@ export default function HomeScreen() {
 
   useEffect(() => {
     if (!authToken) return;
-    fetch(`${API_BASE}/api/streaks`, { headers: buildAuthHeaders(authToken) })
+    apiFetch("/api/streaks")
       .then((r) => (r.ok ? r.json() : null))
       .then((data: { monthlyPlan: number; stayInTouch: number } | null) => {
         if (!data) return;
@@ -172,11 +172,11 @@ export default function HomeScreen() {
         })();
       })
       .catch(() => {});
-  }, [authToken, currentUser.id]);
+  }, [authToken, currentUser.id, apiFetch]);
 
   useEffect(() => {
     if (!authToken) return;
-    fetch(`${API_BASE}/api/discover`, { headers: buildAuthHeaders(authToken) })
+    apiFetch("/api/discover")
       .then((r) => (r.ok ? r.json() : null))
       .then((data: { events?: DiscoverEvent[]; squads?: DiscoverSquad[] } | null) => {
         if (data) {
@@ -185,17 +185,17 @@ export default function HomeScreen() {
         }
       })
       .catch(() => {});
-  }, [authToken]);
+  }, [authToken, apiFetch]);
 
   useEffect(() => {
     if (!authToken) return;
-    fetch(`${API_BASE}/api/suggestions`, { headers: buildAuthHeaders(authToken) })
+    apiFetch("/api/suggestions")
       .then((r) => (r.ok ? r.json() : null))
       .then((data: Suggestion[] | null) => {
         if (Array.isArray(data)) setSuggestions(data);
       })
       .catch(() => {});
-  }, [authToken, events, squads]);
+  }, [authToken, events, squads, apiFetch]);
 
   const { resolveUser, prefetchUsers } = useUserCache();
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
