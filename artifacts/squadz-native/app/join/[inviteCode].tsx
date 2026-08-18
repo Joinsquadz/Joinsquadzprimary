@@ -15,11 +15,14 @@ import { useColors } from "@/hooks/useColors";
 import { useData, useAuth } from "@/context/AppContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { savePendingEventCode, clearPendingEventCode } from "@/lib/pendingInvite";
+import { acceptedInviteRoute, type InvitedPlanType } from "@/lib/acceptedInviteRoute";
 import { useTimezone } from "@/context/TimezoneContext";
 
 type EventPreview = {
   emoji: string;
   title: string;
+  /** "trip" plans open their own detail screen; absent on legacy responses. */
+  type?: InvitedPlanType;
   hostName: string | null;
   /** Creator's stored text — fallback only; prefer the absolute fields below. */
   date: string;
@@ -111,12 +114,17 @@ export default function EventJoinScreen() {
         body: JSON.stringify({ inviteCode: code }),
       });
       if (res.status === 409) {
-        // Already going — just open the event. Terminal success: clear the
+        // Already going — just open the plan. Terminal success: clear the
         // persisted code so later logins don't bounce back to this screen.
         void clearPendingEventCode();
-        const body = (await res.json().catch(() => ({}))) as { id?: string };
+        const body = (await res.json().catch(() => ({}))) as {
+          id?: string;
+          type?: InvitedPlanType;
+        };
         await refreshEvents();
-        if (body.id) router.replace(`/event/${body.id}` as never);
+        // Fall back to the preview's type when an older server omits it.
+        const destination = acceptedInviteRoute(body.id, body.type ?? preview?.type);
+        if (destination) router.replace(destination as never);
         else router.replace("/(tabs)" as never);
         return;
       }
@@ -137,11 +145,14 @@ export default function EventJoinScreen() {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         return;
       }
-      const event = (await res.json()) as { id?: string };
+      const event = (await res.json()) as { id?: string; type?: InvitedPlanType };
       void clearPendingEventCode();
       await refreshEvents();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      if (event.id) router.replace(`/event/${event.id}` as never);
+      // Trips have their own detail screen — routing every accepted invite to
+      // /event/:id showed a trip as an event until the user left and returned.
+      const destination = acceptedInviteRoute(event.id, event.type ?? preview?.type);
+      if (destination) router.replace(destination as never);
       else router.replace("/(tabs)" as never);
     } catch {
       setError("Could not connect. Please check your connection.");

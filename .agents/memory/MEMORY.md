@@ -89,6 +89,7 @@
 - [Account deletion tombstones](account-deletion-tombstones.md) — login upsert resurrects "deleted" accounts; tombstone auth SUBJECT ids in the purge tx + check in syncSupabaseUser; linkedUserId subjects differ from user id.
 - [Squadz web E2E quirks](squadz-web-e2e-quirks.md) — tester nav drops ".expo." from the dev host (fake 502s) → JS-forced nav + atomic host check; Screenshot tool lands inside the 1s splash gate; adjudicate ambiguous reports server-side.
 - [Push taps must land on an openable screen](push-tap-dead-destination.md) — pending-invite pushes → Activity (plan GET 403s until accepted); detail fetches must treat 403/404 as terminal or the tap spins forever.
+- [Accepted-invite routing](accepted-invite-routing.md) — invite preview/join 200/join 409 must all report plan type; client routes via the shared helper or a trip invite opens the event screen.
 - [Push-tap routing contract](push-tap-routing.md) — every push `data.screen` needs a matching client router case (+tab forwarding); new activity types need label AND navigate cases; new hot tables need schemaSync indexes.
 - [Router back fallback](router-back-fallback.md) — router.back() no-ops without history (reload/deep-link); every custom back button uses canGoBack() ? back() : replace(fallback), app-wide.
 - [Plan Ideas feature](plan-ideas-feature.md) — ideas are separate tables (NO version checks); confirmed ideas merge into itinerary render-only (stops first); reorder needs the FULL group; readOnly flag gates idea UI only.

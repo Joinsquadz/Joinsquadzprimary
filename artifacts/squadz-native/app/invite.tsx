@@ -19,6 +19,7 @@ import { goingCount } from "@/lib/eventUtils";
 import { useUserCache } from "@/context/UserCacheContext";
 import { useTimezone } from "@/context/TimezoneContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
+import { acceptedInviteRoute } from "@/lib/acceptedInviteRoute";
 
 export default function InviteScreen() {
   const colors = useColors();
@@ -107,10 +108,18 @@ export default function InviteScreen() {
             You've joined {event.title}. See you there!
           </Text>
           <TouchableOpacity
-            onPress={() => router.replace(`/event/${event.id}` as never)}
+            onPress={() => {
+              // Trips render on their own detail screen; sending them to
+              // /event/:id shows the wrong page until the user navigates away.
+              const destination = acceptedInviteRoute(event.id, event.type);
+              if (destination) router.replace(destination as never);
+              else router.replace("/(tabs)" as never);
+            }}
             style={[styles.btn, { backgroundColor: colors.primary, marginTop: 24 }]}
           >
-            <Text style={[styles.btnText, { color: "#fff" }]}>View Event →</Text>
+            <Text style={[styles.btnText, { color: "#fff" }]}>
+              {event.type === "trip" ? "View Trip →" : "View Event →"}
+            </Text>
           </TouchableOpacity>
         </View>
       </View>

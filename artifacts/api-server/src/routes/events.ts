@@ -476,6 +476,10 @@ router.get("/events/preview", async (req: Request, res: Response): Promise<void>
     res.json({
       emoji: event.emoji,
       title: event.title,
+      // Trips live in the same table as events but have their own detail
+      // screen; the client needs the plan type to route the accepted invite
+      // to /trip/:id instead of /event/:id.
+      type: event.type === "trip" ? "trip" : "event",
       hostName,
       // `date` is the creator's stored display text; the absolute fields let the
       // client render the start on the *viewer's* clock instead. Kept as a
@@ -873,7 +877,14 @@ router.post("/events/join", requireAuth, async (req: Request, res: Response): Pr
 
   const rsvps = (existing.rsvps ?? {}) as Record<string, string>;
   if (userId in rsvps) {
-    res.status(409).json({ error: "You're already going to this event" });
+    // Already-going is a terminal success for the client: it opens the plan
+    // instead of showing an error, so it needs the id AND the plan type
+    // (trips have their own detail route).
+    res.status(409).json({
+      error: "You're already going to this event",
+      id: existing.id,
+      type: existing.type === "trip" ? "trip" : "event",
+    });
     return;
   }
 

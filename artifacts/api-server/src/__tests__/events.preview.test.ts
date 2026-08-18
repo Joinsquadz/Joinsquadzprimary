@@ -93,6 +93,7 @@ describe("GET /api/events/preview", () => {
     expect(res.body).toEqual({
       emoji: "🥳",
       title: "Birthday Bash",
+      type: "event",
       hostName: "Sam Rivera",
       date: "2026-08-01",
       location: "The Park",
@@ -151,6 +152,31 @@ describe("GET /api/events/preview", () => {
     const app = makeApp();
     const res = await request(app).get("/api/events/preview?code=NOPE");
     expect(res.status).toBe(404);
+  });
+
+  it("reports the plan type so a trip invite opens the trip screen", async () => {
+    // Trips share the events table but have their own detail route. Without
+    // the type the invite screen sent every accepted invite to /event/:id,
+    // so a trip showed as an event until the user left and came back.
+    mockEventRows.value = [makeBaseEvent({ type: "trip" })];
+    mockUserRows.value = [{ firstName: "Sam", lastName: "Rivera" }];
+
+    const app = makeApp();
+    const res = await request(app).get("/api/events/preview?code=SQ-ABCD");
+
+    expect(res.status).toBe(200);
+    expect(res.body.type).toBe("trip");
+  });
+
+  it("defaults the plan type to event for legacy rows with no type", async () => {
+    mockEventRows.value = [makeBaseEvent({ type: undefined })];
+    mockUserRows.value = [];
+
+    const app = makeApp();
+    const res = await request(app).get("/api/events/preview?code=SQ-ABCD");
+
+    expect(res.status).toBe(200);
+    expect(res.body.type).toBe("event");
   });
 
   it("returns 410 for a cancelled event", async () => {
