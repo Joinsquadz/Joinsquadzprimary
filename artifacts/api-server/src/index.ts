@@ -12,12 +12,8 @@ import { checkPushReceipts, initPushTickets } from './lib/pushNotifications';
 import { storage } from './storage';
 import {
   REMINDER_SCAN_INTERVAL_MS,
-  runEventReminderScan,
-  runDayOfReminderScan,
-  run3DayReminderScan,
-  runEventRecapScan,
-  runPollNudgeScan,
-  runPushRetryDrain,
+  runEngagementScanPass,
+  runPushRetryDrainPass,
   PUSH_RETRY_DRAIN_INTERVAL_MS,
 } from './lib/eventReminders';
 import { runPoolHealthCheck, POOL_MONITOR_INTERVAL_MS } from './lib/poolMonitor';
@@ -192,22 +188,22 @@ setInterval(() => {
 
 // Automatic engagement scans (logic in ./lib/eventReminders): "starting soon"
 // + "day-of" reminders, post-event photo recap prompt, and the availability
-// poll "almost there" organizer nudge. All are fire-once and idempotent.
+// poll "almost there" organizer nudge. All are fire-once and idempotent. The
+// whole pass runs under a cross-instance scheduler lock, so exactly one API
+// process performs it per tick even when running multiple replicas; the
+// per-event atomic claims inside each scan remain as defence in depth.
 logger.info({ intervalMs: REMINDER_SCAN_INTERVAL_MS }, 'Engagement scans scheduled');
 setInterval(() => {
-  runEventReminderScan().catch((err) => logger.error({ err }, 'Event reminder scan failed'));
-  runDayOfReminderScan().catch((err) => logger.error({ err }, 'Day-of reminder scan failed'));
-  run3DayReminderScan().catch((err) => logger.error({ err }, '3-day reminder scan failed'));
-  runEventRecapScan().catch((err) => logger.error({ err }, 'Event recap scan failed'));
-  runPollNudgeScan().catch((err) => logger.error({ err }, 'Poll nudge scan failed'));
+  runEngagementScanPass().catch((err) => logger.error({ err }, 'Engagement scan pass failed'));
 }, REMINDER_SCAN_INTERVAL_MS).unref();
 
 // Deliveries owed to individual devices after a partial provider failure. The
 // fire-once claim above prevents duplicate alerts; this prevents the opposite
 // failure — a device that was rejected mid-send never hearing about it at all.
+// Also scheduler-locked: one draining process at a time.
 logger.info({ intervalMs: PUSH_RETRY_DRAIN_INTERVAL_MS }, 'Owed push retry drain scheduled');
 setInterval(() => {
-  runPushRetryDrain().catch((err) => logger.error({ err }, 'Push retry drain failed'));
+  runPushRetryDrainPass().catch((err) => logger.error({ err }, 'Push retry drain failed'));
 }, PUSH_RETRY_DRAIN_INTERVAL_MS).unref();
 
 // Nightly Supabase Storage -> Cloudflare R2 media backup. Runs at 03:30

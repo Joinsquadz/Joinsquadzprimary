@@ -118,4 +118,5 @@
 - [Viewer-local event times](viewer-local-times.md) — store instants, convert at render/notify only; manual tz never overwritten by detection; any time-bearing endpoint must expose the absolute instant.
 - [Timezone picker surrogates](timezone-picker-surrogates.md) — native pickers show device-local fields only; seed via instantToZoneWallClockDate, save via deviceWallClockToZoneIso; stamp events with the effective zone, not the device's.
 - [Native Intl time formatting](native-intl-time-format.md) — combined native Intl parts can omit a clock; format date/time separately and reject partial labels.
+- [Scheduler-locked scan passes](scheduler-lock-passes.md) — new periodic notification producers go inside runEngagementScanPass (or runWithSchedulerLock + unique advisory key), never a bare setInterval.
 - [Duplicate pushes & cold taps](push-duplicate-and-cold-tap.md) — subtract already-notified sets at every widening boundary; partial provider acceptance retries ONLY failed tokens (never release the claim); queue cold-start taps until auth restores.

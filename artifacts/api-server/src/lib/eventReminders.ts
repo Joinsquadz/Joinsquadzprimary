@@ -2,6 +2,11 @@ import { logger } from './logger';
 import { sendPushNotifications } from './pushNotifications';
 import { storage } from '../storage';
 import { parseEventStart, relativeDayLabel, formatEventTimeIn } from './eventDate';
+import {
+  runWithSchedulerLock,
+  ENGAGEMENT_SCAN_LOCK_KEY,
+  PUSH_RETRY_DRAIN_LOCK_KEY,
+} from './schedulerLock';
 
 // Automatic "starting soon" event reminders. Event `date` is free-form text
 // (e.g. "Sat, Jun 7 · 5:00 PM"), so we best-effort parse it and notify the
@@ -645,4 +650,48 @@ export async function runPollNudgeScan(): Promise<void> {
       await storage.unclaimPollNudgeSend(poll.id);
     }
   }
+}
+
+/**
+ * One full engagement scan pass, executed under a cross-instance scheduler
+ * lock: exactly one API process performs the pass per tick, no matter how many
+ * replicas share the interval. The per-event atomic claims inside each scan
+ * remain as defence in depth. Scans run sequentially with individual error
+ * isolation, so one failing scan never blocks the others — the same behaviour
+ * the previous fire-and-forget scheduling had.
+ *
+ * Behaviour on a single instance is unchanged: the lock is always free, the
+ * pass always runs.
+ */
+export async function runEngagementScanPass(): Promise<void> {
+  await runWithSchedulerLock(ENGAGEMENT_SCAN_LOCK_KEY, 'engagement-scans', REMINDER_SCAN_INTERVAL_MS, async () => {
+    const scans: Array<[string, () => Promise<void>]> = [
+      ['Event reminder scan failed', runEventReminderScan],
+      ['Day-of reminder scan failed', runDayOfReminderScan],
+      ['3-day reminder scan failed', run3DayReminderScan],
+      ['Event recap scan failed', runEventRecapScan],
+      ['Poll nudge scan failed', runPollNudgeScan],
+    ];
+    for (const [failureMessage, scan] of scans) {
+      try {
+        await scan();
+      } catch (err) {
+        logger.error({ err }, failureMessage);
+      }
+    }
+  });
+}
+
+/**
+ * Owed push-retry drain under the same cross-instance guarantee. Two replicas
+ * draining the same owed rows concurrently could both send to a device before
+ * either deletes the row — the lock makes that impossible.
+ */
+export async function runPushRetryDrainPass(): Promise<void> {
+  await runWithSchedulerLock(
+    PUSH_RETRY_DRAIN_LOCK_KEY,
+    'push-retry-drain',
+    PUSH_RETRY_DRAIN_INTERVAL_MS,
+    runPushRetryDrain,
+  );
 }
