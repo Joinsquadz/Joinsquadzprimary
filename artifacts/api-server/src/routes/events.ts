@@ -76,7 +76,7 @@ async function notifyInvitees(
   pendingAcceptance = false,
 ): Promise<void> {
   try {
-    const recipients = inviteeIds.filter((id) => id !== inviterId);
+    const recipients = [...new Set(inviteeIds)].filter((id) => id !== inviterId);
     if (recipients.length === 0) return;
     const unmuted = event.squadId
       ? await storage.filterUnmutedForSquad(recipients, event.squadId)
@@ -783,8 +783,9 @@ router.post("/events", requireAuth, async (req: Request, res: Response): Promise
     res.status(201).json(event);
 
     // Fire-and-forget: notify the friends invited directly at creation time.
-    if (invitedUserIds.length > 0) {
-      void notifyInvitees(event, hostId, invitedUserIds);
+    const directInviteeIds = new Set(invitedUserIds);
+    if (directInviteeIds.size > 0) {
+      void notifyInvitees(event, hostId, [...directInviteeIds]);
     }
 
     // Fire-and-forget: a squad event invites the rest of the squad.
@@ -792,7 +793,12 @@ router.post("/events", requireAuth, async (req: Request, res: Response): Promise
       void (async () => {
         try {
           const squad = await storage.getSquad(event.squadId);
-          const memberIds = ((squad?.memberIds ?? []) as string[]).filter((m) => m !== hostId);
+          // Direct invitees have already been notified above. A person may be
+          // both explicitly invited and a squad member; never send them the
+          // same plan invite twice.
+          const memberIds = [...new Set((squad?.memberIds ?? []) as string[])].filter(
+            (m) => m !== hostId && !directInviteeIds.has(m),
+          );
           if (memberIds.length === 0) return;
           // Respect both per-squad mute and the Event Invites preference.
           const unmuted = await storage.filterUnmutedForSquad(memberIds, event.squadId);

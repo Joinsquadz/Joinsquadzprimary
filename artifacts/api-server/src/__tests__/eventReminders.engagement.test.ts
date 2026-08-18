@@ -23,6 +23,10 @@ const storageMock = vi.hoisted(() => ({
   getPushRecipientsForUsers: vi.fn(),
   filterUnmutedForSquad: vi.fn(),
   clearPushToken: vi.fn(),
+  enqueuePushRetries: vi.fn(),
+  getDuePushRetries: vi.fn(),
+  deletePushRetries: vi.fn(),
+  reschedulePushRetry: vi.fn(),
 }));
 
 const sendPushNotificationsMock = vi.hoisted(() => vi.fn());
@@ -36,6 +40,7 @@ import {
   run3DayReminderScan,
   runEventRecapScan,
   runPollNudgeScan,
+  groupRecipientsByZone,
   REMINDER_LEAD_MS,
   DAY_OF_LEAD_MS,
   THREE_DAY_LEAD_MS,
@@ -44,6 +49,8 @@ import {
   RECAP_MAX_AGE_MS,
   POLL_NUDGE_MIN_AGE_MS,
   POLL_NUDGE_MAX_AGE_MS,
+  runPushRetryDrain,
+  PUSH_RETRY_MAX_ATTEMPTS,
 } from "../lib/eventReminders";
 
 const GOING = "going-user";
@@ -92,7 +99,29 @@ beforeEach(() => {
   storageMock.tryClaimPollNudgeSend.mockResolvedValue(true);
   storageMock.unclaimPollNudgeSend.mockResolvedValue(undefined);
   storageMock.clearPushToken.mockResolvedValue(undefined);
+  storageMock.enqueuePushRetries.mockResolvedValue(undefined);
+  storageMock.getDuePushRetries.mockResolvedValue([]);
+  storageMock.deletePushRetries.mockResolvedValue(undefined);
+  storageMock.reschedulePushRetry.mockResolvedValue(undefined);
   sendPushNotificationsMock.mockResolvedValue({ staleTokens: [], okCount: 1, hadSendError: false });
+});
+
+describe("groupRecipientsByZone", () => {
+  it("keeps one device token even when duplicate rows disagree on timezone", () => {
+    expect(
+      groupRecipientsByZone(
+        [
+          { pushToken: "ExponentPushToken[same]", timezone: "America/Los_Angeles" },
+          { pushToken: "ExponentPushToken[same]", timezone: "Asia/Tokyo" },
+          { pushToken: "ExponentPushToken[other]", timezone: "Asia/Tokyo" },
+        ],
+        null,
+      ),
+    ).toEqual([
+      { timezone: "America/Los_Angeles", tokens: ["ExponentPushToken[same]"] },
+      { timezone: "Asia/Tokyo", tokens: ["ExponentPushToken[other]"] },
+    ]);
+  });
 });
 
 describe("runDayOfReminderScan", () => {
@@ -181,7 +210,7 @@ describe("runDayOfReminderScan", () => {
     expect(payload.body).toBe("Wed, Jul 15 · 6:00 PM");
   });
 
-  it("does not confirm the send when any timezone group fails, so the claim is released", async () => {
+  it("keeps the claim when one timezone group is accepted and another fails", async () => {
     storageMock.getEventsPendingDayOfReminder.mockResolvedValue([
       evt({ date: dateStr(8 * 60 * 60 * 1000), timezone: "UTC" }),
     ]);
@@ -195,7 +224,8 @@ describe("runDayOfReminderScan", () => {
 
     await runDayOfReminderScan();
 
-    expect(storageMock.unclaimDayOfReminderSend).toHaveBeenCalledWith("evt-1");
+    // Retrying this group would resend the device Expo already accepted.
+    expect(storageMock.unclaimDayOfReminderSend).not.toHaveBeenCalled();
     expect(storageMock.markEventDayOfReminderSent).not.toHaveBeenCalled();
   });
 
@@ -336,6 +366,117 @@ describe("runDayOfReminderScan", () => {
     expect(storageMock.tryClaimDayOfReminderSend).toHaveBeenCalledWith("evt-1");
     expect(storageMock.unclaimDayOfReminderSend).toHaveBeenCalledWith("evt-1");
     expect(storageMock.markEventDayOfReminderSent).not.toHaveBeenCalled();
+  });
+
+  it("keeps the claim after partial provider acceptance so accepted devices are never resent", async () => {
+    storageMock.getEventsPendingDayOfReminder.mockResolvedValue([evt({ date: dateStr(8 * 60 * 60 * 1000) })]);
+    sendPushNotificationsMock.mockResolvedValue({ staleTokens: [], okCount: 1, hadSendError: true });
+
+    await runDayOfReminderScan();
+
+    expect(storageMock.tryClaimDayOfReminderSend).toHaveBeenCalledWith("evt-1");
+    expect(storageMock.unclaimDayOfReminderSend).not.toHaveBeenCalled();
+  });
+
+  it("records the devices Expo rejected as still owed, without re-alerting accepted ones", async () => {
+    storageMock.getEventsPendingDayOfReminder.mockResolvedValue([evt({ date: dateStr(8 * 60 * 60 * 1000) })]);
+    storageMock.getPushRecipientsForUsers.mockResolvedValue([
+      { pushToken: "ExponentPushToken[ok]", timezone: "UTC" },
+      { pushToken: "ExponentPushToken[bad]", timezone: "UTC" },
+    ]);
+    sendPushNotificationsMock.mockResolvedValue({
+      staleTokens: [],
+      okCount: 1,
+      hadSendError: true,
+      failedTokens: ["ExponentPushToken[bad]"],
+    });
+
+    await runDayOfReminderScan();
+
+    // The claim stays (the accepted device must not be alerted twice)...
+    expect(storageMock.unclaimDayOfReminderSend).not.toHaveBeenCalled();
+    // ...and the rejected device is durably owed the delivery, so it is not lost.
+    expect(storageMock.enqueuePushRetries).toHaveBeenCalledTimes(1);
+    const owed = storageMock.enqueuePushRetries.mock.calls[0][0];
+    expect(owed).toHaveLength(1);
+    expect(owed[0].pushToken).toBe("ExponentPushToken[bad]");
+    expect(owed[0].dedupeKey).toBe("day-of-reminder:evt-1");
+  });
+});
+
+describe("runPushRetryDrain", () => {
+  const owedRow = (over: Record<string, unknown> = {}) => ({
+    id: "retry-1",
+    dedupeKey: "day-of-reminder:evt-1",
+    pushToken: "ExponentPushToken[bad]",
+    payload: { title: "t", body: "b", data: { screen: "event", eventId: "evt-1" } },
+    attempts: 0,
+    ...over,
+  });
+
+  it("re-sends only the owed device and clears the debt once it lands", async () => {
+    storageMock.getDuePushRetries.mockResolvedValue([owedRow()]);
+    sendPushNotificationsMock.mockResolvedValue({
+      staleTokens: [], okCount: 1, hadSendError: false, failedTokens: [],
+    });
+
+    await runPushRetryDrain();
+
+    expect(sendPushNotificationsMock).toHaveBeenCalledTimes(1);
+    expect(sendPushNotificationsMock.mock.calls[0][0]).toEqual(["ExponentPushToken[bad]"]);
+    expect(storageMock.deletePushRetries).toHaveBeenCalledWith(["retry-1"]);
+    expect(storageMock.reschedulePushRetry).not.toHaveBeenCalled();
+  });
+
+  it("keeps owing the delivery and backs off when the retry also fails", async () => {
+    storageMock.getDuePushRetries.mockResolvedValue([owedRow({ attempts: 1 })]);
+    sendPushNotificationsMock.mockResolvedValue({
+      staleTokens: [], okCount: 0, hadSendError: true, failedTokens: ["ExponentPushToken[bad]"],
+    });
+
+    await runPushRetryDrain();
+
+    // Still owed — this is the case that previously lost the notification.
+    expect(storageMock.deletePushRetries).not.toHaveBeenCalled();
+    expect(storageMock.reschedulePushRetry).toHaveBeenCalledTimes(1);
+    const [id, nextAttemptAt] = storageMock.reschedulePushRetry.mock.calls[0];
+    expect(id).toBe("retry-1");
+    expect(nextAttemptAt.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it("stops owing a device that is no longer registered", async () => {
+    storageMock.getDuePushRetries.mockResolvedValue([owedRow()]);
+    sendPushNotificationsMock.mockResolvedValue({
+      staleTokens: ["ExponentPushToken[bad]"], okCount: 0, hadSendError: false, failedTokens: [],
+    });
+
+    await runPushRetryDrain();
+
+    expect(storageMock.deletePushRetries).toHaveBeenCalledWith(["retry-1"]);
+    expect(storageMock.reschedulePushRetry).not.toHaveBeenCalled();
+  });
+
+  it("gives up rather than retrying forever once the ceiling is hit", async () => {
+    storageMock.getDuePushRetries.mockResolvedValue([
+      owedRow({ attempts: PUSH_RETRY_MAX_ATTEMPTS - 1 }),
+    ]);
+    sendPushNotificationsMock.mockResolvedValue({
+      staleTokens: [], okCount: 0, hadSendError: true, failedTokens: ["ExponentPushToken[bad]"],
+    });
+
+    await runPushRetryDrain();
+
+    expect(storageMock.deletePushRetries).toHaveBeenCalledWith(["retry-1"]);
+    expect(storageMock.reschedulePushRetry).not.toHaveBeenCalled();
+  });
+
+  it("does nothing when no deliveries are owed", async () => {
+    storageMock.getDuePushRetries.mockResolvedValue([]);
+
+    await runPushRetryDrain();
+
+    expect(sendPushNotificationsMock).not.toHaveBeenCalled();
+    expect(storageMock.deletePushRetries).not.toHaveBeenCalled();
   });
 });
 

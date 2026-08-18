@@ -47,6 +47,41 @@ beforeEach(() => {
 });
 
 describe("sendPushNotifications — stale token cleanup", () => {
+  it("sends one Expo message per unique device token", async () => {
+    mockSendPushNotificationsAsync.mockResolvedValue([
+      { status: "ok", id: "ticket-a" },
+      { status: "ok", id: "ticket-b" },
+    ]);
+
+    await sendPushNotifications([TOKEN_A, TOKEN_A, TOKEN_B, TOKEN_A], PAYLOAD);
+
+    const messages = mockChunkPushNotifications.mock.calls[0][0] as Array<{ to: string }>;
+    expect(messages.map((message) => message.to)).toEqual([TOKEN_A, TOKEN_B]);
+  });
+
+  it("reports non-stale ticket errors as retryable failedTokens", async () => {
+    mockSendPushNotificationsAsync.mockResolvedValue([
+      { status: "ok", id: "ticket-a" },
+      { status: "error", details: { error: "MessageRateExceeded" } },
+      { status: "error", details: { error: "DeviceNotRegistered" } },
+    ]);
+
+    const result = await sendPushNotifications([TOKEN_A, TOKEN_B, TOKEN_C], PAYLOAD);
+
+    // B is retryable; C is gone for good and must not be retried.
+    expect(result.failedTokens).toEqual([TOKEN_B]);
+    expect(result.staleTokens).toEqual([TOKEN_C]);
+  });
+
+  it("treats every device in a chunk that never submitted as still owed the push", async () => {
+    mockSendPushNotificationsAsync.mockRejectedValue(new Error("network down"));
+
+    const result = await sendPushNotifications([TOKEN_A, TOKEN_B], PAYLOAD);
+
+    expect(result.failedTokens).toEqual([TOKEN_A, TOKEN_B]);
+    expect(result.okCount).toBe(0);
+  });
+
   it("returns stale tokens when DeviceNotRegistered error is in the ticket", async () => {
     mockSendPushNotificationsAsync.mockResolvedValue([
       { status: "error", details: { error: "DeviceNotRegistered" } },

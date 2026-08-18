@@ -17,6 +17,8 @@ import {
   run3DayReminderScan,
   runEventRecapScan,
   runPollNudgeScan,
+  runPushRetryDrain,
+  PUSH_RETRY_DRAIN_INTERVAL_MS,
 } from './lib/eventReminders';
 import { runPoolHealthCheck, POOL_MONITOR_INTERVAL_MS } from './lib/poolMonitor';
 import { scheduleMediaBackup, scheduleMediaBackupFreshnessCheck } from './lib/mediaBackup';
@@ -199,6 +201,14 @@ setInterval(() => {
   runEventRecapScan().catch((err) => logger.error({ err }, 'Event recap scan failed'));
   runPollNudgeScan().catch((err) => logger.error({ err }, 'Poll nudge scan failed'));
 }, REMINDER_SCAN_INTERVAL_MS).unref();
+
+// Deliveries owed to individual devices after a partial provider failure. The
+// fire-once claim above prevents duplicate alerts; this prevents the opposite
+// failure — a device that was rejected mid-send never hearing about it at all.
+logger.info({ intervalMs: PUSH_RETRY_DRAIN_INTERVAL_MS }, 'Owed push retry drain scheduled');
+setInterval(() => {
+  runPushRetryDrain().catch((err) => logger.error({ err }, 'Push retry drain failed'));
+}, PUSH_RETRY_DRAIN_INTERVAL_MS).unref();
 
 // Nightly Supabase Storage -> Cloudflare R2 media backup. Runs at 03:30
 // America/New_York (the app's primary timezone) — well after evening plan

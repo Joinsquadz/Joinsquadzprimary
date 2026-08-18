@@ -25,6 +25,14 @@ export const MIN_PLAN_AGE_FOR_3DAY_MS = 4 * 24 * 60 * 60 * 1000; // 96 h
 export const RECAP_DELAY_MS = 3 * 60 * 60 * 1000;
 export const RECAP_MAX_AGE_MS = 48 * 60 * 60 * 1000;
 
+// Owed-delivery retry pacing. A device that the provider rejected is retried
+// with exponential backoff until it succeeds or the ceiling is reached, at
+// which point the delivery is abandoned (and logged) rather than retried
+// forever. Stale/unregistered devices are dropped immediately, not retried.
+export const PUSH_RETRY_BASE_DELAY_MS = 60 * 1000;
+export const PUSH_RETRY_MAX_ATTEMPTS = 5;
+export const PUSH_RETRY_DRAIN_INTERVAL_MS = 2 * 60 * 1000;
+
 // Availability-poll "almost there" organizer nudge thresholds.
 export const POLL_NUDGE_MIN_AGE_MS = 2 * 60 * 60 * 1000;
 export const POLL_NUDGE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -64,7 +72,13 @@ export function groupRecipientsByZone(
   eventTimezone: string | null,
 ): Array<{ timezone: string | null; tokens: string[] }> {
   const groups = new Map<string, { timezone: string | null; tokens: string[] }>();
+  const seenTokens = new Set<string>();
   for (const recipient of recipients) {
+    // A stale/repeated recipient row must not result in two alerts. Keep the
+    // first recipient timezone deterministically; a push token represents one
+    // device and cannot accurately belong to two timezones at once.
+    if (seenTokens.has(recipient.pushToken)) continue;
+    seenTokens.add(recipient.pushToken);
     const zone = recipient.timezone ?? eventTimezone ?? null;
     const key = zone ?? '\u0000none';
     let group = groups.get(key);
@@ -78,28 +92,165 @@ export function groupRecipientsByZone(
 }
 
 /**
+ * Expo may accept an earlier chunk before a later chunk fails. Releasing a
+ * fire-once claim in that situation resends the accepted devices on the next
+ * scan, which is exactly the duplicate-notification bug. Failed devices get a
+ * targeted retry inside {@link sendPerZone} instead, so only a completely
+ * unaccepted send releases the claim for a whole-audience retry.
+ */
+function shouldReleaseReminderClaim(result: { okCount: number }): boolean {
+  return result.okCount === 0;
+}
+
+/**
  * Send the same notification to several timezone groups, composing the body
- * separately for each. Results are folded into one {@link SendPushResult}-shaped
- * summary so fire-once callers keep their existing claim/retry semantics: any
- * group failing marks the whole send unconfirmed and releases the claim.
+ * separately for each.
+ *
+ * Fire-once claims make partial delivery the hard case: re-running the whole
+ * send would re-alert devices Expo already accepted, while dropping it would
+ * silently skip the devices that failed. So the devices Expo did NOT accept are
+ * persisted as owed deliveries under `dedupeKey` and retried by the drain
+ * worker until they succeed or hit the attempt ceiling — the claim can stay
+ * stamped without anyone being forgotten.
  */
 async function sendPerZone(
   groups: Array<{ timezone: string | null; tokens: string[] }>,
   build: (zone: string | null) => { title: string; body: string; data?: Record<string, unknown> },
-): Promise<{ okCount: number; hadSendError: boolean }> {
+  dedupeKey: string,
+): Promise<{ okCount: number; hadSendError: boolean; owedCount: number }> {
   let okCount = 0;
   let hadSendError = false;
+  let owedCount = 0;
   for (const group of groups) {
     if (group.tokens.length === 0) continue;
-    const result = await sendPushNotifications(
-      group.tokens,
-      build(group.timezone),
-      { onStaleToken: (token) => storage.clearPushToken(token) },
-    );
+    const payload = build(group.timezone);
+    const onStaleToken = (token: string) => storage.clearPushToken(token);
+    const result = await sendPushNotifications(group.tokens, payload, { onStaleToken });
     okCount += result.okCount;
     if (result.hadSendError) hadSendError = true;
+
+    const unaccepted = result.failedTokens ?? [];
+    if (unaccepted.length === 0) continue;
+
+    // Durable hand-off: these specific devices are still owed this exact
+    // payload. Dropping them here is what silently loses notifications.
+    owedCount += unaccepted.length;
+    try {
+      await storage.enqueuePushRetries(
+        unaccepted.map((pushToken) => ({
+          dedupeKey,
+          pushToken,
+          payload,
+          nextAttemptAt: new Date(Date.now() + PUSH_RETRY_BASE_DELAY_MS),
+        })),
+      );
+    } catch (err) {
+      logger.error({ err, dedupeKey, owed: unaccepted.length }, 'Failed to persist owed push retries');
+    }
   }
-  return { okCount, hadSendError };
+  return { okCount, hadSendError, owedCount };
+}
+
+/**
+ * Single-payload equivalent of {@link sendPerZone} for notifications with no
+ * per-timezone copy (recap prompts, poll nudges). Same invariant: devices the
+ * provider rejected become durable owed deliveries instead of being dropped.
+ */
+async function sendWithOwedRetry(
+  tokens: string[],
+  payload: { title: string; body: string; data?: Record<string, unknown> },
+  dedupeKey: string,
+): Promise<{ okCount: number; hadSendError: boolean; owedCount: number }> {
+  const result = await sendPushNotifications(tokens, payload, {
+    onStaleToken: (token) => storage.clearPushToken(token),
+  });
+  const unaccepted = result.failedTokens ?? [];
+  if (unaccepted.length > 0) {
+    try {
+      await storage.enqueuePushRetries(
+        unaccepted.map((pushToken) => ({
+          dedupeKey,
+          pushToken,
+          payload,
+          nextAttemptAt: new Date(Date.now() + PUSH_RETRY_BASE_DELAY_MS),
+        })),
+      );
+    } catch (err) {
+      logger.error({ err, dedupeKey, owed: unaccepted.length }, 'Failed to persist owed push retries');
+    }
+  }
+  return { okCount: result.okCount, hadSendError: result.hadSendError, owedCount: unaccepted.length };
+}
+
+/**
+ * Retry deliveries still owed to specific devices after a partial send.
+ *
+ * This is the other half of the fire-once claim: the claim stops duplicate
+ * alerts, and this stops silent delivery loss. Each row targets ONE device with
+ * the payload it never received, so draining can never re-alert a device that
+ * already got the notification. Rows are removed on success, when the device is
+ * unregistered, or once the attempt ceiling is reached.
+ */
+export async function runPushRetryDrain(): Promise<void> {
+  let due: Awaited<ReturnType<typeof storage.getDuePushRetries>>;
+  try {
+    due = await storage.getDuePushRetries();
+  } catch (err) {
+    logger.error({ err }, 'Failed to load owed push retries');
+    return;
+  }
+  if (due.length === 0) return;
+
+  const settled: string[] = [];
+  for (const row of due) {
+    try {
+      const result = await sendPushNotifications([row.pushToken], row.payload, {
+        onStaleToken: (token) => storage.clearPushToken(token),
+      });
+
+      if (result.okCount > 0) {
+        settled.push(row.id);
+        continue;
+      }
+      // Device is unregistered — it will never accept this, so stop owing it.
+      if (result.staleTokens.length > 0) {
+        settled.push(row.id);
+        continue;
+      }
+
+      const attempts = row.attempts + 1;
+      if (attempts >= PUSH_RETRY_MAX_ATTEMPTS) {
+        logger.error(
+          { dedupeKey: row.dedupeKey, attempts },
+          'Giving up on owed push delivery after max attempts',
+        );
+        settled.push(row.id);
+        continue;
+      }
+      // Exponential backoff so a struggling provider isn't hammered.
+      const delay = PUSH_RETRY_BASE_DELAY_MS * 2 ** attempts;
+      await storage.reschedulePushRetry(row.id, new Date(Date.now() + delay), 'push not accepted');
+    } catch (err) {
+      logger.error({ err, dedupeKey: row.dedupeKey }, 'Owed push retry attempt failed');
+      const attempts = row.attempts + 1;
+      if (attempts >= PUSH_RETRY_MAX_ATTEMPTS) {
+        settled.push(row.id);
+      } else {
+        const delay = PUSH_RETRY_BASE_DELAY_MS * 2 ** attempts;
+        await storage
+          .reschedulePushRetry(row.id, new Date(Date.now() + delay), String(err))
+          .catch(() => {});
+      }
+    }
+  }
+
+  if (settled.length > 0) {
+    try {
+      await storage.deletePushRetries(settled);
+    } catch (err) {
+      logger.error({ err, count: settled.length }, 'Failed to clear settled push retries');
+    }
+  }
 }
 
 /**
@@ -169,9 +320,16 @@ export async function runEventReminderScan(): Promise<void> {
           }),
           data: { screen: event.type === 'trip' ? 'trip' : 'event', eventId: event.id },
         }),
+        `event-reminder:${event.id}`,
       );
-      if (result.okCount > 0 && !result.hadSendError) {
+      if (!shouldReleaseReminderClaim(result)) {
         // Already marked by the atomic claim — nothing more to do.
+        if (result.hadSendError) {
+          logger.warn(
+            { eventId: event.id, okCount: result.okCount },
+            'Event reminder partially accepted; preserving claim to avoid duplicate alerts',
+          );
+        }
       } else {
         logger.warn(
           { eventId: event.id, okCount: result.okCount, hadSendError: result.hadSendError },
@@ -234,9 +392,16 @@ export async function runDayOfReminderScan(): Promise<void> {
           body: reminderBodyFor({ now, start, zone, eventDateText: event.date }),
           data: { screen: event.type === 'trip' ? 'trip' : 'event', eventId: event.id },
         }),
+        `day-of-reminder:${event.id}`,
       );
-      if (result.okCount > 0 && !result.hadSendError) {
+      if (!shouldReleaseReminderClaim(result)) {
         // Already marked by the atomic claim.
+        if (result.hadSendError) {
+          logger.warn(
+            { eventId: event.id, okCount: result.okCount },
+            'Day-of reminder partially accepted; preserving claim to avoid duplicate alerts',
+          );
+        }
       } else {
         logger.warn(
           { eventId: event.id, okCount: result.okCount, hadSendError: result.hadSendError },
@@ -304,9 +469,16 @@ export async function run3DayReminderScan(): Promise<void> {
           body: reminderBodyFor({ now, start, zone, eventDateText: event.date }),
           data: { screen: event.type === 'trip' ? 'trip' : 'event', eventId: event.id },
         }),
+        `three-day-reminder:${event.id}`,
       );
-      if (result.okCount > 0 && !result.hadSendError) {
+      if (!shouldReleaseReminderClaim(result)) {
         // Already marked by the atomic claim.
+        if (result.hadSendError) {
+          logger.warn(
+            { eventId: event.id, okCount: result.okCount },
+            '3-day reminder partially accepted; preserving claim to avoid duplicate alerts',
+          );
+        }
       } else {
         logger.warn(
           { eventId: event.id, okCount: result.okCount, hadSendError: result.hadSendError },
@@ -362,7 +534,7 @@ export async function runEventRecapScan(): Promise<void> {
     if (!claimed) continue;
 
     try {
-      const result = await sendPushNotifications(
+      const result = await sendWithOwedRetry(
         tokens,
         {
           title: `📸 How was ${event.title}?`,
@@ -374,10 +546,16 @@ export async function runEventRecapScan(): Promise<void> {
             ? { screen: 'trip', eventId: event.id, tab: 'vault' }
             : { screen: 'event', eventId: event.id, tab: 'photos' },
         },
-        { onStaleToken: (token) => storage.clearPushToken(token) },
+        `event-recap:${event.id}`,
       );
-      if (result.okCount > 0 && !result.hadSendError) {
+      if (!shouldReleaseReminderClaim(result)) {
         // Already marked by the atomic claim.
+        if (result.hadSendError) {
+          logger.warn(
+            { eventId: event.id, okCount: result.okCount },
+            'Event recap partially accepted; preserving claim to avoid duplicate alerts',
+          );
+        }
       } else {
         logger.warn(
           { eventId: event.id, okCount: result.okCount, hadSendError: result.hadSendError },
@@ -438,17 +616,23 @@ export async function runPollNudgeScan(): Promise<void> {
     if (!claimed) continue;
 
     try {
-      const result = await sendPushNotifications(
+      const result = await sendWithOwedRetry(
         tokens,
         {
           title: `🗓️ ${poll.title}`,
           body,
           data: { screen: 'availability', pollId: poll.id },
         },
-        { onStaleToken: (token) => storage.clearPushToken(token) },
+        `poll-nudge:${poll.id}`,
       );
-      if (result.okCount > 0 && !result.hadSendError) {
+      if (!shouldReleaseReminderClaim(result)) {
         // Already marked by the atomic claim.
+        if (result.hadSendError) {
+          logger.warn(
+            { pollId: poll.id, okCount: result.okCount },
+            'Poll nudge partially accepted; preserving claim to avoid duplicate alerts',
+          );
+        }
       } else {
         logger.warn(
           { pollId: poll.id, okCount: result.okCount, hadSendError: result.hadSendError },

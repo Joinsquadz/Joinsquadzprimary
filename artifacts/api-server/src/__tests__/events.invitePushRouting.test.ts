@@ -206,4 +206,41 @@ describe("POST /api/events — create-time invite push destination", () => {
     expect(data.screen).toBe("trip");
     expect(data.eventId).toBe("trip-9");
   });
+
+  it("notifies a squad member who is also directly invited only once", async () => {
+    storageMock.getSquad.mockResolvedValue({ id: "squad-1", memberIds: [HOST_ID, FRIEND_ID] });
+    mockUpdateRows.value = [
+      {
+        id: "trip-overlap",
+        title: "Vegas",
+        emoji: "🎰",
+        squadId: "squad-1",
+        hostId: HOST_ID,
+        type: "trip",
+        invitedUserIds: [FRIEND_ID],
+      },
+    ];
+
+    const app = await makeApp({ id: HOST_ID });
+    const res = await request(app)
+      .post("/api/events")
+      .send({
+        title: "Vegas",
+        emoji: "🎰",
+        date: "TBD",
+        squadId: "squad-1",
+        type: "trip",
+        startAt: "2026-07-01T09:00:00.000Z",
+        endAt: "2026-07-04T18:00:00.000Z",
+        invitedUserIds: [FRIEND_ID, FRIEND_ID],
+      });
+
+    expect(res.status).toBe(201);
+    await vi.waitFor(() => expect(sendPushNotificationsMock).toHaveBeenCalledOnce());
+    expect(sendPushNotificationsMock).toHaveBeenCalledWith(
+      ["ExponentPushToken[a]"],
+      expect.objectContaining({ data: { screen: "trip", eventId: "trip-overlap" } }),
+      expect.anything(),
+    );
+  });
 });

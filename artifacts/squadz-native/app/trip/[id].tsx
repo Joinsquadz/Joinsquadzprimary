@@ -235,6 +235,7 @@ export default function TripDetailScreen() {
     cancelEvent,
     addEventCoAdmin,
     removeEventCoAdmin,
+    apiFetch,
   } = useData();
   const { resolveUser, prefetchUsers } = useUserCache();
   const { formatTripDateRange } = useTimezone();
@@ -255,9 +256,10 @@ export default function TripDetailScreen() {
   const fetchDetail = useCallback(async (track = false) => {
     if (!id) return;
     try {
-      const res = await fetchWithTimeout(`${API_BASE}/api/events/${id}`, {
-        headers: buildAuthHeaders(authToken),
-      });
+      // Shared API fetch serializes token refresh and invalidates a confirmed
+      // expired session. Raw fetch here used to exhaust local retries after a
+      // push cold start, leaving a valid trip on the generic load-error screen.
+      const res = await apiFetch(`/api/events/${id}`);
       if (res.ok) {
         const data = (await res.json()) as Record<string, unknown>;
         setFallbackEvent(dbEventToEvent(data));
@@ -280,7 +282,7 @@ export default function TripDetailScreen() {
       // Network unavailable — keep whatever we have.
       if (track) setAuthRace((prev) => applyVaultFetchOutcome(prev, { kind: "failure" }));
     }
-  }, [id, authToken]);
+  }, [id, apiFetch]);
 
   // Ideas live in their own table (not the events JSON), so they refresh
   // independently of event.version — piggybacked on every trip refresh below.

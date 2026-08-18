@@ -169,6 +169,7 @@ export default function EventDetailScreen() {
     eventsAuthPending,
     eventsAuthError,
     retryEvents,
+    apiFetch,
   } = useData();
   const { formatEventTime, formatInstant, timezone } = useTimezone();
   // Times entered on this screen (edit modal end-time picker) are wall clocks
@@ -193,9 +194,7 @@ export default function EventDetailScreen() {
   const fetchFallbackEvent = useCallback(async (track = false) => {
     if (!id) return;
     try {
-      const res = await fetch(`${API_BASE}/api/events/${id}`, {
-        headers: buildAuthHeaders(authToken),
-      });
+      const res = await apiFetch(`/api/events/${id}`);
       if (res.ok) {
         const data = (await res.json()) as Record<string, unknown>;
         setFallbackEvent(dbEventToEvent(data));
@@ -217,7 +216,7 @@ export default function EventDetailScreen() {
     } catch {
       if (track) setFallbackAuthRace((prev) => applyVaultFetchOutcome(prev, { kind: "failure" }));
     }
-  }, [id, authToken]);
+  }, [id, apiFetch]);
 
   // Keep the currently open plan authoritative. The upcoming-events list is a
   // useful cache for cards, but RSVP changes on an already open detail need to

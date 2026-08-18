@@ -23,9 +23,18 @@ export function createNotificationResponseHandler(
       if (handledIds.has(id)) return;
       handledIds.add(id);
     }
-    const data = response.notification.request.content.data as
-      | Record<string, string>
-      | undefined;
-    route(data);
+    const rawData = response?.notification?.request?.content?.data;
+    // Expo notification payloads are external input. Only forward a plain
+    // string-valued record to routing so malformed payloads cannot make a
+    // cold-start notification tap crash or create an invalid route.
+    if (!rawData || typeof rawData !== "object" || Array.isArray(rawData)) {
+      route(undefined);
+      return;
+    }
+    const data: Record<string, string> = {};
+    for (const [key, value] of Object.entries(rawData as Record<string, unknown>)) {
+      if (typeof value === "string") data[key] = value;
+    }
+    route(Object.keys(data).length > 0 ? data : undefined);
   };
 }

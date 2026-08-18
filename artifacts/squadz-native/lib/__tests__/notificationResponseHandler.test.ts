@@ -8,7 +8,7 @@ import { createNotificationResponseHandler } from "@/lib/notificationResponseHan
 /** Build a minimal notification-response object. */
 function makeResponse(
   identifier: string | undefined,
-  data?: Record<string, string>,
+  data?: unknown,
 ): { notification: { request: { identifier?: string; content: { data?: unknown } } } } {
   return {
     notification: {
@@ -119,5 +119,15 @@ describe("createNotificationResponseHandler – dedup logic", () => {
     const data = { screen: "squad", squadId: "sq9" };
     handler(makeResponse("notif-y", data));
     expect(route).toHaveBeenCalledWith(data);
+  });
+
+  it("strips non-string payload values before forwarding a valid route", () => {
+    handler(makeResponse("notif-safe", { screen: "trip", eventId: "tr1", nested: { no: "route" } }));
+    expect(route).toHaveBeenCalledWith({ screen: "trip", eventId: "tr1" });
+  });
+
+  it("forwards undefined for malformed payloads instead of treating them as routes", () => {
+    handler(makeResponse("notif-malformed", ["not", "a", "payload"]));
+    expect(route).toHaveBeenCalledWith(undefined);
   });
 });

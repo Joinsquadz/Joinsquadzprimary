@@ -20,6 +20,13 @@ export type SendPushResult = {
    * reminder scan) should treat this as "do not mark sent; retry later".
    */
   hadSendError: boolean;
+  /**
+   * Tokens Expo did NOT accept for a retryable reason (chunk submit failure or
+   * a non-stale ticket error). Stale (DeviceNotRegistered) tokens are excluded
+   * — those devices are gone. A caller holding a fire-once claim can retry
+   * exactly these tokens without re-alerting devices that already got the push.
+   */
+  failedTokens: string[];
 };
 
 export type SendPushOptions = {
@@ -73,10 +80,14 @@ export async function sendPushNotifications(
   options?: SendPushOptions,
 ): Promise<SendPushResult> {
   const staleTokens: string[] = [];
+  const failedTokens: string[] = [];
   let okCount = 0;
   let hadSendError = false;
-  const validTokens = tokens.filter((t) => Expo.isExpoPushToken(t));
-  if (validTokens.length === 0) return { staleTokens, okCount, hadSendError };
+  // One physical device can appear through overlapping recipient groups (for
+  // example a direct invite plus a squad fan-out). Expo treats each message as
+  // an independent alert, so enforce the one-device boundary here too.
+  const validTokens = [...new Set(tokens)].filter((t) => Expo.isExpoPushToken(t));
+  if (validTokens.length === 0) return { staleTokens, okCount, hadSendError, failedTokens };
 
   const messages: ExpoPushMessage[] = validTokens.map((to) => ({
     to,
@@ -113,6 +124,7 @@ export async function sendPushNotifications(
               }
             } else {
               hadSendError = true;
+              failedTokens.push(token);
               logger.warn({ details: ticket.details }, "Push ticket error");
             }
           } else if (ticket.status === "ok") {
@@ -124,12 +136,17 @@ export async function sendPushNotifications(
         messageIndex += chunk.length;
       } catch (err) {
         hadSendError = true;
+        // The whole chunk was never submitted — every one of its devices is
+        // still owed this notification.
+        failedTokens.push(...validTokens.slice(messageIndex, messageIndex + chunk.length));
         logger.error({ err }, "Failed to send push notification chunk");
         messageIndex += chunk.length;
       }
     }
   } catch (err) {
     hadSendError = true;
+    // Chunking itself failed, so nothing was sent at all.
+    failedTokens.push(...validTokens);
     logger.error({ err }, "Failed to chunk push notifications");
   }
 
@@ -142,7 +159,7 @@ export async function sendPushNotifications(
     });
   }
 
-  return { staleTokens, okCount, hadSendError };
+  return { staleTokens, okCount, hadSendError, failedTokens: [...new Set(failedTokens)] };
 }
 
 /**

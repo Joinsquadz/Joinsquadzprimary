@@ -112,6 +112,19 @@ async function createMissingTables(): Promise<void> {
   `);
 
   await exec(`
+    CREATE TABLE IF NOT EXISTS "push_retries" (
+      "id" text PRIMARY KEY NOT NULL,
+      "dedupe_key" text NOT NULL,
+      "push_token" text NOT NULL,
+      "payload" jsonb NOT NULL,
+      "attempts" integer DEFAULT 0 NOT NULL,
+      "last_error" text,
+      "next_attempt_at" timestamp with time zone DEFAULT now() NOT NULL,
+      "created_at" timestamp with time zone DEFAULT now() NOT NULL
+    )
+  `);
+
+  await exec(`
     CREATE TABLE IF NOT EXISTS "squad_mutes" (
       "user_id" text NOT NULL,
       "squad_id" text NOT NULL,
@@ -558,6 +571,11 @@ async function createIndexes(): Promise<void> {
     `CREATE INDEX IF NOT EXISTS "IDX_auth_tokens_token_hash" ON "auth_tokens"("token_hash")`,
     `CREATE INDEX IF NOT EXISTS "IDX_auth_tokens_user_id" ON "auth_tokens"("user_id")`,
     `CREATE INDEX IF NOT EXISTS "idx_push_tickets_created_at" ON "push_tickets"("created_at")`,
+    `CREATE INDEX IF NOT EXISTS "idx_push_retries_next_attempt_at" ON "push_retries"("next_attempt_at")`,
+    // One outstanding delivery per (notification, device): re-enqueueing the
+    // same failure must never stack duplicate alerts for one device. The
+    // enqueue's ON CONFLICT targets this.
+    `CREATE UNIQUE INDEX IF NOT EXISTS "push_retries_key_token_uq" ON "push_retries"("dedupe_key","push_token")`,
     `CREATE INDEX IF NOT EXISTS "squad_member_history_user_idx" ON "squad_member_history"("user_id")`,
     `CREATE INDEX IF NOT EXISTS "event_creations_user_created_idx" ON "event_creations"("user_id","created_at")`,
     // Makes a plan slot idempotent per (user, plan): re-accepting an invite or

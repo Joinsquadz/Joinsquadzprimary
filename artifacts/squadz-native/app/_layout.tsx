@@ -14,7 +14,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { router, Stack, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Platform, View } from "react-native";
+import { Linking, Platform, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -40,6 +40,7 @@ import { logOutRevenueCat, addEntitlementListener } from "@/lib/revenuecat";
 import { reconcileRcEntitlement } from "@/lib/rcReconcile";
 import { routeFromNotificationData } from "@/lib/routeFromNotificationData";
 import { createNotificationResponseHandler } from "@/lib/notificationResponseHandler";
+import { decidePushPermissionAction } from "@/lib/pushPermissionAction";
 import { useUserCache } from "@/context/UserCacheContext";
 import { initMonitoring } from "@/lib/monitoring";
 import { initAnalytics } from "@/lib/analytics";
@@ -54,6 +55,10 @@ SplashScreen.preventAutoHideAsync();
 const queryClient = new QueryClient();
 
 const AUTH_SCREENS = ["login", "signup", "onboarding", "invite", "add"];
+
+// Taps queued while auth restores. Bounded so a burst of notifications can
+// never grow without limit; the newest taps are the ones worth honouring.
+const MAX_QUEUED_NOTIFICATION_ROUTES = 5;
 
 function AuthGuard() {
   const { isLoggedIn, isAuthRestoring, pendingOnboarding } = useAuth();
@@ -125,6 +130,7 @@ function PushNotificationHandler() {
   const { isLoggedIn, authToken } = useAuth();
   const checkedRef = useRef(false);
   const handledNotificationIds = useRef<Set<string>>(new Set());
+  const [pendingNotificationRoutes, setPendingNotificationRoutes] = useState<Record<string, string>[]>([]);
   const [showBanner, setShowBanner] = useState(false);
   const [registering, setRegistering] = useState(false);
 
@@ -156,11 +162,17 @@ function PushNotificationHandler() {
           }),
         });
 
-        // Step 1: ensure/request permission
-        let granted = false;
+        // Step 1: ensure/request permission. Never open Settings from this
+        // automatic path — yanking a user into system Settings on launch is
+        // hostile. A permanent denial just surfaces the banner, and the user's
+        // own "Fix" tap is what opens Settings.
         const existing = await Notifications.getPermissionsAsync();
-        granted = existing.granted || existing.status === "granted";
-        if (!granted) {
+        let granted = existing.granted || existing.status === "granted";
+        const action = decidePushPermissionAction(
+          { granted, canAskAgain: existing.canAskAgain },
+          false,
+        );
+        if (action === "request") {
           const req = await Notifications.requestPermissionsAsync();
           granted = req.granted || req.status === "granted";
         }
@@ -216,16 +228,37 @@ function PushNotificationHandler() {
   // Notification responses can be delivered to both the live listener and the
   // cold-start getLastNotificationResponseAsync() path; dedupe by identifier so
   // a single tap never routes twice.
+  const queueNotificationRoute = useCallback((data: Record<string, string> | undefined) => {
+    // Wait for the authenticated navigator. On a cold push launch, routing
+    // before session restoration makes a valid plan fetch with missing/stale
+    // credentials and strands the user on a generic load error. Queue in tap
+    // order — two notifications arriving together (the reported Vegas case)
+    // must not overwrite each other, and the last tap ends up on top.
+    if (data?.screen) {
+      setPendingNotificationRoutes((prev) => [...prev, data].slice(-MAX_QUEUED_NOTIFICATION_ROUTES));
+    }
+  }, []);
+
   const handleNotificationResponse = useCallback(
     createNotificationResponseHandler(
       handledNotificationIds.current,
-      routeFromNotificationData,
+      queueNotificationRoute,
     ),
     // createNotificationResponseHandler and routeFromNotificationData are both
     // stable references — the handler is created once and reused across renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
+
+  // A notification can launch the process before auth hydration completes.
+  // Retain validated payloads, then route them in arrival order once detail
+  // screens can use the shared authenticated request path.
+  useEffect(() => {
+    if (pendingNotificationRoutes.length === 0 || !isLoggedIn || !authToken) return;
+    // Clear first so a re-render mid-routing cannot replay the same taps.
+    setPendingNotificationRoutes([]);
+    for (const data of pendingNotificationRoutes) routeFromNotificationData(data);
+  }, [pendingNotificationRoutes, isLoggedIn, authToken]);
 
   // Deep-link listener for notification taps. Handles taps while the app is
   // running (foreground/background) AND the launch notification when the app is
@@ -263,16 +296,28 @@ function PushNotificationHandler() {
       try {
         const Notifications = await import("expo-notifications");
 
-        // Re-request permission if needed
-        let granted = false;
+        // Re-request permission if needed. This path IS user-initiated, so a
+        // permanent denial is allowed to open Settings.
         const existing = await Notifications.getPermissionsAsync();
-        granted = existing.granted || existing.status === "granted";
-        if (!granted) {
+        let granted = existing.granted || existing.status === "granted";
+        const action = decidePushPermissionAction(
+          { granted, canAskAgain: existing.canAskAgain },
+          true,
+        );
+        if (action === "open-settings") {
+          // The OS will never show the prompt again, so re-requesting is a
+          // silent no-op — which is exactly why "Fix" appeared to do nothing.
+          // Keep the banner up: permission isn't granted until they return.
+          await Linking.openSettings();
+          return;
+        }
+        if (action === "request") {
           const req = await Notifications.requestPermissionsAsync();
           granted = req.granted || req.status === "granted";
         }
         if (!granted) {
-          // User denied — dismiss banner (nothing more we can do)
+          // Declined at the prompt — dismiss the banner; they can re-enable
+          // later from Settings and the next login re-checks.
           setShowBanner(false);
           return;
         }

@@ -15,6 +15,7 @@ import {
   conversationParticipantsTable,
   conversationMessagesTable,
   pushTicketsTable,
+  pushRetriesTable,
   feedPostsTable,
   momentsTable,
   friendshipsTable,
@@ -33,6 +34,7 @@ import {
   type MessageAttachment,
 } from '@workspace/db/schema';
 import { eq, sql, count, and, or, gte, lt, lte, desc, asc, inArray, ne, isNull, isNotNull } from 'drizzle-orm';
+import { randomUUID } from 'crypto';
 import { db } from '@workspace/db';
 import {
   canUserAccessEventRecord,
@@ -3016,6 +3018,95 @@ export class Storage {
         .values(tickets.slice(i, i + CHUNK))
         .onConflictDoNothing();
     }
+  }
+
+  /**
+   * Record deliveries still owed to specific devices after a partial send.
+   *
+   * Keyed by (dedupeKey, pushToken): re-enqueueing the same failure updates the
+   * existing row instead of stacking a second alert for that device.
+   */
+  async enqueuePushRetries(
+    entries: Array<{
+      dedupeKey: string;
+      pushToken: string;
+      payload: { title: string; body: string; data?: Record<string, unknown> };
+      nextAttemptAt: Date;
+      lastError?: string | null;
+    }>,
+  ): Promise<void> {
+    if (entries.length === 0) return;
+    const CHUNK = 50;
+    for (let i = 0; i < entries.length; i += CHUNK) {
+      await db
+        .insert(pushRetriesTable)
+        .values(
+          entries.slice(i, i + CHUNK).map((e) => ({
+            id: randomUUID(),
+            dedupeKey: e.dedupeKey,
+            pushToken: e.pushToken,
+            payload: e.payload,
+            attempts: 0,
+            lastError: e.lastError ?? null,
+            nextAttemptAt: e.nextAttemptAt,
+          })),
+        )
+        .onConflictDoUpdate({
+          target: [pushRetriesTable.dedupeKey, pushRetriesTable.pushToken],
+          set: {
+            nextAttemptAt: sql`excluded.next_attempt_at`,
+            lastError: sql`excluded.last_error`,
+          },
+        });
+    }
+  }
+
+  /** Owed deliveries whose backoff has elapsed, oldest first. */
+  async getDuePushRetries(limit = 200): Promise<
+    Array<{
+      id: string;
+      dedupeKey: string;
+      pushToken: string;
+      payload: { title: string; body: string; data?: Record<string, unknown> };
+      attempts: number;
+    }>
+  > {
+    const rows = await db
+      .select()
+      .from(pushRetriesTable)
+      .where(lte(pushRetriesTable.nextAttemptAt, new Date()))
+      .orderBy(asc(pushRetriesTable.nextAttemptAt))
+      .limit(limit);
+    return rows.map((r) => ({
+      id: r.id,
+      dedupeKey: r.dedupeKey,
+      pushToken: r.pushToken,
+      payload: r.payload,
+      attempts: r.attempts,
+    }));
+  }
+
+  /** Delivered, or permanently given up — either way the device is no longer owed. */
+  async deletePushRetries(ids: string[]): Promise<void> {
+    if (ids.length === 0) return;
+    await db.delete(pushRetriesTable).where(inArray(pushRetriesTable.id, ids));
+  }
+
+  /** Still failing: bump the attempt counter and push the next try out. */
+  async reschedulePushRetry(
+    id: string,
+    nextAttemptAt: Date,
+    lastError: string | null,
+  ): Promise<void> {
+    await db
+      .update(pushRetriesTable)
+      .set({ attempts: sql`${pushRetriesTable.attempts} + 1`, nextAttemptAt, lastError })
+      .where(eq(pushRetriesTable.id, id));
+  }
+
+  /** Drop everything owed to a device that no longer exists. */
+  async deletePushRetriesForToken(pushToken: string): Promise<void> {
+    await db.delete(pushRetriesTable).where(eq(pushRetriesTable.pushToken, pushToken));
   }
 }
 
