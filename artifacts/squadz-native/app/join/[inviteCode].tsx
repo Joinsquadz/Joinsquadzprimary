@@ -21,8 +21,6 @@ import { useTimezone } from "@/context/TimezoneContext";
 type EventPreview = {
   emoji: string;
   title: string;
-  /** "trip" plans open their own detail screen; absent on legacy responses. */
-  type?: InvitedPlanType;
   hostName: string | null;
   /** Creator's stored text — fallback only; prefer the absolute fields below. */
   date: string;
@@ -31,6 +29,8 @@ type EventPreview = {
   allDay?: boolean;
   location: string;
   goingCount: number;
+  /** "trip" plans open their own detail screen; absent on legacy responses. */
+  type?: InvitedPlanType;
 };
 
 /**

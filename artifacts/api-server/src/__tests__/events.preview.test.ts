@@ -98,6 +98,7 @@ describe("GET /api/events/preview", () => {
       date: "2026-08-01",
       location: "The Park",
       goingCount: 2,
+      type: "event",
     });
     // Never leak chat, costs, member ids, or raw rsvps.
     expect(res.body.rsvps).toBeUndefined();
@@ -184,5 +185,27 @@ describe("GET /api/events/preview", () => {
     const app = makeApp();
     const res = await request(app).get("/api/events/preview?code=SQ-ABCD");
     expect(res.status).toBe(410);
+  });
+
+  it("includes type=trip for a trip so the join screen routes to /trip/[id]", async () => {
+    mockEventRows.value = [makeBaseEvent({ type: "trip" })];
+    mockUserRows.value = [{ firstName: "Sam", lastName: "Rivera" }];
+
+    const app = makeApp();
+    const res = await request(app).get("/api/events/preview?code=SQ-ABCD");
+
+    expect(res.status).toBe(200);
+    expect(res.body.type).toBe("trip");
+  });
+
+  it("includes type=event for a normal event so the join screen routes to /event/[id]", async () => {
+    mockEventRows.value = [makeBaseEvent({ type: "event" })];
+    mockUserRows.value = [{ firstName: "Sam", lastName: "Rivera" }];
+
+    const app = makeApp();
+    const res = await request(app).get("/api/events/preview?code=SQ-ABCD");
+
+    expect(res.status).toBe(200);
+    expect(res.body.type).toBe("event");
   });
 });

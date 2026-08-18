@@ -490,6 +490,9 @@ router.get("/events/preview", async (req: Request, res: Response): Promise<void>
       allDay: event.allDay,
       location: event.location,
       goingCount,
+      // Expose plan type so the join screen can route directly to /trip/[id]
+      // instead of /event/[id] without a round-trip after the user accepts.
+      type: event.type ?? "event",
     });
   } catch (err) {
     logger.error({ err }, "Error fetching event preview");
