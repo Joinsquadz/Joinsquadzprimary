@@ -6,6 +6,7 @@ import { resolveDbConfig } from "./connection";
 const { Pool } = pg;
 
 const poolWithRawQuery = new Pool(resolveDbConfig());
+console.log("[db-pool] resolved target", JSON.stringify({ host: poolWithRawQuery.options.host, port: poolWithRawQuery.options.port, database: poolWithRawQuery.options.database }));
 
 /**
  * pg-pool replaces a driver error with this wrapper if the connection timeout
