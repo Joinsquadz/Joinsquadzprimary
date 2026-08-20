@@ -861,6 +861,17 @@ router.post("/auth/login", async (req: Request, res: Response) => {
       password: parsed.data.password,
     });
     if (error || !data.session) {
+      // The mobile client deliberately keeps credential errors generic. Record
+      // only the provider's safe category/status so production incidents can be
+      // diagnosed without logging an email address, password, token, or body.
+      logger.warn(
+        {
+          authProviderStatus: error?.status ?? null,
+          authProviderCode: error?.code ?? null,
+          reason: error ? "provider_rejected" : "session_missing",
+        },
+        "Email/password sign-in did not return a session",
+      );
       res.status(401).json({ error: "Incorrect email or password." });
       return;
     }
