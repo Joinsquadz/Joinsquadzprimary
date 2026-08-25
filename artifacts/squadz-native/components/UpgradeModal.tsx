@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
+  Linking,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
@@ -66,6 +67,8 @@ function formatSlotDate(iso: string): string {
 // store product price surfaced by RevenueCat.
 const STANDARD_PRICE = "$29.99";
 const FOUNDING_PRICE = "$19.99";
+const PRIVACY_POLICY_URL = "https://joinsquadz.com/privacy";
+const TERMS_OF_USE_URL = "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/";
 // Orange gradient used by all primary upgrade CTAs.
 const CTA_GRADIENT = ["#FF6B2C", "#FF8050"] as const;
 // Gold gradient for the founding badge + celebration ring.
@@ -373,6 +376,17 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess, head
     setError(result.ok ? "No active SquadZ+ purchase found to restore." : result.error);
   }, [phase, onEntitled, setEntitlement, syncServerEntitlement]);
 
+  const handleOpenLegalLink = useCallback(async (url: string) => {
+    try {
+      await Linking.openURL(url);
+    } catch (err) {
+      Sentry.captureException(err, {
+        tags: { surface: "squadz-plus-legal-link" },
+        extra: { url },
+      });
+    }
+  }, []);
+
   const busy = phase === "checkout" || phase === "confirming";
   // While a purchase is in flight, block dismissal.
   const handleDismiss = useCallback(() => {
@@ -565,6 +579,26 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess, head
             Cancel anytime. Billed annually.
           </Text>
 
+          <View style={styles.legalLinks}>
+            <TouchableOpacity
+              onPress={() => void handleOpenLegalLink(PRIVACY_POLICY_URL)}
+              accessibilityRole="link"
+              accessibilityLabel="Privacy Policy"
+              disabled={busy}
+            >
+              <Text style={[styles.legalLink, { color: colors.primary }]}>Privacy Policy</Text>
+            </TouchableOpacity>
+            <Text style={[styles.legalSeparator, { color: colors.mutedForeground }]}>·</Text>
+            <TouchableOpacity
+              onPress={() => void handleOpenLegalLink(TERMS_OF_USE_URL)}
+              accessibilityRole="link"
+              accessibilityLabel="Terms of Use"
+              disabled={busy}
+            >
+              <Text style={[styles.legalLink, { color: colors.primary }]}>Terms of Use</Text>
+            </TouchableOpacity>
+          </View>
+
           <TouchableOpacity onPress={handleRestore} style={styles.notNow} disabled={busy}>
             <Text style={[styles.notNowLabel, { color: colors.mutedForeground }]}>Restore purchases</Text>
           </TouchableOpacity>
@@ -730,6 +764,22 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     textAlign: "center",
     marginBottom: 6,
+  },
+  legalLinks: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginBottom: 2,
+  },
+  legalLink: {
+    fontSize: 12.5,
+    fontWeight: "600",
+    textDecorationLine: "underline",
+    paddingVertical: 6,
+  },
+  legalSeparator: {
+    fontSize: 14,
   },
   notNow: { paddingVertical: 8 },
   notNowLabel: { fontSize: 14, fontWeight: "500" },
