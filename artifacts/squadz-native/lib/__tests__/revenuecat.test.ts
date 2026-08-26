@@ -52,12 +52,16 @@ import {
   addEntitlementListener,
   RC_FOUNDING_PRODUCT_ID,
   RC_STANDARD_PRODUCT_ID,
+  RC_LEGACY_FOUNDING_PRODUCT_ID,
+  RC_LEGACY_STANDARD_PRODUCT_ID,
   RC_ENTITLEMENT_ID,
+  tierForProductId,
+  hasLiveFoundingPrice,
 } from "@/lib/revenuecat";
 
 // A Google Play subscription StoreProduct identifier is "{subId}:{basePlanId}".
-const ANDROID_FOUNDING_ID = `${RC_FOUNDING_PRODUCT_ID}:founding-yearly`;
-const ANDROID_STANDARD_ID = `${RC_STANDARD_PRODUCT_ID}:standard-yearly`;
+const ANDROID_FOUNDING_ID = `${RC_LEGACY_FOUNDING_PRODUCT_ID}:founding-yearly`;
+const ANDROID_STANDARD_ID = `${RC_LEGACY_STANDARD_PRODUCT_ID}:standard-yearly`;
 
 function pkg(identifier: string, priceString = "$0.00") {
   return { product: { identifier, priceString } };
@@ -76,8 +80,8 @@ beforeEach(() => {
 
 describe("productMatches (Android subId:basePlanId format)", () => {
   it("matches the base subscription id against a Play identifier", () => {
-    expect(productMatches(ANDROID_FOUNDING_ID, RC_FOUNDING_PRODUCT_ID)).toBe(true);
-    expect(productMatches(ANDROID_STANDARD_ID, RC_STANDARD_PRODUCT_ID)).toBe(true);
+    expect(productMatches(ANDROID_FOUNDING_ID, RC_LEGACY_FOUNDING_PRODUCT_ID)).toBe(true);
+    expect(productMatches(ANDROID_STANDARD_ID, RC_LEGACY_STANDARD_PRODUCT_ID)).toBe(true);
   });
 
   it("still matches the plain iOS identifier (no base-plan suffix)", () => {
@@ -93,6 +97,23 @@ describe("productMatches (Android subId:basePlanId format)", () => {
     expect(productMatches("", RC_FOUNDING_PRODUCT_ID)).toBe(false);
     expect(productMatches(null, RC_FOUNDING_PRODUCT_ID)).toBe(false);
     expect(productMatches(undefined, RC_FOUNDING_PRODUCT_ID)).toBe(false);
+  });
+});
+
+describe("tierForProductId accepts every live identifier form", () => {
+  const identifiers = [
+    [RC_FOUNDING_PRODUCT_ID, "founding"],
+    [`${RC_FOUNDING_PRODUCT_ID}:founding-yearly`, "founding"],
+    [RC_LEGACY_FOUNDING_PRODUCT_ID, "founding"],
+    [ANDROID_FOUNDING_ID, "founding"],
+    [RC_STANDARD_PRODUCT_ID, "standard"],
+    [`${RC_STANDARD_PRODUCT_ID}:standard-yearly`, "standard"],
+    [RC_LEGACY_STANDARD_PRODUCT_ID, "standard"],
+    [ANDROID_STANDARD_ID, "standard"],
+  ] as const;
+
+  it.each(identifiers)("maps %s to %s", (identifier, tier) => {
+    expect(tierForProductId(identifier)).toBe(tier);
   });
 });
 
@@ -145,6 +166,20 @@ describe("purchaseSquadzPlus on Android (Play subId:basePlanId identifiers)", ()
     const res = await purchaseSquadzPlus(true);
     expect(res).toEqual({ ok: true, isPro: false, entitlement: { entitled: false, tier: "none" } });
   });
+
+  it("does not buy the first package when the requested tier is absent", async () => {
+    await configureRevenueCat("user-1");
+    const foundingPkg = pkg(ANDROID_FOUNDING_ID, "$19.99");
+    getOfferings.mockResolvedValue(offeringsWith(foundingPkg));
+
+    const res = await purchaseSquadzPlus(false);
+
+    expect(purchasePackage).not.toHaveBeenCalled();
+    expect(res).toEqual({
+      ok: false,
+      error: "That subscription option isn't available right now. Please try again.",
+    });
+  });
 });
 
 describe("getSquadzPlusPrices on Android", () => {
@@ -159,6 +194,14 @@ describe("getSquadzPlusPrices on Android", () => {
       founding: { priceString: "$19.99" },
       standard: { priceString: "$29.99" },
     });
+  });
+});
+
+describe("hasLiveFoundingPrice", () => {
+  it("only allows the founding display when RevenueCat resolved a non-empty founding package price", () => {
+    expect(hasLiveFoundingPrice({ founding: { priceString: "$19.99" }, standard: { priceString: "$29.99" } })).toBe(true);
+    expect(hasLiveFoundingPrice({ founding: null, standard: { priceString: "$29.99" } })).toBe(false);
+    expect(hasLiveFoundingPrice({ founding: { priceString: "" }, standard: { priceString: "$29.99" } })).toBe(false);
   });
 });
 

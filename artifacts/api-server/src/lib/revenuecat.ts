@@ -16,6 +16,10 @@ export const RC_ENTITLEMENT_ID = "squadz_plus";
 // provenance. Never edit these without changing the stores to match.
 export const RC_FOUNDING_PRODUCT_ID = "com.squadz.app.squadzplus.founding.annual";
 export const RC_STANDARD_PRODUCT_ID = "com.squadz.app.squadzplus.standard.annual";
+// Google Play product ids cannot safely be renamed after release. RevenueCat
+// may report either these legacy Play ids or the newer App Store-style ids.
+export const RC_LEGACY_FOUNDING_PRODUCT_ID = "squadz_plus_founding_yearly";
+export const RC_LEGACY_STANDARD_PRODUCT_ID = "squadz_plus_standard_yearly";
 
 /** Which price tier a Squadz+ entitlement was purchased at. */
 export type SquadzPlusTier = "founding" | "standard";
@@ -42,8 +46,8 @@ export function tierForProductId(
   productId: string | null | undefined,
 ): SquadzPlusTier | null {
   const base = baseProductId(productId);
-  if (base === RC_FOUNDING_PRODUCT_ID) return "founding";
-  if (base === RC_STANDARD_PRODUCT_ID) return "standard";
+  if (base === RC_FOUNDING_PRODUCT_ID || base === RC_LEGACY_FOUNDING_PRODUCT_ID) return "founding";
+  if (base === RC_STANDARD_PRODUCT_ID || base === RC_LEGACY_STANDARD_PRODUCT_ID) return "standard";
   return null;
 }
 

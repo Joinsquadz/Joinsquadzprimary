@@ -13,6 +13,11 @@ export const RC_ENTITLEMENT_ID = "squadz_plus";
 // Never edit these without changing the stores to match.
 export const RC_FOUNDING_PRODUCT_ID = "com.squadz.app.squadzplus.founding.annual";
 export const RC_STANDARD_PRODUCT_ID = "com.squadz.app.squadzplus.standard.annual";
+// Google Play product ids are immutable after creation. Keep recognizing the
+// live Play ids alongside the newer App Store ids rather than attempting a
+// risky dashboard rename.
+export const RC_LEGACY_FOUNDING_PRODUCT_ID = "squadz_plus_founding_yearly";
+export const RC_LEGACY_STANDARD_PRODUCT_ID = "squadz_plus_standard_yearly";
 
 type PurchasesModule = typeof import("react-native-purchases");
 type PurchasesDefault = PurchasesModule["default"];
@@ -122,6 +127,11 @@ export type RcPrices = {
   standard: { priceString: string } | null;
 };
 
+/** A founding discount is safe to display only when RevenueCat found its live package price. */
+export function hasLiveFoundingPrice(prices: RcPrices): boolean {
+  return typeof prices.founding?.priceString === "string" && prices.founding.priceString.trim().length > 0;
+}
+
 /**
  * Live store prices for the founding / standard packages from the current
  * offering. Never hardcode prices — these come straight from the store via
@@ -136,8 +146,8 @@ export async function getSquadzPlusPrices(): Promise<RcPrices> {
   try {
     const offerings = await Purchases.getOfferings();
     const pkgs = offerings.current?.availablePackages ?? [];
-    const f = pkgs.find((p) => productMatches(p.product.identifier, RC_FOUNDING_PRODUCT_ID));
-    const s = pkgs.find((p) => productMatches(p.product.identifier, RC_STANDARD_PRODUCT_ID));
+    const f = pkgs.find((p) => tierForProductId(p.product.identifier) === "founding");
+    const s = pkgs.find((p) => tierForProductId(p.product.identifier) === "standard");
     return {
       founding: f ? { priceString: f.product.priceString } : null,
       standard: s ? { priceString: s.product.priceString } : null,
@@ -164,8 +174,18 @@ const NOT_ENTITLED: RcEntitlement = { entitled: false, tier: "none" };
 
 /** Map a store product identifier to its tier (handles the Android "id:basePlan" form). */
 export function tierForProductId(identifier: string | null | undefined): SquadzPlusTier {
-  if (productMatches(identifier, RC_FOUNDING_PRODUCT_ID)) return "founding";
-  if (productMatches(identifier, RC_STANDARD_PRODUCT_ID)) return "standard";
+  if (
+    productMatches(identifier, RC_FOUNDING_PRODUCT_ID) ||
+    productMatches(identifier, RC_LEGACY_FOUNDING_PRODUCT_ID)
+  ) {
+    return "founding";
+  }
+  if (
+    productMatches(identifier, RC_STANDARD_PRODUCT_ID) ||
+    productMatches(identifier, RC_LEGACY_STANDARD_PRODUCT_ID)
+  ) {
+    return "standard";
+  }
   return "none";
 }
 
@@ -238,12 +258,28 @@ export type PurchaseOutcome =
   | { ok: true; isPro: boolean; entitlement: RcEntitlement }
   | { ok: false; cancelled?: boolean; error: string };
 
+function reportUnavailablePurchasePackage(
+  requestedTier: Exclude<SquadzPlusTier, "none">,
+  availableProductIdentifiers: string[],
+): void {
+  void (async () => {
+    try {
+      const { Sentry } = await import("@/lib/monitoring");
+      Sentry.captureMessage("iap_requested_package_unavailable", {
+        level: "error",
+        extra: { requestedTier, availableProductIdentifiers },
+      });
+    } catch {
+      // Monitoring must never turn an unavailable purchase option into a crash.
+    }
+  })();
+}
+
 /**
  * Purchase SquadZ+. `preferFounding` selects the founding package while spots
- * remain (server truth via /api/subscription/founding-status); falls back to the
- * standard package. The actual founding-spot consumption happens server-side in
- * the RevenueCat webhook when payment is confirmed — this only picks which
- * package to buy.
+ * remain (server truth via /api/subscription/founding-status). The actual
+ * founding-spot consumption happens server-side in the RevenueCat webhook when
+ * payment is confirmed — this only picks which package to buy.
  */
 export async function purchaseSquadzPlus(preferFounding: boolean): Promise<PurchaseOutcome> {
   if (Platform.OS === "web") {
@@ -260,11 +296,18 @@ export async function purchaseSquadzPlus(preferFounding: boolean): Promise<Purch
     if (pkgs.length === 0) {
       return { ok: false, error: "No subscription options are available right now." };
     }
-    const wanted = preferFounding ? RC_FOUNDING_PRODUCT_ID : RC_STANDARD_PRODUCT_ID;
-    const pkg =
-      pkgs.find((p) => productMatches(p.product.identifier, wanted)) ??
-      pkgs.find((p) => productMatches(p.product.identifier, RC_STANDARD_PRODUCT_ID)) ??
-      pkgs[0];
+    const requestedTier: Exclude<SquadzPlusTier, "none"> = preferFounding ? "founding" : "standard";
+    const pkg = pkgs.find((p) => tierForProductId(p.product.identifier) === requestedTier);
+    if (!pkg) {
+      reportUnavailablePurchasePackage(
+        requestedTier,
+        pkgs.map((p) => p.product.identifier).filter((identifier): identifier is string => !!identifier),
+      );
+      return {
+        ok: false,
+        error: "That subscription option isn't available right now. Please try again.",
+      };
+    }
     const { customerInfo } = await Purchases.purchasePackage(pkg);
     const entitlement = entitlementFromCustomerInfo(customerInfo);
     return { ok: true, isPro: entitlement.entitled, entitlement };

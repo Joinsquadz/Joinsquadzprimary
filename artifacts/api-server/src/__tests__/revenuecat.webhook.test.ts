@@ -50,6 +50,7 @@ const post = (body: unknown, auth: string | null = AUTH) => {
 
 const FOUNDING = "com.squadz.app.squadzplus.founding.annual";
 const STANDARD = "com.squadz.app.squadzplus.standard.annual";
+const PLAY_FOUNDING = "squadz_plus_founding_yearly:founding-yearly";
 
 const USER = { id: "u1", email: "u1@example.test" };
 
@@ -229,6 +230,22 @@ describe("POST /api/revenuecat/webhook — founding spot redemption", () => {
     expect(hoisted.setSquadzPlusForPeriod).toHaveBeenCalledWith("u1", true, null, "founding");
     expect(hoisted.redeemFoundingSpot).toHaveBeenCalledTimes(1);
     expect(hoisted.redeemFoundingSpot).toHaveBeenCalledWith("rc:1000000123");
+  });
+
+  it("redeems a founding spot for a paid Android founding purchase", async () => {
+    const res = await post({
+      event: {
+        type: "INITIAL_PURCHASE",
+        app_user_id: "u1",
+        product_id: PLAY_FOUNDING,
+        entitlement_ids: ["squadz_plus"],
+        period_type: "NORMAL",
+        original_transaction_id: "android-1000000123",
+      },
+    });
+    expect(res.status).toBe(200);
+    expect(hoisted.setSquadzPlusForPeriod).toHaveBeenCalledWith("u1", true, null, "founding");
+    expect(hoisted.redeemFoundingSpot).toHaveBeenCalledWith("rc:android-1000000123");
   });
 
   it("does NOT redeem a founding spot for a TRIAL period (not a payment)", async () => {

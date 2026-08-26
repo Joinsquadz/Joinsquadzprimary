@@ -21,7 +21,9 @@ import {
   purchaseSquadzPlus,
   restoreSquadzPlus,
   getSquadzPlusPrices,
+  hasLiveFoundingPrice,
   type RcEntitlement,
+  type RcPrices,
 } from "@/lib/revenuecat";
 import { Sentry } from "@/lib/monitoring";
 import { ProAvatar } from "@/components/ProAvatar";
@@ -62,11 +64,10 @@ function formatSlotDate(iso: string): string {
   }
 }
 
-// Display-only fallback price labels, used only when RevenueCat can't supply the
-// live store price (web preview / Expo Go without keys). The real charge is the
-// store product price surfaced by RevenueCat.
+// Display-only standard fallback, used when RevenueCat can't supply the live
+// store price (web preview / Expo Go without keys). Founding pricing never uses
+// a fallback: an unobtainable discount must not be displayed.
 const STANDARD_PRICE = "$29.99";
-const FOUNDING_PRICE = "$19.99";
 const PRIVACY_POLICY_URL = "https://joinsquadz.com/privacy";
 const TERMS_OF_USE_URL = "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/";
 // Orange gradient used by all primary upgrade CTAs.
@@ -137,18 +138,21 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess, head
   // Bumped by the entitlement-invalidation subscription to re-run the
   // founding-status / price fetch while the sheet is open.
   const [foundingRefreshTick, setFoundingRefreshTick] = useState(0);
-  // Live store prices from RevenueCat (never hardcoded). Nulls fall back to the
-  // display constants when RevenueCat is unavailable (web preview / no keys).
-  const [rcPrices, setRcPrices] = useState<{ founding: string | null; standard: string | null }>({
+  // Live store prices from RevenueCat. Standard can use a display fallback when
+  // unavailable, but founding is only rendered with a live package price.
+  const [rcPrices, setRcPrices] = useState<RcPrices>({
     founding: null,
     standard: null,
   });
   const copy = TRIGGER_COPY[trigger];
 
   const firstName = currentUser.name?.trim().split(/\s+/)[0] ?? "";
-  const isFounding = !!founding?.isFoundingAvailable && founding.spotsRemaining > 0;
-  const foundingLabel = rcPrices.founding ?? FOUNDING_PRICE;
-  const standardLabel = rcPrices.standard ?? STANDARD_PRICE;
+  const isFounding =
+    !!founding?.isFoundingAvailable &&
+    founding.spotsRemaining > 0 &&
+    hasLiveFoundingPrice(rcPrices);
+  const foundingLabel = rcPrices.founding?.priceString ?? "";
+  const standardLabel = rcPrices.standard?.priceString ?? STANDARD_PRICE;
   const priceLabel = isFounding ? foundingLabel : standardLabel;
 
   // On open: pull live founding-status (server truth for spots remaining, which
@@ -182,10 +186,7 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess, head
     (async () => {
       const prices = await getSquadzPlusPrices();
       if (!cancelled && (prices.founding || prices.standard)) {
-        setRcPrices({
-          founding: prices.founding?.priceString ?? null,
-          standard: prices.standard?.priceString ?? null,
-        });
+        setRcPrices(prices);
       }
     })();
     return () => {

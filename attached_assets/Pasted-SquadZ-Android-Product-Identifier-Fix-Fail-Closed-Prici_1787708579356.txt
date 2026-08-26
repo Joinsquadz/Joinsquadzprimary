@@ -1,0 +1,65 @@
+SquadZ — Android Product Identifier Fix + Fail-Closed Pricing
+
+MODE: IMPLEMENT — this is not a report-only pass.
+
+Launch blocker for Android. The founding-cutover work is deliberately not in scope — that is tracked separately and cannot cause harm until the counter approaches 500.
+
+1. Android product identifiers — P0
+
+The live RevenueCat Android products are:
+
+squadz_plus_founding_yearly:founding-yearly
+squadz_plus_standard_yearly:standard-yearly
+
+The code matches against com.squadz.app.squadzplus.founding.annual and com.squadz.app.squadzplus.standard.annual. Neither matches, so package lookup fails and purchase falls back to the first package in the offering — currently founding.
+
+Fix by extending the mapping, not by renaming. Google Play product IDs cannot be safely renamed once created, and the App Store already carries a legacy squadz_plus_standard_yearly product, so both naming schemes must resolve correctly.
+
+Recognize all four identifiers, on both platforms:
+
+Identifier	Tier
+com.squadz.app.squadzplus.founding.annual	founding
+com.squadz.app.squadzplus.standard.annual	standard
+squadz_plus_founding_yearly	founding
+squadz_plus_standard_yearly	standard
+
+Requirements:
+
+Handle the Play productId:basePlanId form for the Android identifiers — base-plan stripping already exists, keep it.
+Apply the same mapping in all three places the audit identified: native package selection, client tier resolution, and the server webhook / iap/sync tier resolution. They must not disagree.
+Package selection must also use these identifiers, not only tier classification. The current fallback-to-first-package behavior is what makes this dangerous.
+Keep the existing "entitled but unrecognized product resolves to standard, never none" fallback, and keep its Sentry logging.
+Keep the founding-tier non-downgrade guard intact.
+
+Add tests asserting each of the four identifiers resolves to the correct tier, in both bare and base-plan-suffixed forms, and that Android founding purchases consume a founding ledger spot.
+
+2. Remove the fallback-to-first-package behavior
+
+Today, if neither the founding nor standard package is found, the client purchases whichever package appears first in the offering. That is how a user can be charged for a product nobody selected.
+
+Replace it: if the intended package cannot be resolved by identifier, do not purchase. Show an error asking the user to try again, and log to Sentry with the requested tier and the identifiers actually present in the offering.
+
+Failing to sell is recoverable. Selling the wrong product is not.
+
+3. Fail closed on price display
+
+If the founding status says spots remain but the founding package or its live store price cannot be resolved, the paywall currently falls back to hardcoded $19.99 / $29.99 labels — so it can display a founding discount that is not purchasable, while the purchase path selects something else.
+
+Change it: only display founding pricing when the founding package and its live store price are both present. Otherwise show standard pricing with no strike-through and no spots badge.
+
+A struck-through price with no obtainable discount is a false discount claim, and Apple has already rejected this app once under guideline 2.3.7 for price references.
+
+4. Do not change in this pass
+The founding cutover behavior at spot 500 — separate work, tracked as follow-ups #724/#726.
+The 30-second founding-status cache.
+The founding ledger, counter, or redeemFoundingSpot().
+Any RevenueCat or App Store Connect configuration. Report what you believe needs changing in those dashboards; I will do it manually.
+Constraints
+Test floor: 1401 API normal suite / 660 mobile, plus the 98-test API concurrency suite tracked separately. Report all three.
+Typechecks clean across mobile, libs, and API.
+Verification
+Suite counts against all three floors.
+New tests: all four identifiers map correctly in bare and suffixed forms; unresolvable package aborts purchase instead of buying the first one; founding display suppressed when the package or price is missing; Android founding purchase consumes a ledger spot.
+Every file changed, one line each.
+Explicitly state whether any RevenueCat or App Store Connect dashboard change is required for Android to work correctly, and exactly what it is.
+What requires physical-device verification on Android.
