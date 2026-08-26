@@ -1,0 +1,48 @@
+SquadZ — Founding Cutover Audit: What Happens at Spot 500
+
+MODE: AUDIT ONLY — report, then stop. Do not modify, create, or delete any file. Do not fix anything you find.
+
+Before launch I need to know exactly what happens when the 500th founding spot is claimed, across the app, the server, RevenueCat, and Apple billing. Report what the code does today, not what it was intended to do.
+
+1. The transition itself
+Where is the "are founding spots still available" decision made? Report every place it is evaluated: server, client, RevenueCat offering, or elsewhere.
+What exactly does spot 501 experience? Trace the full path for a user who opens the paywall at the moment the counter reaches 500.
+The founding-availability response is cached for 30 seconds (routes/stripe.ts:14-39). What happens to a user who loads the paywall inside that stale window after the last spot is gone? Can they see a founding price they can no longer get?
+Race condition: two users tap Purchase simultaneously with one spot left. Trace what each receives. Can the counter exceed 500? Can someone be charged the founding price but not receive the founding tier, or vice versa?
+2. What the app displays
+
+For each state — spots remaining, exactly zero remaining, and the boundary — report exactly what renders on:
+
+The main paywall (headline, price, struck-through price, the "N of 500 spots left" badge)
+The roll-up upsell sheet
+The personal vault CTA
+The global gallery CTA
+The profile upgrade row
+Any other price-displaying surface
+
+Specifically: when founding is exhausted, does the struck-through $29.99 disappear, and does the badge disappear or change? A struck-through price with no discount available is a false discount claim, which Apple treats as a metadata violation.
+
+Report what happens if RevenueCat pricing fails to resolve at that moment — what fallback renders, and can it claim founding pricing that is not actually purchasable.
+
+3. RevenueCat and Apple billing
+How does the client decide which package to purchase? If founding is exhausted server-side but the client still holds a founding package reference, what does StoreKit do?
+Is the founding product ever removed from the RevenueCat offering, or does it stay available and get gated purely by our own counter? Report which, because they behave very differently.
+If a user purchases the founding product after spots are gone, what does Apple charge them? Apple charges whatever the product's price is, regardless of our counter. Report whether that can happen, and what tier they receive.
+What does an existing founding subscriber's Apple renewal look like — do they keep the founding price permanently, and is that guaranteed by the product itself or by anything on our side?
+4. The ledger and counter
+Confirm the counter cannot exceed 500 under concurrent load. Report the locking mechanism.
+What happens to redeemFoundingSpot() when the counter is already at 500 — does it reject, silently no-op, or overflow?
+Can a refund or a cancellation free up a spot? Report whether that is intended and what actually happens today.
+If a founding subscriber cancels and later resubscribes after spots are exhausted, what tier and price do they get?
+5. Existing founding subscribers after cutover
+Does anything recompute or downgrade an existing founding subscriber once the cohort closes? (Note the founding-tier non-downgrade guard exists — confirm it covers this.)
+Do they keep the founding price on renewal? Where is that enforced — Apple's product pricing, or our code?
+6. What we cannot control
+
+Be explicit about the boundary between our system and Apple's. Where does our counter stop mattering and Apple's product pricing take over? I need to know where a mismatch between the two could produce a user who was charged one price and recorded at another tier.
+
+7. Your assessment
+
+After the factual report, tell me the two or three things most likely to go wrong at cutover, and what you would change. Recommendations only — implement nothing.
+
+Report only. No code changes, no test changes, no migrations.
