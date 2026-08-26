@@ -6,18 +6,17 @@
 // `users.is_squadz_plus` flag (via the webhook) and consumes founding spots.
 
 export const RC_ENTITLEMENT_ID = "squadz_plus";
-// The REAL store product identifiers, registered in App Store Connect, Google
-// Play and the RevenueCat dashboard. These are shared across both platforms.
-//
-// History: this file (and the mobile client) previously carried invented ids
-// (`squadz_plus_founding_yearly` / `squadz_plus_standard_yearly`) that matched
-// NEITHER store, so every real purchase fell through to the
-// "entitled but unrecognized product" fallback and silently lost its founding
-// provenance. Never edit these without changing the stores to match.
-export const RC_FOUNDING_PRODUCT_ID = "com.squadz.app.squadzplus.founding.annual";
-export const RC_STANDARD_PRODUCT_ID = "com.squadz.app.squadzplus.standard.annual";
-// Google Play product ids cannot safely be renamed after release. RevenueCat
-// may report either these legacy Play ids or the newer App Store-style ids.
+// Store product identifiers from the live RevenueCat catalog. The App Store
+// and Google Play use different identifiers for the same tier.
+export const RC_IOS_FOUNDING_PRODUCT_ID = "com.squadz.app.squadzplus.founding.annual";
+export const RC_IOS_STANDARD_PRODUCT_ID = "com.squadz.app.squadzplus.standard.annual";
+export const RC_ANDROID_FOUNDING_PRODUCT_ID = "squadz_plus_founding_yearly:founding-yearly";
+export const RC_ANDROID_STANDARD_PRODUCT_ID = "squadz_plus_standard_yearly:standard-yearly";
+// Backward-compatible aliases for callers that still use the original names.
+export const RC_FOUNDING_PRODUCT_ID = RC_IOS_FOUNDING_PRODUCT_ID;
+export const RC_STANDARD_PRODUCT_ID = RC_IOS_STANDARD_PRODUCT_ID;
+// Google Play can send the base subscription id without a base-plan suffix,
+// so retain those values in addition to the exact live Android identifiers.
 export const RC_LEGACY_FOUNDING_PRODUCT_ID = "squadz_plus_founding_yearly";
 export const RC_LEGACY_STANDARD_PRODUCT_ID = "squadz_plus_standard_yearly";
 
@@ -46,8 +45,20 @@ export function tierForProductId(
   productId: string | null | undefined,
 ): SquadzPlusTier | null {
   const base = baseProductId(productId);
-  if (base === RC_FOUNDING_PRODUCT_ID || base === RC_LEGACY_FOUNDING_PRODUCT_ID) return "founding";
-  if (base === RC_STANDARD_PRODUCT_ID || base === RC_LEGACY_STANDARD_PRODUCT_ID) return "standard";
+  if (
+    base === baseProductId(RC_IOS_FOUNDING_PRODUCT_ID) ||
+    base === baseProductId(RC_ANDROID_FOUNDING_PRODUCT_ID) ||
+    base === RC_LEGACY_FOUNDING_PRODUCT_ID
+  ) {
+    return "founding";
+  }
+  if (
+    base === baseProductId(RC_IOS_STANDARD_PRODUCT_ID) ||
+    base === baseProductId(RC_ANDROID_STANDARD_PRODUCT_ID) ||
+    base === RC_LEGACY_STANDARD_PRODUCT_ID
+  ) {
+    return "standard";
+  }
   return null;
 }
 

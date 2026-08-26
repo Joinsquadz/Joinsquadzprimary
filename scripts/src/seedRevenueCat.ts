@@ -9,7 +9,9 @@
  * Identifiers MUST match the client (`squadz-native/lib/revenuecat.ts`) and the
  * server (`api-server/lib/revenuecat.ts`):
  *   entitlement  squadz_plus
- *   products     com.squadz.app.squadzplus.founding.annual / com.squadz.app.squadzplus.standard.annual
+ *   iOS products com.squadz.app.squadzplus.founding.annual / com.squadz.app.squadzplus.standard.annual
+ *   Play products squadz_plus_founding_yearly:founding-yearly /
+ *                 squadz_plus_standard_yearly:standard-yearly
  *
  * Auth is via the Replit RevenueCat connector (no API key handled here). Run:
  *   pnpm --filter @workspace/scripts run seed-revenuecat
@@ -20,8 +22,10 @@
 import { ReplitConnectors } from "@replit/connectors-sdk";
 
 const BUNDLE_ID = "com.squadz.app";
-const FOUNDING = "com.squadz.app.squadzplus.founding.annual";
-const STANDARD = "com.squadz.app.squadzplus.standard.annual";
+const IOS_FOUNDING = "com.squadz.app.squadzplus.founding.annual";
+const IOS_STANDARD = "com.squadz.app.squadzplus.standard.annual";
+const ANDROID_FOUNDING = "squadz_plus_founding_yearly:founding-yearly";
+const ANDROID_STANDARD = "squadz_plus_standard_yearly:standard-yearly";
 const ENTITLEMENT = "squadz_plus";
 
 const connectors = new ReplitConnectors();
@@ -176,11 +180,12 @@ async function main(): Promise<void> {
 
   const prodRes = await rc(`/v2/projects/${projectId}/products?limit=100`);
   const existingProducts = prodRes.json?.items ?? [];
-  const iosFounding = await ensureProduct(projectId, existingProducts, appStore.id, FOUNDING, "Squadz+ Founding (Yearly)");
-  const iosStandard = await ensureProduct(projectId, existingProducts, appStore.id, STANDARD, "Squadz+ Standard (Yearly)");
-  // Google Play subscriptions use `{subscriptionId}:{basePlanId}`.
-  const andFounding = await ensureProduct(projectId, existingProducts, playStore.id, `${FOUNDING}:founding-yearly`, "Squadz+ Founding (Yearly)");
-  const andStandard = await ensureProduct(projectId, existingProducts, playStore.id, `${STANDARD}:standard-yearly`, "Squadz+ Standard (Yearly)");
+  const iosFounding = await ensureProduct(projectId, existingProducts, appStore.id, IOS_FOUNDING, "Squadz+ Founding (Yearly)");
+  const iosStandard = await ensureProduct(projectId, existingProducts, appStore.id, IOS_STANDARD, "Squadz+ Standard (Yearly)");
+  // The live Play subscriptions use their own `{subscriptionId}:{basePlanId}`
+  // identifiers rather than an iOS product id plus a base-plan suffix.
+  const andFounding = await ensureProduct(projectId, existingProducts, playStore.id, ANDROID_FOUNDING, "Squadz+ Founding (Yearly)");
+  const andStandard = await ensureProduct(projectId, existingProducts, playStore.id, ANDROID_STANDARD, "Squadz+ Standard (Yearly)");
   const allProductIds = [iosFounding.id, iosStandard.id, andFounding.id, andStandard.id];
   console.log(`Products: ${allProductIds.join(", ")}`);
 

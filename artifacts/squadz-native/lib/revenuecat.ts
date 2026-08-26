@@ -3,19 +3,17 @@ import { Platform } from "react-native";
 // RevenueCat product / entitlement identifiers. MUST match the RevenueCat
 // dashboard AND the server (artifacts/api-server/src/lib/revenuecat.ts).
 export const RC_ENTITLEMENT_ID = "squadz_plus";
-// The REAL store product identifiers, registered in App Store Connect, Google
-// Play and the RevenueCat dashboard. Shared across both platforms.
-//
-// History: these constants previously held invented ids
-// (`squadz_plus_founding_yearly` / `squadz_plus_standard_yearly`) that matched
-// NEITHER store, so every real purchase resolved through the
-// "entitled but unrecognized product" fallback and lost founding provenance.
-// Never edit these without changing the stores to match.
-export const RC_FOUNDING_PRODUCT_ID = "com.squadz.app.squadzplus.founding.annual";
-export const RC_STANDARD_PRODUCT_ID = "com.squadz.app.squadzplus.standard.annual";
-// Google Play product ids are immutable after creation. Keep recognizing the
-// live Play ids alongside the newer App Store ids rather than attempting a
-// risky dashboard rename.
+// Store product identifiers from the live RevenueCat catalog. The App Store
+// and Google Play use different identifiers for the same tier. Keep these in
+// sync with the server and scripts/src/seedRevenueCat.ts.
+export const RC_IOS_FOUNDING_PRODUCT_ID = "com.squadz.app.squadzplus.founding.annual";
+export const RC_IOS_STANDARD_PRODUCT_ID = "com.squadz.app.squadzplus.standard.annual";
+export const RC_ANDROID_FOUNDING_PRODUCT_ID = "squadz_plus_founding_yearly:founding-yearly";
+export const RC_ANDROID_STANDARD_PRODUCT_ID = "squadz_plus_standard_yearly:standard-yearly";
+// Backward-compatible aliases for callers that still use the original names.
+export const RC_FOUNDING_PRODUCT_ID = RC_IOS_FOUNDING_PRODUCT_ID;
+export const RC_STANDARD_PRODUCT_ID = RC_IOS_STANDARD_PRODUCT_ID;
+// RevenueCat can report the Play base subscription id without its base plan.
 export const RC_LEGACY_FOUNDING_PRODUCT_ID = "squadz_plus_founding_yearly";
 export const RC_LEGACY_STANDARD_PRODUCT_ID = "squadz_plus_standard_yearly";
 
@@ -28,7 +26,7 @@ type PurchasesDefault = PurchasesModule["default"];
  *
  * The store identifier format differs by platform:
  * - iOS (App Store): the identifier IS the product id, e.g.
- *   `"squadz_plus_founding_yearly"`.
+ *   `"com.squadz.app.squadzplus.founding.annual"`.
  * - Android (Google Play): a subscription's identifier is
  *   `"{subscriptionId}:{basePlanId}"`, e.g.
  *   `"squadz_plus_founding_yearly:founding-yearly"`.
@@ -41,7 +39,14 @@ type PurchasesDefault = PurchasesModule["default"];
  */
 export function productMatches(identifier: string | null | undefined, targetId: string): boolean {
   if (!identifier) return false;
-  return identifier.split(":")[0] === targetId;
+  return identifier.split(":")[0] === targetId.split(":")[0];
+}
+
+function productIdForCurrentPlatform(tier: "founding" | "standard"): string {
+  if (Platform.OS === "android") {
+    return tier === "founding" ? RC_ANDROID_FOUNDING_PRODUCT_ID : RC_ANDROID_STANDARD_PRODUCT_ID;
+  }
+  return tier === "founding" ? RC_IOS_FOUNDING_PRODUCT_ID : RC_IOS_STANDARD_PRODUCT_ID;
 }
 
 let _purchases: PurchasesDefault | null = null;
@@ -146,8 +151,12 @@ export async function getSquadzPlusPrices(): Promise<RcPrices> {
   try {
     const offerings = await Purchases.getOfferings();
     const pkgs = offerings.current?.availablePackages ?? [];
-    const f = pkgs.find((p) => tierForProductId(p.product.identifier) === "founding");
-    const s = pkgs.find((p) => tierForProductId(p.product.identifier) === "standard");
+    const f = pkgs.find((p) =>
+      productMatches(p.product.identifier, productIdForCurrentPlatform("founding")),
+    );
+    const s = pkgs.find((p) =>
+      productMatches(p.product.identifier, productIdForCurrentPlatform("standard")),
+    );
     return {
       founding: f ? { priceString: f.product.priceString } : null,
       standard: s ? { priceString: s.product.priceString } : null,
@@ -175,13 +184,15 @@ const NOT_ENTITLED: RcEntitlement = { entitled: false, tier: "none" };
 /** Map a store product identifier to its tier (handles the Android "id:basePlan" form). */
 export function tierForProductId(identifier: string | null | undefined): SquadzPlusTier {
   if (
-    productMatches(identifier, RC_FOUNDING_PRODUCT_ID) ||
+    productMatches(identifier, RC_IOS_FOUNDING_PRODUCT_ID) ||
+    productMatches(identifier, RC_ANDROID_FOUNDING_PRODUCT_ID) ||
     productMatches(identifier, RC_LEGACY_FOUNDING_PRODUCT_ID)
   ) {
     return "founding";
   }
   if (
-    productMatches(identifier, RC_STANDARD_PRODUCT_ID) ||
+    productMatches(identifier, RC_IOS_STANDARD_PRODUCT_ID) ||
+    productMatches(identifier, RC_ANDROID_STANDARD_PRODUCT_ID) ||
     productMatches(identifier, RC_LEGACY_STANDARD_PRODUCT_ID)
   ) {
     return "standard";
@@ -297,7 +308,8 @@ export async function purchaseSquadzPlus(preferFounding: boolean): Promise<Purch
       return { ok: false, error: "No subscription options are available right now." };
     }
     const requestedTier: Exclude<SquadzPlusTier, "none"> = preferFounding ? "founding" : "standard";
-    const pkg = pkgs.find((p) => tierForProductId(p.product.identifier) === requestedTier);
+    const requestedProduct = productIdForCurrentPlatform(requestedTier);
+    const pkg = pkgs.find((p) => productMatches(p.product.identifier, requestedProduct));
     if (!pkg) {
       reportUnavailablePurchasePackage(
         requestedTier,

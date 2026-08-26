@@ -2,12 +2,10 @@
  * Squadz+ product-identifier → tier mapping on the client, plus the telemetry
  * that fires when an ACTIVE entitlement reports a product we don't recognise.
  *
- * The constants previously held invented ids matching neither store, so every
- * real purchase resolved through the "unrecognized product → standard"
- * fallback and lost its founding provenance — silently, because the fallback is
- * deliberately generous. These tests pin the real identifiers (bare App Store
- * form and Play "{productId}:{basePlanId}" form) and prove the fallback now
- * reports itself instead of hiding.
+ * The App Store and Play catalog use different identifiers for the same tier.
+ * These tests pin the real identifiers (bare App Store form and Play
+ * "{subscriptionId}:{basePlanId}" form) and prove the fallback reports an
+ * unrecognized product instead of hiding a catalog mismatch.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -27,8 +25,10 @@ vi.mock("@/lib/monitoring", () => ({
 
 import {
   RC_ENTITLEMENT_ID,
-  RC_FOUNDING_PRODUCT_ID,
-  RC_STANDARD_PRODUCT_ID,
+  RC_IOS_FOUNDING_PRODUCT_ID,
+  RC_IOS_STANDARD_PRODUCT_ID,
+  RC_ANDROID_FOUNDING_PRODUCT_ID,
+  RC_ANDROID_STANDARD_PRODUCT_ID,
   entitlementFromCustomerInfo,
   productMatches,
   tierForProductId,
@@ -39,8 +39,8 @@ import {
 // passing tautologically against itself.
 const REAL_FOUNDING = "com.squadz.app.squadzplus.founding.annual";
 const REAL_STANDARD = "com.squadz.app.squadzplus.standard.annual";
-const PLAY_FOUNDING = `${REAL_FOUNDING}:founding-annual`;
-const PLAY_STANDARD = `${REAL_STANDARD}:standard-annual`;
+const PLAY_FOUNDING = "squadz_plus_founding_yearly:founding-yearly";
+const PLAY_STANDARD = "squadz_plus_standard_yearly:standard-yearly";
 
 const infoWith = (productIdentifier?: string | null) => ({
   entitlements: {
@@ -61,9 +61,11 @@ beforeEach(() => {
 });
 
 describe("Squadz+ product constants", () => {
-  it("are the real store identifiers, not the old invented ones", () => {
-    expect(RC_FOUNDING_PRODUCT_ID).toBe(REAL_FOUNDING);
-    expect(RC_STANDARD_PRODUCT_ID).toBe(REAL_STANDARD);
+  it("are the real iOS and Android store identifiers", () => {
+    expect(RC_IOS_FOUNDING_PRODUCT_ID).toBe(REAL_FOUNDING);
+    expect(RC_IOS_STANDARD_PRODUCT_ID).toBe(REAL_STANDARD);
+    expect(RC_ANDROID_FOUNDING_PRODUCT_ID).toBe(PLAY_FOUNDING);
+    expect(RC_ANDROID_STANDARD_PRODUCT_ID).toBe(PLAY_STANDARD);
   });
 });
 
@@ -87,9 +89,9 @@ describe("tierForProductId — real identifiers", () => {
   });
 
   it("productMatches agrees on both forms", () => {
-    expect(productMatches(PLAY_FOUNDING, RC_FOUNDING_PRODUCT_ID)).toBe(true);
-    expect(productMatches(REAL_STANDARD, RC_STANDARD_PRODUCT_ID)).toBe(true);
-    expect(productMatches(PLAY_STANDARD, RC_FOUNDING_PRODUCT_ID)).toBe(false);
+    expect(productMatches(PLAY_FOUNDING, RC_ANDROID_FOUNDING_PRODUCT_ID)).toBe(true);
+    expect(productMatches(REAL_STANDARD, RC_IOS_STANDARD_PRODUCT_ID)).toBe(true);
+    expect(productMatches(PLAY_STANDARD, RC_ANDROID_FOUNDING_PRODUCT_ID)).toBe(false);
   });
 });
 

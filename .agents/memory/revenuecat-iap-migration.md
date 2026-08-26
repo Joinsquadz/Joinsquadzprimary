@@ -72,14 +72,12 @@ must match the RC webhook's `authorization_header` exactly (raw compare, no Bear
 sandbox testing — swap `url` to the production domain (`.../api/revenuecat/webhook`)
 at deploy time (single field via API/dashboard); the auth header already matches.
 
-**Android identifier match (FIXED):** Google Play `StoreProduct.identifier` is
-`subscriptionId:basePlanId` (`squadz_plus_founding_yearly:founding-yearly`), while
-iOS is the bare product id. Match packages by the base id BEFORE the first `":"`
-(`productMatches()` in `lib/revenuecat.ts`), never `identifier === productId` — the
-exact compare silently misses founding on Android and drops the user to the standard
-fallback. Matching is intentionally subscription-id-level (ignores basePlanId); if a
-future offering has multiple base plans under one subscription id, package selection
-becomes order-dependent and needs a tiebreak.
+**Android identifier match:** the live catalog uses different product families per
+store: iOS is `com.squadz.app.squadzplus.*.annual`, while Android is
+`squadz_plus_*_yearly:{basePlanId}`. Match packages using the current platform's
+identifier, and normalize only the Android suffix when comparing within that product
+family. Server mapping must recognize both families for webhooks and `/iap/sync`;
+never fabricate the Android id by appending a base-plan suffix to the iOS id.
 
 **Still gated on user (external, can't automate):** create the real in-app-purchase
 products in App Store Connect + Google Play Console (paid dev accounts) so live

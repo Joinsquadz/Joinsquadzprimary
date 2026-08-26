@@ -10,6 +10,10 @@
  */
 import { describe, it, expect } from "vitest";
 import {
+  RC_IOS_FOUNDING_PRODUCT_ID,
+  RC_IOS_STANDARD_PRODUCT_ID,
+  RC_ANDROID_FOUNDING_PRODUCT_ID,
+  RC_ANDROID_STANDARD_PRODUCT_ID,
   RC_FOUNDING_PRODUCT_ID,
   RC_STANDARD_PRODUCT_ID,
   RC_LEGACY_FOUNDING_PRODUCT_ID,
@@ -31,11 +35,15 @@ const LEGACY_FOUNDING = "squadz_plus_founding_yearly";
 const LEGACY_STANDARD = "squadz_plus_standard_yearly";
 
 // Google Play reports a subscription StoreProduct as "{productId}:{basePlanId}".
-const PLAY_FOUNDING = `${REAL_FOUNDING}:founding-annual`;
-const PLAY_STANDARD = `${REAL_STANDARD}:standard-annual`;
+const PLAY_FOUNDING = "squadz_plus_founding_yearly:founding-yearly";
+const PLAY_STANDARD = "squadz_plus_standard_yearly:standard-yearly";
 
 describe("Squadz+ product constants", () => {
-  it("preserve both the newer and immutable legacy store identifiers", () => {
+  it("match the live App Store and Google Play identifiers", () => {
+    expect(RC_IOS_FOUNDING_PRODUCT_ID).toBe(REAL_FOUNDING);
+    expect(RC_IOS_STANDARD_PRODUCT_ID).toBe(REAL_STANDARD);
+    expect(RC_ANDROID_FOUNDING_PRODUCT_ID).toBe(PLAY_FOUNDING);
+    expect(RC_ANDROID_STANDARD_PRODUCT_ID).toBe(PLAY_STANDARD);
     expect(RC_FOUNDING_PRODUCT_ID).toBe(REAL_FOUNDING);
     expect(RC_STANDARD_PRODUCT_ID).toBe(REAL_STANDARD);
     expect(RC_LEGACY_FOUNDING_PRODUCT_ID).toBe(LEGACY_FOUNDING);
@@ -74,7 +82,7 @@ describe("tierForProductId", () => {
 
 describe("baseProductId / isKnownSquadzPlusProduct", () => {
   it("strips the Play base plan suffix and leaves bare ids alone", () => {
-    expect(baseProductId(PLAY_FOUNDING)).toBe(REAL_FOUNDING);
+    expect(baseProductId(PLAY_FOUNDING)).toBe(LEGACY_FOUNDING);
     expect(baseProductId(REAL_STANDARD)).toBe(REAL_STANDARD);
     expect(baseProductId(null)).toBeNull();
     expect(baseProductId("")).toBeNull();

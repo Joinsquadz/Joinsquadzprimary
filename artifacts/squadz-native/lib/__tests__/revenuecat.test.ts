@@ -50,6 +50,10 @@ import {
   getLocalEntitlementActive,
   restoreSquadzPlus,
   addEntitlementListener,
+  RC_IOS_FOUNDING_PRODUCT_ID,
+  RC_IOS_STANDARD_PRODUCT_ID,
+  RC_ANDROID_FOUNDING_PRODUCT_ID,
+  RC_ANDROID_STANDARD_PRODUCT_ID,
   RC_FOUNDING_PRODUCT_ID,
   RC_STANDARD_PRODUCT_ID,
   RC_LEGACY_FOUNDING_PRODUCT_ID,
@@ -60,8 +64,8 @@ import {
 } from "@/lib/revenuecat";
 
 // A Google Play subscription StoreProduct identifier is "{subId}:{basePlanId}".
-const ANDROID_FOUNDING_ID = `${RC_LEGACY_FOUNDING_PRODUCT_ID}:founding-yearly`;
-const ANDROID_STANDARD_ID = `${RC_LEGACY_STANDARD_PRODUCT_ID}:standard-yearly`;
+const ANDROID_FOUNDING_ID = "squadz_plus_founding_yearly:founding-yearly";
+const ANDROID_STANDARD_ID = "squadz_plus_standard_yearly:standard-yearly";
 
 function pkg(identifier: string, priceString = "$0.00") {
   return { product: { identifier, priceString } };
@@ -80,17 +84,17 @@ beforeEach(() => {
 
 describe("productMatches (Android subId:basePlanId format)", () => {
   it("matches the base subscription id against a Play identifier", () => {
-    expect(productMatches(ANDROID_FOUNDING_ID, RC_LEGACY_FOUNDING_PRODUCT_ID)).toBe(true);
-    expect(productMatches(ANDROID_STANDARD_ID, RC_LEGACY_STANDARD_PRODUCT_ID)).toBe(true);
+    expect(productMatches(ANDROID_FOUNDING_ID, RC_ANDROID_FOUNDING_PRODUCT_ID)).toBe(true);
+    expect(productMatches(ANDROID_STANDARD_ID, RC_ANDROID_STANDARD_PRODUCT_ID)).toBe(true);
   });
 
   it("still matches the plain iOS identifier (no base-plan suffix)", () => {
-    expect(productMatches(RC_FOUNDING_PRODUCT_ID, RC_FOUNDING_PRODUCT_ID)).toBe(true);
+    expect(productMatches(RC_IOS_FOUNDING_PRODUCT_ID, RC_IOS_FOUNDING_PRODUCT_ID)).toBe(true);
   });
 
   it("does not cross-match founding vs standard", () => {
-    expect(productMatches(ANDROID_FOUNDING_ID, RC_STANDARD_PRODUCT_ID)).toBe(false);
-    expect(productMatches(ANDROID_STANDARD_ID, RC_FOUNDING_PRODUCT_ID)).toBe(false);
+    expect(productMatches(ANDROID_FOUNDING_ID, RC_ANDROID_STANDARD_PRODUCT_ID)).toBe(false);
+    expect(productMatches(ANDROID_STANDARD_ID, RC_ANDROID_FOUNDING_PRODUCT_ID)).toBe(false);
   });
 
   it("is false for empty / missing identifiers", () => {
