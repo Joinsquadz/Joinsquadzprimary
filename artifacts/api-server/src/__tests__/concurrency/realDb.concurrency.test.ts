@@ -477,7 +477,7 @@ describe("F1 — redeemFoundingSpot consumes a spot at payment, idempotently", (
       Array.from({ length: 6 }, (_, i) => redeemFoundingSpot(`sub_distinct_${i}`)),
     );
 
-    expect(results.filter(Boolean).length).toBe(6);
+    expect(results.filter((result) => result === "redeemed").length).toBe(6);
     expect(await foundingRedeemed()).toBe(16);
   });
 
@@ -489,12 +489,12 @@ describe("F1 — redeemFoundingSpot consumes a spot at payment, idempotently", (
       Array.from({ length: 8 }, () => redeemFoundingSpot("sub_idempotent")),
     );
 
-    // Exactly one call wins the ledger insert; the rest are no-ops.
-    expect(results.filter(Boolean).length).toBe(1);
+    // Exactly one call wins the ledger insert; the rest are idempotent replays.
+    expect(results.filter((result) => result === "redeemed").length).toBe(1);
     expect(await foundingRedeemed()).toBe(1);
 
     // A later re-delivery (sequential) is still a no-op.
-    expect(await redeemFoundingSpot("sub_idempotent")).toBe(false);
+    expect(await redeemFoundingSpot("sub_idempotent")).toBe("already_redeemed");
     expect(await foundingRedeemed()).toBe(1);
   });
 });
@@ -519,7 +519,7 @@ describe("B9 — founding-spot race: only one concurrent winner at the cap", () 
     );
 
     // Exactly ONE call wins — the advisory-lock serialises the increment.
-    const winners = results.filter(Boolean);
+    const winners = results.filter((result) => result === "redeemed");
     expect(winners.length).toBe(1);
 
     // Counter must be exactly at the cap — no over-redemption.
@@ -540,7 +540,7 @@ describe("B9 — founding-spot race: only one concurrent winner at the cap", () 
     expect(tier).toBe("standard");
   });
 
-  it("the losing concurrent attempts all return false (no phantom redemptions)", async () => {
+  it("the losing concurrent attempts all report sold_out (no phantom redemptions)", async () => {
     const { redeemFoundingSpot, FOUNDING_MEMBER_LIMIT } = await import("../../lib/founding");
     await seedFoundingCounter(FOUNDING_MEMBER_LIMIT - 1);
 
@@ -549,7 +549,7 @@ describe("B9 — founding-spot race: only one concurrent winner at the cap", () 
       Array.from({ length: N }, (_, i) => redeemFoundingSpot(`sub_loser_${i}`)),
     );
 
-    const losers = results.filter((r) => !r);
+    const losers = results.filter((result) => result === "sold_out");
     // N - 1 attempts must have received the sold-out (false) result.
     expect(losers.length).toBe(N - 1);
   });

@@ -248,6 +248,73 @@ describe("POST /api/revenuecat/webhook — founding spot redemption", () => {
     expect(hoisted.redeemFoundingSpot).toHaveBeenCalledWith("rc:android-1000000123");
   });
 
+  it("claims the final spot before granting founding provenance", async () => {
+    const order: string[] = [];
+    hoisted.redeemFoundingSpot.mockImplementation(async () => {
+      order.push("redeem");
+      return "redeemed";
+    });
+    hoisted.setSquadzPlusForPeriod.mockImplementation(async () => {
+      order.push("grant");
+      return { applied: true };
+    });
+
+    const res = await post({
+      event: {
+        type: "INITIAL_PURCHASE",
+        app_user_id: "u1",
+        product_id: FOUNDING,
+        entitlement_ids: ["squadz_plus"],
+        period_type: "NORMAL",
+        original_transaction_id: "1000000124",
+      },
+    });
+
+    expect(res.status).toBe(200);
+    expect(order).toEqual(["redeem", "grant"]);
+  });
+
+  it("records a founding-SKU buyer as standard when they lose the final-spot race", async () => {
+    hoisted.redeemFoundingSpot.mockResolvedValue("sold_out");
+
+    const res = await post({
+      event: {
+        type: "INITIAL_PURCHASE",
+        app_user_id: "u1",
+        product_id: FOUNDING,
+        entitlement_ids: ["squadz_plus"],
+        period_type: "NORMAL",
+        original_transaction_id: "1000000125",
+      },
+    });
+
+    expect(res.status).toBe(200);
+    expect(hoisted.setSquadzPlusForPeriod).toHaveBeenCalledWith("u1", true, null, "standard");
+    expect(hoisted.captureMessage).toHaveBeenCalledWith(
+      "Founding purchase arrived after the cohort closed",
+      "warning",
+      expect.objectContaining({ userId: "u1", productIdentifier: FOUNDING }),
+    );
+  });
+
+  it("keeps founding provenance for an idempotently replayed founding payment", async () => {
+    hoisted.redeemFoundingSpot.mockResolvedValue("already_redeemed");
+
+    const res = await post({
+      event: {
+        type: "RENEWAL",
+        app_user_id: "u1",
+        product_id: FOUNDING,
+        entitlement_ids: ["squadz_plus"],
+        period_type: "NORMAL",
+        original_transaction_id: "1000000123",
+      },
+    });
+
+    expect(res.status).toBe(200);
+    expect(hoisted.setSquadzPlusForPeriod).toHaveBeenCalledWith("u1", true, null, "founding");
+  });
+
   it("does NOT redeem a founding spot for a TRIAL period (not a payment)", async () => {
     const res = await post({
       event: {

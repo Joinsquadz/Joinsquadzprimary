@@ -10,6 +10,7 @@ export const FOUNDING_MEMBER_LIMIT = 500;
 const FOUNDING_LOCK_KEY = 514224771;
 
 export type CheckoutTier = 'founding' | 'standard';
+export type FoundingSpotRedemption = 'redeemed' | 'already_redeemed' | 'sold_out';
 
 type Executor = Parameters<Parameters<typeof db.transaction>[0]>[0] | typeof db;
 
@@ -70,17 +71,22 @@ export async function decideCheckoutTier(): Promise<CheckoutTier> {
  * redemptions ledger row is the dedupe key, so Stripe re-delivering the event
  * (at-least-once delivery / retries) increments the counter at most once per
  * subscription. A per-counter advisory xact lock serializes concurrent
- * increments so the running total stays consistent. Returns true only when this
- * call actually consumed a new spot.
+ * increments so the running total stays consistent.
+ *
+ * The result deliberately distinguishes an idempotent replay from a cap loser:
+ * a replay belongs to an existing founding member and must retain founding
+ * provenance, while a paid purchase that loses the final-spot race must be
+ * recorded as standard. Collapsing both to `false` lets the webhook grant
+ * founding provenance before it knows whether the cohort can honour it.
  *
  * Under unit-test mocks `db.transaction` is absent, so we fall back to running
  * the same steps directly (the real concurrency/idempotency guarantee is
  * covered by the real-DB test).
  */
-export async function redeemFoundingSpot(subscriptionId: string): Promise<boolean> {
-  if (!subscriptionId) return false;
+export async function redeemFoundingSpot(subscriptionId: string): Promise<FoundingSpotRedemption> {
+  if (!subscriptionId) return 'sold_out';
 
-  const run = async (tx: Executor): Promise<boolean> => {
+  const run = async (tx: Executor): Promise<FoundingSpotRedemption> => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(${FOUNDING_LOCK_KEY})`);
 
     const inserted = await tx
@@ -90,7 +96,7 @@ export async function redeemFoundingSpot(subscriptionId: string): Promise<boolea
       .returning({ subscriptionId: foundingMemberRedemptionsTable.subscriptionId });
 
     // Already redeemed for this subscription — never double-count.
-    if (inserted.length === 0) return false;
+    if (inserted.length === 0) return 'already_redeemed';
 
     // Cap guard INSIDE the advisory lock: the counter can never exceed the
     // limit, even under concurrent redemptions racing for the last spot. If
@@ -105,7 +111,7 @@ export async function redeemFoundingSpot(subscriptionId: string): Promise<boolea
       await tx
         .delete(foundingMemberRedemptionsTable)
         .where(eq(foundingMemberRedemptionsTable.subscriptionId, subscriptionId));
-      return false;
+      return 'sold_out';
     }
 
     await tx
@@ -116,7 +122,7 @@ export async function redeemFoundingSpot(subscriptionId: string): Promise<boolea
         set: { redeemed: sql`${foundingMemberCounterTable.redeemed} + 1` },
       });
 
-    return true;
+    return 'redeemed';
   };
 
   return typeof db.transaction === 'function' ? db.transaction((tx) => run(tx)) : run(db);

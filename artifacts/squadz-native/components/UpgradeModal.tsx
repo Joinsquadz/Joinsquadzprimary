@@ -155,38 +155,53 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess, head
   const standardLabel = rcPrices.standard?.priceString ?? STANDARD_PRICE;
   const priceLabel = isFounding ? foundingLabel : standardLabel;
 
-  // On open: pull live founding-status (server truth for spots remaining, which
+  // On open: pull the authoritative founding-status read (server truth for spots remaining, which
   // decides which package we sell) and the store prices from RevenueCat.
   useEffect(() => {
     if (!visible) return;
     let cancelled = false;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FOUNDING_STATUS_TIMEOUT);
+    // Never carry a founding label across a refresh: if the cohort closed after
+    // the last render, standard is the only safe display until both sources
+    // confirm a current founding package and an available spot.
+    setFounding(null);
+    setRcPrices({ founding: null, standard: null });
     (async () => {
+      let foundingAvailable = false;
       try {
-        const r = await fetch(`${API_BASE}/api/subscription/founding-status`, {
+        const r = await fetch(`${API_BASE}/api/subscription/founding-status/fresh`, {
           signal: controller.signal,
         });
-        if (!r.ok) return;
-        const d = (await r.json()) as Partial<FoundingStatus>;
-        if (
-          !cancelled &&
-          typeof d.spotsRemaining === "number" &&
-          typeof d.isFoundingAvailable === "boolean"
-        ) {
-          setFounding({ spotsRemaining: d.spotsRemaining, isFoundingAvailable: d.isFoundingAvailable });
+        if (r.ok) {
+          const d = (await r.json()) as Partial<FoundingStatus>;
+          if (
+            !cancelled &&
+            typeof d.spotsRemaining === "number" &&
+            typeof d.isFoundingAvailable === "boolean"
+          ) {
+            const nextFounding = {
+              spotsRemaining: d.spotsRemaining,
+              isFoundingAvailable: d.isFoundingAvailable,
+            };
+            foundingAvailable = nextFounding.isFoundingAvailable && nextFounding.spotsRemaining > 0;
+            setFounding(nextFounding);
+          }
         }
       } catch {
         // Timeout / network error → stay on standard pricing.
       } finally {
         clearTimeout(timer);
       }
-    })();
-    // Store prices from RevenueCat (native only; resolves to nulls on web).
-    (async () => {
+
+      // A founding label is valid only when both sources agree: the server
+      // still has a spot and the active offering includes that exact package.
       const prices = await getSquadzPlusPrices();
-      if (!cancelled && (prices.founding || prices.standard)) {
-        setRcPrices(prices);
+      if (!cancelled) {
+        setRcPrices({
+          founding: foundingAvailable ? prices.founding : null,
+          standard: prices.standard,
+        });
       }
     })();
     return () => {
@@ -330,7 +345,7 @@ export function UpgradeModal({ visible, trigger, onClose, onUpgradeSuccess, head
     setPhase("checkout");
     setError(null);
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const result = await purchaseSquadzPlus(isFounding);
+    const result = await purchaseSquadzPlus(isFounding, API_BASE);
     if (!result.ok) {
       // A user cancel is not an error — silently return to the sheet.
       if (!result.cancelled) setError(result.error);

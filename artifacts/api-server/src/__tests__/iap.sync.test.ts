@@ -156,7 +156,7 @@ describe("B4 — POST /api/iap/sync — idempotent set/clear of is_squadz_plus",
     );
   });
 
-  it("allows a stored standard tier to upgrade to founding", async () => {
+  it("keeps a new founding-SKU subscriber standard until the payment webhook claims a spot", async () => {
     const storage = await import("../storage");
     vi.mocked(storage.storage.getUser).mockResolvedValue({
       id: USER_ID,
@@ -167,7 +167,7 @@ describe("B4 — POST /api/iap/sync — idempotent set/clear of is_squadz_plus",
     const res = await request(makeApp()).post("/api/iap/sync");
 
     expect(res.status).toBe(200);
-    expect(setSquadzPlusMock).toHaveBeenCalledWith(USER_ID, true, expect.any(Number), "founding");
+    expect(setSquadzPlusMock).toHaveBeenCalledWith(USER_ID, true, expect.any(Number), "standard");
     expect(captureMessageMock).not.toHaveBeenCalled();
   });
 });

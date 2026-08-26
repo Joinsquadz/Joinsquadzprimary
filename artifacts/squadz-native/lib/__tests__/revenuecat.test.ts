@@ -10,6 +10,7 @@ const {
   getCustomerInfo,
   addCustomerInfoUpdateListener,
   removeCustomerInfoUpdateListener,
+  fetchFoundingStatus,
 } = vi.hoisted(() => ({
   // react-native's Platform.OS drives which SDK key/path is used. Keep it
   // mutable so tests can flip between "android" and "ios".
@@ -20,9 +21,11 @@ const {
   getCustomerInfo: vi.fn(),
   addCustomerInfoUpdateListener: vi.fn(),
   removeCustomerInfoUpdateListener: vi.fn(),
+  fetchFoundingStatus: vi.fn(),
 }));
 
 vi.mock("react-native", () => ({ Platform: platform }));
+vi.stubGlobal("fetch", (...args: unknown[]) => fetchFoundingStatus(...args));
 
 // Mock the native SDK (dynamically imported inside lib/revenuecat.ts). Each test
 // swaps in the offerings / purchase behaviour it wants.
@@ -80,6 +83,10 @@ beforeEach(() => {
   platform.OS = "android";
   process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_KEY = "goog_test";
   process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY = "appl_test";
+  fetchFoundingStatus.mockResolvedValue({
+    ok: true,
+    json: async () => ({ isFoundingAvailable: true, spotsRemaining: 1 }),
+  });
 });
 
 describe("productMatches (Android subId:basePlanId format)", () => {
@@ -158,6 +165,45 @@ describe("purchaseSquadzPlus on Android (Play subId:basePlanId identifiers)", ()
     await purchaseSquadzPlus(false);
 
     expect(purchasePackage).toHaveBeenCalledWith(standardPkg);
+  });
+
+  it("selects the STANDARD package when a stale founding paywall has sold out", async () => {
+    await configureRevenueCat("user-1");
+    const foundingPkg = pkg(ANDROID_FOUNDING_ID, "$19.99");
+    const standardPkg = pkg(ANDROID_STANDARD_ID, "$29.99");
+    fetchFoundingStatus.mockResolvedValue({
+      ok: true,
+      json: async () => ({ isFoundingAvailable: false, spotsRemaining: 0 }),
+    });
+    getOfferings.mockResolvedValue(offeringsWith(foundingPkg, standardPkg));
+    purchasePackage.mockResolvedValue({
+      customerInfo: { entitlements: { active: { [RC_ENTITLEMENT_ID]: {} } } },
+    });
+
+    await purchaseSquadzPlus(true);
+
+    expect(fetchFoundingStatus).toHaveBeenCalledWith("/api/subscription/founding-status/fresh", {
+      cache: "no-store",
+    });
+    expect(purchasePackage).toHaveBeenCalledWith(standardPkg);
+  });
+
+  it("never falls back to the founding package when the standard package is absent", async () => {
+    await configureRevenueCat("user-1");
+    const foundingPkg = pkg(ANDROID_FOUNDING_ID, "$19.99");
+    fetchFoundingStatus.mockResolvedValue({
+      ok: true,
+      json: async () => ({ isFoundingAvailable: false, spotsRemaining: 0 }),
+    });
+    getOfferings.mockResolvedValue(offeringsWith(foundingPkg));
+
+    const result = await purchaseSquadzPlus(true);
+
+    expect(result).toEqual({
+      ok: false,
+      error: "The founding offer has ended and the standard subscription is unavailable right now.",
+    });
+    expect(purchasePackage).not.toHaveBeenCalled();
   });
 
   it("resolves the entitlement as inactive when Play grants no squadz_plus entitlement", async () => {

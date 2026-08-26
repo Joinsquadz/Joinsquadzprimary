@@ -8,7 +8,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const hoisted = vi.hoisted(() => ({
   constructEventAsync: vi.fn(),
   processWebhook: vi.fn().mockResolvedValue(undefined),
-  redeemFoundingSpot: vi.fn().mockResolvedValue(true),
+  redeemFoundingSpot: vi.fn().mockResolvedValue("redeemed"),
   dbExecute: vi.fn().mockResolvedValue({ rows: [{ secret: "whsec_test" }] }),
   getUserByStripeCustomerId: vi.fn().mockResolvedValue(null),
   updateUserStripeInfo: vi.fn().mockResolvedValue(undefined),
@@ -62,7 +62,7 @@ function mockEvent(type: string, object: unknown): void {
 beforeEach(() => {
   vi.clearAllMocks();
   hoisted.processWebhook.mockResolvedValue(undefined);
-  hoisted.redeemFoundingSpot.mockResolvedValue(true);
+  hoisted.redeemFoundingSpot.mockResolvedValue("redeemed");
   hoisted.dbExecute.mockResolvedValue({ rows: [{ secret: "whsec_test" }] });
 });
 

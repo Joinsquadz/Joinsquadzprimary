@@ -15,6 +15,20 @@ const router: IRouter = Router();
 type FoundingStatus = Awaited<ReturnType<typeof getFoundingStatus>>;
 let _foundingCache: { value: FoundingStatus; expiresAt: number } | null = null;
 
+// Purchase-time guard: deliberately separate from the cached public display
+// endpoint below. StoreKit/Play can still complete a sheet opened from stale UI,
+// so the client must make its final package choice from a fresh counter read.
+router.get('/subscription/founding-status/fresh', async (_req, res): Promise<void> => {
+  try {
+    const status = await getFoundingStatus();
+    res.setHeader('Cache-Control', 'no-store, max-age=0');
+    res.json(status);
+  } catch (err) {
+    logger.error({ err }, 'Error fetching fresh founding status');
+    res.status(500).json({ error: 'Failed to fetch founding status' });
+  }
+});
+
 router.get('/subscription/founding-status', async (_req, res): Promise<void> => {
   try {
     const now = Date.now();

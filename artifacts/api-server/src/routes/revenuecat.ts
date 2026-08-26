@@ -73,8 +73,16 @@ router.post("/iap/sync", requireAuth, async (req: Request, res: Response): Promi
     // Tier comes from the entitlement's product identifier. Null when RevenueCat
     // didn't report one (or it isn't one of ours) — `setSquadzPlus` then leaves
     // any previously-known tier untouched rather than erasing it.
-    const incomingTier = active ? tierForProductId(ent?.product_identifier) : null;
     const currentUser = await storage.getUser(userId);
+    let incomingTier = active ? tierForProductId(ent?.product_identifier) : null;
+    // RevenueCat's direct subscriber read has no transaction identifier, so it
+    // cannot atomically claim a founding spot. Until the payment webhook has
+    // written founding provenance, a new founding-SKU subscriber reads as
+    // standard here; otherwise /iap/sync could recreate the exact sold-out
+    // provenance that the webhook correctly rejected.
+    if (incomingTier === "founding" && currentUser?.squadzPlusTier !== "founding") {
+      incomingTier = "standard";
+    }
     const tier = tierForWrite(currentUser?.squadzPlusTier, incomingTier, {
       userId,
       productIdentifier: ent?.product_identifier,
@@ -136,6 +144,23 @@ router.post("/revenuecat/webhook", async (req, res): Promise<void> => {
 
   try {
     const decision = decideEntitlement(event);
+    // A paid founding purchase must claim the capped ledger BEFORE its user is
+    // written as a founding member. At the final spot, only the ledger winner is
+    // founding; a loser was charged by the store's already-open purchase sheet,
+    // so they keep SquadZ+ access at the standard tier rather than receiving
+    // founding provenance without a spot.
+    let foundingRedemption: Awaited<ReturnType<typeof redeemFoundingSpot>> | null = null;
+    if (decision === "grant" && shouldRedeemFounding(event)) {
+      const key = foundingLedgerKey(event);
+      if (!key) {
+        throw new Error("Founding RevenueCat payment is missing a transaction id");
+      }
+      foundingRedemption = await redeemFoundingSpot(key);
+      if (foundingRedemption === "redeemed") {
+        logger.info({ userId, key }, "Redeemed a founding member spot (RevenueCat)");
+      }
+    }
+
     if (decision === "grant" || decision === "revoke") {
       const user = await storage.getUser(userId);
       if (user) {
@@ -148,7 +173,18 @@ router.post("/revenuecat/webhook", async (req, res): Promise<void> => {
         // products. On a revoke we leave the stored tier alone — access is off
         // via the flag, and readers report tier 'none' while `isSquadzPlus` is
         // false, so the historical tier is preserved without leaking.
-        const incomingTier = decision === "grant" ? tierForProductId(event.product_id) : null;
+        let incomingTier = decision === "grant" ? tierForProductId(event.product_id) : null;
+        if (incomingTier === "founding" && foundingRedemption === "sold_out") {
+          incomingTier = "standard";
+          const details = {
+            userId: user.id,
+            productIdentifier: event.product_id,
+            eventType: event.type,
+            source: "webhook" as const,
+          };
+          captureMessage("Founding purchase arrived after the cohort closed", "warning", details);
+          logger.warn(details, "Recorded paid founding SKU as standard after cohort sold out");
+        }
         const tier = tierForWrite(user.squadzPlusTier, incomingTier, {
           userId: user.id,
           productIdentifier: event.product_id,
@@ -174,19 +210,6 @@ router.post("/revenuecat/webhook", async (req, res): Promise<void> => {
         }
       } else {
         logger.warn({ userId, type: event.type }, "RevenueCat event for unknown user — acking");
-      }
-    }
-
-    // Consume a Founding Member spot ONLY on a confirmed payment for the founding
-    // product. Idempotent per original_transaction_id via the shared ledger, so
-    // re-delivery / annual renewals can't double-count. On failure we rethrow →
-    // 500 → RevenueCat retries; idempotency makes the retry safe, and without it a
-    // paid founding purchase could silently lose its spot forever.
-    if (shouldRedeemFounding(event)) {
-      const key = foundingLedgerKey(event);
-      if (key) {
-        const consumed = await redeemFoundingSpot(key);
-        if (consumed) logger.info({ userId, key }, "Redeemed a founding member spot (RevenueCat)");
       }
     }
 

@@ -132,6 +132,11 @@ export type RcPrices = {
   standard: { priceString: string } | null;
 };
 
+type FoundingStatus = {
+  spotsRemaining: number;
+  isFoundingAvailable: boolean;
+};
+
 /** A founding discount is safe to display only when RevenueCat found its live package price. */
 export function hasLiveFoundingPrice(prices: RcPrices): boolean {
   return typeof prices.founding?.priceString === "string" && prices.founding.priceString.trim().length > 0;
@@ -287,12 +292,37 @@ function reportUnavailablePurchasePackage(
 }
 
 /**
- * Purchase SquadZ+. `preferFounding` selects the founding package while spots
- * remain (server truth via /api/subscription/founding-status). The actual
- * founding-spot consumption happens server-side in the RevenueCat webhook when
- * payment is confirmed — this only picks which package to buy.
+ * Re-check cohort availability at the point a package is selected. The status
+ * shown when the paywall opened can be stale by the time a customer taps buy;
+ * an unverified answer is intentionally treated as sold out so the client never
+ * opens a StoreKit/Play purchase sheet for the founding SKU after close.
  */
-export async function purchaseSquadzPlus(preferFounding: boolean): Promise<PurchaseOutcome> {
+async function canPurchaseFoundingNow(apiBase: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${apiBase}/api/subscription/founding-status/fresh`, {
+      cache: "no-store",
+    });
+    if (!response.ok) return false;
+    const data = (await response.json()) as Partial<FoundingStatus>;
+    return (
+      data.isFoundingAvailable === true &&
+      typeof data.spotsRemaining === "number" &&
+      data.spotsRemaining > 0
+    );
+  } catch {
+    return false;
+  }
+}
+/**
+ * Purchase SquadZ+. A visible founding price is only a hint; before selecting
+ * its package, re-read the server-owned cohort state. If it is sold out or
+ * cannot be verified, select only the standard package. The webhook then
+ * atomically claims the final spot before recording founding provenance.
+ */
+export async function purchaseSquadzPlus(
+  preferFounding: boolean,
+  apiBase = "",
+): Promise<PurchaseOutcome> {
   if (Platform.OS === "web") {
     return { ok: false, error: "SquadZ+ is available in the SquadZ mobile app." };
   }
@@ -302,12 +332,13 @@ export async function purchaseSquadzPlus(preferFounding: boolean): Promise<Purch
     return { ok: false, error: "In-app purchases aren't available right now." };
   }
   try {
+    const foundingAllowed = preferFounding && (await canPurchaseFoundingNow(apiBase));
     const offerings = await Purchases.getOfferings();
     const pkgs = offerings.current?.availablePackages ?? [];
     if (pkgs.length === 0) {
       return { ok: false, error: "No subscription options are available right now." };
     }
-    const requestedTier: Exclude<SquadzPlusTier, "none"> = preferFounding ? "founding" : "standard";
+    const requestedTier: Exclude<SquadzPlusTier, "none"> = foundingAllowed ? "founding" : "standard";
     const requestedProduct = productIdForCurrentPlatform(requestedTier);
     const pkg = pkgs.find((p) => productMatches(p.product.identifier, requestedProduct));
     if (!pkg) {
@@ -317,7 +348,10 @@ export async function purchaseSquadzPlus(preferFounding: boolean): Promise<Purch
       );
       return {
         ok: false,
-        error: "That subscription option isn't available right now. Please try again.",
+        error:
+          preferFounding && !foundingAllowed
+            ? "The founding offer has ended and the standard subscription is unavailable right now."
+            : "That subscription option isn't available right now. Please try again.",
       };
     }
     const { customerInfo } = await Purchases.purchasePackage(pkg);

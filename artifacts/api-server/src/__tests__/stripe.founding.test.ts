@@ -78,6 +78,33 @@ describe("GET /api/subscription/founding-status (public)", () => {
   });
 });
 
+describe("GET /api/subscription/founding-status/fresh (purchase-time guard)", () => {
+  it("bypasses a warmed display cache after the final founding spot is consumed", async () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    foundingMock.getFoundingStatus
+      .mockResolvedValueOnce({ spotsRemaining: 1, isFoundingAvailable: true, limit: 500 })
+      .mockResolvedValueOnce({ spotsRemaining: 0, isFoundingAvailable: false, limit: 500 });
+
+    try {
+      // The display endpoint caches its "one spot left" response in production.
+      const display = await request(makeApp()).get("/api/subscription/founding-status");
+      expect(display.body.isFoundingAvailable).toBe(true);
+
+      // A purchase immediately afterward must bypass that cache and observe the
+      // closed cohort, rather than letting StoreKit/Play open founding checkout.
+      const purchaseCheck = await request(makeApp()).get("/api/subscription/founding-status/fresh");
+      expect(purchaseCheck.status).toBe(200);
+      expect(purchaseCheck.body).toEqual({ spotsRemaining: 0, isFoundingAvailable: false, limit: 500 });
+      expect(purchaseCheck.headers["cache-control"]).toContain("no-store");
+      expect(foundingMock.getFoundingStatus).toHaveBeenCalledTimes(2);
+    } finally {
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+    }
+  });
+});
+
 describe("POST /api/checkout — intentionally disabled", () => {
   it("returns an intentional deprecation response without authentication", async () => {
     const res = await request(makeApp()).post("/api/checkout").send({});

@@ -132,8 +132,8 @@ export class WebhookHandlers {
     // its spot forever.
     if (isCheckoutCompleted && subscriptionId && checkoutTier === 'founding') {
       try {
-        const consumed = await redeemFoundingSpot(subscriptionId);
-        if (consumed) {
+        const redemption = await redeemFoundingSpot(subscriptionId);
+        if (redemption === 'redeemed') {
           logger.info({ subscriptionId }, 'Redeemed a founding member spot');
         }
       } catch (err) {
