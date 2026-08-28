@@ -34,6 +34,7 @@ import { deriveAgeFields, MIN_SIGNUP_AGE } from "../lib/age";
 import { trackEvent, identifyUser } from "../services/analytics";
 import { logger } from "../lib/logger";
 import { storage } from "../storage";
+import { classifySupabaseRefreshError } from "../lib/authRefresh";
 
 // C8: on logout, delete the device's push token server-side so a logged-out
 // device stops receiving pushes. Best-effort — never blocks the logout.
@@ -959,15 +960,39 @@ router.post("/auth/refresh", async (req: Request, res: Response) => {
     res.status(400).json({ error: "refreshToken is required." });
     return;
   }
-  const { data, error } = await supabaseAuth.auth.refreshSession({ refresh_token: refreshToken });
-  if (error || !data.session) {
-    res.status(401).json({ error: "Invalid or expired refresh token." });
-    return;
+  try {
+    const { data, error } = await supabaseAuth.auth.refreshSession({
+      refresh_token: refreshToken,
+    });
+    if (error) {
+      if (classifySupabaseRefreshError(error) === "invalid") {
+        res.status(401).json({ error: "Invalid or expired refresh token." });
+      } else {
+        req.log.warn(
+          {
+            authProviderStatus: error.status ?? null,
+            authProviderCode: error.code ?? null,
+          },
+          "Supabase session refresh failed transiently",
+        );
+        res.status(503).json({ error: "Session refresh temporarily unavailable." });
+      }
+      return;
+    }
+    if (!data.session) {
+      // A success-shaped response without a session is not proof that the
+      // refresh credential is invalid. Preserve the client session and retry.
+      res.status(503).json({ error: "Session refresh temporarily unavailable." });
+      return;
+    }
+    res.json({
+      token: data.session.access_token,
+      refreshToken: data.session.refresh_token,
+    });
+  } catch (error) {
+    req.log.warn({ err: error }, "Supabase session refresh request failed");
+    res.status(503).json({ error: "Session refresh temporarily unavailable." });
   }
-  res.json({
-    token: data.session.access_token,
-    refreshToken: data.session.refresh_token,
-  });
 });
 
 router.get("/auth/me", async (req: Request, res: Response) => {

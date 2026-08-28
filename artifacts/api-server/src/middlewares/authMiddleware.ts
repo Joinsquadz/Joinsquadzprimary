@@ -10,6 +10,8 @@ import {
   getUserFromAccessToken,
   isTokenRevoked,
   updateSession,
+  deleteSession,
+  withSessionRefreshLock,
   type SessionData,
 } from "../lib/auth";
 import { supabaseAdmin } from "../services/supabase";
@@ -30,31 +32,75 @@ declare global {
   }
 }
 
-async function refreshIfExpired(
+type SessionRefreshOutcome =
+  | { kind: "valid"; session: SessionData }
+  | { kind: "invalid" }
+  | { kind: "transient"; session: SessionData };
+
+function isDefinitiveRefreshRejection(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const oauthError = error as { name?: unknown; error?: unknown };
+  return (
+    oauthError.name === "ResponseBodyError" &&
+    (oauthError.error === "invalid_grant" || oauthError.error === "invalid_token")
+  );
+}
+
+export async function refreshIfExpired(
   sid: string,
   session: SessionData,
-): Promise<SessionData | null> {
+): Promise<SessionRefreshOutcome> {
   const now = Math.floor(Date.now() / 1000);
-  if (!session.expires_at || now <= session.expires_at) return session;
-
-  if (!session.refresh_token) return null;
-
-  try {
-    const config = await getOidcConfig();
-    const tokens = await oidc.refreshTokenGrant(
-      config,
-      session.refresh_token,
-    );
-    session.access_token = tokens.access_token;
-    session.refresh_token = tokens.refresh_token ?? session.refresh_token;
-    session.expires_at = tokens.expiresIn()
-      ? now + tokens.expiresIn()!
-      : session.expires_at;
-    await updateSession(sid, session);
-    return session;
-  } catch {
-    return null;
+  if (!session.expires_at || now <= session.expires_at) {
+    return { kind: "valid", session };
   }
+
+  return withSessionRefreshLock(sid, async (executor) => {
+    // Another request may have completed rotation while this one waited for the
+    // advisory lock. Re-read and use the persisted pair instead of submitting
+    // the stale pre-lock refresh token a second time.
+    const latest = await getSession(sid, executor);
+    if (!latest?.user?.id) return { kind: "invalid" };
+    const lockedNow = Math.floor(Date.now() / 1000);
+    if (!latest.expires_at || lockedNow <= latest.expires_at) {
+      return { kind: "valid", session: latest };
+    }
+    if (!latest.refresh_token) {
+      await deleteSession(sid, executor);
+      return { kind: "invalid" };
+    }
+
+    try {
+      const config = await getOidcConfig();
+      const tokens = await oidc.refreshTokenGrant(
+        config,
+        latest.refresh_token,
+      );
+      const refreshed: SessionData = {
+        ...latest,
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token ?? latest.refresh_token,
+        expires_at: tokens.expiresIn()
+          ? lockedNow + tokens.expiresIn()!
+          : latest.expires_at,
+      };
+      await updateSession(sid, refreshed, executor);
+      return { kind: "valid", session: refreshed };
+    } catch (error) {
+      // invalid_grant/invalid_token definitively means the refresh credential is
+      // expired or revoked. Discovery outages, timeouts, and provider 5xx errors
+      // do not invalidate the server-side session; preserve it and try again on a
+      // later request rather than signing the user out during a network incident.
+      if (isDefinitiveRefreshRejection(error)) {
+        // Delete while the advisory lock is still held. A waiter will then
+        // observe no session instead of submitting the same rejected refresh
+        // token and firing a second invalidation path.
+        await deleteSession(sid, executor);
+        return { kind: "invalid" };
+      }
+      return { kind: "transient", session: latest };
+    }
+  });
 }
 
 export async function authMiddleware(
@@ -128,17 +174,19 @@ export async function authMiddleware(
     }
 
     const refreshed = await refreshIfExpired(sid, session);
-    if (!refreshed) {
+    if (refreshed.kind === "invalid") {
       // Session's stored expires_at has passed and it couldn't be refreshed —
       // enforce expiry for ALL session types: delete the session and force
       // re-auth (no fallback to a possibly-still-valid stored access token,
       // which would keep an expired session alive indefinitely).
-      await clearSession(res, sid);
+      // refreshIfExpired deleted the invalid server session while holding its
+      // per-SID lock; only cookie cleanup remains here.
+      await clearSession(res);
       next();
       return;
     }
 
-    req.user = refreshed.user;
+    req.user = refreshed.session.user;
     next();
   } catch {
     // Session lookup failed transiently — treat as unauthenticated rather than

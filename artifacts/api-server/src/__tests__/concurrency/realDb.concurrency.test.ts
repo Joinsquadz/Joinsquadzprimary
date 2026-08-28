@@ -44,6 +44,7 @@ let dataDir = "";
 let pgStarted = false;
 // Loaded dynamically AFTER the env is locked to the local cluster.
 let dbmod: typeof import("@workspace/db");
+let authmod: typeof import("../../lib/auth");
 let app: express.Express;
 // Also loaded dynamically after the env lock — used for the chat-access checks,
 // which live in storage rather than behind an HTTP route.
@@ -140,6 +141,7 @@ beforeAll(async () => {
 
   // 4) Import the db singleton AFTER the env is locked, then apply the schema.
   dbmod = await import("@workspace/db");
+  authmod = await import("../../lib/auth");
   const sqlFiles = fs
     .readdirSync(outDir)
     .filter((f) => f.endsWith(".sql"))
@@ -208,6 +210,71 @@ describe("shared pool preserves PostgreSQL diagnostics", () => {
 
     const followUp = await dbmod.pool.query<{ ok: number }>("SELECT 1 AS ok");
     expect(followUp.rows[0]?.ok).toBe(1);
+  });
+});
+
+describe("OIDC refresh locking uses one pool connection per session", () => {
+  it("refreshes a pool-sized burst of distinct sessions without starvation", async () => {
+    const poolSize = dbmod.pool.options.max;
+    const sids = Array.from(
+      { length: poolSize },
+      (_, index) => `refresh-pool-${index}`,
+    );
+    const expiredAt = Math.floor(Date.now() / 1000) - 60;
+    for (const sid of sids) {
+      await dbmod.pool.query(
+        `INSERT INTO sessions (sid, sess, expire)
+         VALUES ($1, $2::jsonb, NOW() + INTERVAL '1 day')`,
+        [
+          sid,
+          JSON.stringify({
+            user: { id: `user-${sid}` },
+            access_token: "expired-access",
+            refresh_token: `refresh-${sid}`,
+            expires_at: expiredAt,
+          }),
+        ],
+      );
+    }
+
+    const burst = Promise.all(
+      sids.map((sid) =>
+        authmod.withSessionRefreshLock(sid, async (executor) => {
+          const session = await authmod.getSession(sid, executor);
+          expect(session?.refresh_token).toBe(`refresh-${sid}`);
+          // Keep every transaction checked out long enough for the burst to
+          // occupy the complete pool. Nested root-db calls would deadlock here.
+          await new Promise((resolve) => setTimeout(resolve, 40));
+          await authmod.updateSession(
+            sid,
+            {
+              ...session!,
+              access_token: `rotated-${sid}`,
+              expires_at: Math.floor(Date.now() / 1000) + 3600,
+            },
+            executor,
+          );
+        }),
+      ),
+    );
+
+    await expect(
+      Promise.race([
+        burst.then(() => "completed"),
+        new Promise<string>((resolve) =>
+          setTimeout(() => resolve("pool-starved"), 2_000),
+        ),
+      ]),
+    ).resolves.toBe("completed");
+
+    const { rows } = await dbmod.pool.query<{ sid: string; token: string }>(
+      `SELECT sid, sess->>'access_token' AS token
+         FROM sessions
+        WHERE sid = ANY($1::text[])`,
+      [sids],
+    );
+    expect(rows).toHaveLength(poolSize);
+    expect(rows.every((row) => row.token === `rotated-${row.sid}`)).toBe(true);
   });
 });
 

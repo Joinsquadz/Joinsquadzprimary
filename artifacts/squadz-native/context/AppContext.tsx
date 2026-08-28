@@ -3,7 +3,7 @@ import { useToast } from "@/context/ToastContext";
 import { AppState, Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
-import { API_BASE } from "@/lib/api";
+import { API_BASE, fetchWithTimeout } from "@/lib/api";
 // Expo's streaming-capable fetch. React Native's built-in fetch does NOT
 // populate `response.body` (no ReadableStream), so the SSE reader below could
 // never start and the global live-status banner would be stuck reconnecting on
@@ -34,6 +34,13 @@ import {
   type EmailLoginPayload,
 } from "@/lib/emailLoginResponse";
 import { shouldInvalidateConfirmedSession } from "@/lib/sessionRecovery";
+import {
+  classifyRefreshResponse,
+  createSessionRefreshCoordinator,
+  isAccessTokenExpired,
+  type RefreshResult,
+  type SessionRefreshCoordinator,
+} from "@/lib/sessionRefresh";
 // Shared auth-race guard (see lib/vaultAuthRace.ts). A cold-start / slow-login
 // 401 on the events or squads fetch must NOT collapse the list screens to a
 // false "nothing here" empty state — keep them loading and retry until an
@@ -96,22 +103,49 @@ async function setSecureToken(key: string, value: string): Promise<void> {
     // SecureStore is a no-op on web. Use AsyncStorage (localStorage) so the
     // session survives page refreshes. This is NOT a security regression —
     // web sessions are already bounded to the browser's storage model.
-    await AsyncStorage.setItem(key, value).catch(() => {});
+    await AsyncStorage.setItem(key, value);
     return;
   }
   try {
     await SecureStore.setItemAsync(key, value);
     await AsyncStorage.removeItem(key).catch(() => {}); // purge any legacy copy
   } catch (err) {
-    // OS-level encryption fault — session is in-memory only and will be lost
-    // on force-quit. Log so the failure is visible in device logs / Sentry.
-    console.warn("[SecureStore] setItemAsync failed — session will not persist across restarts", key, err);
+    console.warn("[SecureStore] setItemAsync failed", key, err);
+    throw err;
   }
 }
 
+async function removeSecureTokenStrict(key: string): Promise<void> {
+  if (Platform.OS === "web") {
+    await AsyncStorage.removeItem(key);
+    return;
+  }
+  await SecureStore.deleteItemAsync(key);
+  await AsyncStorage.removeItem(key).catch(() => {});
+}
+
 async function removeSecureToken(key: string): Promise<void> {
-  try { await SecureStore.deleteItemAsync(key); } catch {}
-  await AsyncStorage.removeItem(key).catch(() => {}); // also clear legacy location
+  try {
+    await removeSecureTokenStrict(key);
+  } catch {
+    // Logout/deletion cleanup is best-effort and also clears the legacy store.
+    await AsyncStorage.removeItem(key).catch(() => {});
+  }
+}
+
+async function persistTokenPair(
+  token: string,
+  refreshToken?: string | null,
+): Promise<void> {
+  // Write/remove the refresh credential first. The access token is the commit
+  // marker read on startup, so a partial write can never expose a new access
+  // token paired with a stale refresh credential.
+  if (refreshToken) {
+    await setSecureToken(REFRESH_TOKEN_KEY, refreshToken);
+  } else {
+    await removeSecureTokenStrict(REFRESH_TOKEN_KEY);
+  }
+  await setSecureToken(AUTH_TOKEN_KEY, token);
 }
 // Set at register time (token persisted, but onboarding not yet finished) and
 // removed once onboarding's login() completes. Lets a relaunch distinguish a
@@ -669,10 +703,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // session change (logout/login) mid-flight and refuse to commit stale state.
   const authTokenRef = useRef<string | null>(null);
   const refreshTokenRef = useRef<string | null>(null);
-  // Promise-queue for token refresh: the first concurrent 401 starts a refresh
-  // and stores its promise here; subsequent concurrent 401s await the same
-  // promise instead of launching duplicate refreshes. Cleared when refresh settles.
-  const refreshPromiseRef = useRef<Promise<string | null> | null>(null);
+  // Serializes every durable token-pair mutation. A logout or new login queues
+  // behind any already-running SecureStore write, then deterministically removes
+  // or replaces it so a stale refresh completion cannot win the race.
+  const tokenStorageQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const queueTokenStorageMutation = useCallback(
+    (mutation: () => Promise<void>): Promise<void> => {
+      const next = tokenStorageQueueRef.current
+        .catch(() => {})
+        .then(mutation);
+      tokenStorageQueueRef.current = next.catch(() => {});
+      return next;
+    },
+    [],
+  );
+  // One refresh coordinator is shared by cold start, protected requests, SSE,
+  // and foreground recovery. Concurrent 401s await the same token exchange.
+  const sessionRefreshRef = useRef<SessionRefreshCoordinator | null>(null);
   // Mirrors isSessionValidated state so apiFetch (empty-dep useCallback) can
   // distinguish a mid-session 401 (sign out + toast) from a cold-start auth-race
   // 401 (just retry). Only fires the global sign-out path once validated=true.
@@ -684,6 +731,50 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // True once the session-expiry teardown has fired; prevents concurrent 401s
   // from triggering duplicate teardowns/toasts. Reset on new auth session.
   const sessionExpiryFiredRef = useRef(false);
+
+  if (!sessionRefreshRef.current) {
+    sessionRefreshRef.current = createSessionRefreshCoordinator({
+      getRefreshToken: () => refreshTokenRef.current,
+      loadRefreshToken: () => getSecureToken(REFRESH_TOKEN_KEY),
+      rememberRefreshToken: (refreshToken) => {
+        refreshTokenRef.current = refreshToken;
+      },
+      exchange: async (refreshToken): Promise<RefreshResult> => {
+        const refreshRes = await fetchWithTimeout(`${API_BASE}/api/auth/refresh`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refreshToken }),
+        });
+        const payload = (await refreshRes.json().catch(() => ({}))) as {
+          token?: unknown;
+          refreshToken?: unknown;
+        };
+        return classifyRefreshResponse(refreshRes.status, payload);
+      },
+      commitTokens: async ({ token, refreshToken }, isCurrent) => {
+        // Persist the complete rotated pair before any caller retries its
+        // protected request. This prevents a force-quit between retry and write
+        // from reviving the now-invalid pre-rotation refresh token.
+        const nextRefreshToken = refreshToken ?? refreshTokenRef.current;
+        // Publish the rotated pair only after the durability barrier. Until
+        // then every request continues to see the previous, already-persisted
+        // pair; the coordinator privately retains a failed rotation for retry.
+        await queueTokenStorageMutation(async () => {
+          if (!isCurrent()) return;
+          await persistTokenPair(token, nextRefreshToken);
+        });
+        if (!isCurrent()) throw new Error("stale refresh generation");
+        refreshTokenRef.current = nextRefreshToken;
+        authTokenRef.current = token;
+        setAuthToken(token);
+      },
+    });
+  }
+
+  const refreshSession = useCallback(
+    () => sessionRefreshRef.current!.refresh(),
+    [],
+  );
 
   // apiFetch uses refs (not state) so it is stable across renders and all
   // callbacks that depend on it are created once. On 401 it attempts a single
@@ -698,97 +789,53 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ...(options?.headers as Record<string, string>),
       };
       if (authTokenRef.current) headers.Authorization = `Bearer ${authTokenRef.current}`;
-      // 30s safety timeout: on flaky cellular networks fetch can otherwise hang
-      // indefinitely, leaving screens stuck on spinners. Callers that pass their
-      // own AbortSignal keep full control (no extra timeout is layered on).
-      const timedFetch = (url: string, init: RequestInit): Promise<Response> => {
-        if (init.signal) return fetch(url, init);
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 30_000);
-        return fetch(url, { ...init, signal: controller.signal }).finally(() =>
-          clearTimeout(timer),
-        );
-      };
-      const res = await timedFetch(`${API_BASE}${path}`, { ...options, headers });
+      const res = await fetchWithTimeout(`${API_BASE}${path}`, { ...options, headers });
 
       if (res.status === 401) {
         // Auth routes (login, register, refresh, …) legitimately return 401 —
         // never treat those as a mid-session expiry.
         const isAuthRoute = path.startsWith("/api/auth/");
 
-        if (!isAuthRoute && refreshTokenRef.current) {
-          // Promise-queue: the first concurrent 401 starts the refresh; all
-          // subsequent concurrent 401s await the same promise so we never fire
-          // duplicate token-refresh requests.
-          if (!refreshPromiseRef.current) {
-            refreshPromiseRef.current = (async (): Promise<string | null> => {
-              try {
-                const refreshRes = await timedFetch(`${API_BASE}/api/auth/refresh`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ refreshToken: refreshTokenRef.current }),
-                });
-                if (refreshRes.ok) {
-                  const refreshData = (await refreshRes.json()) as { token?: string; refreshToken?: string };
-                  if (refreshData.token) {
-                    authTokenRef.current = refreshData.token;
-                    setAuthToken(refreshData.token);
-                    void setSecureToken(AUTH_TOKEN_KEY, refreshData.token);
-                    if (refreshData.refreshToken) {
-                      refreshTokenRef.current = refreshData.refreshToken;
-                      void setSecureToken(REFRESH_TOKEN_KEY, refreshData.refreshToken);
-                    }
-                    return refreshData.token;
-                  }
-                }
-                // Refresh rejected — session is definitively dead.
-                // If the session had already been validated (mid-session expiry),
-                // clear state and show an explanatory toast. Cold-start auth-race
-                // 401s (isSessionValidated still false) are handled by the retry
-                // loops in fetchEvents / fetchSquads / fetchFriends instead.
-                if (
-                  shouldInvalidateConfirmedSession({
-                    path,
-                    isSessionValidated: isSessionValidatedRef.current,
-                    hasSessionToken: !!authTokenRef.current,
-                  })
-                ) {
-                  handleSessionExpiryRef.current();
-                } else {
-                  // Partial cleanup only — session never established.
-                  authTokenRef.current = null;
-                  refreshTokenRef.current = null;
-                  setAuthToken(null);
-                  setIsLoggedIn(false);
-                  setApiUser(null);
-                  void removeSecureToken(AUTH_TOKEN_KEY);
-                  void removeSecureToken(REFRESH_TOKEN_KEY);
-                }
-                return null;
-              } catch {
-                // Network error during refresh — leave state intact, caller handles.
-                return null;
-              } finally {
-                refreshPromiseRef.current = null;
-              }
-            })();
+        if (!isAuthRoute) {
+          const refreshResult = await refreshSession();
+          if (refreshResult.kind === "refreshed") {
+            const retryHeaders = {
+              ...headers,
+              Authorization: `Bearer ${refreshResult.token}`,
+            };
+            const retryRes = await fetchWithTimeout(`${API_BASE}${path}`, {
+              ...options,
+              headers: retryHeaders,
+            });
+            if (
+              retryRes.status === 401 &&
+              shouldInvalidateConfirmedSession({
+                path,
+                isSessionValidated: isSessionValidatedRef.current,
+                hasSessionToken: true,
+              })
+            ) {
+              handleSessionExpiryRef.current();
+            }
+            return retryRes;
           }
-
-          const newToken = await refreshPromiseRef.current;
-          if (newToken) {
-            const retryHeaders = { ...headers, Authorization: `Bearer ${newToken}` };
-            return timedFetch(`${API_BASE}${path}`, { ...options, headers: retryHeaders });
+          if (
+            refreshResult.kind === "invalid" &&
+            shouldInvalidateConfirmedSession({
+              path,
+              isSessionValidated: isSessionValidatedRef.current,
+              hasSessionToken: !!authTokenRef.current,
+            })
+          ) {
+            handleSessionExpiryRef.current();
           }
         } else if (
-          !refreshTokenRef.current &&
           shouldInvalidateConfirmedSession({
             path,
             isSessionValidated: isSessionValidatedRef.current,
             hasSessionToken: !!authTokenRef.current,
           })
         ) {
-          // No refresh token available and a mid-session 401 — the token is
-          // simply expired with no recovery path. Sign the user out.
           handleSessionExpiryRef.current();
         }
       }
@@ -797,7 +844,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // No dependency on authToken state — uses authTokenRef so the function is
     // stable and all useCallbacks depending on it are created only once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+    [refreshSession],
   );
 
   useEffect(() => {
@@ -959,9 +1006,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // session to revoke. Leaves the user at a clean logged-out state so AuthGuard
   // routes to /login instead of a blank, signed-in-but-empty account.
   const clearLocalSession = useCallback(() => {
+    sessionRefreshRef.current?.reset();
     AsyncStorage.multiRemove(ALL_APP_STORAGE_KEYS).catch(() => {});
-    void removeSecureToken(AUTH_TOKEN_KEY);
-    void removeSecureToken(REFRESH_TOKEN_KEY);
+    void queueTokenStorageMutation(async () => {
+      await Promise.all([
+        removeSecureToken(AUTH_TOKEN_KEY),
+        removeSecureToken(REFRESH_TOKEN_KEY),
+      ]);
+    });
     clearProfileCache();
     authTokenRef.current = null;
     refreshTokenRef.current = null;
@@ -979,7 +1031,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // own entitlement has been read.
     setEntitlementState(UNRESOLVED_ENTITLEMENT);
     currentUserIdRef.current = ME.id;
-  }, []);
+  }, [queueTokenStorageMutation]);
 
   // Keep handleSessionExpiryRef updated each render so apiFetch and the SSE
   // handler (both created once, empty deps) always call the latest version.
@@ -1048,58 +1100,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
 
     try {
-      let res = await fetch(`${API_BASE}/api/auth/me`, {
+      let res = await fetchWithTimeout(`${API_BASE}/api/auth/me`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
       if (res.status === 401) {
-        // The stored access token is invalid/expired. Attempt a one-shot
-        // refresh before giving up so a warm relaunch with a live refresh
-        // token stays signed in without flashing the login screen. (On startup
-        // the refresh token may still be loading into the ref, so fall back to
-        // reading it straight from storage.)
-        const refreshToken =
-          refreshTokenRef.current ??
-          (await getSecureToken(REFRESH_TOKEN_KEY));
-        let refreshedToken: string | null = null;
-        if (refreshToken) {
-          try {
-            const refreshRes = await fetch(`${API_BASE}/api/auth/refresh`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ refreshToken }),
-            });
-            if (refreshRes.ok) {
-              const refreshData = (await refreshRes.json()) as {
-                token?: string;
-                refreshToken?: string;
-              };
-              if (refreshData.token) {
-                refreshedToken = refreshData.token;
-                authTokenRef.current = refreshData.token;
-                setAuthToken(refreshData.token);
-                void setSecureToken(AUTH_TOKEN_KEY, refreshData.token);
-                if (refreshData.refreshToken) {
-                  refreshTokenRef.current = refreshData.refreshToken;
-                  void setSecureToken(REFRESH_TOKEN_KEY, refreshData.refreshToken);
-                }
-              }
-            }
-          } catch {
-            // Network error during refresh — fall through to the session clear
-            // below so a dead token never leaves the user in a blank account.
-          }
-        }
-
-        if (!refreshedToken) {
-          // No refresh token, or refresh failed → the stored session is dead.
+        const refreshResult = await refreshSession();
+        if (refreshResult.kind === "invalid") {
+          // Missing or rejected refresh credentials are a definitive verdict.
           clearLocalSession();
+          return;
+        }
+        if (refreshResult.kind === "transient") {
+          // Offline, timeout, throttling, or a server fault does not disprove a
+          // previously stored session. Keep it and retry on the next request or
+          // foreground transition.
           return;
         }
 
         // Retry /api/auth/me once with the refreshed token.
-        res = await fetch(`${API_BASE}/api/auth/me`, {
-          headers: { Authorization: `Bearer ${refreshedToken}` },
+        res = await fetchWithTimeout(`${API_BASE}/api/auth/me`, {
+          headers: { Authorization: `Bearer ${refreshResult.token}` },
         });
         if (res.status === 401) {
           clearLocalSession();
@@ -1118,7 +1139,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // (trust the cache). The root layout may now mount the right screen.
       setIsSessionValidated(true);
     }
-  }, [clearLocalSession]);
+  }, [clearLocalSession, fetchProStatus, refreshSession]);
 
   const fetchEvents = useCallback(async () => {
     setEventsLoading(true);
@@ -1296,12 +1317,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Refresh squads whenever the app returns to the foreground so that users
   // who were just added to a squad see it immediately without a manual reload.
+  // If a Supabase JWT is already expired, enter the same guarded refresh lane
+  // used by protected-request 401s before the data refresh races it.
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
-      if (state === "active" && isLoggedIn) void refreshSquads();
+      if (state !== "active" || !isLoggedIn) return;
+      const token = authTokenRef.current;
+      if (token && isAccessTokenExpired(token)) {
+        void refreshSession().then((result) => {
+          if (result.kind === "invalid") handleSessionExpiryRef.current();
+          if (result.kind === "refreshed") void refreshSquads();
+        });
+        return;
+      }
+      void refreshSquads();
     });
     return () => sub.remove();
-  }, [isLoggedIn, refreshSquads]);
+  }, [isLoggedIn, refreshSession, refreshSquads]);
 
   // Squad-cap invalidation. The cap is enforced server-side (a 403 SQUAD_LIMIT
   // on create/join), so what changes on an unlock is which squads the user can
@@ -1385,13 +1417,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             // The token was rejected outright — retrying with the same token
             // can never succeed and would just spin the "Reconnecting…"
             // banner. Surface the "error" state so the user can tap to retry.
-            // Additionally, a 401 on a validated session (mid-session expiry,
-            // not a cold-start race) triggers a global sign-out so the user is
-            // taken to login with an explanatory toast rather than left in a
-            // broken signed-in-but-all-calls-failing state.
             setSquadStreamStatus("error");
             if (response.status === 401 && isSessionValidatedRef.current) {
-              handleSessionExpiryRef.current();
+              const refreshResult = await refreshSession();
+              if (refreshResult.kind === "invalid") {
+                handleSessionExpiryRef.current();
+              }
+              // A successful refresh updates authToken, which remounts this
+              // effect with the rotated token. A transient fault preserves the
+              // session and leaves the explicit retry affordance visible.
             }
             return;
           }
@@ -1451,7 +1485,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       globalStreamAbortRef.current?.abort();
       globalStreamAbortRef.current = null;
     };
-  }, [isLoggedIn, authToken, refreshSquads]);
+  }, [isLoggedIn, authToken, refreshSession, refreshSquads]);
 
   // Reset retry counter and reconnect immediately when the app returns to the
   // foreground — mobile OSes silently drop TCP connections in the background.
@@ -1476,10 +1510,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     Promise.all([
       getSecureToken(AUTH_TOKEN_KEY),
+      getSecureToken(REFRESH_TOKEN_KEY),
       AsyncStorage.getItem(ONBOARDING_PENDING_KEY).catch(() => null),
-    ]).then(([token, onboardingPending]) => {
+    ]).then(([token, refreshToken, onboardingPending]) => {
       if (token) {
         authTokenRef.current = token;
+        refreshTokenRef.current = refreshToken;
         setAuthToken(token);
         if (onboardingPending === "1") {
           // Account exists server-side but onboarding was never finished —
@@ -1489,11 +1525,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           setIsLoggedIn(true);
         }
         void fetchApiUser(token);
-        // Load the refresh token if present (fire-and-forget; failure is safe).
-        void getSecureToken(REFRESH_TOKEN_KEY).then(rt => {
-          if (rt) refreshTokenRef.current = rt;
-        });
       } else {
+        // A refresh token without its access-token partner cannot identify a
+        // session and must not leak into the next login.
+        refreshTokenRef.current = null;
+        if (refreshToken) {
+          void queueTokenStorageMutation(() =>
+            removeSecureToken(REFRESH_TOKEN_KEY),
+          );
+        }
         // No stored session — nothing to validate.
         setIsSessionValidated(true);
       }
@@ -1503,24 +1543,38 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // is honoured and the login screen never flashes on a warm relaunch.
       setIsAuthRestoring(false);
     });
-  }, [fetchApiUser]);
+  }, [fetchApiUser, queueTokenStorageMutation]);
 
   const refreshUser = useCallback(async () => {
-    if (authToken) await fetchApiUser(authToken);
-  }, [authToken, fetchApiUser]);
+    const token = authTokenRef.current;
+    if (token) await fetchApiUser(token);
+  }, [fetchApiUser]);
 
   const login = useCallback((token?: string) => {
     if (token) {
-      void setSecureToken(AUTH_TOKEN_KEY, token);
-      setAuthToken(token);
-      void fetchApiUser(token);
+      sessionRefreshRef.current?.reset();
+      void (async () => {
+        try {
+          await queueTokenStorageMutation(() => persistTokenPair(token, null));
+          authTokenRef.current = token;
+          refreshTokenRef.current = null;
+          sessionExpiryFiredRef.current = false;
+          setAuthToken(token);
+          setPendingOnboarding(false);
+          setIsLoggedIn(true);
+          void fetchApiUser(token);
+        } catch {
+          showToast("Couldn't securely save your session. Please sign in again.");
+        }
+      })();
+      return;
     }
     // Onboarding is finished — clear the pending marker so a future relaunch
     // sends the user straight into the app, not back through onboarding.
     AsyncStorage.removeItem(ONBOARDING_PENDING_KEY).catch(() => {});
     setPendingOnboarding(false);
     setIsLoggedIn(true);
-  }, [fetchApiUser]);
+  }, [fetchApiUser, queueTokenStorageMutation, showToast]);
 
   // Persist a token + the auth payload returned by register/login. Avoids an
   // extra /auth/me round-trip on the happy path. `markLoggedIn` is true for
@@ -1528,19 +1582,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // onboarding first — onboarding's login() flips the flag once setup is done,
   // avoiding an AuthGuard race that would yank the user out of signup early.
   const applyAuthSession = useCallback(
-    (
+    async (
       token: string,
       payload: { user: ApiUser; emailVerified?: boolean; phone?: string | null },
       markLoggedIn: boolean,
       refreshToken?: string | null,
     ) => {
-      void setSecureToken(AUTH_TOKEN_KEY, token);
+      sessionRefreshRef.current?.reset();
+      await queueTokenStorageMutation(() =>
+        persistTokenPair(token, refreshToken),
+      );
       authTokenRef.current = token;
+      refreshTokenRef.current = refreshToken ?? null;
       sessionExpiryFiredRef.current = false;
-      if (refreshToken) {
-        void setSecureToken(REFRESH_TOKEN_KEY, refreshToken);
-        refreshTokenRef.current = refreshToken;
-      }
       setAuthToken(token);
       setApiUser(payload.user);
       setEmailVerified(Boolean(payload.emailVerified));
@@ -1563,7 +1617,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setPendingOnboarding(true);
       }
     },
-    [],
+    [queueTokenStorageMutation],
   );
 
   const registerWithEmail = useCallback(
@@ -1592,12 +1646,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (!res.ok || !data.token || !data.user) {
           return { ok: false, error: data.error ?? "Couldn't create your account. Please try again." };
         }
-        applyAuthSession(
-          data.token,
-          { user: data.user, emailVerified: data.emailVerified, phone: data.phone },
-          false,
-          data.refreshToken,
-        );
+        try {
+          await applyAuthSession(
+            data.token,
+            { user: data.user, emailVerified: data.emailVerified, phone: data.phone },
+            false,
+            data.refreshToken,
+          );
+        } catch {
+          return { ok: false, error: "Couldn't securely save your session. Please try again." };
+        }
         identify(data.user.id, { email: data.user.email ?? undefined });
         track("signup", { method: "email" });
         return { ok: true };
@@ -1640,12 +1698,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           emailVerified?: boolean;
           phone?: string | null;
         };
-        applyAuthSession(
-          session.token,
-          { user: session.user, emailVerified: session.emailVerified, phone: session.phone },
-          true,
-          session.refreshToken,
-        );
+        try {
+          await applyAuthSession(
+            session.token,
+            { user: session.user, emailVerified: session.emailVerified, phone: session.phone },
+            true,
+            session.refreshToken,
+          );
+        } catch {
+          return { ok: false, error: "Couldn't securely save your session. Please try again." };
+        }
         identify(session.user.id, { email: session.user.email ?? undefined });
         track("login", { method: "email" });
         return { ok: true };
@@ -1694,6 +1756,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Intentional sign-out: suppress the "session expired" toast that in-flight
     // requests would otherwise trigger when they 401 after tokens are cleared.
     sessionExpiryFiredRef.current = true;
+    sessionRefreshRef.current?.reset();
     if (token) {
       // Fire-and-forget server-side session teardown.
       fetch(`${API_BASE}/api/auth/logout`, {
@@ -1702,8 +1765,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }).catch(() => {});
     }
     AsyncStorage.multiRemove(ALL_APP_STORAGE_KEYS).catch(() => {});
-    void removeSecureToken(AUTH_TOKEN_KEY);
-    void removeSecureToken(REFRESH_TOKEN_KEY);
+    void queueTokenStorageMutation(async () => {
+      await Promise.all([
+        removeSecureToken(AUTH_TOKEN_KEY),
+        removeSecureToken(REFRESH_TOKEN_KEY),
+      ]);
+    });
     clearProfileCache();
     authTokenRef.current = null;
     refreshTokenRef.current = null;
@@ -1721,7 +1788,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // own entitlement has been read.
     setEntitlementState(UNRESOLVED_ENTITLEMENT);
     currentUserIdRef.current = ME.id;
-  }, [authToken]);
+  }, [authToken, queueTokenStorageMutation]);
 
   // Permanently delete the account server-side, then tear down the local session
   // exactly like logout (minus the server logout call, whose session is already
@@ -1746,9 +1813,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Intentional teardown: suppress the "session expired" toast from any
     // in-flight requests that 401 after the account is gone.
     sessionExpiryFiredRef.current = true;
+    sessionRefreshRef.current?.reset();
     AsyncStorage.multiRemove(ALL_APP_STORAGE_KEYS).catch(() => {});
-    void removeSecureToken(AUTH_TOKEN_KEY);
-    void removeSecureToken(REFRESH_TOKEN_KEY);
+    void queueTokenStorageMutation(async () => {
+      await Promise.all([
+        removeSecureToken(AUTH_TOKEN_KEY),
+        removeSecureToken(REFRESH_TOKEN_KEY),
+      ]);
+    });
     clearProfileCache();
     authTokenRef.current = null;
     refreshTokenRef.current = null;
@@ -1767,7 +1839,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setEntitlementState(UNRESOLVED_ENTITLEMENT);
     currentUserIdRef.current = ME.id;
     return { ok: true };
-  }, [authToken]);
+  }, [authToken, queueTokenStorageMutation]);
 
   const applyEventUpdate = useCallback((updated: Record<string, unknown>) => {
     setEvents((prev) =>

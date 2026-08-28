@@ -2,7 +2,7 @@ import * as client from "openid-client";
 import crypto from "crypto";
 import { type Request, type Response } from "express";
 import { db, sessionsTable, usersTable, revokedTokensTable } from "@workspace/db";
-import { eq, lt, gt, and } from "drizzle-orm";
+import { eq, lt, gt, and, sql } from "drizzle-orm";
 import type { AuthUser } from "@workspace/api-zod";
 
 export const ISSUER_URL = process.env.ISSUER_URL ?? "https://replit.com/oidc";
@@ -18,6 +18,10 @@ export interface SessionData {
   refresh_token?: string;
   expires_at?: number;
 }
+
+export type SessionExecutor =
+  | Parameters<Parameters<typeof db.transaction>[0]>[0]
+  | typeof db;
 
 // ── Local email/password credential hashing ────────────────────────────────
 // Uses Node's built-in scrypt (no native deps / esbuild issues). The stored
@@ -70,14 +74,17 @@ export async function createSession(data: SessionData): Promise<string> {
   return sid;
 }
 
-export async function getSession(sid: string): Promise<SessionData | null> {
-  const [row] = await db
+export async function getSession(
+  sid: string,
+  executor: SessionExecutor = db,
+): Promise<SessionData | null> {
+  const [row] = await executor
     .select()
     .from(sessionsTable)
     .where(eq(sessionsTable.sid, sid));
 
   if (!row || row.expire < new Date()) {
-    if (row) await deleteSession(sid);
+    if (row) await deleteSession(sid, executor);
     return null;
   }
 
@@ -87,8 +94,9 @@ export async function getSession(sid: string): Promise<SessionData | null> {
 export async function updateSession(
   sid: string,
   data: SessionData,
+  executor: SessionExecutor = db,
 ): Promise<void> {
-  await db
+  await executor
     .update(sessionsTable)
     .set({
       sess: data as unknown as Record<string, unknown>,
@@ -97,8 +105,28 @@ export async function updateSession(
     .where(eq(sessionsTable.sid, sid));
 }
 
-export async function deleteSession(sid: string): Promise<void> {
-  await db.delete(sessionsTable).where(eq(sessionsTable.sid, sid));
+/**
+ * Serialize refresh-token rotation for one opaque server session across API
+ * instances. Refresh providers commonly rotate credentials, so two concurrent
+ * requests must never exchange the same refresh token in parallel.
+ */
+export async function withSessionRefreshLock<T>(
+  sid: string,
+  action: (executor: SessionExecutor) => Promise<T>,
+): Promise<T> {
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtext(${sid}))`,
+    );
+    return action(tx);
+  });
+}
+
+export async function deleteSession(
+  sid: string,
+  executor: SessionExecutor = db,
+): Promise<void> {
+  await executor.delete(sessionsTable).where(eq(sessionsTable.sid, sid));
 }
 
 export async function clearSession(

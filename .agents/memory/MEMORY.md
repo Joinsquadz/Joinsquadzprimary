@@ -5,7 +5,7 @@
 - [Sentry + OTel + esbuild](sentry-otel-esbuild.md) — @sentry/node v8 needs @opentelemetry/* at runtime; externalize both "@opentelemetry/*" + "@sentry/node" in build.mjs or server crashes.
 - [stripe-replit-sync bundling](stripe-replit-sync-bundling.md) — externalize "stripe-replit-sync" in build.mjs + pass logger to runMigrations, else stripe.* tables (accounts) missing & sync half-works.
 - [Squadz design parity](squadz-design-parity.md) — web app is the visual source of truth; mobile mirrors it via SquadzIcon SVG + GradientButton, not PNG logo / flat buttons.
-- [Auth cold-start gating](auth-cold-start-gate.md) — cold-open routing via Stack.Protected (initialRouteName is ignored by expo-router); dead tokens gated by isSessionValidated; SSE 401 must not retry.
+- [Auth cold-start & refresh](auth-cold-start-gate.md) — one guarded refresh coordinator; persist rotated pairs before publish; transient failures preserve sessions; OIDC refresh locks per SID.
 - [Squadz auth flow invariants](squadz-auth-flow.md) — register must NOT flip isLoggedIn (onboarding's login() does); email confirm is non-blocking; never log raw token URLs in prod; leave /api/auth/user untouched (mobile uses /api/auth/me).
 - [Supabase password reset](supabase-password-reset.md) — don't use recovery action_link/redirectTo (silently falls back to Site URL localhost:3000); use generateLink hashed_token + server verifyOtp; "wrong password" on healthy user = real credential mismatch, prove via admin-set + direct login.
 - [Expo native modules](expo-native-modules.md) — pin expo-* to bundledNativeModules.json version (some were mis-pinned for SDK 54); dynamic-import no-web modules behind a Platform.OS web guard.

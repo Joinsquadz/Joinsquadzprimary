@@ -77,7 +77,8 @@ async function setSecureToken(key: string, value: string): Promise<void> {
   try {
     await SecureStore.setItemAsync(key, value);
   } catch (err) {
-    console.warn("[SecureStore] setItemAsync failed — session will not persist across restarts", key, err);
+    console.warn("[SecureStore] setItemAsync failed", key, err);
+    throw err;
   }
   await AsyncStorage.removeItem(key).catch(() => {});
 }
@@ -244,7 +245,9 @@ describe("setSecureToken — failure logging", () => {
     const faultError = new Error("OS encryption fault");
     vi.mocked(SecureStore.setItemAsync).mockRejectedValueOnce(faultError);
 
-    await setSecureToken(AUTH_TOKEN_KEY, "some-token");
+    await expect(setSecureToken(AUTH_TOKEN_KEY, "some-token")).rejects.toThrow(
+      "OS encryption fault",
+    );
 
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining("setItemAsync failed"),
@@ -254,14 +257,16 @@ describe("setSecureToken — failure logging", () => {
     warnSpy.mockRestore();
   });
 
-  it("still purges the AsyncStorage legacy copy even when SecureStore throws", async () => {
+  it("does not erase the last persisted copy when SecureStore throws", async () => {
     asyncStorageData[AUTH_TOKEN_KEY] = "stale-plaintext";
     vi.mocked(SecureStore.setItemAsync).mockRejectedValueOnce(new Error("OS fault"));
 
-    await setSecureToken(AUTH_TOKEN_KEY, "token");
+    await expect(setSecureToken(AUTH_TOKEN_KEY, "token")).rejects.toThrow(
+      "OS fault",
+    );
 
-    expect(AsyncStorage.removeItem).toHaveBeenCalledWith(AUTH_TOKEN_KEY);
-    expect(asyncStorageData[AUTH_TOKEN_KEY]).toBeUndefined();
+    expect(AsyncStorage.removeItem).not.toHaveBeenCalledWith(AUTH_TOKEN_KEY);
+    expect(asyncStorageData[AUTH_TOKEN_KEY]).toBe("stale-plaintext");
   });
 });
 
@@ -312,13 +317,19 @@ describe("cold-start session persistence", () => {
 
   it("logout clears token so user is not re-authenticated on next cold start", async () => {
     await setSecureToken(AUTH_TOKEN_KEY, "session-token-xyz");
+    await setSecureToken(REFRESH_TOKEN_KEY, "session-refresh-xyz");
 
-    // Logout: app removes the token
+    // Logout: app removes the complete token pair.
     await removeSecureToken(AUTH_TOKEN_KEY);
+    await removeSecureToken(REFRESH_TOKEN_KEY);
 
-    // Next cold start: token must be gone
-    const restored = await getSecureToken(AUTH_TOKEN_KEY);
-    expect(restored).toBeNull();
+    // Next cold start: neither half of the previous session may survive.
+    const [restoredAuth, restoredRefresh] = await Promise.all([
+      getSecureToken(AUTH_TOKEN_KEY),
+      getSecureToken(REFRESH_TOKEN_KEY),
+    ]);
+    expect(restoredAuth).toBeNull();
+    expect(restoredRefresh).toBeNull();
   });
 
   it("re-login after logout stores new token that persists correctly", async () => {
