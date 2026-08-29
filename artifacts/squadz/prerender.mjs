@@ -57,8 +57,12 @@ for (const route of routes) {
     page = page.replace("</head>", `    ${headTags}\n  </head>`);
   }
 
-  // Inject pre-rendered body HTML into #root.
-  page = page.replace('<div id="root"></div>', `<div id="root">${bodyHtml}</div>`);
+  // Inject pre-rendered body HTML into #root, replacing the lightweight
+  // first-paint shell used while the client bundle is downloading.
+  page = page.replace(
+    /<div id="root">[\s\S]*?<!-- FIRST_PAINT_SHELL_END -->\s*<\/div>/,
+    `<div id="root">${bodyHtml}</div>`,
+  );
 
   // Write to the correct directory.
   const routeDir =

@@ -22,6 +22,116 @@
     <meta name="twitter:image" content="https://joinsquadz.com/opengraph.jpg" />
     <meta name="twitter:image:alt" content="SquadZ – the friend group planning app" />
 
+    <style>
+      :root {
+        color-scheme: dark;
+        background: #0a0a0f;
+      }
+      html,
+      body {
+        margin: 0;
+        min-width: 320px;
+        min-height: 100%;
+        background: #0a0a0f;
+      }
+      body {
+        color: #f0eff8;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      #root {
+        min-height: 100dvh;
+      }
+      .first-paint-shell {
+        box-sizing: border-box;
+        min-height: 100dvh;
+        padding: 18px 24px 56px;
+        overflow: hidden;
+        background:
+          radial-gradient(circle at 85% 15%, rgba(255, 92, 58, 0.15), transparent 34%),
+          radial-gradient(circle at 10% 45%, rgba(168, 85, 247, 0.1), transparent 30%),
+          #0a0a0f;
+      }
+      .first-paint-nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        max-width: 1160px;
+        height: 48px;
+        margin: 0 auto;
+      }
+      .first-paint-brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: #f0eff8;
+        font-family: Georgia, serif;
+        font-size: 24px;
+        font-weight: 700;
+      }
+      .first-paint-mark {
+        display: grid;
+        width: 32px;
+        height: 32px;
+        place-items: center;
+        border-radius: 9px;
+        background: linear-gradient(135deg, #ff5c3a, #ffb547);
+        color: #0a0a0f;
+        font-family: Georgia, serif;
+        font-size: 24px;
+        font-weight: 700;
+      }
+      .first-paint-button {
+        padding: 11px 16px;
+        border-radius: 12px;
+        background: linear-gradient(135deg, #ff5c3a, #ffb547);
+        color: #fff;
+        font-size: 13px;
+        font-weight: 800;
+      }
+      .first-paint-content {
+        box-sizing: border-box;
+        max-width: 620px;
+        margin: clamp(76px, 15vh, 150px) auto 0;
+        text-align: center;
+      }
+      .first-paint-kicker {
+        display: inline-block;
+        padding: 7px 14px;
+        border: 1px solid #2a2a3a;
+        border-radius: 22px;
+        color: #ffb547;
+        font-size: 13px;
+        font-weight: 700;
+      }
+      .first-paint-content h1 {
+        margin: 22px 0 18px;
+        color: #f0eff8;
+        font-size: clamp(38px, 10vw, 60px);
+        line-height: 1.03;
+        letter-spacing: -0.04em;
+      }
+      .first-paint-content h1 span {
+        color: #ff8050;
+      }
+      .first-paint-content p {
+        max-width: 500px;
+        margin: 0 auto;
+        color: #9898b0;
+        font-size: 17px;
+        line-height: 1.55;
+      }
+      @media (min-width: 901px) {
+        .first-paint-content {
+          margin-left: max(24px, calc((100vw - 1160px) / 2));
+          margin-right: 0;
+          text-align: left;
+        }
+        .first-paint-content p {
+          margin-left: 0;
+        }
+      }
+    </style>
+
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
@@ -64,7 +174,24 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- FIRST_PAINT_SHELL_START -->
+      <div class="first-paint-shell" aria-label="Loading SquadZ">
+        <div class="first-paint-nav">
+          <div class="first-paint-brand">
+            <span class="first-paint-mark" aria-hidden="true">Z</span>
+            <span>SquadZ</span>
+          </div>
+          <div class="first-paint-button">Join waitlist</div>
+        </div>
+        <main class="first-paint-content">
+          <div class="first-paint-kicker">📱 iOS &amp; Android — Launching Soon</div>
+          <h1>Stop texting.<br />Start <span>actually hanging.</span></h1>
+          <p>Find the time everyone's free, plan the hangout, split the bill, and keep the memories. All in one place.</p>
+        </main>
+      </div>
+      <!-- FIRST_PAINT_SHELL_END -->
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
