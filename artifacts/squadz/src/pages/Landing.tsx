@@ -4,6 +4,7 @@ import { T, font } from "@/lib/data";
 import { SquadzIcon } from "@/components/SquadzIcon";
 
 const ACCENT_GRADIENT = `linear-gradient(135deg, ${T.accent} 0%, ${T.gold} 100%)`;
+const APP_STORE_URL = "https://apps.apple.com/us/app/squadz-friend-group-planner/id6789990515";
 
 const features = [
   {
@@ -132,9 +133,11 @@ function WaitlistForm({ id, compact = false }: { id?: string; compact?: boolean 
 }
 
 function StoreBadge({ store }: { store: "ios" | "android" }) {
+  const isIos = store === "ios";
   return (
     <a
-      href="#waitlist"
+      href={isIos ? APP_STORE_URL : "#waitlist"}
+      {...(isIos ? { target: "_blank", rel: "noreferrer" } : {})}
       style={{
         display: "flex", alignItems: "center", gap: 10, textDecoration: "none",
         padding: "10px 16px", borderRadius: 13, background: T.surfaceUp,
@@ -143,7 +146,7 @@ function StoreBadge({ store }: { store: "ios" | "android" }) {
     >
       <span style={{ fontSize: 22 }}>{store === "ios" ? "" : "🤖"}</span>
       <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.2 }}>
-        <span style={{ fontSize: 10, color: T.textSub }}>Launching on</span>
+        <span style={{ fontSize: 10, color: T.textSub }}>{isIos ? "Download on" : "Launching on"}</span>
         <span style={{ fontSize: 15, fontWeight: 700 }}>{store === "ios" ? "App Store" : "Google Play"}</span>
       </span>
     </a>
@@ -351,7 +354,7 @@ export default function Landing() {
         <div className="lz-hero">
           <div>
             <div style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "7px 14px", borderRadius: 22, background: T.surfaceUp, border: `1px solid ${T.border}`, fontSize: 13, color: T.gold, fontWeight: 700, marginBottom: 22 }}>
-              📱 iOS &amp; Android — Launching Soon
+              📱 iPhone app is live — Android coming soon
             </div>
             <h1 className="lz-h1" style={{ fontWeight: 800, margin: 0 }}>
               Stop texting.<br />
