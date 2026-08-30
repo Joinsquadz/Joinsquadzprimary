@@ -1,0 +1,75 @@
+SquadZ OTA Batch: Profile Fields + Avatar Navigation
+
+Both features below are pure JS/API/database changes — no new native modules or permissions. Ship via eas update to the production channel once built and tested. No new binary, no App Store submission.
+
+Mode: Report-only first. Before writing any implementation code, audit the current codebase and report back:
+
+Current avatar/circle component(s) and every screen they're rendered on
+Current navigation stack setup (React Navigation config) — can Profile be pushed from any screen and popped back correctly?
+Current EAS Update / expo-updates channel config — confirm which branch/channel maps to the live production build
+
+Proceed to implementation after the report.
+
+1. User Profile Fields — Bio, City, Age, Hobbies
+
+Data model — new migration 0009_add_user_profile_fields:
+
+sql
+ALTER TABLE users ADD COLUMN bio VARCHAR(150);
+ALTER TABLE users ADD COLUMN city VARCHAR(100);
+ALTER TABLE users ADD COLUMN birthdate DATE;     -- age is computed from this at read time, so it never goes stale
+ALTER TABLE users ADD COLUMN hobbies TEXT[];     -- up to 5 short freeform tags
+
+API:
+
+Extend the existing user profile GET response (own + others) to include bio, city, age (computed server-side from birthdate — never return raw birthdate in another user's profile response), and hobbies
+Extend the profile update endpoint to accept bio, city, birthdate, hobbies; enforce 150-char bio max and 5-item hobbies max server-side (not just client-side)
+
+Client:
+
+Edit Profile screen: bio (multi-line, 150-char cap, live counter), city (text input), birthday (date picker — collects full birthdate, but only the computed age is ever shown to other users), hobbies (chip/tag entry, cap at 5 short freeform strings)
+Profile view screen (own + others): render bio, city, age, and hobbies under name; each field is independently optional — omit any that are empty, no placeholders
+
+All four fields are optional and follow the app's existing profile-visibility rules (friends/squad members only) — this doesn't change who can see a profile, just what's on it.
+
+2. Tappable Avatars + Profile Back-Navigation
+
+Requirement: every avatar/circle instance across the app becomes tappable into that user's Profile screen, with a working back button/gesture from every entry point. This includes at minimum:
+
+Friend list rows
+Squad member circles
+Event RSVP avatars
+Add-friend search/code-entry results
+Poll voter avatars
+Any activity feed entries showing a user
+
+Add-friend flow specifically:
+
+Increase avatar thumbnail size in the results list — current size is too small to visually disambiguate people with similar names
+Show full name and mutual squad (if any) directly beside the avatar so the user can confirm identity before adding, even when the code entered was correct
+
+Navigation: confirm Profile is pushed onto the existing stack (not a modal that dead-ends) so the system/hardware back gesture and an explicit back button both return to the exact screen the user came from, regardless of entry point.
+
+Test Checklist
+
+Profile fields
+
+ Each field (bio, city, age, hobbies) saves and persists independently
+ 150-char bio limit and 5-item hobbies limit enforced client and server
+ Age is computed from birthdate and displays correctly (test a birthdate that falls within the test window to confirm it updates)
+ Raw birthdate never appears in another user's profile response — only computed age
+ Any empty field renders no placeholder
+ All fields visible on own profile and others' (subject to existing visibility rules)
+
+Avatar nav
+
+ Every listed surface is tappable into Profile
+ Back button/gesture returns to the correct originating screen from each surface
+ Add-friend result avatar size increase verified on device
+ Name + mutual squad shown in add-friend results
+
+Before publishing
+
+ Baseline API/mobile test counts preserved
+ eas update published to the correct production channel/branch
+ Verify update is received on a real device (not just simulator) before calling it done
