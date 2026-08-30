@@ -102,7 +102,7 @@ function actorsLabel(names: string[], total: number): string {
 export default function ActivityScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { authToken } = useAuth();
+  const { authToken, currentUser } = useAuth();
   const { markAllRead, subscribe } = useActivity();
   const { resolveUser, prefetchUsers } = useUserCache();
   const { showToast } = useToast();
@@ -260,6 +260,17 @@ export default function ActivityScreen() {
     },
     [resolveUser],
   );
+
+  const openActor = useCallback((item: ActivityItem) => {
+    if (item.grouped && item.actorCount > 1) {
+      openActorSheet(item);
+      return;
+    }
+    const actorId = item.actorIds[0];
+    if (!actorId) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.push((actorId === currentUser.id ? "/profile" : `/user/${actorId}`) as never);
+  }, [currentUser.id, openActorSheet]);
 
   const handleAccept = useCallback(
     async (requestId: string) => {
@@ -455,8 +466,7 @@ export default function ActivityScreen() {
             ]}
           >
             <TouchableOpacity
-              disabled={!item.grouped || item.actorCount <= 1}
-              onPress={() => openActorSheet(item)}
+              onPress={() => openActor(item)}
               style={styles.avatarWrap}
             >
               <ProAvatar
@@ -517,8 +527,7 @@ export default function ActivityScreen() {
             ]}
           >
             <TouchableOpacity
-              disabled={!item.grouped || item.actorCount <= 1}
-              onPress={() => openActorSheet(item)}
+              onPress={() => openActor(item)}
               style={styles.avatarWrap}
             >
               <ProAvatar
@@ -576,8 +585,7 @@ export default function ActivityScreen() {
             ]}
           >
             <TouchableOpacity
-              disabled={!item.grouped || item.actorCount <= 1}
-              onPress={() => openActorSheet(item)}
+              onPress={() => openActor(item)}
               style={styles.avatarWrap}
             >
               <ProAvatar
@@ -675,8 +683,7 @@ export default function ActivityScreen() {
           ]}
         >
           <TouchableOpacity
-            disabled={!item.grouped || item.actorCount <= 1}
-            onPress={() => openActorSheet(item)}
+            onPress={() => openActor(item)}
             style={styles.avatarWrap}
           >
             <ProAvatar
@@ -714,7 +721,7 @@ export default function ActivityScreen() {
         </TouchableOpacity>
       );
     },
-    [colors, navigate, openActorSheet, resolveUser, handleAccept, handleDecline, handleAcceptSquadInvite, handleDeclineSquadInvite, handleAcceptEventInvite, handleDeclineEventInvite, processing],
+    [colors, navigate, openActor, resolveUser, handleAccept, handleDecline, handleAcceptSquadInvite, handleDeclineSquadInvite, handleAcceptEventInvite, handleDeclineEventInvite, processing],
   );
 
   return (

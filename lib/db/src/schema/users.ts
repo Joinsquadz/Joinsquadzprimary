@@ -1,4 +1,4 @@
-import { pgTable, text, boolean, timestamp, varchar, jsonb, index, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, boolean, timestamp, varchar, jsonb, index, integer, date } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -66,8 +66,13 @@ export const usersTable = pgTable("users", {
   venmoHandle: text("venmo_handle"),
   cashappHandle: text("cashapp_handle"),
   zelleHandle: text("zelle_handle"),
-  bio: text("bio"),
+  bio: varchar("bio", { length: 150 }),
   hometown: text("hometown"),
+  // Optional profile birthday. This is deliberately separate from birthYear:
+  // birthYear is the minimized signup age-gate record, while birthdate is
+  // user-entered profile data used only to derive a displayed age.
+  birthdate: date("birthdate", { mode: "string" }),
+  hobbies: text("hobbies").array(),
   // User-facing display timezone. Events are stored as absolute timestamps;
   // this controls how each person sees those timestamps and their reminder copy.
   timezone: text("timezone"),

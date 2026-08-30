@@ -63,15 +63,28 @@ function normalizeHandle(raw: string): string | null {
 
 const HANDLE_FIELDS = ["venmoHandle", "cashappHandle", "zelleHandle"] as const;
 
-const PatchProfileBody = z.object({
+const ProfileBirthdate = z.string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine((value) => {
+    const [year, month, day] = value.split("-").map(Number);
+    const parsed = new Date(Date.UTC(year, month - 1, day));
+    return parsed.getUTCFullYear() === year
+      && parsed.getUTCMonth() === month - 1
+      && parsed.getUTCDate() === day
+      && parsed.getTime() <= Date.now();
+  }, "Invalid birthdate");
+
+export const PatchProfileBody = z.object({
   firstName: z.string().trim().min(1).max(60).optional(),
   lastName: z.string().trim().max(60).nullable().optional(),
   profileImageUrl: z.string().trim().max(2048).nullable().optional(),
   venmoHandle: z.string().trim().max(120).nullable().optional(),
   cashappHandle: z.string().trim().max(120).nullable().optional(),
   zelleHandle: z.string().trim().max(120).nullable().optional(),
-  bio: z.string().trim().max(500).nullable().optional(),
+  bio: z.string().trim().max(150).nullable().optional(),
   hometown: z.string().trim().max(100).nullable().optional(),
+  birthdate: ProfileBirthdate.nullable().optional(),
+  hobbies: z.array(z.string().trim().min(1).max(32)).max(5).nullable().optional(),
 });
 
 router.get("/user/preferences", requireAuth, async (req: Request, res: Response): Promise<void> => {
@@ -92,6 +105,8 @@ router.get("/user/preferences", requireAuth, async (req: Request, res: Response)
       zelleHandle: usersTable.zelleHandle,
       bio: usersTable.bio,
       hometown: usersTable.hometown,
+      birthdate: usersTable.birthdate,
+      hobbies: usersTable.hobbies,
       timezone: usersTable.timezone,
       timezoneMode: usersTable.timezoneMode,
     }).from(usersTable).where(eq(usersTable.id, userId));
@@ -123,6 +138,12 @@ router.patch("/user/profile", requireAuth, async (req: Request, res: Response): 
     if (parsed.data.profileImageUrl !== undefined) patch.profileImageUrl = parsed.data.profileImageUrl;
     if (parsed.data.bio !== undefined) patch.bio = parsed.data.bio;
     if (parsed.data.hometown !== undefined) patch.hometown = parsed.data.hometown;
+    if (parsed.data.birthdate !== undefined) patch.birthdate = parsed.data.birthdate;
+    if (parsed.data.hobbies !== undefined) {
+      patch.hobbies = parsed.data.hobbies === null
+        ? null
+        : [...new Set(parsed.data.hobbies.map((hobby) => hobby.trim()))];
+    }
     for (const field of HANDLE_FIELDS) {
       const value = parsed.data[field];
       if (value !== undefined) patch[field] = value === null ? null : normalizeHandle(value);
@@ -147,6 +168,8 @@ router.patch("/user/profile", requireAuth, async (req: Request, res: Response): 
         zelleHandle: usersTable.zelleHandle,
         bio: usersTable.bio,
         hometown: usersTable.hometown,
+        birthdate: usersTable.birthdate,
+        hobbies: usersTable.hobbies,
       });
 
     res.json({ user: updated });

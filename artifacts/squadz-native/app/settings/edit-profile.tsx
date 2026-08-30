@@ -15,6 +15,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
+import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AppContext";
 import { useUserCache } from "@/context/UserCacheContext";
@@ -28,6 +29,29 @@ function splitName(name: string): { first: string; last: string } {
   const parts = name.trim().split(/\s+/);
   if (parts.length <= 1) return { first: parts[0] ?? "", last: "" };
   return { first: parts[0], last: parts.slice(1).join(" ") };
+}
+
+function dateFromValue(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return Number.isNaN(date.getTime()) ||
+    date.getFullYear() !== Number(match[1]) ||
+    date.getMonth() !== Number(match[2]) - 1 ||
+    date.getDate() !== Number(match[3])
+    ? null
+    : date;
+}
+
+function dateValue(date: Date): string {
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+function dateLabel(value: string): string {
+  const date = dateFromValue(value);
+  return date ? date.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" }) : "";
 }
 
 export default function EditProfileScreen() {
@@ -45,6 +69,10 @@ export default function EditProfileScreen() {
   const [zelle, setZelle] = useState("");
   const [bio, setBio] = useState("");
   const [hometown, setHometown] = useState("");
+  const [birthdate, setBirthdate] = useState("");
+  const [showBirthdatePicker, setShowBirthdatePicker] = useState(false);
+  const [hobbies, setHobbies] = useState<string[]>([]);
+  const [hobbyDraft, setHobbyDraft] = useState("");
   const [saving, setSaving] = useState(false);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
@@ -66,6 +94,8 @@ export default function EditProfileScreen() {
           zelleHandle?: string | null;
           bio?: string | null;
           hometown?: string | null;
+          birthdate?: string | null;
+          hobbies?: string[] | null;
         };
         if (!active) return;
         setVenmo(data.venmoHandle ?? "");
@@ -73,6 +103,8 @@ export default function EditProfileScreen() {
         setZelle(data.zelleHandle ?? "");
         setBio(data.bio ?? "");
         setHometown(data.hometown ?? "");
+        setBirthdate(data.birthdate ?? "");
+        setHobbies(Array.isArray(data.hobbies) ? data.hobbies.map((hobby) => hobby.trim()).filter(Boolean).slice(0, 5) : []);
       } catch {
         // Non-blocking: handles just stay empty if the fetch fails.
       }
@@ -129,6 +161,10 @@ export default function EditProfileScreen() {
       Alert.alert("Name required", "Please enter your first name.");
       return;
     }
+    if (birthdate && !dateFromValue(birthdate)) {
+      Alert.alert("Invalid birthdate", "Enter your birthdate as YYYY-MM-DD.");
+      return;
+    }
     setSaving(true);
     try {
       let profileImageUrl: string | undefined;
@@ -149,6 +185,8 @@ export default function EditProfileScreen() {
         zelleHandle: zelle.trim() || null,
         bio: bio.trim() || null,
         hometown: hometown.trim() || null,
+        birthdate: birthdate || null,
+        hobbies,
       };
       if (profileImageUrl) body.profileImageUrl = profileImageUrl;
 
@@ -190,6 +228,18 @@ export default function EditProfileScreen() {
     } finally {
       setSaving(false);
     }
+  }
+
+  function addHobby() {
+    const hobby = hobbyDraft.trim();
+    if (!hobby || hobbies.length >= 5 || hobbies.includes(hobby)) return;
+    setHobbies((current) => [...current, hobby]);
+    setHobbyDraft("");
+  }
+
+  function handleBirthdateChange(event: DateTimePickerEvent, selectedDate?: Date) {
+    if (Platform.OS === "android") setShowBirthdatePicker(false);
+    if (event.type === "set" && selectedDate) setBirthdate(dateValue(selectedDate));
   }
 
   return (
@@ -245,22 +295,100 @@ export default function EditProfileScreen() {
         <Text style={[styles.label, { color: colors.mutedForeground, marginTop: 16 }]}>Bio</Text>
         <TextInput
           value={bio}
-          onChangeText={(t) => t.length <= 500 && setBio(t)}
+          onChangeText={setBio}
           placeholder="A little about you… (optional)"
           placeholderTextColor={colors.mutedForeground}
           multiline
-          maxLength={500}
+          maxLength={150}
           style={[styles.input, styles.textArea, { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
         />
+        <Text style={[styles.characterCount, { color: colors.mutedForeground }]}>{bio.length}/150</Text>
 
-        <Text style={[styles.label, { color: colors.mutedForeground, marginTop: 16 }]}>Hometown</Text>
+        <Text style={[styles.label, { color: colors.mutedForeground, marginTop: 16 }]}>City</Text>
         <TextInput
           value={hometown}
           onChangeText={setHometown}
-          placeholder="Where are you from? (optional)"
+          placeholder="Your city (optional)"
           placeholderTextColor={colors.mutedForeground}
           style={[styles.input, { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
         />
+
+        <Text style={[styles.label, { color: colors.mutedForeground, marginTop: 16 }]}>Birthdate</Text>
+        {Platform.OS === "web" ? (
+          <TextInput
+            value={birthdate}
+            onChangeText={setBirthdate}
+            placeholder="YYYY-MM-DD (optional)"
+            placeholderTextColor={colors.mutedForeground}
+            autoCapitalize="none"
+            style={[styles.input, { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
+          />
+        ) : (
+          <>
+            <TouchableOpacity
+              onPress={() => setShowBirthdatePicker((visible) => !visible)}
+              style={[styles.input, styles.dateInput, { backgroundColor: colors.card, borderColor: colors.border }]}
+              accessibilityLabel="Choose birthdate"
+            >
+              <Text style={{ color: birthdate ? colors.foreground : colors.mutedForeground, fontSize: 15 }}>
+                {dateLabel(birthdate) || "Choose birthdate (optional)"}
+              </Text>
+              <Ionicons name="calendar-outline" size={18} color={colors.mutedForeground} />
+            </TouchableOpacity>
+            {showBirthdatePicker && (
+              <View style={[styles.datePickerWrap, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <DateTimePicker
+                  value={dateFromValue(birthdate) ?? new Date(2000, 0, 1)}
+                  mode="date"
+                  display={Platform.OS === "ios" ? "spinner" : "default"}
+                  maximumDate={new Date()}
+                  onChange={handleBirthdateChange}
+                />
+                {Platform.OS === "ios" && (
+                  <TouchableOpacity onPress={() => setShowBirthdatePicker(false)} style={styles.doneDateButton}>
+                    <Text style={[styles.doneDateText, { color: colors.primary }]}>Done</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
+          </>
+        )}
+
+        <Text style={[styles.label, { color: colors.mutedForeground, marginTop: 16 }]}>Hobbies (up to 5)</Text>
+        <View style={styles.hobbyEntry}>
+          <TextInput
+            value={hobbyDraft}
+            onChangeText={setHobbyDraft}
+            onSubmitEditing={addHobby}
+            placeholder="Add a hobby"
+            placeholderTextColor={colors.mutedForeground}
+            maxLength={30}
+            returnKeyType="done"
+            style={[styles.input, styles.hobbyInput, { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
+          />
+          <TouchableOpacity
+            onPress={addHobby}
+            disabled={!hobbyDraft.trim() || hobbies.length >= 5}
+            style={[styles.addHobbyButton, { backgroundColor: colors.primary, opacity: !hobbyDraft.trim() || hobbies.length >= 5 ? 0.45 : 1 }]}
+          >
+            <Ionicons name="add" size={22} color="#fff" />
+          </TouchableOpacity>
+        </View>
+        {hobbies.length > 0 && (
+          <View style={styles.hobbyChips}>
+            {hobbies.map((hobby) => (
+              <TouchableOpacity
+                key={hobby}
+                onPress={() => setHobbies((current) => current.filter((item) => item !== hobby))}
+                style={[styles.hobbyChip, { backgroundColor: colors.primary + "18", borderColor: colors.primary + "40" }]}
+                accessibilityLabel={`Remove ${hobby}`}
+              >
+                <Text style={[styles.hobbyChipText, { color: colors.primary }]}>{hobby}</Text>
+                <Ionicons name="close" size={14} color={colors.primary} />
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
 
         <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Payment handles</Text>
         <Text style={[styles.sectionSub, { color: colors.mutedForeground }]}>
@@ -327,5 +455,16 @@ const styles = StyleSheet.create({
   label: { fontSize: 13, fontWeight: "600", marginBottom: 8 },
   input: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13, fontSize: 15 },
   textArea: { minHeight: 90, textAlignVertical: "top" },
+  characterCount: { fontSize: 12, textAlign: "right", marginTop: 5 },
+  dateInput: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  datePickerWrap: { marginTop: 8, borderWidth: 1, borderRadius: 12, overflow: "hidden" },
+  doneDateButton: { alignSelf: "flex-end", paddingHorizontal: 16, paddingVertical: 10 },
+  doneDateText: { fontSize: 14, fontWeight: "700" },
+  hobbyEntry: { flexDirection: "row", gap: 8 },
+  hobbyInput: { flex: 1 },
+  addHobbyButton: { width: 48, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  hobbyChips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 },
+  hobbyChip: { flexDirection: "row", alignItems: "center", gap: 4, borderWidth: 1, borderRadius: 16, paddingHorizontal: 10, paddingVertical: 6 },
+  hobbyChipText: { fontSize: 13, fontWeight: "600" },
   savingBtn: { borderRadius: 14, paddingVertical: 15, alignItems: "center", justifyContent: "center" },
 });

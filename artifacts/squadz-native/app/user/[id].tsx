@@ -30,6 +30,8 @@ type UserProfile = {
   profileImageUrl: string | null;
   bio: string | null;
   hometown: string | null;
+  age?: number | null;
+  hobbies?: string[] | null;
   isPro: boolean;
   sharedSquads: SharedSquad[];
 };
@@ -284,9 +286,15 @@ export default function UserProfileScreen() {
           {profile.hometown ? (
             <View style={styles.metaRow}>
               <Ionicons name="location-outline" size={15} color={colors.mutedForeground} />
-              <Text style={[styles.metaText, { color: colors.mutedForeground }]}>{profile.hometown}</Text>
+              <Text style={[styles.metaText, { color: colors.mutedForeground }]}>City: {profile.hometown}</Text>
             </View>
           ) : null}
+          {typeof profile.age === "number" && (
+            <View style={styles.metaRow}>
+              <Ionicons name="balloon-outline" size={15} color={colors.mutedForeground} />
+              <Text style={[styles.metaText, { color: colors.mutedForeground }]}>{profile.age} years old</Text>
+            </View>
+          )}
 
           {!isSelf && (
             <>
@@ -366,6 +374,19 @@ export default function UserProfileScreen() {
             </View>
           ) : null}
 
+          {Array.isArray(profile.hobbies) && profile.hobbies.length > 0 ? (
+            <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Hobbies</Text>
+              <View style={styles.hobbyChips}>
+                {profile.hobbies.map((hobby) => (
+                  <View key={hobby} style={[styles.hobbyChip, { backgroundColor: colors.primary + "18", borderColor: colors.primary + "40" }]}>
+                    <Text style={[styles.hobbyText, { color: colors.primary }]}>{hobby}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          ) : null}
+
           {/* Shared squads */}
           {profile.sharedSquads.length > 0 && (
             <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -391,11 +412,11 @@ export default function UserProfileScreen() {
           )}
 
           {/* Empty state */}
-          {!profile.bio && profile.sharedSquads.length === 0 && (
+          {!profile.bio && (!profile.hobbies || profile.hobbies.length === 0) && profile.sharedSquads.length === 0 && (
             <View style={styles.emptyState}>
               <Ionicons name="person-circle-outline" size={52} color={colors.mutedForeground} />
               <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
-                {isSelf ? "Add a bio and hometown to your profile." : "Nothing to show here yet."}
+                {isSelf ? "Add a bio, city, or hobbies to your profile." : "Nothing to show here yet."}
               </Text>
               {isSelf && (
                 <TouchableOpacity
@@ -463,6 +484,9 @@ const styles = StyleSheet.create({
   },
   sectionLabel: { fontSize: 12, fontWeight: "700", letterSpacing: 0.5, paddingHorizontal: 16, paddingTop: 14, paddingBottom: 4, textTransform: "uppercase" },
   sectionBody: { fontSize: 15, lineHeight: 22, paddingHorizontal: 16, paddingBottom: 16 },
+  hobbyChips: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingHorizontal: 16, paddingBottom: 16, paddingTop: 8 },
+  hobbyChip: { borderRadius: 16, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 6 },
+  hobbyText: { fontSize: 13, fontWeight: "600" },
   squadRow: {
     flexDirection: "row",
     alignItems: "center",

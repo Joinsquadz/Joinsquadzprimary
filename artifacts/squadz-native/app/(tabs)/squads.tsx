@@ -297,15 +297,17 @@ export default function SquadsScreen() {
                     {members.map((m, i) => {
                       const photoUrl = m.id === currentUser.id ? currentUser.profileImageUrl : m.profileImageUrl;
                       return (
-                        <View
+                        <TouchableOpacity
                           key={m.id}
+                          onPress={() => router.push((m.id === currentUser.id ? "/profile" : `/user/${m.id}`) as never)}
                           style={[
                             styles.memberAvatar,
                             { marginLeft: i > 0 ? -7 : 0, borderColor: colors.card },
                           ]}
+                          accessibilityLabel={`Open ${m.name}'s profile`}
                         >
                           <UserAvatar initials={m.initials} color={m.color} imageUrl={photoUrl} size={20} fontSize={9} />
-                        </View>
+                        </TouchableOpacity>
                       );
                     })}
                     {(squad.memberIds?.length ?? 0) > 5 && (

@@ -1063,7 +1063,12 @@ export default function TripDetailScreen() {
             const u = resolveUser(stop.assigneeId);
             return (
               <View style={styles.stopAssignee}>
-                <UserAvatar initials={u.initials} color={u.color} imageUrl={u.profileImageUrl} size={18} fontSize={8} />
+                <TouchableOpacity
+                  onPress={() => router.push((u.id === currentUser.id ? "/profile" : `/user/${u.id}`) as never)}
+                  accessibilityLabel={`Open ${u.name}'s profile`}
+                >
+                  <UserAvatar initials={u.initials} color={u.color} imageUrl={u.profileImageUrl} size={18} fontSize={8} />
+                </TouchableOpacity>
                 <Text style={[styles.stopAssigneeText, { color: colors.mutedForeground }]}>{u.name}</Text>
               </View>
             );
@@ -1089,9 +1094,14 @@ export default function TripDetailScreen() {
                 {displayVotes.slice(0, 3).map((uid, i) => {
                   const u = resolveUser(uid);
                   return (
-                    <View key={uid} style={[styles.voterAvatar, { marginLeft: i === 0 ? 0 : -8, borderColor: colors.card }]}>
+                    <TouchableOpacity
+                      key={uid}
+                      onPress={() => router.push((uid === currentUser.id ? "/profile" : `/user/${uid}`) as never)}
+                      style={[styles.voterAvatar, { marginLeft: i === 0 ? 0 : -8, borderColor: colors.card }]}
+                      accessibilityLabel={`Open ${u.name}'s profile`}
+                    >
                       <UserAvatar initials={u.initials} color={u.color} imageUrl={u.profileImageUrl} size={20} fontSize={8} />
-                    </View>
+                    </TouchableOpacity>
                   );
                 })}
                 {displayVotes.length > 3 ? (

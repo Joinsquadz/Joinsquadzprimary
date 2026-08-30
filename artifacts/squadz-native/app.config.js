@@ -1,6 +1,7 @@
 const baseConfig = require('./app.json');
 const replitDevDomain = process.env.REPLIT_DEV_DOMAIN;
-const apiBase = replitDevDomain ? `https://${replitDevDomain}` : '';
+const apiBase = process.env.EXPO_PUBLIC_API_URL
+  || (replitDevDomain ? `https://${replitDevDomain}` : '');
 module.exports = {
   ...baseConfig.expo,
   ios: {

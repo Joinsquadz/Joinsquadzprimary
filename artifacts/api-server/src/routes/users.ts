@@ -19,6 +19,20 @@ function displayName(user: { firstName?: string | null; lastName?: string | null
   return user.email?.split("@")[0] ?? "Someone";
 }
 
+function ageFromBirthdate(birthdate: string | null, now = new Date()): number | null {
+  if (!birthdate) return null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(birthdate);
+  if (!match) return null;
+  const birthYear = Number(match[1]);
+  const birthMonth = Number(match[2]);
+  const birthDay = Number(match[3]);
+  let age = now.getUTCFullYear() - birthYear;
+  const month = now.getUTCMonth() + 1;
+  const day = now.getUTCDate();
+  if (month < birthMonth || (month === birthMonth && day < birthDay)) age -= 1;
+  return age >= 0 && age <= 125 ? age : null;
+}
+
 const MAX_IDS = 100;
 
 router.get("/users/by-friend-code/:code", requireAuth, async (req: Request, res: Response): Promise<void> => {
@@ -296,6 +310,9 @@ router.get("/users/:id/profile", requireAuth, async (req: Request, res: Response
         friendCode: usersTable.friendCode,
         bio: usersTable.bio,
         hometown: usersTable.hometown,
+        birthdate: usersTable.birthdate,
+        hobbies: usersTable.hobbies,
+        privateProfile: usersTable.privateProfile,
         moderationHidden: usersTable.moderationHidden,
       })
       .from(usersTable)
@@ -335,19 +352,35 @@ router.get("/users/:id/profile", requireAuth, async (req: Request, res: Response
         return;
       }
     }
-    // Squads where both the requester and the target are members.
-    const [sharedSquads, fullTarget] = await Promise.all([
-      db
-        .select({ id: squadsTable.id, name: squadsTable.name, emoji: squadsTable.emoji, color: squadsTable.color })
-        .from(squadsTable)
-        .where(
-          and(
-            sql`${squadsTable.memberIds} @> ${JSON.stringify([requesterId])}::jsonb`,
-            sql`${squadsTable.memberIds} @> ${JSON.stringify([targetId])}::jsonb`,
-          ),
+    // A private profile is visible only to its owner, an accepted friend, or a
+    // current member of a shared squad. Evaluate this before returning any
+    // profile-only fields (bio/city/age/hobbies).
+    const sharedSquads = await db
+      .select({ id: squadsTable.id, name: squadsTable.name, emoji: squadsTable.emoji, color: squadsTable.color })
+      .from(squadsTable)
+      .where(
+        and(
+          sql`${squadsTable.memberIds} @> ${JSON.stringify([requesterId])}::jsonb`,
+          sql`${squadsTable.memberIds} @> ${JSON.stringify([targetId])}::jsonb`,
         ),
-      storage.getUser(targetId),
-    ]);
+      );
+    if (target.privateProfile && targetId !== requesterId && sharedSquads.length === 0) {
+      const [friendship] = await db
+        .select({ ownerId: friendshipsTable.ownerId })
+        .from(friendshipsTable)
+        .where(
+          or(
+            and(eq(friendshipsTable.ownerId, requesterId), eq(friendshipsTable.friendId, targetId)),
+            and(eq(friendshipsTable.ownerId, targetId), eq(friendshipsTable.friendId, requesterId)),
+          ),
+        )
+        .limit(1);
+      if (!friendship) {
+        res.status(403).json({ error: "This profile isn't available.", code: "PRIVATE_PROFILE" });
+        return;
+      }
+    }
+    const fullTarget = await storage.getUser(targetId);
     const isPro = fullTarget ? await resolveProStatus(fullTarget) : false;
     const name = [target.firstName, target.lastName].filter(Boolean).join(" ") || "Unknown";
     res.json({
@@ -357,6 +390,8 @@ router.get("/users/:id/profile", requireAuth, async (req: Request, res: Response
       profileImageUrl: target.profileImageUrl ?? null,
       bio: target.bio ?? null,
       hometown: target.hometown ?? null,
+      age: ageFromBirthdate(target.birthdate),
+      hobbies: target.hobbies ?? [],
       isPro,
       sharedSquads,
     });

@@ -170,6 +170,11 @@ export default function MessagesScreen() {
     router.push(`/conversation/${c.id}` as never);
   }, []);
 
+  const openDirectProfile = useCallback((userId: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.push((userId === currentUser?.id ? "/profile" : `/user/${userId}`) as never);
+  }, [currentUser?.id]);
+
   const handleRefresh = useCallback(() => {
     void refreshConversations();
   }, [refreshConversations]);
@@ -185,20 +190,27 @@ export default function MessagesScreen() {
       const isDirect = c.type === "direct";
 
       return (
-        <TouchableOpacity
-          onPress={() => openItem(c)}
-          style={[styles.row, { borderBottomColor: colors.border }]}
-          activeOpacity={0.7}
-        >
-          <Avatar
-            type={kind}
-            emoji={c.emoji}
-            color={c.color}
-            initial={(c.title || "?").charAt(0)}
-            imageUrl={isDirect ? (c.otherUserImageUrl ?? null) : null}
-            initials={isDirect ? (c.title || "?").slice(0, 2).toUpperCase() : undefined}
-          />
-          <View style={styles.rowBody}>
+        <View style={[styles.row, { borderBottomColor: colors.border }]}>
+          {isDirect && c.otherUserId ? (
+            <TouchableOpacity
+              onPress={() => openDirectProfile(c.otherUserId!)}
+              accessibilityRole="button"
+              accessibilityLabel={`Open ${c.title}'s profile`}
+              hitSlop={8}
+            >
+              <Avatar
+                type={kind} emoji={c.emoji} color={c.color} initial={(c.title || "?").charAt(0)}
+                imageUrl={c.otherUserImageUrl ?? null} initials={(c.title || "?").slice(0, 2).toUpperCase()}
+              />
+            </TouchableOpacity>
+          ) : (
+            <Avatar
+              type={kind} emoji={c.emoji} color={c.color} initial={(c.title || "?").charAt(0)}
+              imageUrl={isDirect ? (c.otherUserImageUrl ?? null) : null}
+              initials={isDirect ? (c.title || "?").slice(0, 2).toUpperCase() : undefined}
+            />
+          )}
+          <TouchableOpacity onPress={() => openItem(c)} style={styles.rowBody} activeOpacity={0.7}>
             <View style={styles.rowTop}>
               <TypePill kind={kind} />
               <Text style={[styles.rowName, { color: colors.foreground }]} numberOfLines={1}>
@@ -224,11 +236,11 @@ export default function MessagesScreen() {
                 </View>
               )}
             </View>
-          </View>
-        </TouchableOpacity>
+          </TouchableOpacity>
+        </View>
       );
     },
-    [colors, currentUser?.id, openItem],
+    [colors, currentUser?.id, openDirectProfile, openItem],
   );
 
   return (

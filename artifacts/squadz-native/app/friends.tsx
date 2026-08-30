@@ -32,7 +32,7 @@ export default function FriendsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { friends, friendCode, addFriend, removeFriend, friendsLoading, friendsAuthPending, friendsAuthError, retryFriends } = useData();
-  const { authToken } = useAuth();
+  const { authToken, currentUser } = useAuth();
   const { resolveUser, prefetchUsers } = useUserCache();
   const { startDirectConversation } = useMessages();
   const [codeInput, setCodeInput] = useState("");
@@ -241,6 +241,11 @@ export default function FriendsScreen() {
     ]);
   }
 
+  function openProfile(userId: string) {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.push((userId === currentUser.id ? "/profile" : `/user/${userId}`) as never);
+  }
+
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       {/* Header */}
@@ -418,13 +423,20 @@ export default function FriendsScreen() {
               key={user.id}
               style={[styles.friendRow, { backgroundColor: colors.card, borderColor: colors.border }]}
             >
-              <UserAvatar
-                initials={user.initials}
-                color={user.color}
-                imageUrl={user.profileImageUrl}
-                size={44}
-                fontSize={16}
-              />
+              <TouchableOpacity
+                onPress={() => openProfile(user.id)}
+                accessibilityRole="button"
+                accessibilityLabel={`Open ${user.name}'s profile`}
+                hitSlop={8}
+              >
+                <UserAvatar
+                  initials={user.initials}
+                  color={user.color}
+                  imageUrl={user.profileImageUrl}
+                  size={44}
+                  fontSize={16}
+                />
+              </TouchableOpacity>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.friendName, { color: colors.foreground }]}>{user.name}</Text>
                 <Text style={[styles.friendSub, { color: colors.mutedForeground }]}>SquadZ friend</Text>

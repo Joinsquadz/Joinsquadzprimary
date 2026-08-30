@@ -723,6 +723,11 @@ export default function AvailabilityScreen() {
     }, 2000);
   }, [tooltipOpacity]);
 
+  const openMemberProfile = useCallback((memberId: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.push((memberId === currentUserId ? "/profile" : `/user/${memberId}`) as never);
+  }, [currentUserId]);
+
   const clearTooltip = useCallback(() => {
     if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current);
     if (tooltipAnimRef.current) tooltipAnimRef.current.stop();
@@ -2928,8 +2933,9 @@ export default function AvailabilityScreen() {
                               {showStack && (
                                 <View style={styles.miniStack}>
                                   {freeMembers.map((m, idx) => (
-                                    <View
+                                    <TouchableOpacity
                                       key={m.id}
+                                      onPress={() => openMemberProfile(m.id)}
                                       style={[
                                         styles.miniAvatar,
                                         {
@@ -2947,7 +2953,7 @@ export default function AvailabilityScreen() {
                                           {m.displayName.charAt(0).toUpperCase()}
                                         </Text>
                                       )}
-                                    </View>
+                                    </TouchableOpacity>
                                   ))}
                                 </View>
                               )}
@@ -3076,21 +3082,8 @@ export default function AvailabilityScreen() {
                           )}
                           {m.hasResponded ? (
                             <TouchableOpacity
-                              onPress={() => {
-                                Haptics.selectionAsync();
-                                setSelectedMemberIds((prev) => {
-                                  const next = new Set(prev);
-                                  if (next.has(m.id)) next.delete(m.id);
-                                  else next.add(m.id);
-                                  return next;
-                                });
-                                showTooltip(m.id);
-                              }}
-                              onLongPress={() => {
-                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                                showTooltip(m.id);
-                              }}
-                              delayLongPress={500}
+                               onPress={() => openMemberProfile(m.id)}
+                               accessibilityLabel={`Open ${m.displayName}'s profile`}
                               activeOpacity={0.7}
                               style={[
                                 styles.memberAvatar,
@@ -3111,7 +3104,8 @@ export default function AvailabilityScreen() {
                               )}
                             </TouchableOpacity>
                           ) : (
-                            <View
+                            <TouchableOpacity
+                              onPress={() => openMemberProfile(m.id)}
                               style={[
                                 styles.memberAvatar,
                                 {
@@ -3128,7 +3122,7 @@ export default function AvailabilityScreen() {
                                   {m.displayName.charAt(0).toUpperCase()}
                                 </Text>
                               )}
-                            </View>
+                            </TouchableOpacity>
                           )}
                           {m.hasResponded && (
                             <View style={[styles.respondedDot, { backgroundColor: isSelected ? "#F59E0B" : stale ? colors.gold : colors.primary }]}>
@@ -3136,12 +3130,27 @@ export default function AvailabilityScreen() {
                             </View>
                           )}
                         </View>
-                        <Text
-                          style={[styles.memberName, { color: m.hasResponded ? colors.foreground : colors.mutedForeground }]}
-                          numberOfLines={1}
-                        >
-                          {m.displayName}
-                        </Text>
+                         <TouchableOpacity
+                           disabled={!m.hasResponded}
+                           onPress={() => {
+                             Haptics.selectionAsync();
+                             setSelectedMemberIds((prev) => {
+                               const next = new Set(prev);
+                               if (next.has(m.id)) next.delete(m.id);
+                               else next.add(m.id);
+                               return next;
+                             });
+                             showTooltip(m.id);
+                           }}
+                           accessibilityLabel={m.hasResponded ? `Filter availability by ${m.displayName}` : undefined}
+                         >
+                           <Text
+                             style={[styles.memberName, { color: m.hasResponded ? colors.foreground : colors.mutedForeground }]}
+                             numberOfLines={1}
+                           >
+                             {m.displayName}
+                           </Text>
+                         </TouchableOpacity>
                         {canNudge && (
                           <TouchableOpacity
                             onPress={() => { if (!isSending && !isSent) void sendNudge(m.id); }}
@@ -3191,11 +3200,15 @@ export default function AvailabilityScreen() {
                         const showNudge = canNudgeMember(m, isCreator);
                         return (
                           <View key={m.id} style={styles.pendingMemberRow}>
-                            <View style={[styles.pendingAvatar, { backgroundColor: state === "stale" ? colors.gold + "33" : colors.border + "33", borderColor: state === "stale" ? colors.gold : colors.border }]}>
+                            <TouchableOpacity
+                              onPress={() => openMemberProfile(m.id)}
+                              style={[styles.pendingAvatar, { backgroundColor: state === "stale" ? colors.gold + "33" : colors.border + "33", borderColor: state === "stale" ? colors.gold : colors.border }]}
+                              accessibilityLabel={`Open ${m.displayName}'s profile`}
+                            >
                               <Text style={[styles.pendingInitial, { color: state === "stale" ? colors.gold : colors.mutedForeground }]}>
                                 {m.displayName.charAt(0).toUpperCase()}
                               </Text>
-                            </View>
+                            </TouchableOpacity>
                             <View style={{ flex: 1 }}>
                               <Text style={[styles.pendingName, { color: colors.foreground }]}>{m.displayName}</Text>
                               <Text style={[styles.pendingStatus, { color: colors.textDim }]}>
@@ -3289,7 +3302,11 @@ export default function AvailabilityScreen() {
                             return (
                               <View key={m.id} style={styles.timelineRow}>
                                 <View style={[styles.timelineDot, { backgroundColor: dotColor }]} />
-                                <View style={[styles.timelineAvatar, { backgroundColor: pending ? colors.card : upToDate ? colors.primary + "22" : colors.gold + "22", borderColor: dotColor }]}>
+                                <TouchableOpacity
+                                  onPress={() => openMemberProfile(m.id)}
+                                  style={[styles.timelineAvatar, { backgroundColor: pending ? colors.card : upToDate ? colors.primary + "22" : colors.gold + "22", borderColor: dotColor }]}
+                                  accessibilityLabel={`Open ${m.displayName}'s profile`}
+                                >
                                   {m.avatarUrl ? (
                                     <Image source={{ uri: m.avatarUrl }} style={styles.timelineAvatarImg} />
                                   ) : (
@@ -3297,7 +3314,7 @@ export default function AvailabilityScreen() {
                                       {m.displayName.charAt(0).toUpperCase()}
                                     </Text>
                                   )}
-                                </View>
+                                </TouchableOpacity>
                                 <Text style={[styles.timelineName, { color: colors.foreground, opacity: pending ? 0.6 : 1 }]} numberOfLines={1}>
                                   {m.displayName}
                                 </Text>
@@ -3419,7 +3436,8 @@ export default function AvailabilityScreen() {
                         <View style={styles.cellSheetMemberList}>
                           {isMeUnsaved && currentUser && (
                             <View key="me-unsaved" style={[styles.cellSheetMemberRow, styles.cellSheetMemberRowUnsaved]}>
-                              <View
+                              <TouchableOpacity
+                                onPress={() => openMemberProfile(currentUser.id)}
                                 style={[
                                   styles.cellSheetAvatar,
                                   { backgroundColor: colors.primary + "88", borderColor: colors.primary, borderWidth: 1.5, borderStyle: "dashed" },
@@ -3428,7 +3446,7 @@ export default function AvailabilityScreen() {
                                 <Text style={styles.cellSheetAvatarInitial}>
                                   {currentUser.initials.charAt(0).toUpperCase()}
                                 </Text>
-                              </View>
+                              </TouchableOpacity>
                               <Text style={[styles.cellSheetMemberName, { color: colors.foreground }]}>
                                 {currentUser.name}
                               </Text>
@@ -3439,7 +3457,8 @@ export default function AvailabilityScreen() {
                           )}
                           {freeMembers.map((m) => (
                             <View key={m.id} style={styles.cellSheetMemberRow}>
-                              <View
+                              <TouchableOpacity
+                                onPress={() => openMemberProfile(m.id)}
                                 style={[
                                   styles.cellSheetAvatar,
                                   { backgroundColor: colors.primary, borderColor: colors.primary },
@@ -3452,7 +3471,7 @@ export default function AvailabilityScreen() {
                                     {m.displayName.charAt(0).toUpperCase()}
                                   </Text>
                                 )}
-                              </View>
+                              </TouchableOpacity>
                               <Text style={[styles.cellSheetMemberName, { color: colors.foreground }]}>
                                 {m.displayName}
                               </Text>

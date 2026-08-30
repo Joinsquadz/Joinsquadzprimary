@@ -309,6 +309,11 @@ export default function EventDetailScreen() {
   const [showInvitePicker, setShowInvitePicker] = useState(false);
   const { resolveUser, prefetchUsers } = useUserCache();
 
+  const openUserProfile = useCallback((userId: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.push((userId === currentUser.id ? "/profile" : `/user/${userId}`) as never);
+  }, [currentUser.id]);
+
   // Contextual cost-split coach mark: fires the first time the user opens an
   // event, anchored to the "Costs" tab (where splitting actually lives).
   const { eventCostActive, canShowEventCostTip, maybeShowEventCostTip, setEventCostAnchor } = useTips();
@@ -1403,9 +1408,14 @@ export default function EventDetailScreen() {
             <View style={styles.rsvpMoment}>
               <View style={styles.rsvpMomentAvatars}>
                 {going.slice(0, 5).map((u, i) => (
-                  <View key={u.id} style={{ marginLeft: i === 0 ? 0 : -8 }}>
+                  <TouchableOpacity
+                    key={u.id}
+                    onPress={() => openUserProfile(u.id)}
+                    style={{ marginLeft: i === 0 ? 0 : -8 }}
+                    accessibilityLabel={`Open ${u.name}'s profile`}
+                  >
                     <UserAvatar initials={u.initials} color={u.color} imageUrl={u.profileImageUrl} size={24} fontSize={9} />
-                  </View>
+                  </TouchableOpacity>
                 ))}
               </View>
               <Text style={styles.rsvpMomentText}>
@@ -1674,7 +1684,9 @@ export default function EventDetailScreen() {
             <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <Text style={[styles.cardTitle, { color: colors.mutedForeground }]}>Host</Text>
               <View style={styles.hostRow}>
-                <UserAvatar initials={host.initials} color={host.color} imageUrl={host.profileImageUrl} size={40} fontSize={14} />
+                <TouchableOpacity onPress={() => openUserProfile(host.id)} accessibilityLabel={`Open ${host.name}'s profile`}>
+                  <UserAvatar initials={host.initials} color={host.color} imageUrl={host.profileImageUrl} size={40} fontSize={14} />
+                </TouchableOpacity>
                 <Text style={[styles.hostName, { color: colors.foreground }]}>{host.name}{isHost ? " (You)" : ""}</Text>
               </View>
             </View>
@@ -1915,21 +1927,29 @@ export default function EventDetailScreen() {
               </TouchableOpacity>
             )}
             {attendees.map(({ user: u, status }) => (
-              <TouchableOpacity
+              <View
                 key={u.id}
-                activeOpacity={0.7}
-                onPress={() => {
-                  Haptics.selectionAsync();
-                  setContactMember(u);
-                  setContactOpen(true);
-                }}
                 style={[styles.guestRow, { backgroundColor: colors.card, borderColor: colors.border }]}
               >
-                <ProAvatar initials={u.initials} color={u.color} imageUrl={u.profileImageUrl} size={44} fontSize={15} isPro={u.isPro} />
-                <View style={{ flex: 1 }}>
+                <TouchableOpacity
+                  onPress={() => openUserProfile(u.id)}
+                  accessibilityLabel={`Open ${u.name}'s profile`}
+                  hitSlop={8}
+                >
+                  <ProAvatar initials={u.initials} color={u.color} imageUrl={u.profileImageUrl} size={44} fontSize={15} isPro={u.isPro} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={{ flex: 1 }}
+                  activeOpacity={0.7}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    setContactMember(u);
+                    setContactOpen(true);
+                  }}
+                >
                   <Text style={[styles.guestName, { color: colors.foreground }]}>{u.name}{u.id === currentUser.id ? " (You)" : ""}</Text>
                   <Text style={[styles.guestStatus, { color: statusColor(status) }]}>{STATUS_LABEL[status]}</Text>
-                </View>
+                </TouchableOpacity>
                 {/* Being on the same guest list isn't a friendship — DMs need one. */}
                 {u.id !== currentUser.id && (
                   <View style={{ alignItems: "flex-end" }}>
@@ -1944,7 +1964,7 @@ export default function EventDetailScreen() {
                 {u.id !== currentUser.id && (
                   <Ionicons name="chevron-forward" size={18} color={colors.mutedForeground} />
                 )}
-              </TouchableOpacity>
+              </View>
             ))}
             {invitedPending.length > 0 && (
               <>
@@ -2021,7 +2041,9 @@ export default function EventDetailScreen() {
                     {task.title}
                   </Text>
                   {assignee ? (
-                    <UserAvatar initials={assignee.initials} color={assignee.color} imageUrl={assignee.profileImageUrl} size={28} fontSize={10} />
+                    <TouchableOpacity onPress={() => openUserProfile(assignee.id)} accessibilityLabel={`Open ${assignee.name}'s profile`}>
+                      <UserAvatar initials={assignee.initials} color={assignee.color} imageUrl={assignee.profileImageUrl} size={28} fontSize={10} />
+                    </TouchableOpacity>
                   ) : (
                     <TouchableOpacity
                       disabled={claiming}
@@ -2093,7 +2115,9 @@ export default function EventDetailScreen() {
                             {task.title}
                           </Text>
                           {assignee ? (
-                            <UserAvatar initials={assignee.initials} color={assignee.color} imageUrl={assignee.profileImageUrl} size={28} fontSize={10} />
+                            <TouchableOpacity onPress={() => openUserProfile(assignee.id)} accessibilityLabel={`Open ${assignee.name}'s profile`}>
+                              <UserAvatar initials={assignee.initials} color={assignee.color} imageUrl={assignee.profileImageUrl} size={28} fontSize={10} />
+                            </TouchableOpacity>
                           ) : (
                             <TouchableOpacity
                               disabled={claiming}
@@ -2362,7 +2386,9 @@ export default function EventDetailScreen() {
                 </Text>
                 {coAdmins.map((u) => (
                   <View key={u.id} style={[styles.coAdminRow, { borderColor: colors.border }]}>
-                    <UserAvatar initials={u.initials} color={u.color} imageUrl={u.profileImageUrl} size={30} />
+                    <TouchableOpacity onPress={() => openUserProfile(u.id)} accessibilityLabel={`Open ${u.name}'s profile`}>
+                      <UserAvatar initials={u.initials} color={u.color} imageUrl={u.profileImageUrl} size={30} />
+                    </TouchableOpacity>
                     <Text style={[styles.coAdminName, { color: colors.foreground }]} numberOfLines={1}>{u.name}</Text>
                     <TouchableOpacity
                       onPress={() => {

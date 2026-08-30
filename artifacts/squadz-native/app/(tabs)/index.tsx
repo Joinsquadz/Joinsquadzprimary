@@ -675,9 +675,17 @@ export default function HomeScreen() {
                       .map((uid, i) => {
                         const u = resolveUser(uid);
                         return (
-                          <View key={uid} style={[styles.heroPip, { marginLeft: i > 0 ? -8 : 0 }]}>
+                          <TouchableOpacity
+                            key={uid}
+                            onPress={() => {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              router.push((uid === currentUser.id ? "/profile" : `/user/${uid}`) as never);
+                            }}
+                            style={[styles.heroPip, { marginLeft: i > 0 ? -8 : 0 }]}
+                            accessibilityLabel={`Open ${u.name}'s profile`}
+                          >
                             <UserAvatar initials={u.initials} color={u.color} imageUrl={u.profileImageUrl} size={24} fontSize={11} />
-                          </View>
+                          </TouchableOpacity>
                         );
                       })}
                   </View>

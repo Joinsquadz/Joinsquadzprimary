@@ -1252,13 +1252,19 @@ export default function SquadDetailScreen() {
                           },
                         ]}
                       >
-                        <UserAvatar
-                          initials={getFriendCodeInitials(user)}
-                          color="#A855F7"
-                          imageUrl={user.profileImageUrl}
-                          size={40}
-                          fontSize={14}
-                        />
+                        <TouchableOpacity
+                          onPress={() => router.push((user.id === currentUser.id ? "/profile" : `/user/${user.id}`) as never)}
+                          accessibilityLabel={`Open ${getFriendCodeDisplayName(user)}'s profile`}
+                          hitSlop={8}
+                        >
+                          <UserAvatar
+                            initials={getFriendCodeInitials(user)}
+                            color="#A855F7"
+                            imageUrl={user.profileImageUrl}
+                            size={40}
+                            fontSize={14}
+                          />
+                        </TouchableOpacity>
                         <View style={{ flex: 1 }}>
                           <Text style={[styles.foundUserName, { color: colors.foreground }]}>{getFriendCodeDisplayName(user)}</Text>
                           {user.friendCode && (
@@ -1447,7 +1453,12 @@ export default function SquadDetailScreen() {
                 </Text>
                 {squadCoAdmins.map((u) => (
                   <View key={u.id} style={[styles.coAdminRow, { borderColor: colors.border }]}>
-                    <UserAvatar initials={u.initials} color={u.color} imageUrl={u.profileImageUrl} size={30} />
+                    <TouchableOpacity
+                      onPress={() => router.push((u.id === currentUser.id ? "/profile" : `/user/${u.id}`) as never)}
+                      accessibilityLabel={`Open ${u.name}'s profile`}
+                    >
+                      <UserAvatar initials={u.initials} color={u.color} imageUrl={u.profileImageUrl} size={30} />
+                    </TouchableOpacity>
                     <Text style={[styles.coAdminName, { color: colors.foreground }]} numberOfLines={1}>{u.name}</Text>
                     <TouchableOpacity
                       onPress={() => {

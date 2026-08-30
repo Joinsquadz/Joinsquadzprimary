@@ -30,7 +30,7 @@ export default function AddFriendViaLinkScreen() {
   const insets = useSafeAreaInsets();
   const { code } = useLocalSearchParams<{ code: string }>();
   const { isLoggedIn, authToken } = useAuth();
-  const { friends, addFriend, friendCode: myCode } = useData();
+  const { friends, squads, addFriend, friendCode: myCode } = useData();
 
   const [inviter, setInviter] = useState<InviterProfile | null>(null);
   const [loadingInviter, setLoadingInviter] = useState(true);
@@ -114,6 +114,17 @@ export default function AddFriendViaLinkScreen() {
     : "?";
 
   const isSelf = isLoggedIn && inviter?.friendCode === myCode;
+  const mutualSquads = inviter
+    ? squads.filter((squad) => squad.memberIds.includes(inviter.id))
+    : [];
+
+  function returnToOrigin() {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace("/(tabs)" as never);
+    }
+  }
 
   if (loadingInviter) {
     return (
@@ -132,7 +143,7 @@ export default function AddFriendViaLinkScreen() {
           This invite link has expired or is invalid.
         </Text>
         <TouchableOpacity
-          onPress={() => router.replace("/(tabs)" as never)}
+          onPress={returnToOrigin}
           style={[styles.btn, { backgroundColor: colors.primary, marginTop: 28 }]}
         >
           <Text style={styles.btnText}>Go to SquadZ</Text>
@@ -163,7 +174,7 @@ export default function AddFriendViaLinkScreen() {
             : `${inviterName} will get a notification to accept.`}
         </Text>
         <TouchableOpacity
-          onPress={() => router.replace("/(tabs)" as never)}
+          onPress={returnToOrigin}
           style={[styles.btn, { backgroundColor: colors.primary, marginTop: 28 }]}
         >
           <Text style={styles.btnText}>Go to SquadZ →</Text>
@@ -175,20 +186,30 @@ export default function AddFriendViaLinkScreen() {
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <View style={[styles.hero, { paddingTop: topPad + 24, paddingBottom: 40 }]}>
-        {inviter?.profileImageUrl ? (
-          <Image
-            source={{ uri: inviter.profileImageUrl }}
-            style={styles.heroAvatar}
-          />
-        ) : (
-          <View style={[styles.heroAvatarFallback, { backgroundColor: colors.primary }]}>
-            <Text style={styles.heroAvatarInitials}>{initials}</Text>
-          </View>
-        )}
+        <TouchableOpacity
+          disabled={!isLoggedIn || isSelf}
+          onPress={() => inviter && router.push(`/user/${inviter.id}` as never)}
+          accessibilityLabel={`Open ${inviterName}'s profile`}
+        >
+          {inviter?.profileImageUrl ? (
+            <Image source={{ uri: inviter.profileImageUrl }} style={styles.heroAvatar} />
+          ) : (
+            <View style={[styles.heroAvatarFallback, { backgroundColor: colors.primary }]}>
+              <Text style={styles.heroAvatarInitials}>{initials}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
         <Text style={[styles.heroLabel, { color: "rgba(255,255,255,0.75)" }]}>
           FRIEND INVITE
         </Text>
         <Text style={[styles.heroName, { color: "#fff" }]}>{inviterName}</Text>
+        {mutualSquads.length > 0 ? (
+          <Text style={[styles.mutualSquads, { color: "rgba(255,255,255,0.82)" }]}>
+            {mutualSquads.length === 1
+              ? `Also in ${mutualSquads[0].emoji} ${mutualSquads[0].name}`
+              : `${mutualSquads.length} mutual squads`}
+          </Text>
+        ) : null}
         <Text style={[styles.heroCode, { color: "rgba(255,255,255,0.6)" }]}>
           {normalizedCode}
         </Text>
@@ -201,10 +222,10 @@ export default function AddFriendViaLinkScreen() {
               This is your own invite link. Share it with friends so they can add you!
             </Text>
             <TouchableOpacity
-              onPress={() => router.replace("/friends" as never)}
+              onPress={returnToOrigin}
               style={[styles.btn, { backgroundColor: colors.primary }]}
             >
-              <Text style={styles.btnText}>Go to Friends</Text>
+              <Text style={styles.btnText}>Go back</Text>
             </TouchableOpacity>
           </>
         ) : isLoggedIn ? (
@@ -265,14 +286,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     gap: 6,
   },
-  heroAvatar: { width: 80, height: 80, borderRadius: 40, marginBottom: 12 },
+  heroAvatar: { width: 96, height: 96, borderRadius: 48, marginBottom: 12 },
   heroAvatarFallback: {
-    width: 80, height: 80, borderRadius: 40,
+    width: 96, height: 96, borderRadius: 48,
     alignItems: "center", justifyContent: "center", marginBottom: 12,
   },
-  heroAvatarInitials: { color: "#fff", fontSize: 28, fontWeight: "800" },
+  heroAvatarInitials: { color: "#fff", fontSize: 32, fontWeight: "800" },
   heroLabel: { fontSize: 11, fontWeight: "800", letterSpacing: 1.5, textTransform: "uppercase" },
   heroName: { fontSize: 26, fontWeight: "800", textAlign: "center" },
+  mutualSquads: { fontSize: 13, fontWeight: "600", textAlign: "center" },
   heroCode: { fontSize: 14, letterSpacing: 1.5, fontVariant: ["tabular-nums"] },
   body: { flex: 1, paddingHorizontal: 24, paddingTop: 32, alignItems: "stretch" },
   heading: { fontSize: 22, fontWeight: "800", textAlign: "center" },

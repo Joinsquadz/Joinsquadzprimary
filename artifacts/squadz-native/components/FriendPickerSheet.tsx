@@ -15,7 +15,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { KeyboardAvoidingSheet } from "@/components/KeyboardAvoidingSheet";
 import { KeyboardDismissControl } from "@/components/KeyboardDismissControl";
-import { useData } from "@/context/AppContext";
+import { useAuth, useData } from "@/context/AppContext";
+import { router } from "expo-router";
 import { useUserCache } from "@/context/UserCacheContext";
 import { UserAvatar } from "@/components/UserAvatar";
 
@@ -48,6 +49,7 @@ export default function FriendPickerSheet({
 }: Props) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { currentUser } = useAuth();
   const { friends, fetchFriends, friendsLoading, friendsAuthPending, friendsAuthError, retryFriends } =
     useData();
   const { resolveUser, prefetchUsers } = useUserCache();
@@ -185,27 +187,33 @@ export default function FriendPickerSheet({
               candidates.map(({ id, user }) => {
                 const isSelected = selected.includes(id);
                 return (
-                  <TouchableOpacity
+                  <View
                     key={id}
                     style={styles.row}
-                    onPress={() => toggle(id)}
-                    activeOpacity={0.7}
                   >
-                    <UserAvatar
-                      initials={user.initials}
-                      color={user.color}
-                      imageUrl={user.profileImageUrl}
-                      size={40}
-                    />
-                    <Text style={[styles.name, { color: colors.foreground }]} numberOfLines={1}>
-                      {user.name}
-                    </Text>
-                    <Ionicons
-                      name={isSelected ? "checkmark-circle" : "ellipse-outline"}
-                      size={24}
-                      color={isSelected ? colors.primary : colors.mutedForeground}
-                    />
-                  </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => router.push((id === currentUser.id ? "/profile" : `/user/${id}`) as never)}
+                      accessibilityLabel={`Open ${user.name}'s profile`}
+                      hitSlop={8}
+                    >
+                      <UserAvatar
+                        initials={user.initials}
+                        color={user.color}
+                        imageUrl={user.profileImageUrl}
+                        size={40}
+                      />
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.rowSelect} onPress={() => toggle(id)} activeOpacity={0.7}>
+                      <Text style={[styles.name, { color: colors.foreground }]} numberOfLines={1}>
+                        {user.name}
+                      </Text>
+                      <Ionicons
+                        name={isSelected ? "checkmark-circle" : "ellipse-outline"}
+                        size={24}
+                        color={isSelected ? colors.primary : colors.mutedForeground}
+                      />
+                    </TouchableOpacity>
+                  </View>
                 );
               })
             )}
@@ -259,6 +267,7 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, fontSize: 15, fontFamily: "Inter_400Regular", padding: 0 },
   list: { flexGrow: 0 },
   row: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 9 },
+  rowSelect: { flex: 1, flexDirection: "row", alignItems: "center", gap: 12 },
   name: { flex: 1, fontSize: 15, fontFamily: "Inter_500Medium" },
   empty: { alignItems: "center", gap: 10, paddingVertical: 36, paddingHorizontal: 24 },
   emptyText: { fontSize: 14, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 20 },

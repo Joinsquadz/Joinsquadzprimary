@@ -121,3 +121,4 @@
 - [Native Intl time formatting](native-intl-time-format.md) — combined native Intl parts can omit a clock; format date/time separately and reject partial labels.
 - [Scheduler-locked scan passes](scheduler-lock-passes.md) — new periodic notification producers go inside runEngagementScanPass (or runWithSchedulerLock + unique advisory key), never a bare setInterval.
 - [Duplicate pushes & cold taps](push-duplicate-and-cold-tap.md) — subtract already-notified sets at every widening boundary; partial provider acceptance retries ONLY failed tokens (never release the claim); queue cold-start taps until auth restores.
+- [Profile privacy and OTA release](profile-privacy-ota.md) — private profiles allow self/friends/shared-squad only; expose age, never birthdate; deploy API/schema before OTA and force the production API URL.

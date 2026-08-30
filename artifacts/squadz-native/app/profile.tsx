@@ -25,7 +25,7 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { ImageViewerModal } from "@/components/ImageViewerModal";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import type { UpgradeTrigger } from "@/components/UpgradeModal";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { profileVaultUpgradeTrigger } from "@/lib/profileVault";
@@ -52,6 +52,18 @@ type SettingItem = {
   highlight?: boolean;
   onPress?: () => void;
 };
+
+function ageFromBirthdate(value: string | null): number | null {
+  if (!value) return null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (!match) return null;
+  const birthday = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  if (Number.isNaN(birthday.getTime())) return null;
+  const today = new Date();
+  let age = today.getFullYear() - birthday.getFullYear();
+  if (today.getMonth() < birthday.getMonth() || (today.getMonth() === birthday.getMonth() && today.getDate() < birthday.getDate())) age -= 1;
+  return age >= 0 ? age : null;
+}
 
 export default function ProfileScreen() {
   const colors = useColors();
@@ -82,6 +94,12 @@ export default function ProfileScreen() {
     venmoHandle: null,
     cashappHandle: null,
     zelleHandle: null,
+  });
+  const [profileDetails, setProfileDetails] = useState<{ bio: string | null; hometown: string | null; birthdate: string | null; hobbies: string[] }>({
+    bio: null,
+    hometown: null,
+    birthdate: null,
+    hobbies: [],
   });
   const [editingHandle, setEditingHandle] = useState<"venmo" | "cashapp" | "zelle" | null>(null);
   const [draftHandle, setDraftHandle] = useState("");
@@ -329,22 +347,33 @@ export default function ProfileScreen() {
   }
 
   // Load persisted payment handles
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
+    let cancelled = false;
     async function loadPreferences() {
       try {
         const res = await fetch(`${API_BASE}/api/user/preferences`, {
           headers: authHeaders(),
         });
-        if (res.ok) {
+        if (res.ok && !cancelled) {
           const data = await res.json() as {
             venmoHandle?: string | null;
             cashappHandle?: string | null;
             zelleHandle?: string | null;
+            bio?: string | null;
+            hometown?: string | null;
+            birthdate?: string | null;
+            hobbies?: string[] | null;
           };
           setPaymentHandles({
             venmoHandle: data.venmoHandle ?? null,
             cashappHandle: data.cashappHandle ?? null,
             zelleHandle: data.zelleHandle ?? null,
+          });
+          setProfileDetails({
+            bio: data.bio?.trim() || null,
+            hometown: data.hometown?.trim() || null,
+            birthdate: data.birthdate ?? null,
+            hobbies: Array.isArray(data.hobbies) ? data.hobbies.map((hobby) => hobby.trim()).filter(Boolean).slice(0, 5) : [],
           });
         }
       } catch {
@@ -352,7 +381,10 @@ export default function ProfileScreen() {
       }
     }
     void loadPreferences();
-  }, [authHeaders]);
+    return () => { cancelled = true; };
+  }, [authHeaders]));
+
+  const currentUserAge = ageFromBirthdate(profileDetails.birthdate);
 
   useEffect(() => {
     if (!showSuccessBanner) return;
@@ -822,6 +854,45 @@ export default function ProfileScreen() {
           )}
         </View>
 
+        {(profileDetails.bio || profileDetails.hometown || currentUserAge !== null || profileDetails.hobbies.length > 0) && (
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: colors.foreground }]}>About</Text>
+            <View style={[styles.aboutCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              {profileDetails.bio ? (
+                <Text style={[styles.aboutBio, { color: colors.foreground }]}>{profileDetails.bio}</Text>
+              ) : null}
+              {(profileDetails.hometown || currentUserAge !== null) && (
+                <View style={styles.aboutMeta}>
+                  {profileDetails.hometown ? (
+                    <View style={styles.aboutMetaItem}>
+                      <Ionicons name="location-outline" size={16} color={colors.mutedForeground} />
+                      <Text style={[styles.aboutMetaText, { color: colors.mutedForeground }]}>{profileDetails.hometown}</Text>
+                    </View>
+                  ) : null}
+                  {currentUserAge !== null ? (
+                    <View style={styles.aboutMetaItem}>
+                      <Ionicons name="balloon-outline" size={16} color={colors.mutedForeground} />
+                      <Text style={[styles.aboutMetaText, { color: colors.mutedForeground }]}>{currentUserAge} years old</Text>
+                    </View>
+                  ) : null}
+                </View>
+              )}
+              {profileDetails.hobbies.length > 0 && (
+                <View style={styles.aboutHobbies}>
+                  <Text style={[styles.aboutHobbiesLabel, { color: colors.mutedForeground }]}>Hobbies</Text>
+                  <View style={styles.aboutHobbyChips}>
+                    {profileDetails.hobbies.map((hobby) => (
+                      <View key={hobby} style={[styles.aboutHobbyChip, { backgroundColor: colors.primary + "18", borderColor: colors.primary + "40" }]}>
+                        <Text style={[styles.aboutHobbyText, { color: colors.primary }]}>{hobby}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              )}
+            </View>
+          </View>
+        )}
+
         {streaks !== null && (streaks.monthlyPlan > 0 || streaks.stayInTouch > 0) && (
           <View style={[styles.section, { flexDirection: "row", gap: 12 }]}>
             <View style={[styles.streakCard, { backgroundColor: colors.card, borderColor: "#FFB23E40", flex: 1 }]}>
@@ -1200,6 +1271,16 @@ const styles = StyleSheet.create({
   statLabel: { fontSize: 12 },
   section: { paddingHorizontal: 20, paddingTop: 24 },
   sectionTitle: { fontSize: 18, fontWeight: "800", marginBottom: 12 },
+  aboutCard: { borderRadius: 14, borderWidth: 1, padding: 16, gap: 12 },
+  aboutBio: { fontSize: 15, lineHeight: 22 },
+  aboutMeta: { gap: 8 },
+  aboutMetaItem: { flexDirection: "row", alignItems: "center", gap: 6 },
+  aboutMetaText: { fontSize: 14 },
+  aboutHobbies: { gap: 8 },
+  aboutHobbiesLabel: { fontSize: 12, fontWeight: "700", letterSpacing: 0.5, textTransform: "uppercase" },
+  aboutHobbyChips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  aboutHobbyChip: { borderRadius: 16, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 6 },
+  aboutHobbyText: { fontSize: 13, fontWeight: "600" },
   streakCard: { borderRadius: 16, borderWidth: 1.5, padding: 16, gap: 4 },
   streakCardTop: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 2 },
   streakEmoji: { fontSize: 22 },

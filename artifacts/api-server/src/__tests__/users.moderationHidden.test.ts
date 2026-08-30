@@ -37,6 +37,9 @@ vi.mock("@workspace/db", () => ({
     friendCode: "friend_code",
     bio: "bio",
     hometown: "hometown",
+    birthdate: "birthdate",
+    hobbies: "hobbies",
+    privateProfile: "private_profile",
     moderationHidden: "moderation_hidden",
     stripeSubscriptionId: "stripe_subscription_id",
     stripeCustomerId: "stripe_customer_id",
@@ -76,6 +79,9 @@ function baseUser(overrides: Record<string, unknown> = {}) {
     friendCode: "ALEX11",
     bio: null,
     hometown: null,
+    birthdate: null,
+    hobbies: null,
+    privateProfile: false,
     moderationHidden: false,
     ...overrides,
   };
@@ -141,5 +147,50 @@ describe("#520: GET /api/users/:id/profile — moderationHidden gate", () => {
     const res = await request(makeApp())
       .get(`/api/users/${TARGET}/profile`);
     expect(res.status).toBe(401);
+  });
+});
+
+describe("GET /api/users/:id/profile — private profile and profile fields", () => {
+  it("does not expose a private profile to an unrelated authenticated user", async () => {
+    // target, block gate, shared squads, friendship
+    mockSelectQueue.queue = [[baseUser({ privateProfile: true })], [], [], []];
+
+    const res = await request(makeApp({ id: REQUESTER }))
+      .get(`/api/users/${TARGET}/profile`);
+
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe("PRIVATE_PROFILE");
+    expect(res.body.bio).toBeUndefined();
+  });
+
+  it("allows a private profile to an accepted friend", async () => {
+    mockSelectQueue.queue = [
+      [baseUser({ privateProfile: true, birthdate: "2000-01-01", hobbies: ["Hiking", "Cooking"] })],
+      [],
+      [],
+      [{ ownerId: REQUESTER }],
+    ];
+
+    const res = await request(makeApp({ id: REQUESTER }))
+      .get(`/api/users/${TARGET}/profile`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.hobbies).toEqual(["Hiking", "Cooking"]);
+    expect(res.body.age).toBe(new Date().getUTCFullYear() - 2000);
+    expect(res.body.birthdate).toBeUndefined();
+  });
+
+  it("allows a private profile to a current shared-squad member", async () => {
+    mockSelectQueue.queue = [
+      [baseUser({ privateProfile: true })],
+      [],
+      [{ id: "sq-1", name: "Crew", emoji: "👥", color: "#000000" }],
+    ];
+
+    const res = await request(makeApp({ id: REQUESTER }))
+      .get(`/api/users/${TARGET}/profile`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.sharedSquads).toHaveLength(1);
   });
 });

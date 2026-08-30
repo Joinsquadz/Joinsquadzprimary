@@ -485,8 +485,10 @@ async function addMissingColumns(): Promise<void> {
     `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "venmo_handle" text`,
     `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "cashapp_handle" text`,
     `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "zelle_handle" text`,
-    `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "bio" text`,
+    `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "bio" varchar(150)`,
     `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "hometown" text`,
+    `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "birthdate" date`,
+    `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "hobbies" text[]`,
     `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "timezone" text`,
     `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "timezone_mode" text DEFAULT 'automatic' NOT NULL`,
     `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "activity_last_read_at" timestamp with time zone`,
@@ -559,6 +561,37 @@ async function addMissingColumns(): Promise<void> {
   for (const stmt of alterColumns) {
     await exec(stmt);
   }
+
+  // The development-data preflight for this migration found no rows over 150
+  // characters. Keep every environment fail-closed anyway: an oversized row
+  // prevents the type change and reports only the count, never profile text.
+  await exec(`
+    DO $$
+    DECLARE oversized_bios integer;
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'users'
+          AND column_name = 'bio'
+          AND data_type = 'character varying'
+          AND character_maximum_length = 150
+      ) THEN
+        RETURN;
+      END IF;
+
+      SELECT count(*) INTO oversized_bios
+      FROM "users"
+      WHERE char_length("bio") > 150;
+
+      IF oversized_bios = 0 THEN
+        ALTER TABLE "users" ALTER COLUMN "bio" TYPE varchar(150);
+      ELSE
+        RAISE WARNING 'Skipped users.bio varchar(150) conversion: % oversized rows', oversized_bios;
+      END IF;
+    END $$;
+  `);
 }
 
 // ---------------------------------------------------------------------------

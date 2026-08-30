@@ -1,0 +1,92 @@
+SquadZ OTA Batch: Profile Fields + Avatar Navigation
+
+Mode: IMPLEMENT. Audit complete — findings and decisions below are locked. No further report-only pass needed for this batch.
+
+Pure JS/API/database changes — no new native modules or permissions. Ship via eas update to the production channel once built and tested. No new binary, no App Store submission.
+
+Locked Decisions (from audit)
+Bio: existing field already allows 500 chars — tighten to 150, both server and client. No new column.
+City: reuse the existing hometown column instead of adding a duplicate city column. Display label can read "City" in the UI. Note: "hometown" and "current city" are different concepts (where you're from vs. where you live) — treating them as one field for now; flag if that distinction turns out to matter and it can be split into two fields later.
+Age: add a new birthdate DATE column, separate from the existing birthYear (used for signup age-gating) — that logic is untouched. birthdate is optional, profile-only, used solely to compute a displayed age.
+Hobbies: new field, as originally specced.
+Message-list avatars: tapping the avatar circle specifically opens the profile; tapping the rest of the row still opens the conversation as before.
+1. Profile Fields
+
+Data model — new migration:
+
+sql
+ALTER TABLE users ALTER COLUMN bio TYPE VARCHAR(150);
+-- Tightening from 500 to 150: check for existing rows over 150 chars first and report the count.
+-- Do not silently truncate live user data without confirming approach.
+
+ALTER TABLE users ADD COLUMN birthdate DATE;    -- separate from birthYear; used only for computed age display
+ALTER TABLE users ADD COLUMN hobbies TEXT[];    -- up to 5 short freeform tags
+-- No new column for city: reuse existing `hometown`.
+
+API — own profile (artifacts/api-server/src/routes/userPreferences.ts):
+
+Enforce 150-char bio max server-side
+Accept and return hometown (displayed as "City" client-side), birthdate, hobbies (max 5, enforced server-side)
+
+API — other-user profile (artifacts/api-server/src/routes/users.ts):
+
+Blocking prerequisite: confirm and, if needed, fix the privateProfile visibility gate on this endpoint — the audit found it is not visibly enforced today (auth/moderation/blocking checks exist, but not a clear friend/squad-member-only gate). Do not add the new fields below until this is confirmed working.
+Once confirmed: add computed age (derived from birthdate server-side — never return raw birthdate), hobbies, and continue returning existing bio/hometown, all subject to the visibility gate above
+
+Client:
+
+artifacts/squadz-native/app/settings/edit-profile.tsx: tighten bio input to 150 chars with live counter ("42/150"); add birthday date picker; add hobby chip entry (max 5, short freeform strings); relabel hometown field as "City"
+artifacts/squadz-native/app/profile.tsx (own profile): currently does not display bio/details the way the other-user view does — add bio, city, age, and hobbies display here for parity
+artifacts/squadz-native/app/user/[id].tsx (other-user profile): add age and hobbies display alongside existing bio/city
+Any empty field renders no placeholder — omit the block entirely
+2. Avatar Navigation
+
+Already working — no changes needed:
+
+Squad detail member circles (accepted members)
+Vibe feed post authors/comments
+Conversation message senders
+
+Needs to be made tappable into app/user/[id].tsx:
+
+Friend list rows
+Squad list mini-circles
+Squad admin/friend-picker circles
+Event RSVP avatars
+Event host/member/assignee avatars
+Add-friend search/code results
+Poll voter avatars
+Remaining activity feed entries that don't currently navigate (some already do — only fix the gaps)
+
+Needs adjustment, not a simple add:
+
+Messages-list rows: currently the avatar opens the conversation. Split the hit target — avatar circle opens the profile, rest of the row still opens the conversation
+Add-friend results: full name is already shown — add a mutual-squad label beside it, and increase avatar thumbnail size (current size is too small to disambiguate people with similar names)
+Add-friend flow back-navigation: currently ends with a terminal router.replace("/(tabs)"), which strands the user at the tabs root regardless of where they started. Replace with navigation that returns to the actual originating screen, using the existing router.canGoBack() pattern already used elsewhere in the app
+Test Checklist
+
+Profile fields
+
+ Existing bio rows over 150 chars identified and handled (report count before any truncation)
+ 150-char bio limit and 5-item hobbies limit enforced client and server
+ hometown/"City" field unaffected — no data loss from relabeling
+ birthYear age-gate logic at signup is unaffected by the new birthdate column
+ Age computed correctly from birthdate; raw birthdate never appears in another user's profile response
+ privateProfile visibility gate confirmed enforced on the other-user endpoint before new fields ship
+ Own profile screen now displays bio/city/age/hobbies (parity with other-user view)
+ Any empty field renders no placeholder
+
+Avatar nav
+
+ Every listed "needs to be tappable" surface now navigates to profile
+ Back button/gesture returns to the correct originating screen from each surface
+ Messages-list: avatar tap opens profile, row tap (outside avatar) still opens conversation
+ Add-friend results: mutual squad label shown, avatar size increased
+ Add-friend flow back-navigation returns to actual originating screen, not just tabs root
+
+Before publishing
+
+ Baseline API/mobile test counts preserved
+ Confirm the actual branch mapped to the production EAS Update channel: npx eas-cli@latest channel:view production, run from artifacts/squadz-native/ (not the root app.json, which has a different EAS project ID)
+ Publish via npx eas-cli@latest update to the confirmed production branch/channel, from artifacts/squadz-native/
+ Verify the update is received on a real device (not just simulator) before calling it done
