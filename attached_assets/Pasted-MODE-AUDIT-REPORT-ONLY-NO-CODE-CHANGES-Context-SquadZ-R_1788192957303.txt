@@ -1,0 +1,41 @@
+MODE: AUDIT — REPORT ONLY, NO CODE CHANGES
+Context
+SquadZ (React Native/Expo, Node/Drizzle/Postgres API on Replit, Supabase auth/DB, RevenueCat, PostHog, Sentry). Three bugs reported by device testing. Do not mutate any code, config, or data in this pass — investigate and report findings only. This is Phase 1 of a two-phase process; a locked-decision implementation prompt will follow separately.
+Reproduction context (critical for repro)
+	•	User’s home timezone is Seattle (Pacific — currently PDT, UTC-7). User is currently physically in Cancún, Quintana Roo, Mexico (UTC-5 year-round, does not observe DST).
+	•	Correction: the device’s system timezone had already auto-updated to Cancún before this trip was created — the trip and its events were created entirely within the Cancún timezone, not created earlier in Seattle and then read after an in-trip switch. A mid-trip device timezone change is NOT the trigger.
+	•	Because the bugs occur even though the device was consistently on Cancún time throughout trip creation, the more likely culprit is a separately stored/cached timezone value used somewhere in the app instead of the live device timezone — e.g., a user profile “home timezone” field set at signup (while in Seattle), a server-side default, or a value captured once at login/app boot that never got refreshed. The device did switch to Cancún at some point before this trip (on arrival) — check whether any stored value missed that update.
+	•	Use this to actively reproduce: for each bug, compare the live device timezone at the moment of the action against any stored timezone value on the user record, session, or server default, and confirm which one is actually being used.
+Bug 1 — Can’t open event detail from trip
+Symptom: Tapping an individual event inside a trip does not navigate to its detail view.
+Investigate:
+	•	Which component/screen renders the event list within a trip, and what happens on tap (navigation call, route params, event ID passed).
+	•	Whether event ID is null/undefined/malformed at tap time — log the actual value.
+	•	Recent changes to shared navigation, trip screens, or list components (Ideas voting, avatar nav, profile fields shipped recently — check for overlap).
+	•	Any Sentry errors tied to this navigation action.
+Bug 2 — Event time picker off-by-one-hour
+Symptom: Selecting 9pm for an event saves/displays as 8pm. Corrects itself only after repeated attempts.
+Investigate:
+	•	Full path of a time value from picker UI → client state → API payload → DB column → back to client render. Log the value at each hop.
+	•	Whether there’s a double timezone conversion (e.g., local→UTC on save, then UTC→local applied again on read, or vice versa).
+	•	Which date/time library is in use and how offsets are computed — flag any manual offset math (.getTimezoneOffset(), hardcoded offsets) instead of proper library-driven conversion.
+	•	Whether behavior depends on device timezone vs. the event’s own location timezone (this trip is in Mexico — different offset than the device’s local timezone, which may be exposing the bug).
+	•	Whether “corrects after repeated attempts” indicates a stale client cache or a state update racing the picker’s onChange.
+	•	Specifically test against the reproduction context above: confirm whether the picker/save logic pulls timezone from a stored/cached value (e.g., a user profile “home timezone” set at signup, or a stale session value) rather than reading the device’s live current (Cancún) timezone — the trip itself was created entirely within Cancún time, so a mid-trip device switch is ruled out; this points more at a stored value that’s out of sync with the device.
+Bug 3 — Premature “how was the trip” recap notification
+Symptom: A newly created Mexico trip event immediately triggers the post-event recap notification (“how was the trip,” “upload pictures”) before the event has occurred.
+Investigate:
+	•	The event-recap scan logic (relates to known scheduled scan issues, Tasks #711) — specifically how it determines an event has “ended” (likely a comparison of event end timestamp vs. current server time).
+	•	Whether the event’s end timestamp is being stored/interpreted in the wrong timezone at creation, causing it to already read as “in the past” relative to UTC server time — i.e., the same underlying timezone bug as Bug 2, just surfacing on the write side.
+	•	Pull the actual stored end timestamp for this Mexico event and compare it against what it should be given the trip’s local time and Mexico’s UTC offset.
+	•	Check whether event end timestamp computation used a stored/cached timezone value (e.g., account home timezone from signup, or a server default) instead of the live device timezone at creation — the trip was created entirely while the device was already on Cancún time, so a mid-trip switch is ruled out; this points more at a separately stored value being applied instead of the device’s live zone. This would push the computed end timestamp earlier than intended, making the recap scan treat the event as already-ended.
+	•	Note Cancún (Quintana Roo) does not observe DST while Seattle currently does (PDT, UTC-7) — confirm whether DST-awareness vs. fixed-offset handling is part of the discrepancy.
+Cross-cutting hypothesis to confirm or rule out
+Bugs 2 and 3 may share a single root cause: incorrect timezone handling somewhere in the event date/time write or comparison path. Explicitly state in the report whether this is confirmed, and if so, identify the single fix point vs. two separate fixes. Bug 1 is likely unrelated — treat separately.
+Deliverable (report only, no code changes)
+	•	Root cause for each bug, with evidence (log output, specific file/line references).
+	•	Explicit confirmation of whether Bug 2 and Bug 3 share a root cause.
+	•	For each bug: whether the fix is OTA-eligible (pure JS/API/DB) or requires a native build.
+	•	Whether any schema change would be needed (flag for migration file + schemaSync.ts update).
+	•	Current passing test count as baseline, noted but not modified.
+Do not propose or write fixes yet — findings only. I’ll review and send a locked-decision implementation prompt next.
