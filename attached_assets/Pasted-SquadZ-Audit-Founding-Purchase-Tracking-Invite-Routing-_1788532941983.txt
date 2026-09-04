@@ -1,0 +1,28 @@
+SquadZ Audit: Founding Purchase Tracking + Invite Routing
+
+Mode: Report-only. No mutations, no fixes yet — this is diagnostic.
+
+Part A: Founding Purchase / Counter Diagnostic
+
+Context: a real purchase was made at the $19.99 founding price. The public founding counter did not appear to update, and it wasn't clear whether the correct App Store link was shown.
+
+Report on:
+
+Locate this specific purchase in RevenueCat (by transaction or customer) and confirm whether the webhook fired and was received by the API server — check server logs for the webhook event around the purchase time
+Check founding_member_redemptions (or whatever the current ledger table is) — did this purchase create a redemption record? If not, identify why: webhook never received, webhook received but failed to write, product identifier mismatch, or something else
+Locate where the founding counter is rendered publicly (landing page component, in-app paywall, anywhere else) and report: does it query the live redemption count, or a cached/static value? What's the refresh interval, if any?
+On the live landing page, the App Store link currently found in the page source is https://apps.apple.com/us/app/squadz-friend-group-planner/id6789990515 — confirm this is correct and current, and check whether any other App Store links exist elsewhere on the site (a separate pricing or founding-specific page, for example) that might be stale or different
+Note but do not fix: the landing page currently mixes "iPhone app is live" messaging with "join the waitlist... be first in when we open the doors" copy in other sections. Flag whether that's intentional (e.g. waitlist scoped to Android) or leftover pre-launch copy
+Part B: Invite Routing — Current State
+
+Report on:
+
+Current squad invite mechanism — is there a separate invite-link/token system for joining a squad, distinct from the friend-code system? Where is it implemented (server routes, client screens)?
+Current friend-code invite flow end-to-end — how the link is generated, what a recipient without the app currently experiences, and what a recipient who already has the app experiences
+Current auth/onboarding screen flow (signup and signin), and where a "resume a pending invite after login" check could realistically be inserted
+Status of expo-clipboard and any groundwork already done from the earlier invite-link-fix spec (universal link config, associated domains, etc.) — has any of it been started?
+
+No implementation in this pass. A locked implementation prompt will follow once this comes back, covering:
+
+Fixing whatever broke the founding redemption for this purchase, and making the counter reflect live data
+A unified invite flow: one link format that works for both friend-code and squad invites, survives the full install → signup/signin path via clipboard + local storage, and lands the user directly on a one-tap accept screen — no manual code entry, no separate multi-step accepts
