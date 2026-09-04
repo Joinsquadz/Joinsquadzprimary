@@ -1,0 +1,50 @@
+SquadZ Implement: Founding Purchase Fix + Unified Invite Routing
+
+Mode: IMPLEMENT. Audit complete — decisions below are locked.
+
+Deploy Immediately — Backend/Server Only, No App Review
+Fix the stale App Store link in artifacts/squadz-native/server/templates/landing-page.html: replace https://apps.apple.com/app/id982107779 (a different app entirely) with https://apps.apple.com/us/app/squadz-friend-group-planner/id6789990515. This template renders the fallback page for invite links opened without the app installed. Search the rest of the codebase for any other reference to id982107779 and remove it.
+Confirm domain verification files are actually served at https://joinsquadz.com/.well-known/apple-app-site-association and https://joinsquadz.com/.well-known/assetlinks.json and return valid, current content — these weren't found as static files in the workspace during the audit and need confirming they're generated/served correctly.
+Add webhook observability: log (and send to Sentry) each stage of /api/revenuecat/webhook — request received, authorization check result, event type/period_type, and redemption commit success or failure — so a future incident like this one is diagnosable without a blind audit.
+Reconcile the missed founding purchase: Javier will supply the RevenueCat customer ID or the account email used for the Aug 31, 2026 purchase (com.squadz.app.squadzplus.founding.annual, active, expires Aug 31 2027). Locate or create the matching user row, manually insert a founding_member_redemptions record referencing the transaction, and verify the public counter reflects 499 spots remaining afterward.
+Check RevenueCat user identification: the purchasing RevenueCat customer for this transaction doesn't map to any known user row. Check whether Purchases.logIn() (or equivalent) is called with the actual authenticated app user ID before checkout initiates on the client. If it isn't happening at the right point, fix it — this is the likely reason the ledger write and the user account are disconnected, and it will recur on future purchases if left unaddressed.
+
+Before #4 and #5: Javier is checking the RevenueCat dashboard's webhook delivery log for this event and sending a test event to confirm the endpoint currently responds correctly. That result may add a fix beyond what's listed here (e.g. an auth-header mismatch) — hold final judgment on root cause until that comes back, but proceed with the reconciliation and logging regardless since both are correct either way.
+
+OTA Update — Client-Side, No App Review
+
+Bring friend-code invites up to parity with the squad/event pattern that already works, then add deferred-deep-link recovery for all three invite types when the app isn't installed yet.
+
+Friend-code parity — mirror the existing squad/event implementation exactly:
+
+Persist a pending friend code to AsyncStorage the same way squad/event codes already are, instead of relying solely on route parameters that get lost during install, restart, or interrupted auth
+Add friend-code resume logic to app/login.tsx and app/onboarding.tsx, alongside the existing squad/event resume checks
+Implement automatic post-onboarding friend acceptance, mirroring the existing squad/event auto-join behavior — land directly on the accepted state, no manual code entry, no separate confirm step
+
+Unified deferred-deep-link recovery — new, doesn't exist yet for any invite type:
+
+On first launch, check the clipboard (expo-clipboard, already installed — no new dependency) for a pending invite URL matching any of the three formats (/add/friend/, /squad/join, /join/)
+If found, parse the type and code, persist it the same way as the resume-point pattern above, and clear the clipboard entry once handled
+The web fallback pages (landing-page.html and the friend-code equivalent) should copy the invite URL to the clipboard before redirecting to the App Store, so it survives the install gap
+End-to-end result for any invite type: tap link → app not installed → App Store → install → open → land straight on a one-tap accept screen. Tap link → app installed but logged out → same pending-code-through-auth pattern already working for squad/event, now also for friend codes
+Native Build Required — Android Only
+Add verified Android HTTPS intent filters for /add/friend/* (currently missing — squad and event paths are already covered). Confirm no other invite-adjacent paths are missing verified coverage while in there
+iOS's applinks:joinsquadz.com association already appears to cover the domain broadly — confirm during implementation whether apple-app-site-association's paths config needs an explicit friend-code entry, or if it's already unrestricted
+Test Checklist
+
+Founding purchase
+
+ RevenueCat webhook delivery log checked for this event (Javier, dashboard)
+ Reconciliation record inserted for the known purchase; counter reflects 499 remaining
+ Purchases.logIn() timing fixed if found to be the gap; verified with a fresh sandbox purchase that the ledger updates automatically, start to finish
+ Webhook stages now logged/visible in Sentry for future incidents
+
+Invite routing
+
+ Friend code survives app install, restart, and interrupted auth the same way squad/event codes already do
+ Post-onboarding, a pending friend code auto-completes with no manual entry
+ Fresh device with no app installed: any invite link → correct store listing → install → open → lands on one-tap accept for the correct invite type
+ Stale App Store link fully removed from the codebase
+ Domain verification files confirmed live and correct at their expected paths
+ Android app-link intent filter for /add/friend/* verified working on a real device
+ Baseline test counts preserved

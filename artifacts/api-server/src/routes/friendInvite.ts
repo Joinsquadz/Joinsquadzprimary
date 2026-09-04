@@ -81,6 +81,10 @@ router.get("/add/friend/:code", async (req: Request, res: Response): Promise<voi
 function buildRedirectPage(code: string, name: string | null, origin: string): string {
   const deepLink = `squadz-native://add/friend/${code}`;
   const webFallback = `${origin}/mobile/add/friend/${code}`;
+  // Keep the original public invite available through the install gap. The
+  // allowlisted code makes this fixed-origin URL safe to embed in the page.
+  const inviteUrl = `https://joinsquadz.com/api/add/friend/${code}`;
+  const appStoreUrl = "https://apps.apple.com/us/app/squadz-friend-group-planner/id6789990515";
   const displayName = name ?? code;
   const escapedCode = code.replace(/[^A-Z0-9-]/g, "");
   const escapedName = displayName.replace(/[<>"'&]/g, (c) =>
@@ -124,6 +128,11 @@ function buildRedirectPage(code: string, name: string | null, origin: string): s
       text-decoration: none; font-weight: 700; font-size: 14px;
       border-radius: 14px; padding: 13px;
     }
+    .btn-store {
+      display: block; border: 1.5px solid #FF5C3A; color: #FF5C3A;
+      text-decoration: none; font-weight: 700; font-size: 14px;
+      border-radius: 14px; padding: 13px; margin-top: 12px;
+    }
     .hint { color: #555; font-size: 12px; margin-top: 20px; }
   </style>
   <script>
@@ -133,6 +142,17 @@ function buildRedirectPage(code: string, name: string | null, origin: string): s
     setTimeout(function() {
       window.location.replace(${JSON.stringify(webFallback)});
     }, 1500);
+    function copyInviteBeforeStore(event) {
+      event.preventDefault();
+      var destination = event.currentTarget.href;
+      var inviteUrl = ${JSON.stringify(inviteUrl)};
+      var navigate = function() { window.location.assign(destination); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(inviteUrl).then(navigate, navigate);
+      } else {
+        navigate();
+      }
+    }
   </script>
 </head>
 <body>
@@ -143,7 +163,8 @@ function buildRedirectPage(code: string, name: string | null, origin: string): s
     <div class="code">${escapedCode}</div>
     <a class="btn" href="${deepLink}">Open in SquadZ</a>
     <a class="btn-outline" href="${webFallback}">Continue in browser</a>
-    <p class="hint">Don't have SquadZ yet? Tap "Continue in browser" to add ${escapedName} after signing up.</p>
+    <a class="btn-store" href="${appStoreUrl}" onclick="copyInviteBeforeStore(event)">Get SquadZ on the App Store</a>
+    <p class="hint">New here? Your invite is copied before the App Store opens, so SquadZ can recover it after install.</p>
   </div>
 </body>
 </html>`;

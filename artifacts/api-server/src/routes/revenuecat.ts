@@ -15,6 +15,28 @@ import {
 
 const router: IRouter = Router();
 
+type WebhookStage = "receipt_received" | "authorization_checked" | "event_received" | "founding_redemption_committed" | "founding_redemption_failed";
+
+/**
+ * Record the webhook's durable processing milestones without sending its
+ * authorization header, full receipt, or transaction identifiers to logs/Sentry.
+ */
+function observeWebhookStage(
+  stage: WebhookStage,
+  context: Record<string, string | boolean | null | undefined> = {},
+  level: "info" | "warning" | "error" = "info",
+): void {
+  const safeContext = { stage, ...context };
+  if (level === "error") {
+    logger.error(safeContext, "RevenueCat webhook stage");
+  } else if (level === "warning") {
+    logger.warn(safeContext, "RevenueCat webhook stage");
+  } else {
+    logger.info(safeContext, "RevenueCat webhook stage");
+  }
+  captureMessage("RevenueCat webhook stage", level === "warning" ? "warning" : level, safeContext);
+}
+
 /**
  * Founding is a pricing promise, not merely the current product SKU. Preserve it
  * if RevenueCat later reports a standard product, while still allowing a real
@@ -116,17 +138,25 @@ router.post("/iap/sync", requireAuth, async (req: Request, res: Response): Promi
 // JSON body and authenticates via a shared-secret Authorization header, not an
 // HMAC over the raw body).
 router.post("/revenuecat/webhook", async (req, res): Promise<void> => {
+  // Deliberately only records that an Authorization header was supplied; never
+  // include the header value or request body in observability data.
+  observeWebhookStage("receipt_received", {
+    authorizationPresent: Boolean(req.header("authorization")),
+  });
   const expected = process.env.REVENUECAT_WEBHOOK_AUTH;
   if (!expected) {
+    observeWebhookStage("authorization_checked", { authorized: false, reason: "not_configured" }, "error");
     logger.error("REVENUECAT_WEBHOOK_AUTH is not set — rejecting webhook");
     res.status(503).json({ error: "RevenueCat webhook not configured" });
     return;
   }
   if (req.header("authorization") !== expected) {
+    observeWebhookStage("authorization_checked", { authorized: false }, "warning");
     logger.warn("RevenueCat webhook auth mismatch");
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
+  observeWebhookStage("authorization_checked", { authorized: true });
 
   const event = (req.body as RevenueCatWebhookBody | undefined)?.event;
   if (!event || !event.type) {
@@ -136,6 +166,11 @@ router.post("/revenuecat/webhook", async (req, res): Promise<void> => {
 
   // app_user_id is the Squadz user id (set via Purchases.logIn on the client).
   const userId = event.app_user_id || event.original_app_user_id;
+  observeWebhookStage("event_received", {
+    eventType: event.type,
+    periodType: event.period_type ?? null,
+    hasAppUserId: Boolean(userId),
+  });
   if (!userId) {
     logger.warn({ type: event.type }, "RevenueCat event without app_user_id — acking");
     res.status(200).json({ ok: true });
@@ -153,11 +188,29 @@ router.post("/revenuecat/webhook", async (req, res): Promise<void> => {
     if (decision === "grant" && shouldRedeemFounding(event)) {
       const key = foundingLedgerKey(event);
       if (!key) {
+        observeWebhookStage(
+          "founding_redemption_failed",
+          { userId, eventType: event.type, periodType: event.period_type ?? null },
+          "error",
+        );
         throw new Error("Founding RevenueCat payment is missing a transaction id");
       }
-      foundingRedemption = await redeemFoundingSpot(key);
-      if (foundingRedemption === "redeemed") {
-        logger.info({ userId, key }, "Redeemed a founding member spot (RevenueCat)");
+      try {
+        foundingRedemption = await redeemFoundingSpot(key);
+        observeWebhookStage("founding_redemption_committed", {
+          userId,
+          outcome: foundingRedemption,
+        });
+        if (foundingRedemption === "redeemed") {
+          logger.info({ userId }, "Redeemed a founding member spot (RevenueCat)");
+        }
+      } catch (err) {
+        observeWebhookStage(
+          "founding_redemption_failed",
+          { userId, eventType: event.type, periodType: event.period_type ?? null },
+          "error",
+        );
+        throw err;
       }
     }
 

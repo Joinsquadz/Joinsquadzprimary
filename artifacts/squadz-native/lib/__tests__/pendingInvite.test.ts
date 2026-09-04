@@ -25,6 +25,12 @@ import {
   savePendingInviteCode,
   readPendingInviteCode,
   clearPendingInviteCode,
+  clearPendingFriendCode,
+  parsePendingInviteUrl,
+  pendingInviteRoute,
+  readPendingFriendCode,
+  savePendingFriendCode,
+  savePendingInvite,
 } from "../pendingInvite";
 
 const KEY = "@squadz/pendingInviteCode";
@@ -113,5 +119,39 @@ describe("B6 — clearPendingInviteCode", () => {
 
   it("is a no-op when nothing is stored (does not throw)", async () => {
     await expect(clearPendingInviteCode()).resolves.toBeUndefined();
+  });
+});
+
+describe("friend pending invite persistence", () => {
+  it("keeps friend codes in an isolated, normalized storage key", async () => {
+    await savePendingFriendCode(" friend9 ");
+    expect(await readPendingFriendCode()).toBe("FRIEND9");
+    await clearPendingFriendCode();
+    expect(await readPendingFriendCode()).toBeNull();
+  });
+
+  it("reports whether a parsed invite was safely persisted", async () => {
+    await expect(savePendingInvite({ kind: "friend", code: "abc" })).resolves.toBe(true);
+    expect(await readPendingFriendCode()).toBe("ABC");
+  });
+});
+
+describe("clipboard invite parser and resume routes", () => {
+  it.each([
+    ["https://joinsquadz.com/api/add/friend/friend7", { kind: "friend", code: "FRIEND7" }],
+    ["https://joinsquadz.com/add/friend/friend7", { kind: "friend", code: "FRIEND7" }],
+    ["https://joinsquadz.com/squad/join?code=squad7", { kind: "squad", code: "SQUAD7" }],
+    ["https://joinsquadz.com/join/event7", { kind: "event", code: "EVENT7" }],
+  ])("recognizes canonical %s URLs", (url, expected) => {
+    expect(parsePendingInviteUrl(url)).toEqual(expected);
+  });
+
+  it("rejects unrelated hosts and incomplete invite paths", () => {
+    expect(parsePendingInviteUrl("https://example.com/add/friend/ABC")).toBeNull();
+    expect(parsePendingInviteUrl("https://joinsquadz.com/squad/join")).toBeNull();
+  });
+
+  it("routes resumed friend codes directly into automatic acceptance", () => {
+    expect(pendingInviteRoute({ kind: "friend", code: "ABC 1" })).toBe("/add/friend/ABC%201?auto=1");
   });
 });

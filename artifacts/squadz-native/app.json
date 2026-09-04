@@ -49,6 +49,16 @@
               "scheme": "https",
               "host": "joinsquadz.com",
               "pathPrefix": "/join"
+            },
+            {
+              "scheme": "https",
+              "host": "joinsquadz.com",
+              "pathPrefix": "/add/friend"
+            },
+            {
+              "scheme": "https",
+              "host": "joinsquadz.com",
+              "pathPrefix": "/api/add/friend"
             }
           ],
           "category": ["BROWSABLE", "DEFAULT"]

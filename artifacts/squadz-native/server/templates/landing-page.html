@@ -360,7 +360,7 @@
             <div class="store-buttons" id="store-buttons">
               <a
                 id="app-store-btn"
-                href="https://apps.apple.com/app/id982107779"
+                href="https://apps.apple.com/us/app/squadz-friend-group-planner/id6789990515"
                 class="store-button"
                 target="_blank"
               >
@@ -420,6 +420,23 @@
         const appStoreBtn = document.getElementById("app-store-btn");
         const playStoreBtn = document.getElementById("play-store-btn");
         const storeButtonsContainer = document.getElementById("store-buttons");
+
+        appStoreBtn.addEventListener("click", function (event) {
+          const inviteUrl = window.location.href;
+          if (!/joinsquadz\.com\/(?:api\/)?(?:add\/friend|squad\/join|join\/)/i.test(inviteUrl)) {
+            return;
+          }
+          event.preventDefault();
+          const destination = appStoreBtn.href;
+          const navigate = function () {
+            window.location.assign(destination);
+          };
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(inviteUrl).then(navigate, navigate);
+          } else {
+            navigate();
+          }
+        });
 
         if (isIOS) {
           playStoreBtn.className = "store-link";

@@ -19,7 +19,7 @@ import { SquadzIcon } from "@/components/SquadzIcon";
 import { GradientButton } from "@/components/GradientButton";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { fonts } from "@/constants/fonts";
-import { readPendingInviteCode, readPendingEventCode } from "@/lib/pendingInvite";
+import { readPendingFriendCode, readPendingInviteCode, readPendingEventCode } from "@/lib/pendingInvite";
 
 type Screen = "splash" | "signin";
 
@@ -46,6 +46,7 @@ export default function LoginScreen() {
     squadCode?: string;
     squadName?: string;
     squadEmoji?: string;
+    friendCode?: string;
   }>();
 
   const hasInvite = !!params.inviteCode;
@@ -93,19 +94,27 @@ export default function LoginScreen() {
     } else if (params.squadCode) {
       // auto=1: the invite-link tap was the intent — accept without another tap.
       router.replace({ pathname: "/squad/join", params: { code: params.squadCode, auto: "1" } } as never);
+    } else if (params.friendCode) {
+      router.replace({ pathname: "/add/friend/[code]", params: { code: params.friendCode, auto: "1" } } as never);
     } else if (params.publicSquadId) {
       router.replace({ pathname: "/squad/join-public", params: { id: params.publicSquadId } } as never);
     } else {
-      // B6: fall back to a stored pending invite code (survives cold start).
-      const stored = await readPendingInviteCode();
-      if (stored) {
-        router.replace({ pathname: "/squad/join", params: { code: stored, auto: "1" } } as never);
+      // Resume friend links first, then preserve the established squad/event
+      // ordering for older pending entries.
+      const storedFriend = await readPendingFriendCode();
+      if (storedFriend) {
+        router.replace({ pathname: "/add/friend/[code]", params: { code: storedFriend, auto: "1" } } as never);
       } else {
-        const storedEvent = await readPendingEventCode();
-        if (storedEvent) {
-          router.replace({ pathname: "/join/[inviteCode]", params: { inviteCode: storedEvent } } as never);
+        const stored = await readPendingInviteCode();
+        if (stored) {
+        router.replace({ pathname: "/squad/join", params: { code: stored, auto: "1" } } as never);
         } else {
-          router.replace("/(tabs)" as never);
+          const storedEvent = await readPendingEventCode();
+          if (storedEvent) {
+            router.replace({ pathname: "/join/[inviteCode]", params: { inviteCode: storedEvent } } as never);
+          } else {
+            router.replace("/(tabs)" as never);
+          }
         }
       }
     }

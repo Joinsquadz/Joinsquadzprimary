@@ -24,7 +24,7 @@ import { CelebrationOverlay } from "@/components/CelebrationOverlay";
 import { claimOnce } from "@/lib/seenFlags";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { EMOJI_CHOICES } from "@/constants/emojis";
-import { readPendingInviteCode, readPendingEventCode } from "@/lib/pendingInvite";
+import { readPendingFriendCode, readPendingInviteCode, readPendingEventCode, type PendingInvite } from "@/lib/pendingInvite";
 
 const SQUAD_COLORS = ["#FF6B2C", "#A855F7", "#2ECC8A", "#4A9EFF", "#FFB23E", "#FF6B2C"];
 const SQUAD_CHIPS = ["Friend Group", "Coworkers", "Family", "College", "Roommates", "Sports"];
@@ -44,13 +44,27 @@ export default function OnboardingScreen() {
   const { login } = useAuth();
   const { friendCode, currentUser, addSquad, squads } = useData();
   const { armTour } = useTips();
-  const params = useLocalSearchParams<{ inviteEventId?: string; inviteTitle?: string; publicSquadId?: string; joinEventCode?: string; squadCode?: string; squadName?: string; squadEmoji?: string; inviteCode?: string }>();
+  const params = useLocalSearchParams<{ inviteEventId?: string; inviteTitle?: string; publicSquadId?: string; joinEventCode?: string; squadCode?: string; squadName?: string; squadEmoji?: string; inviteCode?: string; friendCode?: string }>();
   const [upgradeModalVisible, setUpgradeModalVisible] = useState(false);
+  const [storedInvite, setStoredInvite] = useState<PendingInvite | null>(null);
 
   // Users arriving from a shared invite link should NOT be asked to build their
   // own squad — fast-track them straight into the squad/event they were invited
   // to. Getting the *second* person in is the whole point.
-  const isJoining = !!(params.squadCode || params.publicSquadId || params.joinEventCode || params.inviteEventId || params.inviteCode);
+  const isJoining = !!(params.squadCode || params.publicSquadId || params.joinEventCode || params.inviteEventId || params.inviteCode || params.friendCode || storedInvite);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const friend = await readPendingFriendCode();
+      const squad = friend ? null : await readPendingInviteCode();
+      const event = friend || squad ? null : await readPendingEventCode();
+      if (!cancelled && (friend || squad || event)) {
+        setStoredInvite(friend ? { kind: "friend", code: friend } : squad ? { kind: "squad", code: squad } : { kind: "event", code: event! });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const hasRealName = currentUser.id !== "me";
   // The name is collected during signup, so onboarding no longer asks for it.
@@ -107,6 +121,8 @@ export default function OnboardingScreen() {
       armTour();
       // auto=1: the invite-link tap was the intent — accept without another tap.
       router.replace({ pathname: "/squad/join", params: { code: params.squadCode, auto: "1" } } as never);
+    } else if (params.friendCode) {
+      router.replace({ pathname: "/add/friend/[code]", params: { code: params.friendCode, auto: "1" } } as never);
     } else if (params.publicSquadId) {
       armTour();
       router.replace({ pathname: "/squad/join-public", params: { id: params.publicSquadId } } as never);
@@ -116,7 +132,13 @@ export default function OnboardingScreen() {
       // invite code (<24h old) so the invite still lands. This must win
       // over the created-squad route: if the user arrived via an invite
       // link, landing on the invite is the whole point of their signup.
-      void readPendingInviteCode().then(async (stored) => {
+      void (async () => {
+        const friend = storedInvite?.kind === "friend" ? storedInvite.code : await readPendingFriendCode();
+        if (friend) {
+          router.replace({ pathname: "/add/friend/[code]", params: { code: friend, auto: "1" } } as never);
+          return;
+        }
+        const stored = storedInvite?.kind === "squad" ? storedInvite.code : await readPendingInviteCode();
         if (stored) {
           armTour();
           router.replace({ pathname: "/squad/join", params: { code: stored, auto: "1" } } as never);
@@ -131,7 +153,7 @@ export default function OnboardingScreen() {
         } else {
           router.replace("/(tabs)" as never);
         }
-      });
+      })();
     }
   };
 
@@ -199,6 +221,8 @@ export default function OnboardingScreen() {
               ? `Let's get you into ${params.inviteTitle} and find a time that works for everyone.`
               : params.squadName
                 ? `Let's get you into ${params.squadEmoji ? `${params.squadEmoji} ` : ""}${params.squadName} and find a time that works for everyone.`
+                : params.friendCode || storedInvite?.kind === "friend"
+                  ? "Let's get you connected with your friend on SquadZ."
                 : "Let's get you into your squad and find a time that works for everyone."}
           </Text>
         </View>

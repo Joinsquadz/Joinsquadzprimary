@@ -35,6 +35,7 @@ export default function SignupScreen() {
     squadCode?: string;
     squadName?: string;
     squadEmoji?: string;
+    friendCode?: string;
   }>();
 
   // T207: single name field — split into first/last only at the API boundary
@@ -136,6 +137,11 @@ export default function SignupScreen() {
           ...(params.squadName ? { squadName: params.squadName } : {}),
           ...(params.squadEmoji ? { squadEmoji: params.squadEmoji } : {}),
         },
+      } as never);
+    } else if (params.friendCode) {
+      router.replace({
+        pathname: "/onboarding",
+        params: { friendCode: params.friendCode },
       } as never);
     } else if (params.publicSquadId) {
       router.replace({
@@ -296,9 +302,7 @@ export default function SignupScreen() {
           <TouchableOpacity
             onPress={() =>
               router.push(
-                hasInvite
-                  ? ({ pathname: "/login", params } as never)
-                  : ("/login" as never),
+                ({ pathname: "/login", params } as never),
               )
             }
           >

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -16,6 +16,7 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useData, useAuth } from "@/context/AppContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
+import { clearPendingFriendCode, savePendingFriendCode } from "@/lib/pendingInvite";
 
 type InviterProfile = {
   id: string;
@@ -28,7 +29,7 @@ type InviterProfile = {
 export default function AddFriendViaLinkScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { code } = useLocalSearchParams<{ code: string }>();
+  const { code, auto } = useLocalSearchParams<{ code: string; auto?: string }>();
   const { isLoggedIn, authToken } = useAuth();
   const { friends, squads, addFriend, friendCode: myCode } = useData();
 
@@ -42,6 +43,12 @@ export default function AddFriendViaLinkScreen() {
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
 
   const normalizedCode = (code ?? "").toUpperCase().trim();
+  const isSelf = isLoggedIn && inviter?.friendCode === myCode;
+
+  // Persist before auth navigation, just like squad/event links.
+  useEffect(() => {
+    if (normalizedCode && !isLoggedIn) void savePendingFriendCode(normalizedCode);
+  }, [normalizedCode, isLoggedIn]);
 
   useEffect(() => {
     if (!normalizedCode) {
@@ -75,8 +82,13 @@ export default function AddFriendViaLinkScreen() {
   useEffect(() => {
     if (inviter && isLoggedIn && friends.includes(inviter.id)) {
       setAdded(true);
+      void clearPendingFriendCode();
     }
   }, [inviter, isLoggedIn, friends]);
+
+  useEffect(() => {
+    if (isSelf) void clearPendingFriendCode();
+  }, [isSelf]);
 
   async function handleAddFriend() {
     if (!inviter || adding) return;
@@ -87,6 +99,7 @@ export default function AddFriendViaLinkScreen() {
         headers: buildAuthHeaders(authToken),
       });
       if (res.status === 404) {
+        void clearPendingFriendCode();
         Alert.alert("Code Not Found", "This friend code is no longer valid.");
         return;
       }
@@ -95,7 +108,10 @@ export default function AddFriendViaLinkScreen() {
         return;
       }
       const found = await res.json() as { id: string };
-      addFriend(found.id);
+      await addFriend(found.id);
+      // A completed request (including an already-friend state below) is the
+      // terminal point for this friend code; never consume other invite types.
+      void clearPendingFriendCode();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setAdded(true);
     } catch {
@@ -105,6 +121,14 @@ export default function AddFriendViaLinkScreen() {
     }
   }
 
+  const autoTried = useRef(false);
+  useEffect(() => {
+    if (auto === "1" && inviter && isLoggedIn && !isSelf && !added && !autoTried.current) {
+      autoTried.current = true;
+      void handleAddFriend();
+    }
+  }, [auto, inviter, isLoggedIn, isSelf, added]);
+
   const inviterName = inviter
     ? [inviter.firstName, inviter.lastName].filter(Boolean).join(" ") || "Someone"
     : "Someone";
@@ -113,7 +137,6 @@ export default function AddFriendViaLinkScreen() {
     ? `${inviter.firstName?.[0] ?? ""}${inviter.lastName?.[0] ?? ""}`.toUpperCase() || "?"
     : "?";
 
-  const isSelf = isLoggedIn && inviter?.friendCode === myCode;
   const mutualSquads = inviter
     ? squads.filter((squad) => squad.memberIds.includes(inviter.id))
     : [];

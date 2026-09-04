@@ -17,6 +17,7 @@ const hoisted = vi.hoisted(() => ({
   setSquadzPlusForPeriod: vi.fn().mockResolvedValue({ applied: true }),
   redeemFoundingSpot: vi.fn().mockResolvedValue(true),
   captureMessage: vi.fn(),
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
 vi.mock("../storage", () => ({
@@ -30,7 +31,7 @@ vi.mock("../storage", () => ({
 vi.mock("../lib/founding", () => ({ redeemFoundingSpot: hoisted.redeemFoundingSpot }));
 
 vi.mock("../lib/logger", () => ({
-  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  logger: hoisted.logger,
 }));
 vi.mock("../services/monitoring", () => ({ captureMessage: hoisted.captureMessage }));
 
@@ -86,6 +87,14 @@ describe("POST /api/revenuecat/webhook — auth gating", () => {
     );
     expect(res.status).toBe(401);
     expect(hoisted.setSquadzPlusForPeriod).not.toHaveBeenCalled();
+    expect(hoisted.captureMessage).toHaveBeenCalledWith(
+      "RevenueCat webhook stage",
+      "warning",
+      { stage: "authorization_checked", authorized: false },
+    );
+    // The auth value itself must not appear in either log or Sentry context.
+    expect(JSON.stringify([...hoisted.captureMessage.mock.calls, ...hoisted.logger.warn.mock.calls]))
+      .not.toContain("Bearer nope");
   });
 
   it("400s on a body with no event", async () => {
@@ -210,11 +219,57 @@ describe("POST /api/revenuecat/webhook — entitlement grant/revoke", () => {
 
     expect(res.status).toBe(200);
     expect(hoisted.setSquadzPlusForPeriod).toHaveBeenCalledWith("u1", false, null, null);
-    expect(hoisted.captureMessage).not.toHaveBeenCalled();
+    expect(hoisted.captureMessage).not.toHaveBeenCalledWith(
+      "Blocked attempted founding tier downgrade",
+      "warning",
+      expect.anything(),
+    );
   });
 });
 
 describe("POST /api/revenuecat/webhook — founding spot redemption", () => {
+  it("records safe, structured receipt through founding-commit stages", async () => {
+    const res = await post({
+      event: {
+        type: "INITIAL_PURCHASE",
+        app_user_id: "u1",
+        product_id: FOUNDING,
+        entitlement_ids: ["squadz_plus"],
+        period_type: "NORMAL",
+        original_transaction_id: "receipt-secret",
+      },
+    });
+
+    expect(res.status).toBe(200);
+    expect(hoisted.captureMessage).toHaveBeenCalledWith(
+      "RevenueCat webhook stage",
+      "info",
+      { stage: "receipt_received", authorizationPresent: true },
+    );
+    expect(hoisted.captureMessage).toHaveBeenCalledWith(
+      "RevenueCat webhook stage",
+      "info",
+      { stage: "authorization_checked", authorized: true },
+    );
+    expect(hoisted.captureMessage).toHaveBeenCalledWith(
+      "RevenueCat webhook stage",
+      "info",
+      {
+        stage: "event_received",
+        eventType: "INITIAL_PURCHASE",
+        periodType: "NORMAL",
+        hasAppUserId: true,
+      },
+    );
+    expect(hoisted.captureMessage).toHaveBeenCalledWith(
+      "RevenueCat webhook stage",
+      "info",
+      { stage: "founding_redemption_committed", userId: "u1", outcome: true },
+    );
+    expect(JSON.stringify([...hoisted.captureMessage.mock.calls, ...hoisted.logger.info.mock.calls]))
+      .not.toContain("receipt-secret");
+  });
+
   it("redeems a founding spot on a paid founding INITIAL_PURCHASE, keyed by rc:<original_transaction_id>", async () => {
     const res = await post({
       event: {
@@ -363,5 +418,15 @@ describe("POST /api/revenuecat/webhook — founding spot redemption", () => {
       },
     });
     expect(res.status).toBe(500);
+    expect(hoisted.captureMessage).toHaveBeenCalledWith(
+      "RevenueCat webhook stage",
+      "error",
+      {
+        stage: "founding_redemption_failed",
+        userId: "u1",
+        eventType: "INITIAL_PURCHASE",
+        periodType: "NORMAL",
+      },
+    );
   });
 });

@@ -45,6 +45,7 @@ import { decidePushPermissionAction } from "@/lib/pushPermissionAction";
 import { useUserCache } from "@/context/UserCacheContext";
 import { initMonitoring } from "@/lib/monitoring";
 import { initAnalytics } from "@/lib/analytics";
+import { parsePendingInviteUrl, pendingInviteRoute, savePendingInvite } from "@/lib/pendingInvite";
 
 installWebAlert();
 installWebShare();
@@ -107,6 +108,39 @@ function AuthGuard() {
       router.replace("/(tabs)" as never);
     }
   }, [isLoggedIn, pendingOnboarding, segments]);
+
+  return null;
+}
+
+/**
+ * Fallback pages copy a canonical HTTPS invite before sending a visitor to the
+ * store. On the first native launch recover that one clipboard value only after
+ * auth hydration, persist it before touching the clipboard, then enter the
+ * normal deep-link/auth flow. The ref prevents navigation loops on rerenders.
+ */
+function ClipboardInviteRecovery() {
+  const { isAuthRestoring } = useAuth();
+  const recovered = useRef(false);
+
+  useEffect(() => {
+    if (Platform.OS === "web" || isAuthRestoring || recovered.current) return;
+    recovered.current = true;
+    void (async () => {
+      try {
+        // Dynamic native-only import keeps the root bundle safe on web.
+        const Clipboard = await import("expo-clipboard");
+        const text = await Clipboard.getStringAsync();
+        const invite = parsePendingInviteUrl(text);
+        if (!invite || !(await savePendingInvite(invite))) return;
+        // Never erase arbitrary clipboard content, and only clear a recognized
+        // invite after AsyncStorage confirms it was written.
+        await Clipboard.setStringAsync("");
+        router.replace(pendingInviteRoute(invite) as never);
+      } catch {
+        // Clipboard access is best-effort; direct links still work normally.
+      }
+    })();
+  }, [isAuthRestoring]);
 
   return null;
 }
@@ -510,6 +544,7 @@ function RootLayoutNav() {
   return (
     <>
       <AuthGuard />
+      <ClipboardInviteRecovery />
       <RevenueCatConnector />
       <PushNotificationHandler />
       <Stack screenOptions={{ headerShown: false, animation: "slide_from_right" }}>

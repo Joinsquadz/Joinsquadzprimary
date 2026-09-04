@@ -65,6 +65,7 @@ router.get(
               "/squad/join-public/*",
               "/squad/join",
               "/join/*",
+               "/api/add/friend/*",
             ],
             // Modern keys (iOS 13+) — take precedence when supported.
             appIDs: [appId],
@@ -80,6 +81,10 @@ router.get(
               {
                 "/": "/join/*",
                 comment: "Open shared event invite links in the Squadz app",
+              },
+              {
+                "/": "/api/add/friend/*",
+                comment: "Open shared friend-code links in the Squadz app",
               },
             ],
           },

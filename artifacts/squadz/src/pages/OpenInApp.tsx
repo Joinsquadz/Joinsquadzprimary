@@ -4,6 +4,7 @@ import { T, font } from "@/lib/data";
 import { SquadzIcon } from "@/components/SquadzIcon";
 
 const ACCENT_GRADIENT = `linear-gradient(135deg, ${T.accent} 0%, ${T.gold} 100%)`;
+const APP_STORE_URL = "https://apps.apple.com/us/app/squadz-friend-group-planner/id6789990515";
 
 type SquadPreview = {
   name: string;
@@ -97,6 +98,27 @@ export default function OpenInApp({ kind }: { kind: LinkKind }) {
 
   const { emoji, title, sub } = copy[kind];
 
+  async function copyInviteThenOpenStore(event: React.MouseEvent<HTMLAnchorElement>) {
+    if (!["squad", "event", "friend"].includes(kind)) return;
+    event.preventDefault();
+    const destination = event.currentTarget.href;
+    const inviteUrl = window.location.href;
+    try {
+      await navigator.clipboard.writeText(inviteUrl);
+    } catch {
+      const textarea = document.createElement("textarea");
+      textarea.value = inviteUrl;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      textarea.remove();
+    } finally {
+      window.location.assign(destination);
+    }
+  }
+
   return (
     <div style={{ background: T.bg, color: T.text, fontFamily: font, minHeight: "100dvh", display: "flex", flexDirection: "column" }}>
       <Helmet>
@@ -143,7 +165,8 @@ export default function OpenInApp({ kind }: { kind: LinkKind }) {
           ) : null}
 
           <a
-            href="/"
+            href={APP_STORE_URL}
+            onClick={copyInviteThenOpenStore}
             style={{
               display: "inline-flex", alignItems: "center", gap: 8,
               background: ACCENT_GRADIENT, color: "#fff", textDecoration: "none",
@@ -151,7 +174,7 @@ export default function OpenInApp({ kind }: { kind: LinkKind }) {
               boxShadow: `0 8px 28px ${T.accent}45`,
             }}
           >
-            Get SquadZ
+            Get SquadZ on the App Store
           </a>
         </div>
       </div>
