@@ -166,6 +166,32 @@ describe("POST /api/revenuecat/webhook — entitlement grant/revoke", () => {
     expect(hoisted.setSquadzPlusForPeriod).not.toHaveBeenCalled();
   });
 
+  it("retries a founding purchase for an unknown user without consuming a spot", async () => {
+    hoisted.getUser.mockResolvedValue(null as never);
+    const res = await post({
+      event: {
+        type: "INITIAL_PURCHASE",
+        app_user_id: "ghost",
+        product_id: FOUNDING,
+        entitlement_ids: ["squadz_plus"],
+        period_type: "NORMAL",
+        original_transaction_id: "unmapped-transaction",
+      },
+    });
+
+    expect(res.status).toBe(500);
+    expect(hoisted.redeemFoundingSpot).not.toHaveBeenCalled();
+    expect(hoisted.setSquadzPlusForPeriod).not.toHaveBeenCalled();
+    expect(hoisted.captureMessage).toHaveBeenCalledWith(
+      "RevenueCat webhook stage",
+      "error",
+      expect.objectContaining({
+        stage: "founding_redemption_failed",
+        reason: "unknown_user",
+      }),
+    );
+  });
+
   it("keeps a stored founding tier when a RENEWAL reports the standard product and emits telemetry", async () => {
     hoisted.getUser.mockResolvedValue({ ...USER, squadzPlusTier: "founding" } as never);
     const res = await post({

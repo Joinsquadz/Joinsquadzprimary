@@ -52,6 +52,7 @@ export default function AddFriendViaLinkScreen() {
 
   useEffect(() => {
     if (!normalizedCode) {
+      void clearPendingFriendCode();
       setNotFound(true);
       setLoadingInviter(false);
       return;
@@ -64,6 +65,7 @@ export default function AddFriendViaLinkScreen() {
           headers: { Accept: "application/json" },
         });
         if (!res.ok) {
+          if (res.status === 404) void clearPendingFriendCode();
           if (!cancelled) setNotFound(true);
           return;
         }

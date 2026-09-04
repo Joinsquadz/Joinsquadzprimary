@@ -179,6 +179,7 @@ router.post("/revenuecat/webhook", async (req, res): Promise<void> => {
 
   try {
     const decision = decideEntitlement(event);
+    let resolvedUser: Awaited<ReturnType<typeof storage.getUser>> | null = null;
     // A paid founding purchase must claim the capped ledger BEFORE its user is
     // written as a founding member. At the final spot, only the ledger winner is
     // founding; a loser was charged by the store's already-open purchase sheet,
@@ -186,6 +187,20 @@ router.post("/revenuecat/webhook", async (req, res): Promise<void> => {
     // founding provenance without a spot.
     let foundingRedemption: Awaited<ReturnType<typeof redeemFoundingSpot>> | null = null;
     if (decision === "grant" && shouldRedeemFounding(event)) {
+      resolvedUser = await storage.getUser(userId);
+      if (!resolvedUser) {
+        observeWebhookStage(
+          "founding_redemption_failed",
+          {
+            userId,
+            eventType: event.type,
+            periodType: event.period_type ?? null,
+            reason: "unknown_user",
+          },
+          "error",
+        );
+        throw new Error("Founding RevenueCat payment references an unknown user");
+      }
       const key = foundingLedgerKey(event);
       if (!key) {
         observeWebhookStage(
@@ -215,7 +230,7 @@ router.post("/revenuecat/webhook", async (req, res): Promise<void> => {
     }
 
     if (decision === "grant" || decision === "revoke") {
-      const user = await storage.getUser(userId);
+      const user = resolvedUser ?? await storage.getUser(userId);
       if (user) {
         // Period-guarded so unordered delivery can't revoke a paid-up user: a
         // delayed EXPIRATION for an old period arriving after its RENEWAL is
