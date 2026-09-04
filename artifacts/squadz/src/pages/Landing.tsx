@@ -51,105 +51,36 @@ const steps = [
   { n: "3", title: "Actually hang", body: "Lock the plan, bring the snacks, and capture the memories." },
 ];
 
-function WaitlistForm({ id, compact = false }: { id?: string; compact?: boolean }) {
-  const [email, setEmail] = useState("");
-  const [state, setState] = useState<"idle" | "loading" | "done" | "error">("idle");
-  const [msg, setMsg] = useState("");
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (state === "loading") return;
-    setState("loading");
-    setMsg("");
-    try {
-      const res = await fetch("/api/waitlist", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, source: "web-landing" }),
-      });
-      if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        setMsg(data.error || "Something went wrong. Please try again.");
-        setState("error");
-        return;
-      }
-      setState("done");
-      setEmail("");
-    } catch {
-      setMsg("Network error. Please try again.");
-      setState("error");
-    }
-  };
-
-  if (state === "done") {
-    return (
-      <div
-        id={id}
-        style={{
-          display: "flex", alignItems: "center", gap: 12, padding: "16px 20px",
-          background: T.greenDim, border: `1px solid ${T.green}55`, borderRadius: 16,
-          color: T.text, fontFamily: font, fontWeight: 600, maxWidth: 460,
-        }}
-      >
-        <span style={{ fontSize: 22 }}>🎉</span>
-        <span>You're on the list! We'll email you the moment SquadZ drops.</span>
-      </div>
-    );
-  }
-
-  return (
-    <form id={id} onSubmit={submit} style={{ width: "100%", maxWidth: 460 }}>
-      <div className="lz-form-row">
-        <input
-          type="email"
-          required
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="you@email.com"
-          style={{
-            flex: 1, minWidth: 0, padding: "15px 18px", borderRadius: 14,
-            background: T.surfaceUp, border: `1.5px solid ${T.border}`,
-            color: T.text, fontFamily: font, fontSize: 15, outline: "none",
-          }}
-        />
-        <button
-          type="submit"
-          disabled={state === "loading"}
-          style={{
-            border: "none", borderRadius: 14, background: ACCENT_GRADIENT, color: "#fff",
-            fontFamily: font, fontWeight: 800, fontSize: 15, padding: "15px 26px",
-            cursor: state === "loading" ? "default" : "pointer", whiteSpace: "nowrap",
-            boxShadow: `0 8px 28px ${T.accent}45`, opacity: state === "loading" ? 0.7 : 1,
-          }}
-        >
-          {state === "loading" ? "Joining…" : "Join the waitlist"}
-        </button>
-      </div>
-      <div style={{ marginTop: 9, fontSize: 12.5, fontFamily: font, color: state === "error" ? "#FF8A6E" : T.textDim }}>
-        {state === "error" ? msg : compact ? "No spam. Just one email when we launch." : "Be first in line. No spam, no credit card — just the launch invite."}
-      </div>
-    </form>
-  );
-}
-
 function StoreBadge({ store }: { store: "ios" | "android" }) {
   const isIos = store === "ios";
-  return (
-    <a
-      href={isIos ? APP_STORE_URL : "#waitlist"}
-      {...(isIos ? { target: "_blank", rel: "noreferrer" } : {})}
-      style={{
-        display: "flex", alignItems: "center", gap: 10, textDecoration: "none",
-        padding: "10px 16px", borderRadius: 13, background: T.surfaceUp,
-        border: `1px solid ${T.border}`, color: T.text, fontFamily: font,
-      }}
-    >
+  const content = (
+    <>
       <span style={{ fontSize: 22 }}>{store === "ios" ? "" : "🤖"}</span>
       <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.2 }}>
         <span style={{ fontSize: 10, color: T.textSub }}>{isIos ? "Download on" : "Launching on"}</span>
         <span style={{ fontSize: 15, fontWeight: 700 }}>{store === "ios" ? "App Store" : "Google Play"}</span>
       </span>
+    </>
+  );
+  const style = {
+    display: "flex", alignItems: "center", gap: 10, textDecoration: "none",
+    padding: "10px 16px", borderRadius: 13, background: T.surfaceUp,
+    border: `1px solid ${T.border}`, color: T.text, fontFamily: font,
+  } as const;
+
+  return isIos ? (
+    <a
+      href={APP_STORE_URL}
+      target="_blank"
+      rel="noreferrer"
+      style={style}
+    >
+      {content}
     </a>
+  ) : (
+    <div aria-label="Google Play version coming soon" style={{ ...style, opacity: 0.72 }}>
+      {content}
+    </div>
   );
 }
 
@@ -257,14 +188,9 @@ const STANDARD_PRICE = "$29.99";
 const FOUNDING_PRICE = "$19.99";
 
 export default function Landing() {
-  const [count, setCount] = useState<number | null>(null);
   const [founding, setFounding] = useState<FoundingStatus | null>(null);
 
   useEffect(() => {
-    fetch("/api/waitlist/count")
-      .then((r) => r.json())
-      .then((d: { count: number }) => setCount(typeof d.count === "number" ? d.count : null))
-      .catch(() => {});
     fetch("/api/subscription/founding-status")
       .then((r) => r.json())
       .then((d: Partial<FoundingStatus>) => {
@@ -274,11 +200,6 @@ export default function Landing() {
       })
       .catch(() => {});
   }, []);
-
-  const waitlistLabel =
-    count != null && count >= 25
-      ? `${count.toLocaleString()} people on the waitlist`
-      : "Join the founding squad";
 
   const isFounding = !!founding?.isFoundingAvailable && founding.spotsRemaining > 0;
 
@@ -304,7 +225,6 @@ export default function Landing() {
         .lz-phones { display: flex; justify-content: center; gap: 0; position: relative; height: 540px; align-items: center; max-width: 100%; }
         .lz-phone-a { transform: rotate(-5deg) translateX(28px); }
         .lz-phone-b { transform: rotate(4deg) translateX(-28px) translateY(26px); }
-        .lz-form-row { display: flex; gap: 10px; }
         .lz-features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
         .lz-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
         .lz-h1 { font-size: 60px; line-height: 1.02; letter-spacing: -0.035em; }
@@ -313,7 +233,6 @@ export default function Landing() {
           .lz-hero { grid-template-columns: 1fr; gap: 8px; padding: 36px 0 24px; text-align: center; }
           .lz-hero .lz-cta { justify-content: center; }
           .lz-hero .lz-proof { justify-content: center; }
-          .lz-hero form { margin-left: auto; margin-right: auto; }
           .lz-phones { height: 470px; margin-top: 8px; }
           .lz-phone-a { display: none; }
           .lz-phone-b { transform: rotate(0deg) translateX(0) translateY(0); }
@@ -323,7 +242,6 @@ export default function Landing() {
           .lz-nav-links { display: none !important; }
         }
         @media (max-width: 560px) {
-          .lz-form-row { flex-direction: column; }
           .lz-h1 { font-size: 34px; }
         }
       `}</style>
@@ -339,8 +257,8 @@ export default function Landing() {
             <a href="#features" style={{ color: T.textSub, textDecoration: "none", fontSize: 14.5, fontWeight: 600 }}>Features</a>
             <a href="#how" style={{ color: T.textSub, textDecoration: "none", fontSize: 14.5, fontWeight: 600 }}>How it works</a>
           </div>
-          <a href="#waitlist" style={{ background: ACCENT_GRADIENT, color: "#fff", textDecoration: "none", fontWeight: 800, fontSize: 14, padding: "10px 18px", borderRadius: 12, boxShadow: `0 6px 20px ${T.accent}40` }}>
-            Join waitlist
+          <a href={APP_STORE_URL} target="_blank" rel="noreferrer" style={{ background: ACCENT_GRADIENT, color: "#fff", textDecoration: "none", fontWeight: 800, fontSize: 14, padding: "10px 18px", borderRadius: 12, boxShadow: `0 6px 20px ${T.accent}40` }}>
+            Download for iPhone
           </a>
         </div>
       </nav>
@@ -364,9 +282,6 @@ export default function Landing() {
             <p style={{ fontSize: 18.5, color: T.textSub, lineHeight: 1.55, margin: "20px 0 28px", maxWidth: 480 }}>
               SquadZ is the app for your friend group — find the time everyone's free, plan the hangout, split the bill, and keep the memories. All in one place, none of the chaos.
             </p>
-            <div id="waitlist-hero">
-              <WaitlistForm />
-            </div>
             <div className="lz-cta" style={{ display: "flex", gap: 12, marginTop: 22, flexWrap: "wrap" }}>
               <StoreBadge store="ios" />
               <StoreBadge store="android" />
@@ -386,7 +301,7 @@ export default function Landing() {
                 ))}
               </div>
               <span style={{ fontSize: 14, color: T.textSub }}>
-                <span style={{ color: T.text, fontWeight: 700 }}>{waitlistLabel}</span>
+                <span style={{ color: T.text, fontWeight: 700 }}>Available now on the App Store</span>
               </span>
             </div>
           </div>
@@ -449,8 +364,8 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* Closing waitlist CTA */}
-      <section id="waitlist" style={{ padding: "40px 0 90px" }}>
+      {/* Closing download CTA */}
+      <section id="download" style={{ padding: "40px 0 90px" }}>
         <div className="lz-wrap">
           <div style={{ position: "relative", overflow: "hidden", borderRadius: 32, padding: "60px 40px", textAlign: "center", background: T.surface, border: `1px solid ${T.border}` }}>
             <div style={{ position: "absolute", top: -80, left: "50%", transform: "translateX(-50%)", width: 420, height: 420, borderRadius: "50%", background: T.accent, opacity: 0.16, filter: "blur(120px)", pointerEvents: "none" }} />
@@ -458,10 +373,10 @@ export default function Landing() {
               <SquadzIcon size={64} style={{ borderRadius: 18, margin: "0 auto 22px", boxShadow: `0 18px 50px ${T.accent}50` }} />
               <h2 style={{ fontSize: 38, fontWeight: 800, letterSpacing: "-0.03em", margin: "0 0 14px" }}>SquadZ is ready. Are you?</h2>
               <p style={{ fontSize: 17, color: T.textSub, maxWidth: 480, margin: "0 auto 28px", lineHeight: 1.55 }}>
-                The app is feature-complete — squads, availability, events, group chat, photo vault, cost splitting, and more. Join the waitlist and be first in when we open the doors.
+                SquadZ is live on iPhone with squads, availability, events, group chat, photo vault, cost splitting, and more. Download it now and start planning with your crew.
               </p>
               <div style={{ display: "flex", justifyContent: "center" }}>
-                <WaitlistForm compact />
+                <StoreBadge store="ios" />
               </div>
               {isFounding && (
                 <div style={{ marginTop: 20, fontSize: 14.5, color: T.textSub }}>

@@ -9,7 +9,7 @@
 
 ## Product description
 
-SquadZ is a free iOS and Android app currently in pre-launch. Users join a waitlist at joinsquadz.com. The app centers on "squads" — named groups of friends — and provides:
+SquadZ is a mobile app for friend groups, available now for iPhone on the App Store, with Android coming soon. The app centers on "squads" — named groups of friends — and provides:
 
 - Availability overlap: a heatmap showing when everyone is free so you can find the best time to meet
 - Event planning with RSVPs
@@ -28,4 +28,4 @@ SquadZ is a free iOS and Android app currently in pre-launch. Users join a waitl
 
 - The web presence at joinsquadz.com is a marketing landing page only. All app features are mobile-only (iOS and Android).
 - Do not describe joinsquadz.com as a web app or web service — it is a marketing site for a native mobile product.
-- The app is pre-launch; availability on app stores may be limited until the public release.
+- The iPhone app is live on the App Store; Android is coming soon.
