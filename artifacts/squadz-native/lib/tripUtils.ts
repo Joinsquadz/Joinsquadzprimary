@@ -122,15 +122,45 @@ export function isTripPast(trip: Pick<Event, "startAt" | "endAt">): boolean {
   return new Date() > endDay;
 }
 
-/** Groups stops by day key, each day's stops ordered by sortOrder then time. */
+/** Parses 12-hour or 24-hour itinerary times into minutes after midnight. */
+function itineraryTimeMinutes(value?: string | null): number | null {
+  if (!value) return null;
+  const match = value.trim().match(/^(\d{1,2})(?::(\d{2}))?\s*([ap])\.?m\.?$/i)
+    ?? value.trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+
+  let hour = Number(match[1]);
+  const minute = Number(match[2] ?? 0);
+  const meridiem = match[3]?.toLowerCase();
+  if (!Number.isInteger(hour) || !Number.isInteger(minute) || minute < 0 || minute > 59) return null;
+
+  if (meridiem) {
+    if (hour < 1 || hour > 12) return null;
+    hour = (hour % 12) + (meridiem === "p" ? 12 : 0);
+  } else if (hour < 0 || hour > 23) {
+    return null;
+  }
+
+  return hour * 60 + minute;
+}
+
+/** Groups stops by day key, each day's timed stops ordered chronologically. */
 export function groupStopsByDay(stops: ItineraryStop[]): Record<string, ItineraryStop[]> {
   const groups: Record<string, ItineraryStop[]> = {};
   for (const s of stops) {
     (groups[s.day] ??= []).push(s);
   }
   for (const key of Object.keys(groups)) {
-    // Guard: `time` is typed string but the DB may return null for untimed stops.
-    groups[key].sort((a, b) => a.sortOrder - b.sortOrder || (a.time ?? "").localeCompare(b.time ?? ""));
+    groups[key].sort((a, b) => {
+      const aMinutes = itineraryTimeMinutes(a.time);
+      const bMinutes = itineraryTimeMinutes(b.time);
+      if (aMinutes !== null && bMinutes !== null && aMinutes !== bMinutes) {
+        return aMinutes - bMinutes;
+      }
+      if (aMinutes !== null) return -1;
+      if (bMinutes !== null) return 1;
+      return a.sortOrder - b.sortOrder;
+    });
   }
   return groups;
 }

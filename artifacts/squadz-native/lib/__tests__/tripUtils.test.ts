@@ -2,8 +2,7 @@
  * Regression tests for lib/tripUtils.ts
  *
  * groupStopsByDay regression: a null `time` field on an itinerary stop must
- * not throw a TypeError from `.localeCompare()`; the stop should still be
- * grouped and returned (sort falls back to sortOrder-only comparison).
+ * not throw while sorting; untimed stops should appear after scheduled stops.
  */
 import { describe, it, expect } from "vitest";
 import { groupStopsByDay, tripDayKeys, formatTripRange, isTripPast } from "@/lib/tripUtils";
@@ -34,8 +33,8 @@ function makeStop(overrides: Partial<ItineraryStop> = {}): ItineraryStop {
 describe("groupStopsByDay", () => {
   it("groups stops by their day key", () => {
     const stops = [
-      makeStop({ id: "a", day: "2026-08-10", sortOrder: 1 }),
-      makeStop({ id: "b", day: "2026-08-10", sortOrder: 0 }),
+      makeStop({ id: "a", day: "2026-08-10", time: "10:00", sortOrder: 1 }),
+      makeStop({ id: "b", day: "2026-08-10", time: "09:00", sortOrder: 0 }),
       makeStop({ id: "c", day: "2026-08-11" }),
     ];
     const groups = groupStopsByDay(stops);
@@ -56,13 +55,37 @@ describe("groupStopsByDay", () => {
     expect(groups["2026-08-10"]).toHaveLength(2);
   });
 
-  it("sorts timed stops before untimed stops within the same sortOrder tier", () => {
+  it("sorts timed stops before untimed stops regardless of insertion order", () => {
     const stops = [
       makeStop({ id: "a", time: null as unknown as string, sortOrder: 0 }),
-      makeStop({ id: "b", time: "08:00", sortOrder: 0 }),
+      makeStop({ id: "b", time: "08:00", sortOrder: 1 }),
     ];
-    // Should not throw; exact order is stable but "08:00" > "" so b comes after a.
-    expect(() => groupStopsByDay(stops)).not.toThrow();
+    expect(groupStopsByDay(stops)["2026-08-10"].map((s) => s.id)).toEqual(["b", "a"]);
+  });
+
+  it("puts a newly added morning stop before an earlier-added afternoon stop", () => {
+    const stops = [
+      makeStop({ id: "afternoon", time: "3:00 PM", sortOrder: 0 }),
+      makeStop({ id: "morning", time: "9:00 AM", sortOrder: 1 }),
+    ];
+    expect(groupStopsByDay(stops)["2026-08-10"].map((s) => s.id))
+      .toEqual(["morning", "afternoon"]);
+  });
+
+  it("compares 12-hour times numerically rather than alphabetically", () => {
+    const stops = [
+      makeStop({ id: "ten", time: "10:00 AM", sortOrder: 0 }),
+      makeStop({ id: "nine", time: "9:00 AM", sortOrder: 1 }),
+    ];
+    expect(groupStopsByDay(stops)["2026-08-10"].map((s) => s.id)).toEqual(["nine", "ten"]);
+  });
+
+  it("uses insertion order only when scheduled times match", () => {
+    const stops = [
+      makeStop({ id: "second", time: "09:00", sortOrder: 1 }),
+      makeStop({ id: "first", time: "9:00 AM", sortOrder: 0 }),
+    ];
+    expect(groupStopsByDay(stops)["2026-08-10"].map((s) => s.id)).toEqual(["first", "second"]);
   });
 
   it("returns an empty object for an empty input", () => {
