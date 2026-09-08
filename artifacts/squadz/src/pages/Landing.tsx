@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState } from "react";
 import { Helmet } from "react-helmet-async";
 import { T, font } from "@/lib/data";
+import { trackEvent } from "@/lib/analytics";
 import { SquadzIcon } from "@/components/SquadzIcon";
 
 const ACCENT_GRADIENT = `linear-gradient(135deg, ${T.accent} 0%, ${T.gold} 100%)`;
@@ -51,7 +52,15 @@ const steps = [
   { n: "3", title: "Actually hang", body: "Lock the plan, bring the snacks, and capture the memories." },
 ];
 
-function StoreBadge({ store }: { store: "ios" | "android" }) {
+function StoreBadge({
+  store,
+  location,
+  foundingAvailable,
+}: {
+  store: "ios" | "android";
+  location: "hero" | "footer";
+  foundingAvailable: boolean;
+}) {
   const isIos = store === "ios";
   const content = (
     <>
@@ -73,6 +82,10 @@ function StoreBadge({ store }: { store: "ios" | "android" }) {
       href={APP_STORE_URL}
       target="_blank"
       rel="noreferrer"
+      onClick={() => trackEvent("app_store_clicked", {
+        location,
+        founding_available: foundingAvailable,
+      })}
       style={style}
     >
       {content}
@@ -257,7 +270,16 @@ export default function Landing() {
             <a href="#features" style={{ color: T.textSub, textDecoration: "none", fontSize: 14.5, fontWeight: 600 }}>Features</a>
             <a href="#how" style={{ color: T.textSub, textDecoration: "none", fontSize: 14.5, fontWeight: 600 }}>How it works</a>
           </div>
-          <a href={APP_STORE_URL} target="_blank" rel="noreferrer" style={{ background: ACCENT_GRADIENT, color: "#fff", textDecoration: "none", fontWeight: 800, fontSize: 14, padding: "10px 18px", borderRadius: 12, boxShadow: `0 6px 20px ${T.accent}40` }}>
+          <a
+            href={APP_STORE_URL}
+            target="_blank"
+            rel="noreferrer"
+            onClick={() => trackEvent("app_store_clicked", {
+              location: "navigation",
+              founding_available: isFounding,
+            })}
+            style={{ background: ACCENT_GRADIENT, color: "#fff", textDecoration: "none", fontWeight: 800, fontSize: 14, padding: "10px 18px", borderRadius: 12, boxShadow: `0 6px 20px ${T.accent}40` }}
+          >
             Download for iPhone
           </a>
         </div>
@@ -283,8 +305,8 @@ export default function Landing() {
               SquadZ is the app for your friend group — find the time everyone's free, plan the hangout, split the bill, and keep the memories. All in one place, none of the chaos.
             </p>
             <div className="lz-cta" style={{ display: "flex", gap: 12, marginTop: 22, flexWrap: "wrap" }}>
-              <StoreBadge store="ios" />
-              <StoreBadge store="android" />
+              <StoreBadge store="ios" location="hero" foundingAvailable={isFounding} />
+              <StoreBadge store="android" location="hero" foundingAvailable={isFounding} />
             </div>
             {isFounding && (
               <div style={{ display: "inline-flex", alignItems: "center", gap: 10, marginTop: 20, padding: "9px 16px", borderRadius: 14, background: T.surfaceUp, border: `1px solid ${T.gold}55` }}>
@@ -376,7 +398,7 @@ export default function Landing() {
                 SquadZ is live on iPhone with squads, availability, events, group chat, photo vault, cost splitting, and more. Download it now and start planning with your crew.
               </p>
               <div style={{ display: "flex", justifyContent: "center" }}>
-                <StoreBadge store="ios" />
+                <StoreBadge store="ios" location="footer" foundingAvailable={isFounding} />
               </div>
               {isFounding && (
                 <div style={{ marginTop: 20, fontSize: 14.5, color: T.textSub }}>

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Helmet } from "react-helmet-async";
 import { T, font } from "@/lib/data";
+import { trackEvent } from "@/lib/analytics";
 import { SquadzIcon } from "@/components/SquadzIcon";
 
 const ACCENT_GRADIENT = `linear-gradient(135deg, ${T.accent} 0%, ${T.gold} 100%)`;
@@ -42,6 +43,13 @@ export default function OpenInApp({ kind }: { kind: LinkKind }) {
         : null;
 
   const [preview, setPreview] = useState<SquadPreview | null>(null);
+
+  useEffect(() => {
+    trackEvent("invite_fallback_viewed", {
+      invite_type: kind,
+      code_present: Boolean(code),
+    });
+  }, [kind, code]);
 
   // Best-effort rich preview for private squad invites (same unauthenticated
   // endpoint the app uses). Non-fatal: generic copy if it can't load.
@@ -99,22 +107,35 @@ export default function OpenInApp({ kind }: { kind: LinkKind }) {
   const { emoji, title, sub } = copy[kind];
 
   async function copyInviteThenOpenStore(event: React.MouseEvent<HTMLAnchorElement>) {
+    trackEvent("app_store_clicked", {
+      location: "invite_fallback",
+      invite_type: kind,
+    });
     if (!["squad", "event", "friend"].includes(kind)) return;
     event.preventDefault();
     const destination = event.currentTarget.href;
     const inviteUrl = window.location.href;
+    let preservationMethod = "clipboard";
+    let preserved = false;
     try {
       await navigator.clipboard.writeText(inviteUrl);
+      preserved = true;
     } catch {
+      preservationMethod = "textarea";
       const textarea = document.createElement("textarea");
       textarea.value = inviteUrl;
       textarea.style.position = "fixed";
       textarea.style.opacity = "0";
       document.body.appendChild(textarea);
       textarea.select();
-      document.execCommand("copy");
+      preserved = document.execCommand("copy");
       textarea.remove();
     } finally {
+      trackEvent("invite_link_preservation", {
+        invite_type: kind,
+        method: preservationMethod,
+        result: preserved ? "success" : "failed",
+      });
       window.location.assign(destination);
     }
   }
