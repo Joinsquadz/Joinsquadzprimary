@@ -14,10 +14,8 @@ import { Router, type IRouter, type Request, type Response } from "express";
  * reachable at the canonical `/.well-known/*` paths. The shared reverse proxy
  * routes `/.well-known` to this service (see artifact.toml `paths`).
  *
- * Identity values that are only known once the apps are signed are read from
- * env vars so they can be set at deploy time without a code change:
- *   - IOS_APP_ID           — Apple App ID in `<TEAM_ID>.<BUNDLE_ID>` form
- *                            (e.g. `ABCDE12345.com.squadz.app`).
+ * Android identity values that are only known once the app is signed are read
+ * from env vars so they can be set at deploy time without a code change:
  *   - ANDROID_PACKAGE_NAME — Android applicationId (defaults to com.squadz.app).
  *   - ANDROID_SHA256_CERT_FINGERPRINTS — comma-separated SHA-256 signing-cert
  *                            fingerprints (colon-separated hex per fingerprint).
@@ -28,15 +26,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 
 const router: IRouter = Router();
 
-const IOS_BUNDLE_ID = "com.squadz.app";
-
-function iosAppId(): string {
-  const fromEnv = process.env.IOS_APP_ID?.trim();
-  if (fromEnv) return fromEnv;
-  // `TEAMID` is a placeholder — replace by setting IOS_APP_ID once the Apple
-  // Developer Team ID is known.
-  return `TEAMID.${IOS_BUNDLE_ID}`;
-}
+const IOS_APP_ID = "2567CLAZKC.com.squadz.app";
 
 function androidPackageName(): string {
   return process.env.ANDROID_PACKAGE_NAME?.trim() || "com.squadz.app";
@@ -47,15 +37,6 @@ function androidFingerprints(): string[] {
     .split(",")
     .map((fp) => fp.trim())
     .filter((fp) => fp.length > 0);
-}
-
-function iosProductionIdentityError(): string | null {
-  if (process.env.NODE_ENV !== "production") return null;
-  const appId = process.env.IOS_APP_ID?.trim();
-  if (!appId || !new RegExp(`^[A-Z0-9]{10}\\.${IOS_BUNDLE_ID.replaceAll(".", "\\.")}$`).test(appId)) {
-    return "IOS_APP_ID must be set to the signed app's <TEAM_ID>.<BUNDLE_ID> value";
-  }
-  return null;
 }
 
 function androidProductionIdentityError(): string | null {
@@ -76,19 +57,13 @@ function androidProductionIdentityError(): string | null {
 router.get(
   "/.well-known/apple-app-site-association",
   (_req: Request, res: Response): void => {
-    const configurationError = iosProductionIdentityError();
-    if (configurationError) {
-      res.status(503).json({ error: "App-link association is not configured", detail: configurationError });
-      return;
-    }
-    const appId = iosAppId();
     const body = {
       applinks: {
         apps: [],
         details: [
           {
             // Legacy keys (iOS 9–12)
-            appID: appId,
+            appID: IOS_APP_ID,
             paths: [
               "/squad/join-public",
               "/squad/join-public/*",
@@ -99,7 +74,7 @@ router.get(
               "/api/add/friend/*",
             ],
             // Modern keys (iOS 13+) — take precedence when supported.
-            appIDs: [appId],
+            appIDs: [IOS_APP_ID],
             components: [
               {
                 "/": "/squad/join-public",

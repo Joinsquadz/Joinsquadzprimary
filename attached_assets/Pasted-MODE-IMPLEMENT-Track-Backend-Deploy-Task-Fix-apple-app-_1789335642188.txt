@@ -1,0 +1,26 @@
+MODE: IMPLEMENT
+Track: Backend Deploy
+Task: Fix apple-app-site-association Team ID placeholder
+
+Context: The apple-app-site-association (AASA) file served from the joinsquadz.com domain currently contains a placeholder instead of the real Apple Developer Team ID. This file is what iOS checks to decide whether a link should open the app as a universal link or fall back to the web preview. Until it's correct, universal links to squad invites will not route into the app, and this may also be the cause of the reported dark screen on the invite link instead of the branded preview.
+
+Locked decision: The appID value must be exactly 2567CLAZKC.com.squadz.app. No wildcard, no old team ID, no bundle ID variant.
+
+Steps:
+
+Find where /.well-known/apple-app-site-association is currently served from. Check both the marketing site and the API server under /api, since joinsquadz.com hosts both.
+Confirm the appID (or the apps/appIDs field under applinks, depending on which AASA format is in use) reads exactly 2567CLAZKC.com.squadz.app.
+Confirm the paths array covers the actual invite route pattern. Pull the real pattern from the invite link generation code rather than assuming /squad/join* is correct. Include any other universal link paths the app currently generates.
+Confirm the file is served as Content-Type: application/json, over HTTPS, with no redirect. Apple's fetcher does not follow redirects, so a redirect here silently breaks everything downstream.
+Do not add auth, caching headers that would block Apple from refreshing the file, or gzip compression.
+
+Also audit while in this file (report only, do not fix without confirming with me first):
+
+Whether the current dark-screen behavior on the invite link happens for unauthenticated users only (which would point to a web preview rendering bug, separate from AASA) or also for users with the app already installed (which would point to the AASA misconfig itself). Note which one you find and why, but don't change the web preview rendering in this pass.
+
+Verification:
+
+After deploy, fetch the live AASA URL directly and confirm it returns valid JSON with the correct appID.
+Do not attempt to test actual universal link opening on a device in this prompt. That needs a signed build and is out of scope here.
+
+Test baseline: Preserve existing test counts. This is a static config change, so no new automated tests are expected, but confirm nothing currently asserts against the old placeholder value.
