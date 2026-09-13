@@ -31,7 +31,6 @@ import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { profileVaultUpgradeTrigger } from "@/lib/profileVault";
 import { upgradeCtaLabel, useSquadzPlusPriceLabel } from "@/lib/squadzPlusPrice";
 import { subscriptionManagementUrl } from "@/lib/subscriptionManagement";
-import { publicSquadUrl, squadInviteUrl } from "@/lib/inviteLinks";
 // Shared auth-race guard (see lib/vaultAuthRace.ts). The profile's own on-mount
 // fetch (event count) can 401 during a slow login; keep the events stat loading
 // + retrying rather than briefly showing a misleading value before it restores.
@@ -70,7 +69,7 @@ export default function ProfileScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { currentUser, logout, authToken, isAuthRestoring, isPro } = useAuth();
-  const { events, squads, friendCode, updateOwnPaymentHandles } = useData();
+  const { squads, friendCode, updateOwnPaymentHandles } = useData();
   const params = useLocalSearchParams<{ checkout?: string }>();
 
   const didCheckoutSuccess = params.checkout === "success";
@@ -90,7 +89,6 @@ export default function ProfileScreen() {
   // Auth-race guard for the on-mount event-count fetch (see lib/vaultAuthRace.ts).
   const [countLoading, setCountLoading] = useState(true);
   const [countAuth, setCountAuth] = useState<AuthRaceState>(INITIAL_AUTH_RACE_STATE);
-  const [streaks, setStreaks] = useState<{ monthlyPlan: number; stayInTouch: number } | null>(null);
   const [paymentHandles, setPaymentHandles] = useState<{ venmoHandle: string | null; cashappHandle: string | null; zelleHandle: string | null }>({
     venmoHandle: null,
     cashappHandle: null,
@@ -106,7 +104,6 @@ export default function ProfileScreen() {
   const [draftHandle, setDraftHandle] = useState("");
   const [savingHandle, setSavingHandle] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
-  const [squadLinkCopied, setSquadLinkCopied] = useState(false);
   const [devPushToken, setDevPushToken] = useState<string | null>(null);
   const [tokenCopied, setTokenCopied] = useState(false);
   const [sendingTestPush, setSendingTestPush] = useState(false);
@@ -119,11 +116,6 @@ export default function ProfileScreen() {
     setUpgradeTrigger(trigger);
     setUpgradeModalVisible(true);
   }, []);
-
-  const myEvents = events.filter(
-    (e) => e.hostId === currentUser.id || e.rsvps[currentUser.id] === "going" || e.rsvps[currentUser.id] === "maybe",
-  );
-  const mySquads = squads;
 
   const authHeaders = useCallback((): HeadersInit => {
     return buildAuthHeaders(authToken);
@@ -215,23 +207,6 @@ export default function ProfileScreen() {
     photoCount: eventCount ?? 0,
   });
   const countReady = countRenderMode === "content" || countRenderMode === "empty";
-
-  useEffect(() => {
-    async function fetchStreaks() {
-      try {
-        const res = await fetch(`${API_BASE}/api/streaks`, {
-          headers: authHeaders(),
-        });
-        if (res.ok) {
-          const data = await res.json() as { monthlyPlan: number; stayInTouch: number };
-          setStreaks(data);
-        }
-      } catch {
-        // silently ignore — streaks are best-effort
-      }
-    }
-    void fetchStreaks();
-  }, [authHeaders]);
 
   // Fetch push token in development builds so testers can copy it
   useEffect(() => {
@@ -487,34 +462,6 @@ export default function ProfileScreen() {
     }
   }
 
-  async function handleShareSquadInvite() {
-    const firstSquad = mySquads[0];
-    if (!firstSquad) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const code = firstSquad.inviteCode;
-    const link = code ? squadInviteUrl(code) : publicSquadUrl(firstSquad.id);
-    const msg = `Join "${firstSquad.emoji} ${firstSquad.name}" on SquadZ — we use it to find when we're all free and plan hangouts 📅\n\n${link}`;
-    if (Platform.OS === "web") {
-      let copied = false;
-      try {
-        await navigator.clipboard.writeText(link);
-        copied = true;
-      } catch {
-        copied = webCopy(link);
-      }
-      if (copied) {
-        setSquadLinkCopied(true);
-        setTimeout(() => setSquadLinkCopied(false), 2000);
-      }
-    } else {
-      try {
-        await Share.share({ message: msg, url: link });
-      } catch {
-        // dismissed
-      }
-    }
-  }
-
   async function handleSendTestNotification() {
     if (!devPushToken || sendingTestPush) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -627,7 +574,7 @@ export default function ProfileScreen() {
       ];
 
   const { friends } = useData();
-  const { timezone: viewerTimezone, mode: timezoneMode, formatEventTime } = useTimezone();
+  const { timezone: viewerTimezone, mode: timezoneMode } = useTimezone();
   // "Automatic" is the state the user chose; the resolved zone is the detail.
   const timezoneRowValue =
     timezoneMode === "automatic" ? "Automatic" : zoneLabel(viewerTimezone);
@@ -766,8 +713,8 @@ export default function ProfileScreen() {
           <View style={styles.statsRow}>
             {[
               { value: countReady && eventCount !== null ? String(eventCount) : "—", label: "Events" },
-              { value: mySquads.length.toString(), label: "Squads" },
-              { value: mySquads.length > 0 || (countReady && eventCount !== null && eventCount > 0) ? "Active" : (countReady ? "New" : "—"), label: "Status" },
+              { value: squads.length.toString(), label: "Squads" },
+              { value: squads.length > 0 || (countReady && eventCount !== null && eventCount > 0) ? "Active" : (countReady ? "New" : "—"), label: "Status" },
             ].map((s, i) => (
               <View key={i} style={styles.stat}>
                 <Text style={[styles.statValue, { color: colors.foreground }]}>{s.value}</Text>
@@ -892,63 +839,6 @@ export default function ProfileScreen() {
           </View>
         )}
 
-        {streaks !== null && (streaks.monthlyPlan > 0 || streaks.stayInTouch > 0) && (
-          <View style={[styles.section, { flexDirection: "row", gap: 12 }]}>
-            <View style={[styles.streakCard, { backgroundColor: colors.card, borderColor: "#FFB23E40", flex: 1 }]}>
-              <View style={styles.streakCardTop}>
-                <Text style={styles.streakEmoji}>🔥</Text>
-                <Text style={[styles.streakCount, { color: "#FFB23E" }]}>
-                  {streaks.monthlyPlan > 0 ? streaks.monthlyPlan : "—"}
-                </Text>
-              </View>
-              <Text style={[styles.streakLabel, { color: colors.foreground }]}>
-                {streaks.monthlyPlan === 1 ? "month" : "months"}
-              </Text>
-              <Text style={[styles.streakSub, { color: colors.mutedForeground }]}>Monthly plan streak</Text>
-            </View>
-            <View style={[styles.streakCard, { backgroundColor: colors.card, borderColor: "#4A9EFF40", flex: 1 }]}>
-              <View style={styles.streakCardTop}>
-                <Text style={styles.streakEmoji}>💬</Text>
-                <Text style={[styles.streakCount, { color: "#4A9EFF" }]}>
-                  {streaks.stayInTouch > 0 ? streaks.stayInTouch : "—"}
-                </Text>
-              </View>
-              <Text style={[styles.streakLabel, { color: colors.foreground }]}>
-                {streaks.stayInTouch === 1 ? "week" : "weeks"}
-              </Text>
-              <Text style={[styles.streakSub, { color: colors.mutedForeground }]}>Stay-in-touch streak</Text>
-            </View>
-          </View>
-        )}
-
-        {mySquads.length > 0 && (
-          <TouchableOpacity
-            onPress={() => { void handleShareSquadInvite(); }}
-            activeOpacity={0.8}
-            style={[styles.inviteCrewCard, {
-              backgroundColor: squadLinkCopied ? colors.green + "12" : colors.primary + "12",
-              borderColor: squadLinkCopied ? colors.green + "30" : colors.primary + "30",
-            }]}
-          >
-            <View style={[styles.inviteCrewIcon, { backgroundColor: squadLinkCopied ? colors.green + "22" : colors.primary + "22" }]}>
-              <Ionicons name={squadLinkCopied ? "checkmark" : "person-add-outline"} size={22} color={squadLinkCopied ? colors.green : colors.primary} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.inviteCrewTitle, { color: colors.foreground }]}>
-                {squadLinkCopied ? "Link copied!" : "Invite your crew"}
-              </Text>
-              <Text style={[styles.inviteCrewSub, { color: colors.mutedForeground }]}>
-                {squadLinkCopied ? "Paste it and share with your crew" : `Share a link to ${mySquads[0]?.emoji} ${mySquads[0]?.name}`}
-              </Text>
-            </View>
-            <Ionicons
-              name={squadLinkCopied ? "checkmark-circle" : (Platform.OS === "web" ? "copy-outline" : "share-outline")}
-              size={20}
-              color={squadLinkCopied ? colors.green : colors.primary}
-            />
-          </TouchableOpacity>
-        )}
-
         {notifPermission === "denied" && Platform.OS !== "web" && (
           <TouchableOpacity
             onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); void Linking.openSettings(); }}
@@ -969,58 +859,6 @@ export default function ProfileScreen() {
             <Ionicons name="chevron-forward" size={16} color="#FF6B2C" />
           </TouchableOpacity>
         )}
-
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>My Events</Text>
-          <View style={styles.eventsGrid}>
-            {myEvents.slice(0, 4).map((e) => (
-              <TouchableOpacity
-                key={e.id}
-                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push(`/event/${e.id}` as never); }}
-                style={[styles.eventMini, { backgroundColor: colors.card, borderColor: colors.border }]}
-              >
-                <Text style={styles.eventEmoji}>{e.emoji}</Text>
-                <Text style={[styles.eventTitle, { color: colors.foreground }]} numberOfLines={1}>{e.title}</Text>
-                <Text style={[styles.eventDate, { color: colors.mutedForeground }]} numberOfLines={1}>{formatEventTime(e)}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <View style={styles.squadsHeader}>
-            <Text style={[styles.sectionTitle, { color: colors.foreground, marginBottom: 0 }]}>My Squads</Text>
-            <TouchableOpacity
-              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push("/squad/create"); }}
-              style={styles.newSquadLink}
-            >
-              <Ionicons name="add" size={16} color={colors.primary} />
-              <Text style={[styles.newSquadLinkText, { color: colors.primary }]}>New</Text>
-            </TouchableOpacity>
-          </View>
-          {mySquads.length === 0 ? (
-            <Text style={[styles.eventDate, { color: colors.mutedForeground }]}>You haven't joined any squads yet.</Text>
-          ) : (
-            <View style={{ gap: 8 }}>
-              {mySquads.map((s) => (
-                <TouchableOpacity
-                  key={s.id}
-                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push(`/squad/${s.id}` as never); }}
-                  style={[styles.squadRow, { backgroundColor: colors.card, borderColor: colors.border }]}
-                >
-                  <View style={[styles.squadRowIcon, { backgroundColor: s.color + "20" }]}>
-                    <Text style={{ fontSize: 20 }}>{s.emoji}</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.squadRowName, { color: colors.foreground }]}>{s.name}</Text>
-                    <Text style={[styles.eventDate, { color: colors.mutedForeground }]}>{s.memberIds?.length ?? 0} members</Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={16} color={colors.textDim} />
-                </TouchableOpacity>
-              ))}
-            </View>
-          )}
-        </View>
 
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Payment methods</Text>
@@ -1280,23 +1118,7 @@ const styles = StyleSheet.create({
   aboutHobbyChips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   aboutHobbyChip: { borderRadius: 16, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 6 },
   aboutHobbyText: { fontSize: 13, fontWeight: "600" },
-  streakCard: { borderRadius: 16, borderWidth: 1.5, padding: 16, gap: 4 },
-  streakCardTop: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 2 },
-  streakEmoji: { fontSize: 22 },
-  streakCount: { fontSize: 28, fontWeight: "900" },
-  streakLabel: { fontSize: 13, fontWeight: "700" },
-  streakSub: { fontSize: 11, marginTop: 1 },
-  eventsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  eventMini: { width: "48%", borderRadius: 14, borderWidth: 1, padding: 14, gap: 4 },
-  eventEmoji: { fontSize: 22 },
-  eventTitle: { fontSize: 14, fontWeight: "700" },
   eventDate: { fontSize: 12 },
-  squadsHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
-  newSquadLink: { flexDirection: "row", alignItems: "center", gap: 2 },
-  newSquadLinkText: { fontSize: 14, fontWeight: "700" },
-  squadRow: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 14, borderWidth: 1, padding: 12 },
-  squadRowIcon: { width: 44, height: 44, borderRadius: 14, alignItems: "center", justifyContent: "center" },
-  squadRowName: { fontSize: 15, fontWeight: "700" },
   settingsGroup: { paddingHorizontal: 20, paddingTop: 20 },
   settingRow: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderWidth: 1 },
   settingFirst: { borderTopLeftRadius: 14, borderTopRightRadius: 14 },
@@ -1343,10 +1165,6 @@ const styles = StyleSheet.create({
   handleRemoveBtnText: { fontSize: 13, fontWeight: "700" },
   handleCancelBtn: { borderRadius: 20, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 7 },
   handleCancelBtnText: { fontSize: 13, fontWeight: "600" },
-  inviteCrewCard: { flexDirection: "row", alignItems: "center", gap: 12, marginHorizontal: 20, marginTop: 16, borderRadius: 14, borderWidth: 1, padding: 14 },
-  inviteCrewIcon: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center" },
-  inviteCrewTitle: { fontSize: 15, fontWeight: "700", marginBottom: 2 },
-  inviteCrewSub: { fontSize: 13 },
   notifNudge: { flexDirection: "row", alignItems: "center", gap: 12, marginHorizontal: 20, marginTop: 16, borderRadius: 14, borderWidth: 1, padding: 14 },
   notifNudgeIcon: { width: 42, height: 42, borderRadius: 12, alignItems: "center", justifyContent: "center", flexShrink: 0 },
   notifNudgeTitle: { fontSize: 15, fontWeight: "700" },
