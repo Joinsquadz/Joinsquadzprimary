@@ -2940,6 +2940,7 @@ export default function EventDetailScreen() {
         visible={showInvitePicker}
         title="Invite friends"
         confirmLabel="Invite"
+        allowNonFriends
         excludeIds={[event.hostId, ...Object.keys(event.rsvps), ...(event.invitedUserIds ?? [])]}
         onClose={() => setShowInvitePicker(false)}
         onConfirm={async (ids) => {

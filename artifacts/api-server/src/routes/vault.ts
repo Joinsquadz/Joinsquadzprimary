@@ -458,6 +458,44 @@ router.delete("/vault/saves/:photoId", requireAuth, async (req: Request, res: Re
   }
 });
 
+/**
+ * DELETE /api/vault/photos/:id
+ *
+ * Permanently remove an original vault photo/video. The row deletion is scoped
+ * to the original uploader; a viewer can never use this endpoint to remove
+ * somebody else's media. Shared-squad removal intentionally remains on
+ * DELETE /api/squads/:id/vault/:photoId, which only unshares the item.
+ *
+ * This endpoint deliberately does NOT release the underlying object or its
+ * upload-provenance row. The same URL may still be referenced by feed posts,
+ * moments, or other content, and a count of photo rows cannot cover those
+ * references or make deletion race-free. A complete cross-content reference
+ * cleanup mechanism must own that work separately.
+ */
+router.delete("/vault/photos/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req.user as { id: string }).id;
+    const photoId = parsePhotoId(req.params.id);
+    if (!Number.isInteger(photoId) || photoId <= 0) {
+      res.status(400).json({ error: "Invalid photo id" });
+      return;
+    }
+
+    const removed = await storage.deleteOwnPhoto(photoId, userId);
+    if (!removed) {
+      res.status(403).json({ error: "You can only delete media you uploaded." });
+      return;
+    }
+
+    emitVaultPhotoUpdate(photoId);
+    if (removed.squadId) emitSquadUpdate(removed.squadId);
+    res.json({ ok: true, removed: true });
+  } catch (err) {
+    logger.error({ err }, "Error deleting original vault photo");
+    res.status(500).json({ error: "Failed to delete photo" });
+  }
+});
+
 const FavoriteBody = z.object({ photoId: z.number().int().positive() });
 
 /**

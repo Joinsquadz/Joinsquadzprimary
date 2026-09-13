@@ -122,3 +122,5 @@
 - [Scheduler-locked scan passes](scheduler-lock-passes.md) — new periodic notification producers go inside runEngagementScanPass (or runWithSchedulerLock + unique advisory key), never a bare setInterval.
 - [Duplicate pushes & cold taps](push-duplicate-and-cold-tap.md) — subtract already-notified sets at every widening boundary; partial provider acceptance retries ONLY failed tokens (never release the claim); queue cold-start taps until auth restores.
 - [Profile privacy and OTA release](profile-privacy-ota.md) — private profiles allow self/friends/shared-squad only; expose age, never birthdate; deploy API/schema before OTA and force the production API URL.
+- [User-pair relationship locking](user-pair-relationship-locking.md) — friend requests, direct invites, acceptance, and blocks share one canonical pair lock; blocks revoke direct-plan access.
+- [Vault deletion keeps shared bytes](vault-delete-shared-bytes.md) — deleting an original vault row must not delete its object/provenance; feed or moment content may still reference the same URL.

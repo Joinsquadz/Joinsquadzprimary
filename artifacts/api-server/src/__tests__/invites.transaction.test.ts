@@ -17,14 +17,31 @@ const mockSelectRows = vi.hoisted(() => ({ value: [] as unknown[] }));
 const mockTransactionImpl = vi.hoisted(() => ({
   fn: null as null | ((fn: (tx: unknown) => Promise<unknown>) => Promise<unknown>),
 }));
+const mockBlocks = vi.hoisted(() => ({
+  table: { id: "block_id", blockerId: "blocker_id", blockedId: "blocked_id" },
+  value: [] as unknown[],
+}));
+const mockEventInvites = vi.hoisted(() => ({
+  table: {
+    id: "id", eventId: "event_id", invitedUserId: "invited_user_id",
+    inviterUserId: "inviter_user_id", status: "status", createdAt: "created_at",
+  },
+}));
 
 vi.mock("@workspace/db", () => ({
   db: {
-    select: () => ({
-      from: () => ({
-        where: () => Promise.resolve(mockSelectRows.value),
-      }),
-    }),
+     select: () => ({
+       from: (table: unknown) => {
+         const rows = table === mockBlocks.table || (table as { blockerId?: string })?.blockerId === mockBlocks.table.blockerId
+           ? mockBlocks.value
+           : mockSelectRows.value;
+         return {
+         where: () => Object.assign(Promise.resolve(rows), {
+           orderBy: () => Promise.resolve(rows),
+         }),
+         };
+       },
+       }),
     // All three writes live inside db.transaction — this mock lets individual
     // tests override the implementation to simulate partial failures.
     transaction: vi.fn().mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
@@ -38,13 +55,13 @@ vi.mock("@workspace/db", () => ({
         // inside this same tx (advisory lock + ON CONFLICT DO NOTHING insert).
         execute: () => Promise.resolve(),
         select: () => ({
-          from: () => {
+          from: (table: unknown) => {
             // The plan-slot count LEFT JOINs events onto the ledger, and the
             // "already claimed?" probe is a plain where().limit() — support both.
             const where = () => {
-              const rows: unknown[] = [{ count: 0 }];
+              const rows: unknown[] = table === mockBlocks.table ? mockBlocks.value : [{ count: 0 }];
               return Object.assign(Promise.resolve(rows), {
-                limit: () => Promise.resolve([]),
+                limit: () => Promise.resolve(rows.slice(0, 1)),
                 orderBy: () => ({ limit: () => Promise.resolve([]) }),
               });
             };
@@ -79,10 +96,7 @@ vi.mock("@workspace/db", () => ({
       return fn(tx);
     }),
   },
-  eventInvitesTable: {
-    id: "id", eventId: "event_id", invitedUserId: "invited_user_id",
-    status: "status", createdAt: "created_at",
-  },
+  eventInvitesTable: mockEventInvites.table,
   eventsTable: {
     id: "id", version: "version", invitedUserIds: "invited_user_ids",
     hostId: "host_id", squadId: "squad_id", rsvps: "rsvps",
@@ -96,6 +110,7 @@ vi.mock("@workspace/db", () => ({
   usersTable: { id: "id", isSquadzPlus: "is_squadz_plus" },
   squadMemberHistoryTable: { userId: "user_id", squadId: "squad_id", joinedAt: "joined_at", leftAt: "left_at" },
   eventCreationsTable: { id: "id", userId: "user_id", eventId: "event_id", source: "source", createdAt: "created_at" },
+  userBlocksTable: mockBlocks.table,
 }));
 
 vi.mock("../storage", () => ({
@@ -124,6 +139,7 @@ const PENDING_INVITE = {
 beforeEach(() => {
   vi.clearAllMocks();
   mockSelectRows.value = [];
+  mockBlocks.value = [];
   mockTransactionImpl.fn = null;
 });
 
@@ -135,6 +151,16 @@ describe("POST /api/events/invites/:id/accept", () => {
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
     expect(res.body.eventId).toBe("event-1");
+  });
+
+  it("rejects acceptance when either user blocked the other after the invite was sent", async () => {
+    mockSelectRows.value = [PENDING_INVITE];
+    mockBlocks.value = [{ blockerId: "invitee-id", blockedId: "host-id" }];
+
+    const res = await request(app).post("/api/events/invites/inv-1/accept");
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe("This invite is no longer available.");
   });
 
   it("returns 404 when the invite is not found or already actioned", async () => {
@@ -237,6 +263,7 @@ describe("POST /api/events/invites/:id/accept", () => {
     expect(res.status).toBe(500);
   });
 });
+
 
 // ── Decline ───────────────────────────────────────────────────────────────────
 describe("POST /api/events/invites/:id/decline", () => {

@@ -1013,6 +1013,40 @@ export default function VaultScreen() {
     }
   }, [squadId, authHeaders, fetchSquadVault]);
 
+  // Removing an original from the personal/event vault permanently deletes the
+  // uploader's row and (server-side) releases its unreferenced object. Squad
+  // vault items deliberately use handleRemoveShared instead, preserving the
+  // existing "remove from squad vault" behavior.
+  const handleDeleteOriginal = useCallback(async (photoId: number) => {
+    const confirmed = await new Promise<boolean>((resolve) => {
+      Alert.alert(
+        "Delete original photo?",
+        "This permanently deletes the original from your vault. Saved copies are not affected.",
+        [
+          { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
+          { text: "Delete original", style: "destructive", onPress: () => resolve(true) },
+        ],
+        { cancelable: true, onDismiss: () => resolve(false) },
+      );
+    });
+    if (!confirmed) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      const res = await fetchWithTimeout(`${API_BASE}/api/vault/photos/${photoId}`, {
+        method: "DELETE",
+        headers: authHeaders(),
+      });
+      if (!res.ok) throw new Error("delete failed");
+      setPhotos(prev => prev.filter(p => p.id !== photoId));
+      setFavoritePhotos(prev => prev.filter(p => p.id !== photoId));
+      setSquadPhotos(prev => prev.filter(p => p.id !== photoId));
+      setSelected(null);
+      await fetchPhotos();
+    } catch {
+      Alert.alert("Couldn't delete", "Could not delete the photo. Please try again.");
+    }
+  }, [authHeaders, fetchPhotos]);
+
   const selectedPhoto = visiblePhotos.find(p => p.id === selected) ?? null;
   const selectedSquadPhoto = squadPhotos.find(p => p.id === selected) ?? null;
   // This is the same collection and ordering currently visible behind the detail
@@ -1726,10 +1760,12 @@ export default function VaultScreen() {
           setFavoritePhotos(prev => prev.map(p => p.id === id ? { ...p, hearted, heartCount } : p));
           setSquadPhotos(prev => prev.map(p => p.id === id ? { ...p, hearted, heartCount } : p));
         }}
-        onDelete={selectedSquadPhoto && currentUserId && selectedSquadPhoto.uploaderId === currentUserId
-          ? (id) => handleRemoveShared(id)
+        onDelete={detailPhoto && currentUserId && detailPhoto.uploaderId === currentUserId
+          ? isSquadVault
+            ? (id) => handleRemoveShared(id)
+            : (id) => handleDeleteOriginal(id)
           : undefined}
-        deleteLabel="Remove from squad vault"
+        deleteLabel={isSquadVault ? "Remove from squad vault" : "Delete photo"}
         isPersonalContext={!isSquadVault && !isContextual}
         savedToVault={detailPhoto ? savedSourceIds.has(detailPhoto.id) : false}
         savePending={detailPhoto ? savingIds.has(detailPhoto.id) : false}

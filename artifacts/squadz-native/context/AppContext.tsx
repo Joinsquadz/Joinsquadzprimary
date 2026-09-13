@@ -279,6 +279,16 @@ export type NewEventInput = {
   sourcePollId?: string;
 };
 
+export type InviteEventResult = {
+  error?: string;
+  requestedCount?: number;
+  inviteCount?: number;
+  friendRequestCount?: number;
+  skippedCount?: number;
+  alreadyPendingCount?: number;
+  statuses?: Array<{ userId: string; status: string }>;
+};
+
 export type ConflictSnapshot = {
   eventId: string;
   title: string;
@@ -368,7 +378,7 @@ type AppContextType = {
   addSquadCoAdmin: (squadId: string, userId: string) => Promise<{ error?: string }>;
   removeSquadCoAdmin: (squadId: string, userId: string) => Promise<{ error?: string }>;
   joinEvent: (inviteCode: string) => Promise<{ error?: string }>;
-  inviteToEvent: (eventId: string, userIds: string[]) => Promise<{ error?: string }>;
+  inviteToEvent: (eventId: string, userIds: string[]) => Promise<InviteEventResult>;
   uninviteFromEvent: (eventId: string, userId: string) => Promise<{ error?: string }>;
   cancelEvent: (eventId: string) => void;
   toggleTask: (eventId: string, taskId: string) => Promise<void>;
@@ -1890,7 +1900,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // target (friend-or-squad-member) and returns the updated event, which we map
   // into state (so newly-invited people show up immediately).
   const inviteToEvent = useCallback(
-    async (eventId: string, userIds: string[]): Promise<{ error?: string }> => {
+    async (eventId: string, userIds: string[]): Promise<InviteEventResult> => {
       if (userIds.length === 0) return {};
       try {
         const res = await apiFetch(`/api/events/${eventId}/invite`, {
@@ -1901,9 +1911,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           const data = (await res.json().catch(() => ({}))) as { error?: string };
           return { error: data.error ?? "Couldn't send the invite" };
         }
+        const data = (await res.json().catch(() => ({}))) as Omit<InviteEventResult, "error">;
         // Invitees now get a pending invite in their Activity tab; the event
         // data doesn't change until each person accepts, so no applyEventUpdate.
-        return {};
+        return data;
       } catch {
         return { error: "Couldn't send the invite — please try again" };
       }

@@ -9,7 +9,6 @@ import {
   ScrollView,
   Platform,
   Keyboard,
-  KeyboardAvoidingView,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -17,6 +16,8 @@ import * as Haptics from "expo-haptics";
 import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { useColors } from "@/hooks/useColors";
 import { KeyboardDismissControl } from "@/components/KeyboardDismissControl";
+import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
+import { KeyboardAvoidingSheet } from "@/components/KeyboardAvoidingSheet";
 import type { ItineraryStop, StopCategory } from "@/types";
 import { STOP_CATEGORIES, STOP_CATEGORY_META, formatDayHeading } from "@/lib/tripUtils";
 import { STOP_VOTING_ENABLED } from "@/lib/tripApi";
@@ -148,7 +149,13 @@ export function StopSheet({
       // the canConfirm flag — "proposed" is no longer a valid creation path.
       setDraft(emptyDraft(defaultDay, STOP_VOTING_ENABLED && !canConfirm ? "proposed" : "confirmed"));
     }
-  }, [visible, editing, defaultDay, canConfirm]);
+  // Keep the draft stable while an open sheet receives event/SSE refreshes.
+  // The parent supplies a new stop object on each refresh; depending on that
+  // object here would reset the controlled inputs and steal focus from the
+  // active field (which also dismisses the keyboard). Reinitialize only when
+  // the sheet opens, the selected stop changes, or a new sheet's day changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, editing?.id, defaultDay, canConfirm]);
 
   const submit = () => {
     if (!draft.title.trim()) return;
@@ -172,7 +179,7 @@ export function StopSheet({
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.overlay}>
+      <KeyboardAvoidingSheet style={styles.overlay}>
         <TouchableOpacity style={StyleSheet.absoluteFill} onPress={onClose} activeOpacity={1} />
         <View style={[styles.sheet, { backgroundColor: colors.card, borderColor: colors.border, maxHeight: "88%" }]}>
           <View style={[styles.handle, { backgroundColor: colors.border }]} />
@@ -183,10 +190,12 @@ export function StopSheet({
             </TouchableOpacity>
           </View>
 
-          <ScrollView
+          <KeyboardAwareScrollViewCompat
+            style={styles.formScroll}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingBottom: insets.bottom + 90 }}
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="none"
           >
             <Text style={[styles.label, { color: colors.mutedForeground }]}>Title</Text>
             <TextInput
@@ -400,7 +409,7 @@ export function StopSheet({
             ) : null}
             </>
             ) : null}
-          </ScrollView>
+          </KeyboardAwareScrollViewCompat>
 
           <View style={[styles.footer, { borderTopColor: colors.border, paddingBottom: insets.bottom + 10, backgroundColor: colors.card }]}>
             <TouchableOpacity
@@ -457,7 +466,7 @@ export function StopSheet({
             onChange={handleAndroidTime}
           />
         )}
-      </KeyboardAvoidingView>
+      </KeyboardAvoidingSheet>
       <KeyboardDismissControl />
     </Modal>
   );
@@ -465,10 +474,11 @@ export function StopSheet({
 
 const styles = StyleSheet.create({
   overlay: { flex: 1, justifyContent: "flex-end" },
-  sheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, paddingHorizontal: 20, paddingTop: 12 },
+  sheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, paddingHorizontal: 20, paddingTop: 12, flexShrink: 1 },
   handle: { width: 40, height: 4, borderRadius: 2, alignSelf: "center", marginBottom: 14 },
   headRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
   title: { fontSize: 20, fontWeight: "900" },
+  formScroll: { flexShrink: 1 },
   label: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6, marginTop: 16, marginBottom: 8 },
   input: { borderRadius: 12, borderWidth: 1.5, paddingHorizontal: 14, height: 48, fontSize: 15 },
   dayChip: { borderRadius: 12, borderWidth: 1.5, paddingHorizontal: 14, paddingVertical: 8, minWidth: 92 },

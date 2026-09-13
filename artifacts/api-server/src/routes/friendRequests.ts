@@ -15,6 +15,7 @@ import { storage } from "../storage";
 import { sendPushNotifications } from "../lib/pushNotifications";
 import { recordActivitySafe } from "../lib/activity";
 import { emitActivityUpdate } from "../lib/activityEvents";
+import { lockUserPair } from "../lib/userPairLock";
 
 const router: IRouter = Router();
 
@@ -57,139 +58,92 @@ router.post(
         return;
       }
 
-      // Check not already friends
-      const [existing] = await db
-        .select({ id: friendshipsTable.id })
-        .from(friendshipsTable)
-        .where(
-          and(eq(friendshipsTable.ownerId, userId), eq(friendshipsTable.friendId, toUserId)),
-        );
-      if (existing) {
-        res.status(409).json({ error: "Already friends" });
-        return;
-      }
+      const result = await db.transaction(async (tx) => {
+        await lockUserPair(tx, userId, toUserId);
+        const [blockRow] = await tx
+          .select({ id: userBlocksTable.id })
+          .from(userBlocksTable)
+          .where(
+            or(
+              and(eq(userBlocksTable.blockerId, userId), eq(userBlocksTable.blockedId, toUserId)),
+              and(eq(userBlocksTable.blockerId, toUserId), eq(userBlocksTable.blockedId, userId)),
+            ),
+          )
+          .limit(1);
+        if (blockRow) return { kind: "blocked" as const };
 
-      // Block check: reject if either party has blocked the other
-      const [blockRow] = await db
-        .select({ id: userBlocksTable.id })
-        .from(userBlocksTable)
-        .where(
-          or(
-            and(eq(userBlocksTable.blockerId, userId), eq(userBlocksTable.blockedId, toUserId)),
-            and(eq(userBlocksTable.blockerId, toUserId), eq(userBlocksTable.blockedId, userId)),
-          ),
-        )
-        .limit(1);
-      if (blockRow) {
+        const [existing] = await tx
+          .select({ id: friendshipsTable.id })
+          .from(friendshipsTable)
+          .where(
+            or(
+              and(eq(friendshipsTable.ownerId, userId), eq(friendshipsTable.friendId, toUserId)),
+              and(eq(friendshipsTable.ownerId, toUserId), eq(friendshipsTable.friendId, userId)),
+            ),
+          )
+          .limit(1);
+        if (existing) return { kind: "friends" as const };
+
+        const [pendingRequest] = await tx
+          .select({ id: friendRequestsTable.id, fromUserId: friendRequestsTable.fromUserId })
+          .from(friendRequestsTable)
+          .where(
+            and(
+              or(
+                and(eq(friendRequestsTable.fromUserId, userId), eq(friendRequestsTable.toUserId, toUserId)),
+                and(eq(friendRequestsTable.fromUserId, toUserId), eq(friendRequestsTable.toUserId, userId)),
+              ),
+              eq(friendRequestsTable.status, "pending"),
+            ),
+          )
+          .limit(1);
+
+        if (pendingRequest && pendingRequest.fromUserId === toUserId) {
+          await tx.update(friendRequestsTable).set({ status: "accepted" }).where(eq(friendRequestsTable.id, pendingRequest.id));
+          await tx.insert(friendshipsTable).values([
+            { ownerId: userId, friendId: toUserId },
+            { ownerId: toUserId, friendId: userId },
+          ]).onConflictDoNothing();
+          await tx.delete(activityTable).where(and(
+            eq(activityTable.recipientId, userId),
+            eq(activityTable.actorId, toUserId),
+            eq(activityTable.type, "friend_request"),
+          ));
+          return { kind: "autoAccepted" as const };
+        }
+        if (pendingRequest) return { kind: "pending" as const };
+
+        const [inserted] = await tx
+          .insert(friendRequestsTable)
+          .values({ fromUserId: userId, toUserId, status: "pending" })
+          .onConflictDoUpdate({
+            target: [friendRequestsTable.fromUserId, friendRequestsTable.toUserId],
+            set: { status: "pending", createdAt: new Date() },
+            setWhere: ne(friendRequestsTable.status, "pending"),
+          })
+          .returning({ id: friendRequestsTable.id });
+        return inserted ? { kind: "created" as const, id: inserted.id } : { kind: "pending" as const };
+      });
+
+      if (result.kind === "blocked") {
         res.status(403).json({ error: "Cannot send a friend request to this user" });
         return;
       }
-
-      // Check for pending request in either direction
-      const [pendingRequest] = await db
-        .select({ id: friendRequestsTable.id, fromUserId: friendRequestsTable.fromUserId })
-        .from(friendRequestsTable)
-        .where(
-          and(
-            or(
-              and(
-                eq(friendRequestsTable.fromUserId, userId),
-                eq(friendRequestsTable.toUserId, toUserId),
-              ),
-              and(
-                eq(friendRequestsTable.fromUserId, toUserId),
-                eq(friendRequestsTable.toUserId, userId),
-              ),
-            ),
-            eq(friendRequestsTable.status, "pending"),
-          ),
-        );
-
-      // If they already sent us a request, auto-accept it
-      if (pendingRequest && pendingRequest.fromUserId === toUserId) {
-        await db
-          .update(friendRequestsTable)
-          .set({ status: "accepted" })
-          .where(eq(friendRequestsTable.id, pendingRequest.id));
-        await db
-          .insert(friendshipsTable)
-          .values([
-            { ownerId: userId, friendId: toUserId },
-            { ownerId: toUserId, friendId: userId },
-          ])
-          .onConflictDoNothing();
-        // Clear the pending friend_request activity for both sides
-        await db
-          .delete(activityTable)
-          .where(
-            and(
-              eq(activityTable.recipientId, userId),
-              eq(activityTable.actorId, toUserId),
-              eq(activityTable.type, "friend_request"),
-            ),
-          );
+      if (result.kind === "friends") {
+        res.status(409).json({ error: "Already friends" });
+        return;
+      }
+      if (result.kind === "pending") {
+        res.status(409).json({ error: "Friend request already sent" });
+        return;
+      }
+      if (result.kind === "autoAccepted") {
         emitActivityUpdate(userId);
         res.json({ ok: true, autoAccepted: true });
         return;
       }
 
-      if (pendingRequest) {
-        res.status(409).json({ error: "Friend request already sent" });
-        return;
-      }
-
-      // Insert the request.
-      //
-      // (from_user_id, to_user_id) is UNIQUE regardless of status, so a plain
-      // insert throws whenever a row already exists for this pair — which is
-      // every re-request after a decline, and every re-request after two people
-      // unfriend. Both are legitimate and used to surface as a 500. Two
-      // simultaneous taps hit the same constraint.
-      //
-      // The upsert revives the existing row instead: it flips a resolved
-      // (declined/accepted-but-since-unfriended) request back to pending. The
-      // setWhere keeps an already-pending row untouched, so the second of two
-      // concurrent taps updates nothing, returns nothing, and is reported as
-      // the duplicate it is rather than crashing.
-      const [inserted] = await db
-        .insert(friendRequestsTable)
-        .values({ fromUserId: userId, toUserId, status: "pending" })
-        .onConflictDoUpdate({
-          target: [friendRequestsTable.fromUserId, friendRequestsTable.toUserId],
-          set: { status: "pending", createdAt: new Date() },
-          setWhere: ne(friendRequestsTable.status, "pending"),
-        })
-        .returning({ id: friendRequestsTable.id });
-
-      if (!inserted) {
-        res.status(409).json({ error: "Friend request already sent" });
-        return;
-      }
-
-      // A block committed while this request was in flight would otherwise
-      // leave a live pending request from someone the recipient has blocked.
-      // The block route's cancel pass can't see a row that wasn't committed
-      // yet, so the sender re-checks after writing and withdraws its own row.
-      const [raceBlock] = await db
-        .select({ id: userBlocksTable.id })
-        .from(userBlocksTable)
-        .where(
-          or(
-            and(eq(userBlocksTable.blockerId, userId), eq(userBlocksTable.blockedId, toUserId)),
-            and(eq(userBlocksTable.blockerId, toUserId), eq(userBlocksTable.blockedId, userId)),
-          ),
-        )
-        .limit(1);
-      if (raceBlock) {
-        await db
-          .update(friendRequestsTable)
-          .set({ status: "declined" })
-          .where(eq(friendRequestsTable.id, inserted.id));
-        res.status(403).json({ error: "Cannot send a friend request to this user" });
-        return;
-      }
-
-      res.json({ ok: true, requestId: inserted.id });
+      res.json({ ok: true, requestId: result.id });
 
       // Record activity — subjectId = request ID so the client can accept/decline
       recordActivitySafe({
@@ -197,7 +151,7 @@ router.post(
         actorId: userId,
         type: "friend_request",
         subjectType: "user",
-        subjectId: inserted.id,
+        subjectId: result.id,
         dedupe: false,
       });
 
@@ -219,7 +173,7 @@ router.post(
             { onStaleToken: (token) => storage.clearPushToken(token) },
           );
         } catch (err) {
-          logger.error({ err }, "Error sending friend-request push notification");
+           logger.error({ err }, "Error sending friend-request push notification");
         }
       })();
     } catch (err) {
@@ -277,68 +231,58 @@ router.post(
         return;
       }
 
-      // A block outranks any request that predates it. The block route cancels
-      // the pending requests it can see, but a request committed in the same
-      // instant can survive that pass — and accepting one would manufacture a
-      // friendship between two people who have blocked each other. Re-check at
-      // the moment of acceptance and retire the stale row.
-      const [blockRow] = await db
-        .select({ id: userBlocksTable.id })
-        .from(userBlocksTable)
-        .where(
-          or(
-            and(
-              eq(userBlocksTable.blockerId, userId),
-              eq(userBlocksTable.blockedId, request.fromUserId),
-            ),
-            and(
-              eq(userBlocksTable.blockerId, request.fromUserId),
-              eq(userBlocksTable.blockedId, userId),
-            ),
-          ),
-        )
-        .limit(1);
-      if (blockRow) {
-        await db
-          .update(friendRequestsTable)
-          .set({ status: "declined" })
-          .where(eq(friendRequestsTable.id, requestId));
+      const result = await db.transaction(async (tx) => {
+        await lockUserPair(tx, userId, request.fromUserId);
+        const [current] = await tx
+          .select()
+          .from(friendRequestsTable)
+          .where(and(
+            eq(friendRequestsTable.id, requestId),
+            eq(friendRequestsTable.toUserId, userId),
+            eq(friendRequestsTable.status, "pending"),
+          ))
+          .limit(1);
+        if (!current) return { kind: "missing" as const };
+        const [blockRow] = await tx
+          .select({ id: userBlocksTable.id })
+          .from(userBlocksTable)
+          .where(or(
+            and(eq(userBlocksTable.blockerId, userId), eq(userBlocksTable.blockedId, current.fromUserId)),
+            and(eq(userBlocksTable.blockerId, current.fromUserId), eq(userBlocksTable.blockedId, userId)),
+          ))
+          .limit(1);
+        if (blockRow) {
+          await tx.update(friendRequestsTable).set({ status: "declined" }).where(eq(friendRequestsTable.id, requestId));
+          return { kind: "blocked" as const };
+        }
+        await tx.update(friendRequestsTable).set({ status: "accepted" }).where(eq(friendRequestsTable.id, requestId));
+        await tx.insert(friendshipsTable).values([
+          { ownerId: userId, friendId: current.fromUserId },
+          { ownerId: current.fromUserId, friendId: userId },
+        ]).onConflictDoNothing();
+        await tx.delete(activityTable).where(and(
+          eq(activityTable.recipientId, userId),
+          eq(activityTable.actorId, current.fromUserId),
+          eq(activityTable.type, "friend_request"),
+        ));
+        return { kind: "accepted" as const, request: current };
+      });
+      if (result.kind === "missing") {
+        res.status(404).json({ error: "Friend request not found" });
+        return;
+      }
+      if (result.kind === "blocked") {
         res.status(403).json({ error: "Cannot accept this friend request" });
         return;
       }
-
-      // Mark accepted
-      await db
-        .update(friendRequestsTable)
-        .set({ status: "accepted" })
-        .where(eq(friendRequestsTable.id, requestId));
-
-      // Create mutual friendship
-      await db
-        .insert(friendshipsTable)
-        .values([
-          { ownerId: userId, friendId: request.fromUserId },
-          { ownerId: request.fromUserId, friendId: userId },
-        ])
-        .onConflictDoNothing();
-
-      // Remove the friend_request activity row from recipient's feed
-      await db
-        .delete(activityTable)
-        .where(
-          and(
-            eq(activityTable.recipientId, userId),
-            eq(activityTable.actorId, request.fromUserId),
-            eq(activityTable.type, "friend_request"),
-          ),
-        );
+      const acceptedRequest = result.request;
       emitActivityUpdate(userId);
 
       res.json({ ok: true });
 
       // Notify the sender that their request was accepted
       recordActivitySafe({
-        recipientId: request.fromUserId,
+        recipientId: acceptedRequest.fromUserId,
         actorId: userId,
         type: "friend_added",
         subjectType: "user",
@@ -347,7 +291,7 @@ router.post(
 
       void (async () => {
         try {
-          const tokens = await storage.getPushTokensForUsers([request.fromUserId], {
+           const tokens = await storage.getPushTokensForUsers([acceptedRequest.fromUserId], {
             requireNotifyFriendActivity: true,
           });
           if (tokens.length === 0) return;

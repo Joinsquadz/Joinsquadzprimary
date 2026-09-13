@@ -1230,7 +1230,6 @@ export default function TripDetailScreen() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: insets.bottom + 120 }}
-        stickyHeaderIndices={[1]}
         keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
       >
         {/* This one direct child contains all hero/roster content. Keeping the
@@ -1368,7 +1367,8 @@ export default function TripDetailScreen() {
         </View>
         </View>
 
-        {/* Sticky tab bar */}
+        {/* Tab bar stays in the document flow so it cannot overlap the cover's
+            top-right controls while the itinerary is scrolled. */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -1852,6 +1852,7 @@ export default function TripDetailScreen() {
         visible={showInvitePicker}
         title="Invite to trip"
         confirmLabel="Invite"
+        allowNonFriends
         excludeIds={[event.hostId, ...(squad?.memberIds ?? []), ...(event.invitedUserIds ?? [])]}
         onClose={() => setShowInvitePicker(false)}
         onConfirm={async (ids) => {

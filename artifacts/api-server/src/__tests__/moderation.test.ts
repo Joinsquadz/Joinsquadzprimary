@@ -14,8 +14,8 @@ const mockInsertRows = vi.hoisted(() => ({
 /** Spy so tests can assert the UPDATE was called for auto-hide. */
 const mockUpdate = vi.hoisted(() => vi.fn());
 
-vi.mock("@workspace/db", () => ({
-  db: {
+vi.mock("@workspace/db", () => {
+  const db: any = {
     select: () => ({
       from: () => ({
         where: () => Promise.resolve(mockSelectRows.value),
@@ -36,7 +36,11 @@ vi.mock("@workspace/db", () => ({
     delete: () => ({
       where: () => Promise.resolve(),
     }),
-  },
+    execute: () => Promise.resolve(),
+  };
+  db.transaction = async (callback: (tx: typeof db) => unknown) => callback(db);
+  return {
+  db,
   reportsTable: {
     reporterId: "reporter_id",
     contentType: "content_type",
@@ -87,7 +91,10 @@ vi.mock("@workspace/db", () => ({
     toUserId: "to_user_id",
     status: "status",
   },
-}));
+  eventInvitesTable: { id: "id", inviterUserId: "inviter_user_id", invitedUserId: "invited_user_id", status: "status" },
+  activityTable: { type: "type", subjectId: "subject_id" },
+  };
+});
 
 vi.mock("../storage", () => ({
   storage: {

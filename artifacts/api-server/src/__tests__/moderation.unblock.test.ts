@@ -29,6 +29,8 @@ vi.mock("@workspace/db", () => {
   const photosTable = { _name: "photos" };
   const conversationMessagesTable = { _name: "conversation_messages" };
   const planIdeasTable = { _name: "plan_ideas" };
+  const eventInvitesTable = { _name: "event_invites", id: "id", inviterUserId: "inviter_user_id", invitedUserId: "invited_user_id", status: "status" };
+  const activityTable = { _name: "activity", type: "type", subjectId: "subject_id" };
 
   const db = {
     select: () => ({
@@ -58,7 +60,9 @@ vi.mock("@workspace/db", () => {
         }),
       };
     },
+    execute: () => Promise.resolve(),
   };
+  (db as any).transaction = async (callback: (tx: typeof db) => unknown) => callback(db);
 
   return {
     db,
@@ -72,6 +76,8 @@ vi.mock("@workspace/db", () => {
     photosTable,
     conversationMessagesTable,
     planIdeasTable,
+    eventInvitesTable,
+    activityTable,
   };
 });
 

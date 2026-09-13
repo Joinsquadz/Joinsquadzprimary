@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { and, eq, inArray, desc, sql } from "drizzle-orm";
+import { and, eq, inArray, desc, sql, or } from "drizzle-orm";
 import {
   db,
   squadInvitesTable,
@@ -8,6 +8,7 @@ import {
   eventsTable,
   usersTable,
   activityTable,
+  userBlocksTable,
 } from "@workspace/db";
 import { requireAuth } from "../middleware/currentUser";
 import { FREE_SQUAD_LIMIT, withSquadLimit } from "../lib/squadLimit";
@@ -17,6 +18,7 @@ import { recordActivitySafe } from "../lib/activity";
 import { emitSquadUpdate } from "../lib/squadEvents";
 import { emitEventUpdate } from "../lib/eventUpdates";
 import { emitActivityUpdate } from "../lib/activityEvents";
+import { lockUserPair } from "../lib/userPairLock";
 
 const router: IRouter = Router();
 
@@ -27,7 +29,7 @@ const router: IRouter = Router();
  * row spent on a squad that vanished — is worse than no accept at all.
  */
 class InviteAbort extends Error {
-  constructor(readonly reason: "conflict" | "gone") {
+  constructor(readonly reason: "conflict" | "gone" | "blocked") {
     super(reason);
     this.name = "InviteAbort";
   }
@@ -48,12 +50,28 @@ router.get("/squads/invites/pending", requireAuth, async (req: Request, res: Res
       return;
     }
     const inviterIds = [...new Set(invites.map((i) => i.inviterUserId))];
+    const blockRows = await db
+      .select({ blockerId: userBlocksTable.blockerId, blockedId: userBlocksTable.blockedId })
+      .from(userBlocksTable)
+      .where(or(
+        and(eq(userBlocksTable.blockerId, userId), inArray(userBlocksTable.blockedId, inviterIds)),
+        and(inArray(userBlocksTable.blockerId, inviterIds), eq(userBlocksTable.blockedId, userId)),
+      ));
+    const blockedInviters = new Set(
+      blockRows.map((row) => row.blockerId === userId ? row.blockedId : row.blockerId),
+    );
+    const visibleInvites = invites.filter((invite) => !blockedInviters.has(invite.inviterUserId));
+    if (visibleInvites.length === 0) {
+      res.json([]);
+      return;
+    }
+    const visibleInviterIds = [...new Set(visibleInvites.map((i) => i.inviterUserId))];
     const inviters = await db
       .select({ id: usersTable.id, firstName: usersTable.firstName, lastName: usersTable.lastName, profileImageUrl: usersTable.profileImageUrl })
       .from(usersTable)
-      .where(inArray(usersTable.id, inviterIds));
+      .where(inArray(usersTable.id, visibleInviterIds));
     const inviterMap = new Map(inviters.map((u) => [u.id, u]));
-    res.json(invites.map((i) => ({ ...i, inviter: inviterMap.get(i.inviterUserId) ?? null })));
+    res.json(visibleInvites.map((i) => ({ ...i, inviter: inviterMap.get(i.inviterUserId) ?? null })));
   } catch (err) {
     logger.error({ err }, "Error fetching pending squad invites");
     res.status(500).json({ error: "Failed to fetch invites" });
@@ -260,6 +278,22 @@ router.post("/events/invites/:id/accept", requireAuth, async (req: Request, res:
       userId,
       invite.eventId,
       async (tx) => {
+        await lockUserPair(tx, userId, invite.inviterUserId);
+        // A block outranks an older event invite. Re-check inside the same
+        // transaction as the claim so a block racing acceptance cannot leave
+        // an accepted invite/access grant behind.
+        const [block] = await tx
+          .select({ id: userBlocksTable.id })
+          .from(userBlocksTable)
+          .where(
+            or(
+              and(eq(userBlocksTable.blockerId, userId), eq(userBlocksTable.blockedId, invite.inviterUserId)),
+              and(eq(userBlocksTable.blockerId, invite.inviterUserId), eq(userBlocksTable.blockedId, userId)),
+            ),
+          )
+          .limit(1);
+        if (block) throw new InviteAbort("blocked");
+
         const [flipped] = await tx
           .update(eventInvitesTable)
           .set({ status: "accepted" })
@@ -307,6 +341,10 @@ router.post("/events/invites/:id/accept", requireAuth, async (req: Request, res:
     emitEventUpdate(invite.eventId);
     emitActivityUpdate(userId);
   } catch (err) {
+    if (err instanceof InviteAbort && err.reason === "blocked") {
+      res.status(403).json({ error: "This invite is no longer available." });
+      return;
+    }
     logger.error({ err }, "Error accepting event invite");
     res.status(500).json({ error: "Failed to accept invite" });
   }

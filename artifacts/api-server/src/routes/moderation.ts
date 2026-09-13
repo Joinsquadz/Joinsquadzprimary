@@ -13,11 +13,16 @@ import {
   planIdeasTable,
   friendshipsTable,
   friendRequestsTable,
+  eventInvitesTable,
+  activityTable,
+  eventsTable,
 } from "@workspace/db";
 import { requireAuth } from "../middleware/currentUser";
 import { logger } from "../lib/logger";
 import { sendEmail } from "../services/email";
 import { storage } from "../storage";
+import { lockUserPair } from "../lib/userPairLock";
+import { emitEventUpdate } from "../lib/eventUpdates";
 
 const router: IRouter = Router();
 
@@ -254,46 +259,99 @@ router.post(
     }
 
     try {
-      await db
-        .insert(userBlocksTable)
-        .values({ blockerId: userId, blockedId: targetId })
-        .onConflictDoNothing();
+      let affectedEventIds: string[] = [];
+      await db.transaction(async (tx) => {
+        await lockUserPair(tx, userId, targetId);
+        await tx
+          .insert(userBlocksTable)
+          .values({ blockerId: userId, blockedId: targetId })
+          .onConflictDoNothing();
 
-      // Sever the friendship in both directions.
-      await db
-        .delete(friendshipsTable)
-        .where(
-          or(
-            and(
-              eq(friendshipsTable.ownerId, userId),
-              eq(friendshipsTable.friendId, targetId),
-            ),
-            and(
-              eq(friendshipsTable.ownerId, targetId),
-              eq(friendshipsTable.friendId, userId),
-            ),
-          ),
-        );
+        await tx
+          .delete(friendshipsTable)
+          .where(or(
+            and(eq(friendshipsTable.ownerId, userId), eq(friendshipsTable.friendId, targetId)),
+            and(eq(friendshipsTable.ownerId, targetId), eq(friendshipsTable.friendId, userId)),
+          ));
 
-      // Cancel any pending request either way so it can't be accepted later.
-      await db
-        .update(friendRequestsTable)
-        .set({ status: "declined" })
-        .where(
-          and(
+        await tx
+          .update(friendRequestsTable)
+          .set({ status: "declined" })
+          .where(and(
             eq(friendRequestsTable.status, "pending"),
             or(
-              and(
-                eq(friendRequestsTable.fromUserId, userId),
-                eq(friendRequestsTable.toUserId, targetId),
-              ),
-              and(
-                eq(friendRequestsTable.fromUserId, targetId),
-                eq(friendRequestsTable.toUserId, userId),
-              ),
+              and(eq(friendRequestsTable.fromUserId, userId), eq(friendRequestsTable.toUserId, targetId)),
+              and(eq(friendRequestsTable.fromUserId, targetId), eq(friendRequestsTable.toUserId, userId)),
             ),
-          ),
-        );
+          ));
+
+        const eventInvites = await tx
+          .select({
+            id: eventInvitesTable.id,
+            eventId: eventInvitesTable.eventId,
+            inviterUserId: eventInvitesTable.inviterUserId,
+            invitedUserId: eventInvitesTable.invitedUserId,
+            status: eventInvitesTable.status,
+          })
+          .from(eventInvitesTable)
+          .where(and(
+            inArray(eventInvitesTable.status, ["pending", "accepted"]),
+            or(
+              and(eq(eventInvitesTable.inviterUserId, userId), eq(eventInvitesTable.invitedUserId, targetId)),
+              and(eq(eventInvitesTable.inviterUserId, targetId), eq(eventInvitesTable.invitedUserId, userId)),
+            ),
+          ));
+        if (eventInvites.length > 0) {
+          const inviteIds = eventInvites.map((invite) => invite.id);
+          const events = await tx
+            .select({
+              id: eventsTable.id,
+              hostId: eventsTable.hostId,
+              invitedUserIds: eventsTable.invitedUserIds,
+            })
+            .from(eventsTable)
+            .where(inArray(eventsTable.id, [...new Set(eventInvites.map((invite) => invite.eventId))]));
+          const eventsById = new Map(events.map((event) => [event.id, event]));
+          const directRemovals = new Map<string, Set<string>>();
+          for (const invite of eventInvites) {
+            if (invite.status !== "accepted") continue;
+            const removedUserId = invite.inviterUserId === userId ? targetId : userId;
+            const event = eventsById.get(invite.eventId);
+            // Never remove a host (and never touch an independently-authorized
+            // squad/RSVP path); only remove the direct invitedUserIds edge.
+            if (event && event.hostId !== removedUserId) {
+              const removals = directRemovals.get(event.id) ?? new Set<string>();
+              removals.add(removedUserId);
+              directRemovals.set(event.id, removals);
+            }
+          }
+          for (const [eventId, removedUserIds] of directRemovals) {
+            let invitedUserIds = sql`COALESCE(${eventsTable.invitedUserIds}, '[]'::jsonb)`;
+            for (const removedUserId of removedUserIds) {
+              invitedUserIds = sql`${invitedUserIds} - ${removedUserId}`;
+            }
+            await tx
+              .update(eventsTable)
+              .set({
+                invitedUserIds,
+                version: sql`${eventsTable.version} + 1`,
+              })
+              .where(eq(eventsTable.id, eventId));
+          }
+          await tx
+            .update(eventInvitesTable)
+            .set({ status: "declined" })
+            .where(inArray(eventInvitesTable.id, inviteIds));
+          await tx
+            .delete(activityTable)
+            .where(and(
+              eq(activityTable.type, "event_invite"),
+              inArray(activityTable.subjectId, inviteIds),
+            ));
+          affectedEventIds = [...directRemovals.keys()];
+        }
+      });
+      for (const eventId of affectedEventIds) emitEventUpdate(eventId);
 
       res.json({ ok: true });
     } catch (err) {

@@ -18,8 +18,8 @@ const mockDelete = vi.hoisted(() => vi.fn());
 const mockUpdate = vi.hoisted(() => vi.fn());
 const mockUpdateSet = vi.hoisted(() => vi.fn());
 
-vi.mock("@workspace/db", () => ({
-  db: {
+vi.mock("@workspace/db", () => {
+  const db: any = {
     select: () => ({
       from: (table: unknown) => ({
         where: () => Promise.resolve(mockSelectQueue.queue.shift() ?? []),
@@ -47,28 +47,28 @@ vi.mock("@workspace/db", () => ({
         },
       };
     },
-  },
-  reportsTable: { id: "id" },
-  userBlocksTable: { id: "id", blockerId: "blocker_id", blockedId: "blocked_id" },
-  feedPostsTable: { id: "id", status: "status" },
-  momentsTable: { id: "id", status: "status" },
-  photosTable: { id: "id", status: "status" },
-  conversationMessagesTable: { id: "id", status: "status" },
-  usersTable: {
-    id: "id",
-    firstName: "first_name",
-    lastName: "last_name",
-    profileImageUrl: "profile_image_url",
-    moderationHidden: "moderation_hidden",
-  },
-  planIdeasTable: { id: "id", status: "status" },
-  friendshipsTable: { ownerId: "owner_id", friendId: "friend_id" },
-  friendRequestsTable: {
-    fromUserId: "from_user_id",
-    toUserId: "to_user_id",
-    status: "status",
-  },
-}));
+    execute: () => Promise.resolve(),
+  };
+  db.transaction = async (callback: (tx: typeof db) => unknown) => callback(db);
+  return { db,
+    reportsTable: { id: "id" },
+    userBlocksTable: { id: "id", blockerId: "blocker_id", blockedId: "blocked_id" },
+    feedPostsTable: { id: "id", status: "status" },
+    momentsTable: { id: "id", status: "status" },
+    photosTable: { id: "id", status: "status" },
+    conversationMessagesTable: { id: "id", status: "status" },
+    usersTable: { id: "id", firstName: "first_name", lastName: "last_name", profileImageUrl: "profile_image_url", moderationHidden: "moderation_hidden" },
+    planIdeasTable: { id: "id", status: "status" },
+    friendshipsTable: { ownerId: "owner_id", friendId: "friend_id" },
+    friendRequestsTable: { fromUserId: "from_user_id", toUserId: "to_user_id", status: "status" },
+    eventInvitesTable: {
+      id: "id", eventId: "event_id", inviterUserId: "inviter_user_id",
+      invitedUserId: "invited_user_id", status: "status",
+    },
+    eventsTable: { id: "id", hostId: "host_id", invitedUserIds: "invited_user_ids", version: "version" },
+    activityTable: { type: "type", subjectId: "subject_id" },
+  };
+});
 
 vi.mock("../storage", () => ({
   storage: {
@@ -81,6 +81,7 @@ vi.mock("../services/email", () => ({ sendEmail: vi.fn().mockResolvedValue(undef
 
 import moderationRouter from "../routes/moderation";
 import { makeTestApp } from "./helpers/makeTestApp";
+import { eventInvitesTable, activityTable, eventsTable } from "@workspace/db";
 
 const ME = "me-1";
 const THEM = "them-1";
@@ -111,6 +112,35 @@ describe("POST /api/users/:id/block — severs the private relationship", () => 
       status: "status",
     });
     expect(mockUpdateSet).toHaveBeenCalledWith({ status: "declined" });
+  });
+
+  it("revokes pending event invites and removes their activity", async () => {
+    mockSelectQueue.queue = [[{ id: "event-invite-1" }]];
+
+    const res = await request(authedApp).post(`/api/users/${THEM}/block`);
+
+    expect(res.status).toBe(200);
+    expect(mockUpdate.mock.calls.map((call) => call[0])).toContain(eventInvitesTable);
+    expect(mockDelete.mock.calls.map((call) => call[0])).toContain(activityTable);
+  });
+
+  it("removes accepted direct event access without touching independent squad access", async () => {
+    mockSelectQueue.queue = [
+      [{ id: "event-invite-1", eventId: "event-1", inviterUserId: ME, invitedUserId: THEM, status: "accepted" }],
+      [{
+        id: "event-1",
+        type: "trip",
+        squadId: "squad-1",
+        hostId: "someone-else",
+        invitedUserIds: [THEM],
+      }],
+    ];
+
+    const res = await request(authedApp).post(`/api/users/${THEM}/block`);
+
+    expect(res.status).toBe(200);
+    expect(mockUpdate.mock.calls.map((call) => call[0])).toContain(eventsTable);
+    expect(mockDelete.mock.calls.map((call) => call[0])).toContain(activityTable);
   });
 
   it("still refuses to block yourself (no friendship teardown)", async () => {

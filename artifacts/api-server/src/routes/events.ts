@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { eq, count, or, sql, and, gte, isNull, inArray, asc } from "drizzle-orm";
+import { eq, count, or, sql, and, gte, isNull, inArray, asc, ne } from "drizzle-orm";
 import { z } from "zod";
 import {
   db,
@@ -7,6 +7,9 @@ import {
   eventCreationsTable,
   usersTable,
   eventInvitesTable,
+  friendshipsTable,
+  friendRequestsTable,
+  userBlocksTable,
   activityTable,
   availabilityPollsTable,
 } from "@workspace/db";
@@ -16,6 +19,7 @@ import { canUserAccessEventRecord } from "../lib/eventVisibility";
 import { requireAuth } from "../middleware/currentUser";
 import { logger } from "../lib/logger";
 import { sendPushNotifications } from "../lib/pushNotifications";
+import { lockUserPair } from "../lib/userPairLock";
 import { emitEventUpdate, onEventUpdate } from "../lib/eventUpdates";
 import { recordActivitySafe, removeActivity } from "../lib/activity";
 import { parseEventStart, relativeDayLabel, formatEventTimeIn } from "../lib/eventDate";
@@ -192,7 +196,9 @@ const CreateEventBody = z.object({
 
 // Body for inviting friends to an existing event/trip after creation.
 const InviteUsersBody = z.object({
-  userIds: z.array(z.string().min(1)).min(1),
+  // Keep one mutation bounded so a large client payload cannot turn the
+  // per-recipient consent checks and notifications into an unbounded query.
+  userIds: z.array(z.string().min(1)).min(1).max(25),
 });
 
 const UpdateEventBody = z.object({
@@ -1414,10 +1420,10 @@ router.post("/events/:id/rsvp", requireAuth, async (req: Request, res: Response)
   }
 });
 
-// POST /events/:id/invite — invite one or more friends directly to this
-// trip/event. The inviter must already have access; each target must be a
-// friend of the inviter OR a current member of the squad (others are dropped).
-// Newly-invited people gain access immediately and are push-notified.
+// POST /events/:id/invite — invite one or more people directly to this
+// trip/event. Friends and current squad members retain the legacy behavior,
+// while other discoverable users receive a pending event invite and (when
+// appropriate) a pending friend request. Neither action creates a friendship.
 router.post("/events/:id/invite", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const id = parseId(req.params.id);
   const userId = (req.user as { id: string }).id;
@@ -1429,11 +1435,42 @@ router.post("/events/:id/invite", requireAuth, async (req: Request, res: Respons
   const existing = await getEventAsMemberForWrite(id, userId, res);
   if (!existing) return;
 
-  const targets = await filterInvitableTargets(
-    userId,
-    parsed.data.userIds.filter((u) => u !== existing.hostId),
-    existing.squadId,
-  );
+  const requestedIds = [...new Set(parsed.data.userIds.filter((u) => u !== userId && u !== existing.hostId))];
+  if (requestedIds.length === 0) {
+    res.json({ ok: true, requestedCount: 0, inviteCount: 0, friendRequestCount: 0, skippedCount: 0, statuses: [] });
+    return;
+  }
+
+  // Search results are already block- and moderation-filtered, but the server
+  // must repeat those checks because ids in this mutation are user-controlled.
+  const discoverableIds = new Set<string>();
+  const blockedIds = new Set<string>();
+  const [discoverableUsers, blockRows] = await Promise.all([
+    db
+      .select({ id: usersTable.id })
+      .from(usersTable)
+      .where(and(inArray(usersTable.id, requestedIds), eq(usersTable.moderationHidden, false))),
+    db
+      .select({ blockerId: userBlocksTable.blockerId, blockedId: userBlocksTable.blockedId })
+      .from(userBlocksTable)
+      .where(
+        or(
+          and(eq(userBlocksTable.blockerId, userId), inArray(userBlocksTable.blockedId, requestedIds)),
+          and(inArray(userBlocksTable.blockerId, requestedIds), eq(userBlocksTable.blockedId, userId)),
+        ),
+      ),
+  ]);
+  discoverableUsers.forEach((u) => discoverableIds.add(u.id));
+  for (const row of blockRows) {
+    blockedIds.add(row.blockerId === userId ? row.blockedId : row.blockerId);
+  }
+  const targets = requestedIds.filter((targetId) => discoverableIds.has(targetId) && !blockedIds.has(targetId));
+  // Deliberately combine blocks, hidden profiles, and unknown ids. Returning
+  // separate counts/statuses would let callers probe account existence or
+  // discover who blocked them.
+  const skippedCount = requestedIds.filter(
+    (targetId) => !discoverableIds.has(targetId) || blockedIds.has(targetId),
+  ).length;
   // Candidates = chosen friends/squad-members who don't already have access.
   // (Someone already in invitedUserIds is genuinely a member — no invite needed.)
   const alreadyInvited = new Set((existing.invitedUserIds ?? []) as string[]);
@@ -1445,8 +1482,58 @@ router.post("/events/:id/invite", requireAuth, async (req: Request, res: Respons
   }
 
   if (candidates.length === 0) {
-    res.json({ ok: true, inviteCount: 0 });
+    res.json({
+      ok: true,
+      requestedCount: requestedIds.length,
+      inviteCount: 0,
+      friendRequestCount: 0,
+      skippedCount,
+      statuses: requestedIds.map((targetId) => ({
+        userId: targetId,
+        status: "skipped",
+      })),
+    });
     return;
+  }
+
+  let friendIds = new Set<string>();
+  const pendingByTarget = new Map<string, { id: string; direction: "outgoing" | "incoming" }>();
+  const [friendships, pendingRequests] = await Promise.all([
+    db
+      .select({ ownerId: friendshipsTable.ownerId, friendId: friendshipsTable.friendId })
+      .from(friendshipsTable)
+      .where(
+        or(
+          and(eq(friendshipsTable.ownerId, userId), inArray(friendshipsTable.friendId, candidates)),
+          and(inArray(friendshipsTable.ownerId, candidates), eq(friendshipsTable.friendId, userId)),
+        ),
+      ),
+    db
+      .select({
+        id: friendRequestsTable.id,
+        fromUserId: friendRequestsTable.fromUserId,
+        toUserId: friendRequestsTable.toUserId,
+      })
+      .from(friendRequestsTable)
+      .where(
+        and(
+          eq(friendRequestsTable.status, "pending"),
+          or(
+            and(eq(friendRequestsTable.fromUserId, userId), inArray(friendRequestsTable.toUserId, candidates)),
+            and(inArray(friendRequestsTable.fromUserId, candidates), eq(friendRequestsTable.toUserId, userId)),
+          ),
+        ),
+      ),
+  ]);
+  friendIds = new Set(
+    friendships.map((row) => row.ownerId === userId ? row.friendId : row.ownerId),
+  );
+  for (const request of pendingRequests) {
+    const targetId = request.fromUserId === userId ? request.toUserId : request.fromUserId;
+    pendingByTarget.set(targetId, {
+      id: request.id,
+      direction: request.fromUserId === userId ? "outgoing" : "incoming",
+    });
   }
 
   // Inspect any existing invite rows so a prior accept/decline can't silently
@@ -1461,38 +1548,69 @@ router.post("/events/:id/invite", requireAuth, async (req: Request, res: Respons
   // "accepted" but not in invitedUserIds = drifted access; repair it directly
   // (grant access now) instead of issuing another invite that can't be accepted.
   const toRepair = candidates.filter((t) => statusByUser.get(t) === "accepted");
-  // Everyone else (no row, or a prior pending/declined row) gets a fresh pending
-  // invite via upsert, so a previously-declined person can be re-invited.
-  const toInvite = candidates.filter((t) => statusByUser.get(t) !== "accepted");
+  // A pending row is already the desired state. Do not touch its timestamp,
+  // activity, or push notification. A missing/declined row is a true new or
+  // revived transition and may be upserted.
+  const alreadyPending = candidates.filter((t) => statusByUser.get(t) === "pending");
+  const toInvite = candidates.filter(
+    (t) => statusByUser.get(t) !== "accepted" && statusByUser.get(t) !== "pending",
+  );
 
-  if (toRepair.length > 0) {
-    await db
+  const friendRequestIds: string[] = [];
+  const friendRequestRecipients: string[] = [];
+  const friendRequestStatuses = new Map<string, string>();
+  let inserted: (typeof eventInvitesTable.$inferSelect)[] = [];
+  let repairedCount = 0;
+  let activePendingCount = alreadyPending.length;
+  await db.transaction(async (tx) => {
+  // Use the same pair lock as standalone requests and block writes before
+  // rechecking blocks. This prevents a block committed concurrently with the
+  // initial visibility probe from allowing either relationship write.
+  for (const targetId of [...candidates].sort()) {
+    await lockUserPair(tx, userId, targetId);
+  }
+  const txBlocks = await tx
+    .select({ blockerId: userBlocksTable.blockerId, blockedId: userBlocksTable.blockedId })
+    .from(userBlocksTable)
+    .where(or(
+      and(eq(userBlocksTable.blockerId, userId), inArray(userBlocksTable.blockedId, candidates)),
+      and(inArray(userBlocksTable.blockerId, candidates), eq(userBlocksTable.blockedId, userId)),
+    ));
+  for (const row of txBlocks) {
+    blockedIds.add(row.blockerId === userId ? row.blockedId : row.blockerId);
+  }
+  const activeCandidates = candidates.filter((targetId) => !blockedIds.has(targetId));
+  const activeToRepair = toRepair.filter((targetId) => !blockedIds.has(targetId));
+  const activeToInvite = toInvite.filter((targetId) => !blockedIds.has(targetId));
+  activePendingCount = alreadyPending.filter((targetId) => !blockedIds.has(targetId)).length;
+  repairedCount = activeToRepair.length;
+
+  if (activeToRepair.length > 0) {
+    await tx
       .update(eventsTable)
       .set({
         invitedUserIds: sql`(
           SELECT COALESCE(jsonb_agg(DISTINCT elem), '[]'::jsonb)
           FROM jsonb_array_elements(
-            COALESCE(${eventsTable.invitedUserIds}, '[]'::jsonb) || ${JSON.stringify(toRepair)}::jsonb
+            COALESCE(${eventsTable.invitedUserIds}, '[]'::jsonb) || ${JSON.stringify(activeToRepair)}::jsonb
           ) AS elem
         )`,
         version: sql`${eventsTable.version} + 1`,
       })
       .where(eq(eventsTable.id, id));
-    emitEventUpdate(id);
   }
 
   // Create/refresh pending event_invite rows — invitees see these in their
   // Activity tab and can Accept or Decline. They gain access on acceptance.
-  let inserted: (typeof eventInvitesTable.$inferSelect)[] = [];
-  if (toInvite.length > 0) {
-    const inviteRows = toInvite.map((invitedUserId) => ({
+  if (activeToInvite.length > 0) {
+    const inviteRows = activeToInvite.map((invitedUserId) => ({
       eventId: id,
       inviterUserId: userId,
       invitedUserId,
       eventTitle: existing.title,
       eventEmoji: existing.emoji ?? "🗓️",
     }));
-    inserted = await db
+    inserted = await tx
       .insert(eventInvitesTable)
       .values(inviteRows)
       .onConflictDoUpdate({
@@ -1504,15 +1622,103 @@ router.post("/events/:id/invite", requireAuth, async (req: Request, res: Respons
           eventEmoji: existing.emoji ?? "🗓️",
           createdAt: sql`now()`,
         },
-        // Never downgrade an already-accepted invite back to pending. Guards the
-        // TOCTOU window where a target accepts between the select above and this
-        // upsert — that row is left untouched (and excluded from `inserted`).
-        setWhere: sql`${eventInvitesTable.status} <> 'accepted'`,
+        // Never refresh an accepted or already-pending invite. Guards the
+        // TOCTOU window where another mutation wins between the select and
+        // this upsert.
+        setWhere: sql`${eventInvitesTable.status} NOT IN ('accepted', 'pending')`,
       })
       .returning();
   }
 
-  res.json({ ok: true, inviteCount: inserted.length + toRepair.length });
+  for (const targetId of activeCandidates) {
+    if (friendIds.has(targetId)) {
+      friendRequestStatuses.set(targetId, "friends");
+      continue;
+    }
+    const pending = pendingByTarget.get(targetId);
+    if (pending) {
+      friendRequestStatuses.set(targetId, pending.direction === "incoming" ? "incoming_pending" : "pending");
+      continue;
+    }
+
+    // Only create a request when neither direction is pending. In particular,
+    // never auto-accept an incoming request as a side effect of inviting to a
+    // plan; the recipient still controls consent.
+    const requestResult = await (async () => {
+      // Both directions use the same canonical unordered pair key. This
+      // serializes two simultaneous "invite + request" mutations without
+      // making either side auto-accept the other's pending request.
+      await lockUserPair(tx, userId, targetId);
+
+      const [friendship] = await tx
+        .select({ ownerId: friendshipsTable.ownerId })
+        .from(friendshipsTable)
+        .where(
+          or(
+            and(eq(friendshipsTable.ownerId, userId), eq(friendshipsTable.friendId, targetId)),
+            and(eq(friendshipsTable.ownerId, targetId), eq(friendshipsTable.friendId, userId)),
+          ),
+        )
+        .limit(1);
+      if (friendship) return { status: "friends" as const, request: null };
+
+      const [pending] = await tx
+        .select({
+          id: friendRequestsTable.id,
+          fromUserId: friendRequestsTable.fromUserId,
+        })
+        .from(friendRequestsTable)
+        .where(
+          and(
+            eq(friendRequestsTable.status, "pending"),
+            or(
+              and(eq(friendRequestsTable.fromUserId, userId), eq(friendRequestsTable.toUserId, targetId)),
+              and(eq(friendRequestsTable.fromUserId, targetId), eq(friendRequestsTable.toUserId, userId)),
+            ),
+          ),
+        )
+        .limit(1);
+      if (pending) {
+        return {
+          status: pending.fromUserId === userId ? "pending" as const : "incoming_pending" as const,
+          request: null,
+        };
+      }
+
+      const [request] = await tx
+        .insert(friendRequestsTable)
+        .values({ fromUserId: userId, toUserId: targetId, status: "pending" })
+        .onConflictDoUpdate({
+          target: [friendRequestsTable.fromUserId, friendRequestsTable.toUserId],
+          set: { status: "pending", createdAt: new Date() },
+          setWhere: ne(friendRequestsTable.status, "pending"),
+        })
+        .returning({ id: friendRequestsTable.id });
+      return { status: request ? "pending" as const : "not_sent" as const, request: request ?? null };
+    })();
+    if (requestResult.request) {
+      friendRequestIds.push(requestResult.request.id);
+      friendRequestRecipients.push(targetId);
+    }
+    friendRequestStatuses.set(targetId, requestResult.status);
+  }
+  });
+  if (repairedCount > 0) emitEventUpdate(id);
+
+  res.json({
+    ok: true,
+    requestedCount: requestedIds.length,
+    inviteCount: inserted.length + repairedCount,
+    friendRequestCount: friendRequestIds.length,
+    skippedCount,
+    alreadyPendingCount: activePendingCount,
+    statuses: requestedIds.map((targetId) => ({
+      userId: targetId,
+      status: !discoverableIds.has(targetId) || blockedIds.has(targetId)
+        ? "skipped"
+        : friendRequestStatuses.get(targetId) ?? "invited",
+    })),
+  });
 
   for (const inv of inserted) {
     recordActivitySafe({
@@ -1531,6 +1737,46 @@ router.post("/events/:id/invite", requireAuth, async (req: Request, res: Respons
         planType: existing.type,
       },
     });
+  }
+
+  for (const requestId of friendRequestIds) {
+    const request = await db
+      .select({ toUserId: friendRequestsTable.toUserId })
+      .from(friendRequestsTable)
+      .where(eq(friendRequestsTable.id, requestId))
+      .limit(1);
+    if (request[0]) {
+      recordActivitySafe({
+        recipientId: request[0].toUserId,
+        actorId: userId,
+        type: "friend_request",
+        subjectType: "user",
+        subjectId: requestId,
+        dedupe: false,
+      });
+    }
+  }
+  if (friendRequestIds.length > 0) {
+    void (async () => {
+      try {
+        const tokens = await storage.getPushTokensForUsers(friendRequestRecipients, {
+          requireNotifyFriendActivity: true,
+        });
+        if (tokens.length === 0) return;
+        const sender = await storage.getUser(userId);
+        await sendPushNotifications(
+          tokens,
+          {
+            title: "Friend request",
+            body: `${displayName(sender)} wants to be your friend`,
+            data: { screen: "activity" },
+          },
+          { onStaleToken: (token) => storage.clearPushToken(token) },
+        );
+      } catch (err) {
+        logger.error({ err }, "Error sending invite friend-request push notification");
+      }
+    })();
   }
 
   // Push notify invitees — same helper as creation-time invites (#14/#15) so

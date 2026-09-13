@@ -17,7 +17,7 @@ import { KeyboardAvoidingSheet } from "@/components/KeyboardAvoidingSheet";
 import { KeyboardDismissControl } from "@/components/KeyboardDismissControl";
 import { useAuth, useData } from "@/context/AppContext";
 import { router } from "expo-router";
-import { useUserCache } from "@/context/UserCacheContext";
+import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
 import { UserAvatar } from "@/components/UserAvatar";
 
 type Props = {
@@ -28,6 +28,8 @@ type Props = {
   confirmLabel?: string;
   /** User ids that are already in (host, members, already invited) — hidden. */
   excludeIds?: string[];
+  /** Also search discoverable non-friends after two characters. */
+  allowNonFriends?: boolean;
   /** Called with the selected friend ids; may be async (shows a spinner). */
   onConfirm: (ids: string[]) => void | Promise<void>;
   onClose: () => void;
@@ -44,19 +46,23 @@ export default function FriendPickerSheet({
   title = "Invite friends",
   confirmLabel = "Invite",
   excludeIds = [],
+  allowNonFriends = false,
   onConfirm,
   onClose,
 }: Props) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { currentUser } = useAuth();
-  const { friends, fetchFriends, friendsLoading, friendsAuthPending, friendsAuthError, retryFriends } =
+  const { friends, fetchFriends, friendsLoading, friendsAuthPending, friendsAuthError, retryFriends, apiFetch } =
     useData();
   const { resolveUser, prefetchUsers } = useUserCache();
 
   const [selected, setSelected] = useState<string[]>([]);
   const [query, setQuery] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [searchUsers, setSearchUsers] = useState<ResolvedUser[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState(false);
 
   const prevVisibleRef = useRef(false);
 
@@ -64,10 +70,65 @@ export default function FriendPickerSheet({
     if (visible && !prevVisibleRef.current) {
       setSelected([]);
       setQuery("");
+      setSearchUsers([]);
+      setSearchError(false);
       void fetchFriends();
     }
     prevVisibleRef.current = visible;
   }, [visible, fetchFriends]);
+
+  useEffect(() => {
+    if (!visible || !allowNonFriends || query.trim().length < 2) {
+      setSearchUsers([]);
+      setSearchLoading(false);
+      setSearchError(false);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setSearchLoading(true);
+      setSearchError(false);
+      try {
+        const res = await apiFetch(`/api/users/search?q=${encodeURIComponent(query.trim())}`);
+        if (!res.ok) throw new Error("search failed");
+        const rows = (await res.json()) as Array<{
+          id: string;
+          firstName: string | null;
+          lastName: string | null;
+          profileImageUrl: string | null;
+        }>;
+        if (cancelled) return;
+        setSearchUsers(rows.map((row) => {
+          const first = row.firstName ?? "";
+          const last = row.lastName ?? "";
+          const name = [first, last].filter(Boolean).join(" ") || "Unknown";
+          return {
+            id: row.id,
+            name,
+            initials: first && last
+              ? `${first[0]}${last[0]}`.toUpperCase()
+              : first
+                ? first.slice(0, 2).toUpperCase()
+                : "U?",
+            color: "#4A9EFF",
+            profileImageUrl: row.profileImageUrl ?? null,
+            isPro: false,
+          };
+        }));
+      } catch {
+        if (!cancelled) {
+          setSearchUsers([]);
+          setSearchError(true);
+        }
+      } finally {
+        if (!cancelled) setSearchLoading(false);
+      }
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [allowNonFriends, apiFetch, query, visible]);
 
   useEffect(() => {
     if (visible && friends.length > 0) prefetchUsers(friends);
@@ -77,19 +138,26 @@ export default function FriendPickerSheet({
 
   const candidates = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return friends
+    const friendIds = new Set(friends);
+    const friendCandidates = friends
       .filter((id) => !exclude.has(id))
-      .map((id) => ({ id, user: resolveUser(id) }))
+      .map((id) => ({ id, user: resolveUser(id), nonFriend: false }))
       .filter(({ user }) => (q ? user.name.toLowerCase().includes(q) : true))
+    const nonFriendCandidates = allowNonFriends
+      ? searchUsers
+        .filter((user) => !friendIds.has(user.id) && !exclude.has(user.id))
+        .map((user) => ({ id: user.id, user, nonFriend: true }))
+      : [];
+    return [...friendCandidates, ...nonFriendCandidates]
       .sort((a, b) => a.user.name.localeCompare(b.user.name));
-  }, [friends, exclude, query, resolveUser]);
+  }, [allowNonFriends, friends, exclude, query, resolveUser, searchUsers]);
 
   // A friends fetch that is still in flight (or 401ing during a cold-start auth
   // race) must not render "Add friends to invite them directly." — that falsely
   // tells the user they have no friends. Only a settled, authenticated,
   // zero-friend response is a real empty state.
   const showLoading = friends.length === 0 && (friendsLoading || friendsAuthPending);
-  const showError = friends.length === 0 && !showLoading && friendsAuthError;
+  const showError = !allowNonFriends && friends.length === 0 && !showLoading && friendsAuthError;
 
   const toggle = (id: string) => {
     Haptics.selectionAsync();
@@ -131,13 +199,13 @@ export default function FriendPickerSheet({
             <View style={styles.cancelBtn} />
           </View>
 
-          {friends.length > 0 && !showLoading && !showError && (
+          {(allowNonFriends || friends.length > 0) && !showLoading && !showError && (
             <View style={[styles.searchRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <Ionicons name="search" size={16} color={colors.mutedForeground} />
               <TextInput
                 value={query}
                 onChangeText={setQuery}
-                placeholder="Search friends"
+                placeholder={allowNonFriends ? "Search friends and people" : "Search friends"}
                 placeholderTextColor={colors.mutedForeground}
                 style={[styles.searchInput, { color: colors.foreground }]}
                 autoCapitalize="none"
@@ -172,19 +240,32 @@ export default function FriendPickerSheet({
                   <Text style={[styles.retryText, { color: colors.primary }]}>Try again</Text>
                 </TouchableOpacity>
               </View>
+            ) : searchLoading ? (
+              <View style={styles.empty}>
+                <ActivityIndicator color={colors.primary} />
+                <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
+                  Searching people…
+                </Text>
+              </View>
             ) : candidates.length === 0 ? (
               <View style={styles.empty}>
                 <Ionicons name="people-outline" size={32} color={colors.mutedForeground} />
                 <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
-                  {friends.length === 0
+                  {searchError
+                    ? "Couldn't search people right now."
+                    : friends.length === 0 && !allowNonFriends
                     ? "Add friends to invite them directly."
+                    : allowNonFriends && query.trim().length < 2
+                      ? "Search by name to find friends and other people."
                     : query.trim()
-                      ? "No friends match your search."
+                      ? allowNonFriends
+                        ? "No people match your search."
+                        : "No friends match your search."
                       : "Everyone you can invite is already in."}
                 </Text>
               </View>
             ) : (
-              candidates.map(({ id, user }) => {
+              candidates.map(({ id, user, nonFriend }) => {
                 const isSelected = selected.includes(id);
                 return (
                   <View
@@ -204,9 +285,16 @@ export default function FriendPickerSheet({
                       />
                     </TouchableOpacity>
                     <TouchableOpacity style={styles.rowSelect} onPress={() => toggle(id)} activeOpacity={0.7}>
-                      <Text style={[styles.name, { color: colors.foreground }]} numberOfLines={1}>
-                        {user.name}
-                      </Text>
+                      <View style={styles.userCopy}>
+                        <Text style={[styles.name, { color: colors.foreground }]} numberOfLines={1}>
+                          {user.name}
+                        </Text>
+                        {nonFriend && (
+                          <Text style={[styles.subtitle, { color: colors.primary }]} numberOfLines={1}>
+                            Invite + friend request
+                          </Text>
+                        )}
+                      </View>
                       <Ionicons
                         name={isSelected ? "checkmark-circle" : "ellipse-outline"}
                         size={24}
@@ -268,7 +356,9 @@ const styles = StyleSheet.create({
   list: { flexGrow: 0 },
   row: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 9 },
   rowSelect: { flex: 1, flexDirection: "row", alignItems: "center", gap: 12 },
+  userCopy: { flex: 1, minWidth: 0 },
   name: { flex: 1, fontSize: 15, fontFamily: "Inter_500Medium" },
+  subtitle: { fontSize: 12, fontFamily: "Inter_500Medium", marginTop: 2 },
   empty: { alignItems: "center", gap: 10, paddingVertical: 36, paddingHorizontal: 24 },
   emptyText: { fontSize: 14, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 20 },
   retryBtn: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8, marginTop: 2 },

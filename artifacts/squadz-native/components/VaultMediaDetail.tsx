@@ -161,6 +161,10 @@ export default function VaultMediaDetail({
 
   const photoId = photo?.id ?? null;
   const isUploader = !!(photo && currentUserId && photo.uploaderId === currentUserId);
+  // The server enforces uploader ownership too, but keep the destructive
+  // affordance aligned with that rule even if a parent accidentally supplies a
+  // callback for a photo the viewer does not own.
+  const canDelete = isUploader && !!onDelete;
   const isVideo = photo?.mediaType === "video";
 
   const authHeaders = useMemo(() => buildAuthHeaders(authToken), [authToken]);
@@ -374,7 +378,7 @@ export default function VaultMediaDetail({
                 </Text>
               </TouchableOpacity>
             )}
-            {onDelete && (
+            {canDelete && (
               <TouchableOpacity
                 style={styles.optionRow}
                 onPress={() => { setOptionsOpen(false); onDelete(photo.id); }}

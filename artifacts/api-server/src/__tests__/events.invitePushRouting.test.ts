@@ -16,19 +16,47 @@ import request from "supertest";
 
 const mockRows = vi.hoisted(() => ({ value: [] as unknown[] }));
 const mockUpdateRows = vi.hoisted(() => ({ value: [] as unknown[] }));
+const mockInviteTables = vi.hoisted(() => ({
+  usersTable: { id: "user_id", moderationHidden: "moderation_hidden" },
+  userBlocksTable: { blockerId: "blocker_id", blockedId: "blocked_id" },
+  friendshipsTable: { ownerId: "owner_id", friendId: "friend_id" },
+  friendRequestsTable: { id: "request_id", fromUserId: "from_user_id", toUserId: "to_user_id", status: "status" },
+  eventInvitesTable: {
+    id: "id",
+    eventId: "event_id",
+    inviterUserId: "inviter_user_id",
+    invitedUserId: "invited_user_id",
+    status: "status",
+    eventTitle: "event_title",
+    eventEmoji: "event_emoji",
+    createdAt: "created_at",
+  },
+}));
 
-vi.mock("@workspace/db", () => ({
-  db: {
+vi.mock("@workspace/db", () => {
+  const db: any = {
     select: () => ({
-      from: () => ({
-        where: () => Promise.resolve(mockRows.value),
-        orderBy: () => Promise.resolve(mockRows.value),
-      }),
+        from: (table: unknown) => {
+          const where = () => Object.assign(Promise.resolve(
+            table === mockInviteTables.usersTable
+              ? [{ id: "friend-user-id" }]
+              : table === mockInviteTables.friendshipsTable
+                ? [{ ownerId: "host-user-id", friendId: "friend-user-id" }]
+                : table === mockInviteTables.friendRequestsTable || table === mockInviteTables.eventInvitesTable
+                  ? []
+                  : mockRows.value,
+          ), {
+            limit: () => Promise.resolve([]),
+            orderBy: () => ({ limit: () => Promise.resolve([]) }),
+          });
+          return { where, leftJoin: () => ({ where }), orderBy: () => Promise.resolve(mockRows.value) };
+        },
     }),
     update: () => ({
       set: () => ({ where: () => ({ returning: () => Promise.resolve(mockUpdateRows.value) }) }),
     }),
     delete: () => ({ where: () => Promise.resolve() }),
+    execute: () => Promise.resolve(),
     insert: () => ({
       values: () => ({
         onConflictDoNothing: () => ({ returning: () => Promise.resolve(mockUpdateRows.value) }),
@@ -36,7 +64,10 @@ vi.mock("@workspace/db", () => ({
         returning: () => Promise.resolve(mockUpdateRows.value),
       }),
     }),
-  },
+  };
+  db.transaction = async (callback: (tx: typeof db) => unknown) => callback(db);
+  return {
+  db,
   eventsTable: {
     id: "id",
     hostId: "host_id",
@@ -49,19 +80,12 @@ vi.mock("@workspace/db", () => ({
     version: "version",
     invitedUserIds: "invited_user_ids",
   },
-  eventInvitesTable: {
-    id: "id",
-    eventId: "event_id",
-    inviterUserId: "inviter_user_id",
-    invitedUserId: "invited_user_id",
-    status: "status",
-    createdAt: "created_at",
-  },
+  ...mockInviteTables,
   eventCreationsTable: { userId: "user_id", eventId: "event_id", createdAt: "created_at" },
-  usersTable: {},
   activityTable: {},
   availabilityPollsTable: {},
-}));
+  };
+});
 
 const storageMock = vi.hoisted(() => ({
   getUser: vi.fn(),

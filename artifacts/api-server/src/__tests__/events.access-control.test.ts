@@ -10,12 +10,38 @@ const capturedUpdateWhere = vi.hoisted(() => ({ arg: null as unknown }));
 // downgrades an already-accepted invite (the setWhere guard).
 const capturedUpsertConfig = vi.hoisted(() => ({ arg: null as unknown }));
 const recordedActivities = vi.hoisted(() => ({ value: [] as unknown[] }));
+const mockDiscoverableUsers = vi.hoisted(() => ({ value: [] as unknown[] }));
+const mockInviteTables = vi.hoisted(() => ({
+  usersTable: { id: "user_id", moderationHidden: "moderation_hidden" },
+  userBlocksTable: { blockerId: "blocker_id", blockedId: "blocked_id" },
+  friendshipsTable: { ownerId: "owner_id", friendId: "friend_id" },
+  friendRequestsTable: { id: "request_id", fromUserId: "from_user_id", toUserId: "to_user_id", status: "status" },
+  eventInvitesTable: {
+    id: "id",
+    eventId: "event_id",
+    inviterUserId: "inviter_user_id",
+    invitedUserId: "invited_user_id",
+    status: "status",
+    eventTitle: "event_title",
+    eventEmoji: "event_emoji",
+    createdAt: "created_at",
+  },
+}));
+const mockFriendships = vi.hoisted(() => ({ value: [] as unknown[] }));
 
-vi.mock("@workspace/db", () => ({
-  db: {
+vi.mock("@workspace/db", () => {
+  const db: any = {
     select: () => ({
-      from: () => ({
-        where: () => Promise.resolve(mockRows.value),
+        from: (table: unknown) => ({
+          where: () => Promise.resolve(
+            table === mockInviteTables.usersTable
+              ? mockDiscoverableUsers.value
+              : table === mockInviteTables.friendshipsTable
+                ? mockFriendships.value
+                : table === mockInviteTables.friendRequestsTable || table === mockInviteTables.eventInvitesTable
+                  ? []
+                  : mockRows.value,
+          ),
         orderBy: () => Promise.resolve(mockRows.value),
       }),
     }),
@@ -46,7 +72,11 @@ vi.mock("@workspace/db", () => ({
         returning: () => Promise.resolve(mockUpdateRows.value),
       }),
     }),
-  },
+    execute: () => Promise.resolve(),
+  };
+  db.transaction = async (callback: (tx: typeof db) => unknown) => callback(db);
+  return {
+  db,
   eventsTable: {
     id: "id",
     hostId: "host_id",
@@ -59,15 +89,9 @@ vi.mock("@workspace/db", () => ({
     version: "version",
     invitedUserIds: "invited_user_ids",
   },
-  eventInvitesTable: {
-    id: "id",
-    eventId: "event_id",
-    inviterUserId: "inviter_user_id",
-    invitedUserId: "invited_user_id",
-    status: "status",
-    createdAt: "created_at",
-  },
-}));
+  ...mockInviteTables,
+  };
+});
 
 vi.mock("../storage", () => ({
   storage: {
@@ -378,6 +402,8 @@ describe("personal invites (events.invitedUserIds)", () => {
     storageMock.getSquadIdsForUser.mockResolvedValue([]);
     storageMock.getFriendIds.mockResolvedValue([]);
     recordedActivities.value = [];
+    mockDiscoverableUsers.value = [];
+    mockFriendships.value = [];
   });
 
   it("grants GET access to a directly-invited non-member", async () => {
@@ -398,6 +424,8 @@ describe("personal invites (events.invitedUserIds)", () => {
   it("POST /invite creates an invite row and returns ok + inviteCount", async () => {
     mockRows.value = [makeBaseEvent()];
     storageMock.getFriendIds.mockResolvedValue([INVITED_ID]);
+    mockDiscoverableUsers.value = [{ id: INVITED_ID }];
+    mockFriendships.value = [{ ownerId: HOST_ID, friendId: INVITED_ID }];
     // Each inserted row returned by db.insert().values().onConflictDoNothing().returning()
     mockUpdateRows.value = [{ id: "invite-1", invitedUserId: INVITED_ID, eventId: "evt-1" }];
     const app = await makeApp({ id: HOST_ID });
@@ -414,6 +442,8 @@ describe("personal invites (events.invitedUserIds)", () => {
   it("records whether an activity invite is for a trip so mobile can open the right detail screen", async () => {
     mockRows.value = [makeBaseEvent({ type: "trip" })];
     storageMock.getFriendIds.mockResolvedValue([INVITED_ID]);
+    mockDiscoverableUsers.value = [{ id: INVITED_ID }];
+    mockFriendships.value = [{ ownerId: HOST_ID, friendId: INVITED_ID }];
     mockUpdateRows.value = [{ id: "invite-1", invitedUserId: INVITED_ID, eventId: "evt-1" }];
     const app = await makeApp({ id: HOST_ID });
 
