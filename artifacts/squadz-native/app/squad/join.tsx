@@ -189,12 +189,12 @@ export default function SquadJoinScreen() {
               testID="squad-invite-code-input"
               value={manualCode}
               onChangeText={(value) => {
-                setManualCode(value.toUpperCase());
+                setManualCode(value);
                 setError(null);
               }}
-              placeholder="SQ-AB12"
+              placeholder="Code or squad invite link"
               placeholderTextColor={colors.textDim}
-              autoCapitalize="characters"
+              autoCapitalize="none"
               autoCorrect={false}
               returnKeyType="go"
               onSubmitEditing={() => {
