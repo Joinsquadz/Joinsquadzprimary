@@ -152,6 +152,34 @@ describe("canAccessAvailabilityPoll — scoped polls have no creator exception",
 
     await expect(storage.canAccessAvailabilityPoll(eventPoll, CREATOR)).resolves.toBe(false);
   });
+
+  it("denies an unrelated squad member on a mismatched event+squad poll", async () => {
+    const crossScopePoll = {
+      ...eventPoll,
+      squadId: "unrelated-squad",
+    } as AvailabilityPoll;
+    mockMembership([OUTSIDER]);
+    mockEvent({
+      id: "event-1",
+      hostId: "host-id",
+      squadId: "event-squad",
+      rsvps: {},
+    });
+
+    await expect(storage.canAccessAvailabilityPoll(crossScopePoll, OUTSIDER)).resolves.toBe(false);
+  });
+});
+
+describe("createAvailabilityPoll — scope invariant", () => {
+  it("rejects a poll with both squad and event scopes before inserting", async () => {
+    await expect(
+      storage.createAvailabilityPoll({
+        createdBy: CREATOR,
+        squadId: "unrelated-squad",
+        eventId: "event-1",
+      }),
+    ).rejects.toThrow("must target exactly one scope");
+  });
 });
 
 describe("canAccessAvailabilityPoll — ad-hoc polls keep creator + participant access", () => {

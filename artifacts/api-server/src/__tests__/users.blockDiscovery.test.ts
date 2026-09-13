@@ -9,9 +9,9 @@
  * blocked). The profile route would then 403, so the UI dead-ended, and the
  * mere presence of the row confirmed the account exists.
  *
- * Deliberately NOT covered here (and must stay that way): bulk /api/users
- * hydration is not block-filtered, because blocking leaves shared squad group
- * chat intact and filtering there would blank out names for everyone in it.
+ * Bulk /api/users hydration has its own caller-aware visibility tests. It must
+ * filter blocked users too; shared-squad membership is only an exception for
+ * an otherwise-authorized private profile, never a way around a block.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import request from "supertest";

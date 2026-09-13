@@ -247,6 +247,34 @@ describe("POST /api/availability/polls", () => {
     expect(res.status).toBe(403);
   });
 
+  it("rejects a poll bound to both a squad and an event", async () => {
+    storageMock.canAccessAvailabilityPoll.mockResolvedValue(true);
+    const app = await makeApp({ id: MEMBER_ID });
+    const res = await request(app)
+      .post("/api/availability/polls")
+      .send({ squadId: "unrelated-squad", eventId: "event-1" });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("both a squad and an event");
+    expect(storageMock.createAvailabilityPoll).not.toHaveBeenCalled();
+  });
+
+  it("blocks an unrelated squad member from reading or responding to a cross-scope poll", async () => {
+    storageMock.getAvailabilityPoll.mockResolvedValue({
+      ...basePoll,
+      eventId: "event-1",
+      squadId: "unrelated-squad",
+    });
+    storageMock.canAccessAvailabilityPoll.mockResolvedValue(false);
+    const app = await makeApp({ id: STRANGER_ID });
+    const readRes = await request(app).get("/api/availability/polls/poll-1");
+    expect(readRes.status).toBe(403);
+    const respondRes = await request(app)
+      .put("/api/availability/polls/poll-1/me")
+      .send({ cells: ["Sat-8PM"] });
+    expect(respondRes.status).toBe(403);
+    expect(storageMock.upsertAvailabilityResponse).not.toHaveBeenCalled();
+  });
+
   it("reuses an existing poll for the same scope (200)", async () => {
     storageMock.canAccessAvailabilityPoll.mockResolvedValue(true);
     storageMock.findAvailabilityPoll.mockResolvedValue(basePoll);

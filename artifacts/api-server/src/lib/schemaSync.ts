@@ -46,7 +46,19 @@ async function exec(statement: string): Promise<void> {
   await db.execute(sql.raw(statement));
 }
 
-async function safeExec(statement: string): Promise<void> {
+function postgresErrorCode(err: unknown): string | null {
+  let current = err;
+  const seen = new Set<unknown>();
+  while (typeof current === 'object' && current !== null && !seen.has(current)) {
+    seen.add(current);
+    const record = current as Record<string, unknown>;
+    if (typeof record['code'] === 'string') return record['code'];
+    current = record['cause'];
+  }
+  return null;
+}
+
+export async function safeExec(statement: string): Promise<void> {
   try {
     await exec(statement);
   } catch (err: unknown) {
@@ -62,10 +74,18 @@ async function safeExec(statement: string): Promise<void> {
     }
     parts.push(String(err));
     const text = parts.join(' ');
-    // "already exists" and "duplicate key" are harmless on subsequent runs.
-    if (text.includes('already exists') || text.includes('duplicate')) return;
-    // Log but don't rethrow — a single missed constraint/index is not fatal.
-    // The outer ensureSchema will still complete the rest of the migration.
+    const code = postgresErrorCode(err);
+    // Only idempotent duplicate-object/table DDL errors are harmless on
+    // subsequent runs. A 23505 unique violation means existing row data
+    // prevented an index/constraint from being created and must fail startup.
+    // Unexpected failures must reach ensureSchema so startup fails closed rather
+    // than serving against a partially synchronized schema.
+    if (code === '42710' || code === '42P07') return;
+    // Some Drizzle wrappers omit the SQLSTATE. Keep the fallback narrow:
+    // "already exists" identifies an idempotent DDL collision, unlike generic
+    // "duplicate" text which may describe conflicting row data.
+    if (!code && text.includes('already exists')) return;
+    throw err;
   }
 }
 
@@ -844,10 +864,10 @@ export async function ensureSchema(): Promise<void> {
     // founding_member_counter / founding_member_redemptions tables existed.
     await reconcileFoundingCounter();
   } catch (err) {
-    // A schema sync failure is serious but should not prevent the server from
-    // starting — routes that depend on missing tables will 500, but the rest
-    // of the app stays available. The error is logged prominently so it is
-    // not missed in monitoring.
+    // A schema sync failure means the database may not match the code that is
+    // about to serve requests. Log it prominently, then fail closed so the
+    // startup entrypoint cannot bind the API or report healthy.
     logger.error({ err }, '[schemaSync] Schema sync FAILED — some features may be unavailable');
+    throw err;
   }
 }

@@ -253,6 +253,15 @@ const CreatePollBody = z
       message: "A poll must be scoped to a squad, an event, or a set of participants",
     },
   )
+  .refine((d) => !(d.squadId && d.eventId), {
+    message: "A poll cannot be scoped to both a squad and an event",
+  })
+  .refine(
+    (d) => !((d.squadId || d.eventId) && (d.adhoc || (d.participantIds && d.participantIds.length > 0))),
+    {
+      message: "Ad-hoc participants cannot be combined with a squad or event scope",
+    },
+  )
   // The plan cannot be longer than the window people vote across — there would
   // be no stretch to rank. Reject rather than clamp: the poll the organizer
   // asked for is impossible, and quietly shortening their trip is worse than

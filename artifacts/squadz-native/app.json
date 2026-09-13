@@ -20,7 +20,8 @@
       "associatedDomains": ["applinks:joinsquadz.com"],
       "infoPlist": {
         "NSCameraUsageDescription": "SquadZ uses your camera so you can take photos and videos to share with your squad.",
-        "NSMicrophoneUsageDescription": "SquadZ uses your microphone so you can record videos to share with your squad."
+        "NSMicrophoneUsageDescription": "SquadZ uses your microphone so you can record videos to share with your squad.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -134,7 +135,34 @@
                   "NSPrivacyCollectedDataTypePurposes": ["NSPrivacyCollectedDataTypePurposeAppFunctionality"]
                 },
                 {
+                  "NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypeUserID",
+                  "NSPrivacyCollectedDataTypeLinked": true,
+                  "NSPrivacyCollectedDataTypeTracking": false,
+                  "NSPrivacyCollectedDataTypePurposes": [
+                    "NSPrivacyCollectedDataTypePurposeAppFunctionality",
+                    "NSPrivacyCollectedDataTypePurposeAnalytics"
+                  ]
+                },
+                {
                   "NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypePhotosOrVideos",
+                  "NSPrivacyCollectedDataTypeLinked": true,
+                  "NSPrivacyCollectedDataTypeTracking": false,
+                  "NSPrivacyCollectedDataTypePurposes": ["NSPrivacyCollectedDataTypePurposeAppFunctionality"]
+                },
+                {
+                  "NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypeOtherUserContent",
+                  "NSPrivacyCollectedDataTypeLinked": true,
+                  "NSPrivacyCollectedDataTypeTracking": false,
+                  "NSPrivacyCollectedDataTypePurposes": ["NSPrivacyCollectedDataTypePurposeAppFunctionality"]
+                },
+                {
+                  "NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypeProductInteraction",
+                  "NSPrivacyCollectedDataTypeLinked": true,
+                  "NSPrivacyCollectedDataTypeTracking": false,
+                  "NSPrivacyCollectedDataTypePurposes": ["NSPrivacyCollectedDataTypePurposeAnalytics"]
+                },
+                {
+                  "NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypePurchaseHistory",
                   "NSPrivacyCollectedDataTypeLinked": true,
                   "NSPrivacyCollectedDataTypeTracking": false,
                   "NSPrivacyCollectedDataTypePurposes": ["NSPrivacyCollectedDataTypePurposeAppFunctionality"]
@@ -144,6 +172,12 @@
                   "NSPrivacyCollectedDataTypeLinked": false,
                   "NSPrivacyCollectedDataTypeTracking": false,
                   "NSPrivacyCollectedDataTypePurposes": ["NSPrivacyCollectedDataTypePurposeAppFunctionality"]
+                },
+                {
+                  "NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypePerformanceData",
+                  "NSPrivacyCollectedDataTypeLinked": false,
+                  "NSPrivacyCollectedDataTypeTracking": false,
+                  "NSPrivacyCollectedDataTypePurposes": ["NSPrivacyCollectedDataTypePurposeAnalytics"]
                 }
               ]
             }
@@ -151,6 +185,17 @@
         }
       ]
     ],
+    "updates": {
+      "url": "https://u.expo.dev/4651d477-18ad-41a3-b15a-90b68b981652"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "4651d477-18ad-41a3-b15a-90b68b981652"
+      }
+    },
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true

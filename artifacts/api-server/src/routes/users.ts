@@ -9,6 +9,7 @@ import { storage } from "../storage";
 import { sendPushNotifications } from "../lib/pushNotifications";
 import { resolveProStatus } from "../lib/proStatus";
 import { recordActivitySafe } from "../lib/activity";
+import { canViewProfileSummary } from "../lib/profileVisibility";
 
 const router: IRouter = Router();
 
@@ -78,6 +79,7 @@ router.get("/users/by-friend-code/:code", requireAuth, async (req: Request, res:
 });
 
 router.get("/users", requireAuth, async (req, res) => {
+  const requesterId = (req.user as { id: string }).id;
   const rawIds = req.query.ids;
   if (!rawIds || typeof rawIds !== "string") {
     res.status(400).json({ error: "ids query param required (comma-separated)" });
@@ -102,6 +104,7 @@ router.get("/users", requireAuth, async (req, res) => {
       firstName: usersTable.firstName,
       lastName: usersTable.lastName,
       profileImageUrl: usersTable.profileImageUrl,
+      privateProfile: usersTable.privateProfile,
       stripeSubscriptionId: usersTable.stripeSubscriptionId,
       stripeCustomerId: usersTable.stripeCustomerId,
     })
@@ -109,18 +112,71 @@ router.get("/users", requireAuth, async (req, res) => {
     // BUG-02: exclude profiles under moderation review from bulk lookups.
     .where(and(inArray(usersTable.id, ids), eq(usersTable.moderationHidden, false)));
 
+  // This endpoint is used by UserCache from many screens, so the requested ids
+  // are caller-controlled and cannot be treated as an authorization grant.
+  // Apply the same profile-summary policy as /:id/profile before returning even
+  // the display name or avatar. Blocks are checked first and take precedence
+  // over a stale friendship/shared-squad row.
+  const blockedIds = new Set(await getBlockedAndBlockerIds(requesterId));
+  const privateIds = rows
+    .filter((row) => row.privateProfile && row.id !== requesterId && !blockedIds.has(row.id))
+    .map((row) => row.id);
+
+  const [friendRows, sharedSquads] = await Promise.all([
+    privateIds.length > 0
+      ? db
+          .select({ ownerId: friendshipsTable.ownerId, friendId: friendshipsTable.friendId })
+          .from(friendshipsTable)
+          .where(
+            or(
+              and(eq(friendshipsTable.ownerId, requesterId), inArray(friendshipsTable.friendId, privateIds)),
+              and(inArray(friendshipsTable.ownerId, privateIds), eq(friendshipsTable.friendId, requesterId)),
+            ),
+          )
+      : Promise.resolve([]),
+    privateIds.length > 0
+      ? db
+          .select({ memberIds: squadsTable.memberIds })
+          .from(squadsTable)
+          .where(sql`${squadsTable.memberIds} @> ${JSON.stringify([requesterId])}::jsonb`)
+      : Promise.resolve([]),
+  ]);
+  const friendIds = new Set<string>();
+  for (const row of friendRows) {
+    friendIds.add(row.ownerId === requesterId ? row.friendId : row.ownerId);
+  }
+  const sharedSquadIds = new Set<string>();
+  for (const squad of sharedSquads) {
+    const memberIds = (squad.memberIds ?? []) as string[];
+    for (const id of privateIds) {
+      if (memberIds.includes(id)) sharedSquadIds.add(id);
+    }
+  }
+
   // Resolve Pro status for the gold-ring badge. Free users (no Stripe linkage)
   // short-circuit to false without any subscription lookup, so the common case
   // stays cheap; only users with a subscription/customer id hit storage.
   const enriched = await Promise.all(
     rows.map(async (row) => {
-      const { stripeSubscriptionId, stripeCustomerId, ...pub } = row;
+      const { stripeSubscriptionId, stripeCustomerId, privateProfile, ...pub } = row;
+      if (
+        !canViewProfileSummary({
+          requesterId,
+          targetId: row.id,
+          privateProfile,
+          blocked: blockedIds.has(row.id),
+          isFriend: friendIds.has(row.id),
+          sharesCurrentSquad: sharedSquadIds.has(row.id),
+        })
+      ) {
+        return null;
+      }
       const isPro = await resolveProStatus(row as never);
       return { ...pub, isPro };
     }),
   );
 
-  res.json(enriched);
+  res.json(enriched.filter((row): row is NonNullable<typeof row> => row !== null));
 });
 
 const SEARCH_LIMIT = 20;
@@ -375,7 +431,16 @@ router.get("/users/:id/profile", requireAuth, async (req: Request, res: Response
           ),
         )
         .limit(1);
-      if (!friendship) {
+      if (
+        !canViewProfileSummary({
+          requesterId,
+          targetId,
+          privateProfile: target.privateProfile,
+          blocked: false,
+          isFriend: Boolean(friendship),
+          sharesCurrentSquad: sharedSquads.length > 0,
+        })
+      ) {
         res.status(403).json({ error: "This profile isn't available.", code: "PRIVATE_PROFILE" });
         return;
       }

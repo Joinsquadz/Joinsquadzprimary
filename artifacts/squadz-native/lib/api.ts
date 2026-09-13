@@ -1,13 +1,14 @@
-import Constants from "expo-constants";
 import { Platform } from "react-native";
+
+const PRODUCTION_API_BASE = "https://joinsquadz.com";
 
 /**
  * Resolves the API base URL for the current environment.
  *
- * In production native builds: set EXPO_PUBLIC_API_URL in the build environment.
- * In Expo Go / native development: REPLIT_DEV_DOMAIN is injected via
- * app.config.js extra (`extra.apiBase`), so this returns the ABSOLUTE main dev
- * domain (native bundles run outside any proxy and need an absolute URL).
+ * In production native builds, an explicit EXPO_PUBLIC_API_URL is preferred,
+ * with the production domain as a safe fallback. In Expo Go / native
+ * development, EXPO_PUBLIC_DOMAIN provides the absolute main dev domain
+ * (native bundles run outside any proxy and need an absolute URL).
  *
  * On WEB we return "" (same-origin, relative `/api/...`). The app is served from
  * $REPLIT_EXPO_DEV_DOMAIN (dev) or behind the shared proxy (prod), and `/api` is
@@ -16,16 +17,36 @@ import { Platform } from "react-native";
  * relative base means both the normal preview browser AND the headless UI-test
  * (Playwright) browser can reach the API without any cross-origin hop, which the
  * test browser cannot make to the main dev domain. An explicit
- * EXPO_PUBLIC_API_URL still wins if set.
+ * A valid absolute EXPO_PUBLIC_API_URL still wins when set.
  */
 export function resolveApiBase(): string {
-  if (process.env.EXPO_PUBLIC_API_URL) return process.env.EXPO_PUBLIC_API_URL;
+  const configuredApiBase = process.env.EXPO_PUBLIC_API_URL?.trim();
+  if (configuredApiBase && isAbsoluteHttpUrl(configuredApiBase)) {
+    return stripTrailingSlash(configuredApiBase);
+  }
   if (Platform.OS === "web") return "";
-  const extra = Constants.expoConfig?.extra as Record<string, string> | undefined;
-  if (extra?.apiBase) return extra.apiBase;
-  const devDomain = process.env.REPLIT_DEV_DOMAIN;
-  if (devDomain) return `https://${devDomain}`;
-  return "";
+  // Expo only inlines EXPO_PUBLIC_* values into native bundles. start.js maps
+  // the Replit development domain to EXPO_PUBLIC_DOMAIN before Metro starts.
+  const devDomain = process.env.EXPO_PUBLIC_DOMAIN?.trim();
+  if (devDomain) {
+    const devBase = devDomain.startsWith("http") ? devDomain : `https://${devDomain}`;
+    if (isAbsoluteHttpUrl(devBase)) return stripTrailingSlash(devBase);
+  }
+  // Native release bundles must never construct relative or empty API URLs.
+  return PRODUCTION_API_BASE;
+}
+
+function isAbsoluteHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (url.protocol === "https:" || url.protocol === "http:") && !!url.hostname;
+  } catch {
+    return false;
+  }
+}
+
+function stripTrailingSlash(value: string): string {
+  return value.replace(/\/+$/, "");
 }
 
 /** Resolved API base URL for the current environment. */

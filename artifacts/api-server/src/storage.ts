@@ -55,6 +55,14 @@ export class PhotoUrlConflictError extends Error {
   }
 }
 
+/** Raised when a poll attempts to bind two independent scopes at once. */
+export class AvailabilityPollScopeError extends Error {
+  constructor() {
+    super('An availability poll must target exactly one scope');
+    this.name = 'AvailabilityPollScopeError';
+  }
+}
+
 /** Format a Date as a local ISO date string ("YYYY-MM-DD"). */
 function toISODate(d: Date): string {
   const y = d.getFullYear();
@@ -1005,6 +1013,16 @@ export class Storage {
     kind?: "event" | "trip";
     tripLengthDays?: number | null;
   }): Promise<AvailabilityPoll> {
+    // A poll is either for a squad or for an event. Keeping both IDs on one row
+    // makes the access rule an accidental union, allowing a member of an
+    // unrelated squad to read and answer an event poll. The route rejects this
+    // too, but enforce the invariant here for every storage caller.
+    if (
+      (input.squadId && input.eventId) ||
+      ((input.squadId || input.eventId) && input.participantIds?.length)
+    ) {
+      throw new AvailabilityPollScopeError();
+    }
     const values: Record<string, unknown> = {
       createdBy: input.createdBy,
       squadId: input.squadId ?? null,
@@ -1260,10 +1278,18 @@ export class Storage {
    */
   async canAccessAvailabilityPoll(poll: AvailabilityPoll, userId: string): Promise<boolean> {
     const scoped = Boolean(poll.squadId || poll.eventId);
+    const event = poll.eventId ? await this.getEvent(poll.eventId) : null;
+
+    // Legacy/corrupt rows can still contain both IDs. They are only safe when
+    // the squad is exactly the event's squad; an unrelated squad must never
+    // grant access through the poll's second scope. Fail closed for a deleted
+    // event or a mismatched (event, squad) pair.
+    if (poll.squadId && poll.eventId && (!event || event.squadId !== poll.squadId)) {
+      return false;
+    }
 
     if (poll.squadId && (await this.isSquadMember(poll.squadId, userId))) return true;
     if (poll.eventId) {
-      const event = await this.getEvent(poll.eventId);
       if (event) {
         if (event.hostId === userId) return true;
         if (event.squadId && (await this.isSquadMember(event.squadId, userId))) return true;

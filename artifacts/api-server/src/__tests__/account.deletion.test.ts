@@ -105,7 +105,7 @@ vi.mock("@workspace/db", () => {
     squadMutesTable: { userId: "user_id", squadId: "squad_id" },
     conversationsTable: { id: "id", squadId: "squad_id" },
     conversationParticipantsTable: { conversationId: "conversation_id", userId: "user_id", __name: "conv_part" },
-    eventsTable: { id: "id", invitedUserIds: "invited_user_ids", rsvps: "rsvps", messages: "messages", tasks: "tasks", costs: "costs", version: "version", __name: "events" },
+    eventsTable: { id: "id", hostId: "host_id", invitedUserIds: "invited_user_ids", rsvps: "rsvps", messages: "messages", tasks: "tasks", costs: "costs", version: "version", __name: "events" },
     friendsTable: { userId: "user_id", friendId: "friend_id", __name: "friends" },
     // account.ts uses friendshipsTable (bidirectional), squadRemovalNoticesTable, objectUploadsTable
     friendshipsTable: { ownerId: "owner_id", friendId: "friend_id" },
@@ -132,8 +132,8 @@ vi.mock("@workspace/db", () => {
     availabilityNudgesTable: { fromUserId: "from_user_id", toUserId: "to_user_id" },
     blockTable: { blockerId: "blocker_id", blockedId: "blocked_id" },
     reportsTable: { reporterId: "reporter_id" },
-    squadInvitesTable: { invitedUserId: "invited_user_id", inviterUserId: "inviter_user_id" },
-    eventInvitesTable: { invitedUserId: "invited_user_id", inviterUserId: "inviter_user_id" },
+    squadInvitesTable: { squadId: "squad_id", invitedUserId: "invited_user_id", inviterUserId: "inviter_user_id", __name: "squad_invites" },
+    eventInvitesTable: { eventId: "event_id", invitedUserId: "invited_user_id", inviterUserId: "inviter_user_id", __name: "event_invites" },
     foundingLedgerTable: { subscriptionId: "subscription_id" },
     planIdeasTable: { id: "id", submittedByUserId: "submitted_by_user_id", __name: "plan_ideas" },
     ideaVotesTable: { ideaId: "idea_id", userId: "user_id", __name: "idea_votes" },
@@ -293,5 +293,36 @@ describe("B7 — DELETE /api/account — invitedUserIds scrubbed from events", (
     const res = await request(makeApp()).delete("/api/account");
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
+  });
+});
+
+describe("DELETE /api/account — invite rows are purged transactionally", () => {
+  it("deletes user-authored and user-targeted invites, including invites for deleted content", async () => {
+    dbMock.squadRows = [
+      {
+        id: "owned-squad",
+        creatorId: USER_ID,
+        memberIds: [USER_ID],
+      },
+    ];
+    dbMock.eventRows = [
+      {
+        id: "hosted-event",
+        hostId: USER_ID,
+        invitedUserIds: [],
+        rsvps: {},
+        messages: [],
+        tasks: [],
+        costs: [],
+        polls: [],
+        version: 1,
+      },
+    ];
+
+    const res = await request(makeApp()).delete("/api/account");
+
+    expect(res.status).toBe(200);
+    expect(dbMock.deletedTables).toContain("event_invites");
+    expect(dbMock.deletedTables).toContain("squad_invites");
   });
 });

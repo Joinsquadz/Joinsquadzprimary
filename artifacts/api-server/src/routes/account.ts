@@ -5,9 +5,11 @@ import {
   usersTable,
   friendshipsTable,
   squadsTable,
+  squadInvitesTable,
   squadMutesTable,
   squadRemovalNoticesTable,
   eventsTable,
+  eventInvitesTable,
   photosTable,
   availabilityPollsTable,
   availabilityResponsesTable,
@@ -54,8 +56,9 @@ const router: IRouter = Router();
  *       messages are removed from squad chats.
  *     - Photos, hosted events (cascades their photos), availability polls/
  *       responses/nudges, feed posts/reactions/comments, moments/views/reactions,
- *       friendships (both directions), squad-removal notices, object-upload
- *       ownership records, and finally the user row (cascades auth_tokens).
+ *       invitations, friendships (both directions), squad-removal notices,
+ *       object-upload ownership records, and finally the user row (cascades
+ *       auth_tokens).
  *     - Sessions referencing the user are best-effort cleared.
  */
 router.delete("/account", requireAuth, async (req: Request, res: Response): Promise<void> => {
@@ -134,11 +137,26 @@ router.delete("/account", requireAuth, async (req: Request, res: Response): Prom
         .select()
         .from(squadsTable)
         .where(sql`${squadsTable.memberIds} @> ${JSON.stringify([userId])}::jsonb`);
+
+      // Invites have deliberately denormalized target ids and no foreign keys,
+      // so deleting the user alone would leave invitations addressed to or
+      // sent by them behind. Clean up the user references now; invites for a
+      // squad deleted below are removed alongside that squad.
+      await tx
+        .delete(squadInvitesTable)
+        .where(
+          or(
+            eq(squadInvitesTable.inviterUserId, userId),
+            eq(squadInvitesTable.invitedUserId, userId),
+          ),
+        );
+
       for (const squad of squads) {
         const memberIds = (squad.memberIds ?? []) as string[];
         const updated = memberIds.filter((m) => m !== userId);
         if (updated.length === 0) {
           // Sole member → delete the squad and everything bound to it.
+          await tx.delete(squadInvitesTable).where(eq(squadInvitesTable.squadId, squad.id));
           await tx.delete(squadsTable).where(eq(squadsTable.id, squad.id));
           await tx.delete(squadMutesTable).where(eq(squadMutesTable.squadId, squad.id));
           // Deleting the conversation cascades its participants + messages.
@@ -224,6 +242,20 @@ router.delete("/account", requireAuth, async (req: Request, res: Response): Prom
       }
 
       // --- Photos + hosted events (event delete cascades its photos).
+      // Invite rows have no FK to either users or events. Remove rows for the
+      // deleting user and for every event that is about to be deleted before
+      // deleting those events, or they become permanent orphan records.
+      await tx
+        .delete(eventInvitesTable)
+        .where(
+          or(
+            eq(eventInvitesTable.inviterUserId, userId),
+            eq(eventInvitesTable.invitedUserId, userId),
+            sql`${eventInvitesTable.eventId} IN (
+              SELECT id FROM events WHERE host_id = ${userId}
+            )`,
+          ),
+        );
       await tx.delete(photosTable).where(eq(photosTable.uploaderId, userId));
       await tx.delete(eventsTable).where(eq(eventsTable.hostId, userId));
 
