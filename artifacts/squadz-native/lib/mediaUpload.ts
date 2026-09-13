@@ -22,8 +22,9 @@ type UploadResult = {
 export class MediaUploadError extends Error {
   constructor(
     public readonly kind: "too_large" | "request_failed" | "upload_failed",
+    public readonly serverMessage?: string,
   ) {
-    super(kind);
+    super(serverMessage ?? kind);
   }
 }
 
@@ -36,8 +37,9 @@ async function localFileSize(uri: string, fallbackSize: number): Promise<number>
       const info = await FileSystem.getInfoAsync(uri);
       if (info.exists && typeof info.size === "number") return info.size;
     } catch {
-      // Fall through to the browser-compatible Blob path below.
+      // Native must not fall through to Blob: a large file could exhaust JS memory.
     }
+    throw new MediaUploadError("upload_failed");
   }
 
   const response = await fetch(uri);
@@ -56,8 +58,8 @@ async function putLocalFile(uploadURL: string, uri: string, mimeType: string): P
       });
       return result.status >= 200 && result.status < 300;
     } catch {
-      // Some uncommon URI schemes are unsupported by the native uploader. Use
-      // the existing Blob upload as a compatibility fallback rather than fail.
+      // Native must not fall through to Blob: preserve the streaming-only path.
+      return false;
     }
   }
 
@@ -97,7 +99,10 @@ export async function uploadMediaDirect({
       contentType: prepared.mimeType,
     }),
   });
-  if (!urlResponse.ok) throw new MediaUploadError("request_failed");
+  if (!urlResponse.ok) {
+    const body = (await urlResponse.json().catch(() => ({}))) as { error?: string };
+    throw new MediaUploadError("request_failed", body.error);
+  }
 
   const { uploadURL, objectPath } = (await urlResponse.json()) as {
     uploadURL: string;

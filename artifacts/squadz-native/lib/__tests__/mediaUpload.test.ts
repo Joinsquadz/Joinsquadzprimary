@@ -76,4 +76,22 @@ describe("uploadMediaDirect size limits", () => {
     expect(fetch).not.toHaveBeenCalled();
     expect(mockUploadAsync).not.toHaveBeenCalled();
   });
+
+  it("does not load native file bytes into a Blob when file inspection fails", async () => {
+    mockGetInfoAsync.mockRejectedValue(new Error("unsupported uri"));
+    await expect(uploadMediaDirect(input)).rejects.toEqual(
+      expect.objectContaining<Partial<MediaUploadError>>({ kind: "upload_failed" }),
+    );
+    expect(fetch).not.toHaveBeenCalled();
+    expect(mockUploadAsync).not.toHaveBeenCalled();
+  });
+
+  it("does not load native file bytes into a Blob when streaming upload fails", async () => {
+    mockGetInfoAsync.mockResolvedValue({ exists: true, size: 100 });
+    mockUploadAsync.mockRejectedValue(new Error("stream failed"));
+    await expect(uploadMediaDirect(input)).rejects.toEqual(
+      expect.objectContaining<Partial<MediaUploadError>>({ kind: "upload_failed" }),
+    );
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
 });

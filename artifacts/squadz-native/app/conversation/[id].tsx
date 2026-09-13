@@ -32,7 +32,7 @@ import {
 import AttachmentVideo from "@/components/AttachmentVideo";
 import { ProAvatar } from "@/components/ProAvatar";
 import { ImageViewerModal } from "@/components/ImageViewerModal";
-import { stripMediaExif } from "@/lib/imageUtils";
+import { uploadMediaDirect } from "@/lib/mediaUpload";
 import { useUserCache } from "@/context/UserCacheContext";
 // Shared auth-race guard (see lib/vaultAuthRace.ts). Opening a conversation
 // directly on a cold start (deep link / push tap) can 401 before the token
@@ -315,29 +315,14 @@ export default function ConversationScreen() {
         const isVideo = asset.type === "video";
         const contentType =
           asset.mimeType ?? (isVideo ? "video/mp4" : "image/jpeg");
-        const urlRes = await fetch(`${API_BASE}/api/storage/uploads/request-url`, {
-          method: "POST",
-          headers: { ...authHeaders(), "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: asset.fileName ?? (isVideo ? "video.mp4" : "photo.jpg"),
-            size: asset.fileSize ?? 0,
-            contentType,
-          }),
+        const { objectPath } = await uploadMediaDirect({
+          uri: asset.uri,
+          fileName: asset.fileName ?? (isVideo ? "video.mp4" : "photo.jpg"),
+          mimeType: contentType,
+          fallbackSize: asset.fileSize ?? 0,
+          authToken,
+          surface: "chat",
         });
-        if (!urlRes.ok) return null;
-        const { uploadURL, objectPath } = (await urlRes.json()) as {
-          uploadURL: string;
-          objectPath: string;
-        };
-        const { uri: uploadUri, mimeType: uploadMimeType } = await stripMediaExif(asset.uri, contentType, "chat");
-        const fileRes = await fetch(uploadUri);
-        const blob = await fileRes.blob();
-        const putRes = await fetch(uploadURL, {
-          method: "PUT",
-          body: blob,
-          headers: { "Content-Type": uploadMimeType },
-        });
-        if (!putRes.ok) return null;
         return {
           kind: isVideo ? "video" : "image",
           url: objectPath,
@@ -348,7 +333,7 @@ export default function ConversationScreen() {
         return null;
       }
     },
-    [authHeaders],
+    [authToken],
   );
 
   const doSend = useCallback(

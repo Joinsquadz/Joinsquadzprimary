@@ -24,8 +24,8 @@ import { useEffect, useState, useCallback } from "react";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { useData, useAuth } from "@/context/AppContext";
-import { API_BASE, buildAuthHeaders } from "@/lib/api";
-import { stripMediaExif } from "@/lib/imageUtils";
+import { API_BASE } from "@/lib/api";
+import { MediaUploadError, uploadMediaDirect } from "@/lib/mediaUpload";
 
 type Props = {
   event: Event;
@@ -187,35 +187,25 @@ export function EventCostsPanel({ event, isHost, botPad, participants }: Props) 
     try {
       const contentType = asset.mimeType ?? "image/jpeg";
       const name = asset.fileName ?? "receipt.jpg";
-      const size = asset.fileSize ?? 0;
-      const urlRes = await fetch(`${API_BASE}/api/storage/uploads/request-url`, {
-        method: "POST",
-        headers: { ...buildAuthHeaders(authToken), "Content-Type": "application/json" },
-        body: JSON.stringify({ name, size, contentType }),
+      const { objectPath } = await uploadMediaDirect({
+        uri: asset.uri,
+        fileName: name,
+        mimeType: contentType,
+        fallbackSize: asset.fileSize ?? 0,
+        authToken,
+        surface: "receipt",
       });
-      if (!urlRes.ok) {
-        const body = (await urlRes.json().catch(() => ({}))) as { error?: string };
-        Alert.alert("Upload failed", body.error ?? "Couldn't start the upload. Please try again.");
-        setReceiptLocalUri(null);
-        return;
-      }
-      const { uploadURL, objectPath } = (await urlRes.json()) as { uploadURL: string; objectPath: string };
-      const { uri: strippedUri, mimeType: strippedMime } = await stripMediaExif(asset.uri, contentType);
-      const fileRes = await fetch(strippedUri);
-      const blob = await fileRes.blob();
-      const putRes = await fetch(uploadURL, {
-        method: "PUT",
-        body: blob,
-        headers: { "Content-Type": strippedMime },
-      });
-      if (!putRes.ok) {
-        Alert.alert("Upload failed", "Couldn't upload the photo. Please try again.");
-        setReceiptLocalUri(null);
-        return;
-      }
       setReceiptObjectPath(objectPath);
-    } catch {
-      Alert.alert("Upload failed", "Something went wrong. Please try again.");
+    } catch (error) {
+      if (error instanceof MediaUploadError && error.kind === "too_large") {
+        Alert.alert("Too large", "Receipt photos must be 500 MB or smaller.");
+      } else if (error instanceof MediaUploadError && error.kind === "request_failed") {
+        Alert.alert("Upload failed", error.serverMessage ?? "Couldn't start the upload. Please try again.");
+      } else if (error instanceof MediaUploadError && error.kind === "upload_failed") {
+        Alert.alert("Upload failed", "Couldn't upload the photo. Please try again.");
+      } else {
+        Alert.alert("Upload failed", "Something went wrong. Please try again.");
+      }
       setReceiptLocalUri(null);
     } finally {
       setReceiptUploading(false);
