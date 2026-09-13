@@ -3,6 +3,7 @@ import request from "supertest";
 
 const canView = vi.hoisted(() => ({ value: false }));
 const canViewMoment = vi.hoisted(() => ({ value: false }));
+const signedDownload = vi.hoisted(() => vi.fn(() => Promise.resolve("https://signed.example/video")));
 
 vi.mock("../storage", () => ({
   storage: {
@@ -29,6 +30,10 @@ vi.mock("../lib/objectStorage", () => {
 });
 
 vi.mock("../lib/logger");
+vi.mock("../services/objectStorage", () => ({
+  createStorageUploadUrl: vi.fn(),
+  createStorageDownloadUrl: signedDownload,
+}));
 
 // `vi.mock` is hoisted above this import, so the static import below still
 // resolves against the mocked modules. Importing the router here at collection
@@ -71,5 +76,42 @@ describe("GET /api/storage/objects/*", () => {
     const res = await request(app).get(OBJECT_PATH);
     expect(res.status).toBe(200);
     canViewMoment.value = false;
+  });
+
+  it("returns a signed streaming URL for an authorized Supabase object", async () => {
+    canView.value = true;
+    const app = await makeApp({ id: "member" });
+    const res = await request(app).get(
+      "/api/storage/objects/supabase/uploads/video.mp4?stream=1",
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      url: "https://signed.example/video",
+      expiresInSeconds: 3600,
+    });
+    expect(res.headers["cache-control"]).toBe("private, no-store");
+    expect(signedDownload).toHaveBeenCalledWith("uploads/video.mp4", 3600);
+  });
+
+  it("does not issue a signed streaming URL without object access", async () => {
+    canView.value = false;
+    signedDownload.mockClear();
+    const app = await makeApp({ id: "stranger" });
+    const res = await request(app).get(
+      "/api/storage/objects/supabase/uploads/video.mp4?stream=1",
+    );
+
+    expect(res.status).toBe(403);
+    expect(signedDownload).not.toHaveBeenCalled();
+  });
+
+  it("rejects legacy stream resolution without downloading the object", async () => {
+    canView.value = true;
+    const app = await makeApp({ id: "member" });
+    const res = await request(app).get(`${OBJECT_PATH}?stream=1`);
+
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: "Signed streaming is unavailable for this object" });
   });
 });

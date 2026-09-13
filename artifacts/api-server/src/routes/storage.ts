@@ -168,6 +168,16 @@ router.get("/storage/objects/*path", requireAuth, async (req: Request, res: Resp
         res.status(502).json({ error: "Could not generate a download URL for this object" });
         return;
       }
+      // Web media elements cannot attach an Authorization header. Let an
+      // authenticated client resolve the already-authorized object to a
+      // short-lived URL, then give that URL directly to <video>. Supabase
+      // handles subsequent Range requests, so playback can start without the
+      // browser buffering the entire object into a Blob first.
+      if (req.query.stream === "1") {
+        res.setHeader("Cache-Control", "private, no-store");
+        res.json({ url: signedUrl, expiresInSeconds: 3600 });
+        return;
+      }
       res.redirect(302, signedUrl);
       return;
     }
@@ -182,6 +192,14 @@ router.get("/storage/objects/*path", requireAuth, async (req: Request, res: Resp
       (await storage.canUserViewReceiptMedia(objectPath, userId));
     if (!canAccess) {
       res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+
+    // Legacy object storage cannot mint a browser-loadable signed URL here.
+    // Reject resolver requests before opening/downloading the object so clients
+    // can perform their single compatibility Blob fetch instead.
+    if (req.query.stream === "1") {
+      res.status(409).json({ error: "Signed streaming is unavailable for this object" });
       return;
     }
 

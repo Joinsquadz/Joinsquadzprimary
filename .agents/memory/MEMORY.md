@@ -21,7 +21,7 @@
 - [RN modal overflow trap](rn-modal-overflow-trap.md) — iOS transparent slide modals have no swipe-dismiss; data-length content needs maxHeight+ScrollView+persistent absolute close (X), else Close pushed off-screen traps user. Reuse components/ContactSheet.tsx.
 - [RN stacked Modals freeze iOS](rn-stacked-modals-freeze.md) — a 2nd Modal opened while a sheet Modal is up freezes iOS (nothing opens, UI deadlocks); render secondary pickers as in-sheet absolute overlays, not sibling Modals.
 - [Object storage read ACL + media provenance](object-storage-acl-gap.md) — any new media feature: add canUserView<X>Media to /storage/objects/* OR-chain (else 403→black screen/video error) AND gate create route on getUploadOwner.
-- [Protected video web auth](protected-video-web-auth.md) — DOM <video> can't send auth headers; AttachmentVideo must blob-fetch protected /objects/* clips (feed+moments web path), else 401 while images render.
+- [Protected video web auth](protected-video-web-auth.md) — DOM <video> can't send auth headers; resolve protected Supabase clips to ACL-gated signed URLs for Range playback, with Blob fallback.
 - [Squad PATCH membership is consent-gated](squad-patch-membership.md) — PATCH /squads/:id memberIds additions become pending invites (upsert, never direct adds); optimistic squad mutations reconcile via refreshSquads(), not local reinsert.
 - [Auth provider constraints](auth-provider-constraints.md) — app uses Replit Auth; Clerk migration unsupported + Clerk has no SMS/Facebook; Google+Facebook+SMS OTP = custom build.
 - [Squadz native-module web safety](squadz-native-module-web-safety.md) — Expo-web preview crashes on top-level native imports; guard + dynamic-import native modules, web uses pure-web path.
