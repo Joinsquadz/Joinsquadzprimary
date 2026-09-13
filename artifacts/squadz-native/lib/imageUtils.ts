@@ -49,7 +49,7 @@ export async function stripImageExif(
 }
 
 /**
- * Strip GPS/device metadata from a video by re-encoding via
+ * Strip GPS/device metadata from a video by re-exporting via
  * react-native-compressor. The compressor uses AVAssetExportSession (iOS) /
  * MediaCodec (Android), both of which drop container-level metadata atoms
  * (QuickTime udta/mdta, MP4 moov/udta) during transcoding.
@@ -70,14 +70,34 @@ export async function stripVideoExif(
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let Video: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let getVideoMetaData: any;
   try {
-    ({ Video } = await import("react-native-compressor"));
+    ({ Video, getVideoMetaData } = await import("react-native-compressor"));
   } catch {
     // Module unavailable (e.g. bundler misconfiguration) — fall back silently.
     return { uri, mimeType };
   }
 
-  const attempt = () => Video.compress(uri, { compressionMethod: "auto" });
+  let sourceMaxDimension = 4096;
+  try {
+    const metadata = await getVideoMetaData(uri);
+    sourceMaxDimension = Math.max(metadata.width, metadata.height, 1);
+  } catch {
+    // Metadata lookup is best-effort. A 4K boundary is the safe high-quality
+    // fallback and the export still removes private container metadata.
+  }
+
+  const attempt = () =>
+    Video.compress(uri, {
+      // Manual mode avoids the library's aggressive WhatsApp-style automatic
+      // downscaling. The source's own maximum dimension prevents resizing and
+      // 12 Mbps target keeps the export visually high quality while rebuilding
+      // the container without its location/device metadata.
+      compressionMethod: "manual",
+      maxSize: sourceMaxDimension,
+      bitrate: 12_000_000,
+    });
 
   try {
     const compressed = await attempt();

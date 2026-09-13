@@ -385,7 +385,7 @@ export default function FeedScreen() {
       const asset = result.assets[0];
       const isVideo = kind === "video" || asset.type === "video";
       const durationMs = asset.duration ?? null;
-      // No duration cap — clips are limited by file size (150 MB), enforced
+      // No duration cap — clips are limited by file size (500 MB), enforced
       // against the real byte size at upload time in handlePost.
       setPicked({
         uri: asset.uri,
@@ -457,7 +457,7 @@ export default function FeedScreen() {
       await fetchFeed();
     } catch (error) {
       if (error instanceof MediaUploadError && error.kind === "too_large") {
-        Alert.alert("Too large", "Photos and videos must be 150 MB or smaller. Try a shorter clip.");
+        Alert.alert("Too large", "Photos and videos must be 500 MB or smaller. Try a shorter clip.");
         return;
       }
       Alert.alert("Couldn't post", "Please check your connection and try again.");

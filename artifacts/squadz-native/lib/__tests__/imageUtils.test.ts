@@ -3,9 +3,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 // ---------------------------------------------------------------------------
 // Use vi.hoisted so these references are available when vi.mock factories run
 // ---------------------------------------------------------------------------
-const { mockManipulateAsync, mockVideoCompress, mockTrack } = vi.hoisted(() => ({
+const { mockManipulateAsync, mockVideoCompress, mockVideoMetadata, mockTrack } = vi.hoisted(() => ({
   mockManipulateAsync: vi.fn(),
   mockVideoCompress: vi.fn(),
+  mockVideoMetadata: vi.fn(),
   mockTrack: vi.fn(),
 }));
 
@@ -22,6 +23,7 @@ vi.mock("expo-image-manipulator", () => ({
 // ---------------------------------------------------------------------------
 vi.mock("react-native-compressor", () => ({
   Video: { compress: mockVideoCompress },
+  getVideoMetaData: mockVideoMetadata,
 }));
 
 // ---------------------------------------------------------------------------
@@ -140,6 +142,9 @@ describe("stripImageExif", () => {
 // stripVideoExif
 // ---------------------------------------------------------------------------
 describe("stripVideoExif", () => {
+  beforeEach(() => {
+    mockVideoMetadata.mockResolvedValue({ width: 3840, height: 2160 });
+  });
   afterEach(() => {
     vi.clearAllMocks();
     _platform = "ios";
@@ -150,7 +155,9 @@ describe("stripVideoExif", () => {
     mockVideoCompress.mockResolvedValue("file://compressed.mp4");
     const result = await stripVideoExif("file://original.mp4", "video/mp4");
     expect(mockVideoCompress).toHaveBeenCalledWith("file://original.mp4", {
-      compressionMethod: "auto",
+      compressionMethod: "manual",
+      maxSize: 3840,
+      bitrate: 12_000_000,
     });
     expect(result.uri).toBe("file://compressed.mp4");
     expect(result.mimeType).toBe("video/mp4");
@@ -171,6 +178,18 @@ describe("stripVideoExif", () => {
     expect(mockVideoCompress).not.toHaveBeenCalled();
     expect(result).toEqual({ uri: "file://photo.jpg", mimeType: "image/jpeg" });
     expect(mockTrack).not.toHaveBeenCalled();
+  });
+
+  it("uses the source dimension so videos larger than 4K are not resized", async () => {
+    mockVideoMetadata.mockResolvedValue({ width: 7680, height: 4320 });
+    mockVideoCompress.mockResolvedValue("file://stripped.mp4");
+
+    await stripVideoExif("file://8k.mp4", "video/mp4");
+
+    expect(mockVideoCompress).toHaveBeenCalledWith(
+      "file://8k.mp4",
+      expect.objectContaining({ maxSize: 7680 }),
+    );
   });
 
   // ── Retry behaviour ───────────────────────────────────────────────────────

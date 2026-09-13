@@ -110,7 +110,7 @@ export default function MomentComposeScreen() {
       setTimeout(() => { if (router.canGoBack()) { router.back(); } else { router.replace("/(tabs)/feed" as never); } }, 850);
     } catch (error) {
       if (error instanceof MediaUploadError && error.kind === "too_large") {
-        Alert.alert("Too large", "Photos and videos must be 150 MB or smaller. Try a shorter clip.");
+        Alert.alert("Too large", "Photos and videos must be 500 MB or smaller. Try a shorter clip.");
         return;
       }
       Alert.alert("Couldn't share", "Please check your connection and try again.");

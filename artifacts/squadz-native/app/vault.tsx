@@ -37,7 +37,7 @@ import VaultMediaDetail, { type VaultDetailPhoto } from "@/components/VaultMedia
 import VaultShareComposer, { type VaultShareTarget } from "@/components/VaultShareComposer";
 import { API_BASE, buildAuthHeaders, fetchWithTimeout } from "@/lib/api";
 import { buildSquadVaultSections, type VaultSectionPhoto } from "@/lib/vaultSections";
-import { stripMediaExif } from "@/lib/imageUtils";
+import { MediaUploadError, uploadMediaDirect } from "@/lib/mediaUpload";
 import { galleryNeighborIndex } from "@/lib/galleryNavigation";
 import { upgradeCtaLabel, useSquadzPlusPriceLabel } from "@/lib/squadzPlusPrice";
 import {
@@ -58,10 +58,6 @@ const WIDE_GRID_MIN_WIDTH = 700;
 
 const VAULT_SELECTED_KEY = "vault:selectedPhoto";
 const VAULT_SCROLL_KEY = "vault:scrollY";
-
-// Hard cap on a single uploaded file: 150 MB. Photos and videos share this
-// limit; the server enforces the same ceiling on the request-url route.
-const MAX_UPLOAD_BYTES = 150 * 1024 * 1024;
 
 type MediaType = "image" | "video";
 type MediaFilter = "all" | MediaType;
@@ -740,7 +736,7 @@ export default function VaultScreen() {
   const imageUrl = (objectPath: string) => `${API_BASE}/api/storage${objectPath}`;
 
   // Open the library for both photos AND videos. No duration cap — uploads are
-  // bounded by file SIZE (150 MB), enforced per-asset in uploadAsset below.
+  // bounded by file size (500 MB), enforced after privacy processing.
   const pickVaultMedia = useCallback(async (): Promise<ImagePicker.ImagePickerAsset[] | null> => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
@@ -766,32 +762,25 @@ export default function VaultScreen() {
       const contentType = asset.mimeType ?? (isVideo ? "video/mp4" : "image/jpeg");
       const mediaType: MediaType = isVideo ? "video" : "image";
       const name = asset.fileName ?? (isVideo ? "video.mp4" : "photo.jpg");
-      const size = asset.fileSize ?? 0;
-
-      if (size > MAX_UPLOAD_BYTES) {
-        throw new Error(`"${name}" is larger than 150 MB and can't be uploaded.`);
-      }
-
-      const urlRes = await fetchWithTimeout(`${API_BASE}/api/storage/uploads/request-url`, {
-        method: "POST",
-        headers: { ...authHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ name, size, contentType }),
-      });
-      if (!urlRes.ok) {
-        const body = (await urlRes.json().catch(() => ({}))) as { error?: string };
-        throw new Error(body.error ?? "Couldn't start the upload. Please try again.");
-      }
-      const { uploadURL, objectPath } = (await urlRes.json()) as { uploadURL: string; objectPath: string };
-
-      const { uri: uploadUri, mimeType: uploadMimeType } = await stripMediaExif(asset.uri, contentType);
-      const fileRes = await fetch(uploadUri);
-      const blob = await fileRes.blob();
-      const putRes = await fetch(uploadURL, {
-        method: "PUT",
-        body: blob,
-        headers: { "Content-Type": uploadMimeType },
-      });
-      if (!putRes.ok) {
+      let objectPath: string;
+      try {
+        ({ objectPath } = await uploadMediaDirect({
+          uri: asset.uri,
+          fileName: name,
+          mimeType: contentType,
+          fallbackSize: asset.fileSize ?? 0,
+          authToken,
+          surface: "vault",
+        }));
+      } catch (error) {
+        if (error instanceof MediaUploadError) {
+          if (error.kind === "too_large") {
+            throw new Error(`"${name}" is larger than 500 MB and can't be uploaded.`);
+          }
+          if (error.kind === "request_failed") {
+            throw new Error("Couldn't start the upload. Please try again.");
+          }
+        }
         throw new Error("Couldn't upload the file to storage. Please try again.");
       }
 
@@ -805,7 +794,7 @@ export default function VaultScreen() {
         throw new Error(body.error ?? "Couldn't save to the vault. Please try again.");
       }
     },
-    [authHeaders],
+    [authHeaders, authToken],
   );
 
   const handleUpload = useCallback(async () => {

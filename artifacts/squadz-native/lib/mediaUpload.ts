@@ -2,7 +2,7 @@ import { Platform } from "react-native";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { stripMediaExif } from "@/lib/imageUtils";
 
-export const MAX_UPLOAD_BYTES = 150 * 1024 * 1024;
+export const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
 
 type UploadInput = {
   uri: string;
