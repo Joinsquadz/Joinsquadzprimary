@@ -15,6 +15,10 @@ import { useColors } from "@/hooks/useColors";
 import { useData, useAuth } from "@/context/AppContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { UpgradeModal } from "@/components/UpgradeModal";
+import {
+  clearPendingPublicSquadId,
+  savePendingPublicSquadId,
+} from "@/lib/pendingInvite";
 
 type PublicSquadPreview = {
   id: string;
@@ -58,6 +62,7 @@ export default function JoinPublicSquadScreen() {
     try {
       const res = await fetch(`${API_BASE}/api/discover/squads/${squadId}`);
       if (!res.ok) {
+        if (res.status === 404 || res.status === 410) void clearPendingPublicSquadId();
         const body = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(body.error ?? "This squad isn't available to join.");
       }
@@ -73,6 +78,14 @@ export default function JoinPublicSquadScreen() {
   useEffect(() => {
     void fetchPreview();
   }, [fetchPreview]);
+
+  useEffect(() => {
+    if (!loggedIn && squadId) void savePendingPublicSquadId(squadId);
+  }, [loggedIn, squadId]);
+
+  useEffect(() => {
+    if (loggedIn && alreadyMember) void clearPendingPublicSquadId();
+  }, [loggedIn, alreadyMember]);
 
   const handleJoin = async () => {
     if (!squadId || joining) return;
@@ -97,6 +110,7 @@ export default function JoinPublicSquadScreen() {
         }
         throw new Error(body.error ?? "Couldn't join this squad.");
       }
+      void clearPendingPublicSquadId();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setJoined(true);
     } catch (err) {

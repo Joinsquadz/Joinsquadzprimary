@@ -3,9 +3,9 @@ import { Helmet } from "react-helmet-async";
 import { T, font } from "@/lib/data";
 import { trackEvent } from "@/lib/analytics";
 import { SquadzIcon } from "@/components/SquadzIcon";
+import { ANDROID_PLAY_STORE_URL, IOS_APP_STORE_URL } from "@/lib/storeLinks";
 
 const ACCENT_GRADIENT = `linear-gradient(135deg, ${T.accent} 0%, ${T.gold} 100%)`;
-const APP_STORE_URL = "https://apps.apple.com/us/app/squadz-friend-group-planner/id6789990515";
 
 type SquadPreview = {
   name: string;
@@ -14,7 +14,14 @@ type SquadPreview = {
   creatorFirstName: string | null;
 };
 
-type LinkKind = "squad" | "publicSquad" | "event" | "friend" | "poll";
+type LinkKind = "squad" | "publicSquad" | "plan" | "event" | "friend" | "poll";
+
+type PlanPreview = {
+  emoji?: string | null;
+  title?: string | null;
+  type?: "event" | "trip";
+  hostName?: string | null;
+};
 
 /**
  * Web fallback for app deep links (squad/event/friend invites, polls).
@@ -24,25 +31,28 @@ type LinkKind = "squad" | "publicSquad" | "event" | "friend" | "poll";
  * here, so this page must never 404: it explains the invite, surfaces the
  * code so it can be entered manually in the app, and points at the app.
  */
-export default function OpenInApp({ kind }: { kind: LinkKind }) {
-  const query = useMemo(
-    () => new URLSearchParams(typeof window !== "undefined" ? window.location.search : ""),
-    [],
-  );
-  const pathParts = useMemo(
-    () => (typeof window !== "undefined" ? window.location.pathname.split("/").filter(Boolean) : []),
-    [],
-  );
+export default function OpenInApp({ kind, url }: { kind: LinkKind; url?: string }) {
+  const location = useMemo(() => {
+    const href = url ?? (typeof window !== "undefined" ? window.location.href : "https://joinsquadz.com/");
+    return new URL(href, "https://joinsquadz.com");
+  }, [url]);
+  const query = useMemo(() => location.searchParams, [location]);
+  const pathParts = useMemo(() => location.pathname.split("/").filter(Boolean), [location]);
 
   // Code the recipient can type into the app manually, when the link carries one.
   const code =
     kind === "squad"
       ? query.get("code")
-      : kind === "event" || kind === "friend"
+      : kind === "plan" || kind === "event" || kind === "friend"
         ? pathParts[pathParts.length - 1] ?? null
         : null;
+  const publicSquadId =
+    kind === "publicSquad"
+      ? query.get("id") ?? pathParts[pathParts.length - 1] ?? null
+      : null;
 
   const [preview, setPreview] = useState<SquadPreview | null>(null);
+  const [planPreview, setPlanPreview] = useState<PlanPreview | null>(null);
 
   useEffect(() => {
     trackEvent("invite_fallback_viewed", {
@@ -54,11 +64,17 @@ export default function OpenInApp({ kind }: { kind: LinkKind }) {
   // Best-effort rich preview for private squad invites (same unauthenticated
   // endpoint the app uses). Non-fatal: generic copy if it can't load.
   useEffect(() => {
-    if (kind !== "squad" || !code) return;
+    if (!["squad", "publicSquad"].includes(kind)) return;
+    const lookup = kind === "squad" ? code : publicSquadId;
+    if (!lookup) return;
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`/api/squads/preview?code=${encodeURIComponent(code)}`);
+        const endpoint =
+          kind === "squad"
+            ? `/api/squads/preview?code=${encodeURIComponent(lookup)}`
+            : `/api/discover/squads/${encodeURIComponent(lookup)}`;
+        const res = await fetch(endpoint);
         if (res.ok) {
           const data = (await res.json()) as SquadPreview;
           if (!cancelled) setPreview(data);
@@ -67,6 +83,22 @@ export default function OpenInApp({ kind }: { kind: LinkKind }) {
         // keep generic copy
       }
     })();
+    return () => {
+      cancelled = true;
+    };
+  }, [kind, code, publicSquadId]);
+
+  // Plan-kind previews are deliberately public, privacy-minimized, and
+  // best-effort. The fallback paints immediately even when the API is slow.
+  useEffect(() => {
+    if (kind !== "plan" || !code) return;
+    let cancelled = false;
+    fetch(`/api/events/preview?code=${encodeURIComponent(code)}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: PlanPreview | null) => {
+        if (!cancelled && data) setPlanPreview(data);
+      })
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
@@ -83,14 +115,25 @@ export default function OpenInApp({ kind }: { kind: LinkKind }) {
         : "A friend invited you to their squad on SquadZ. Open this link on your phone to join them.",
     },
     publicSquad: {
-      emoji: "🌎",
-      title: "You're invited to a squad!",
-      sub: "This squad is open to join. Open this link on your phone with SquadZ installed to jump in.",
+      emoji: preview?.emoji ?? "🌎",
+      title: preview ? `Join ${preview.name} on SquadZ!` : "You're invited to a squad!",
+      sub: preview
+        ? `${preview.memberCount} ${preview.memberCount === 1 ? "member is" : "members are"} already planning together. Open this link on your phone to join.`
+        : "This squad is open to join. Open this link on your phone with SquadZ installed to jump in.",
     },
     event: {
       emoji: "📅",
       title: "You're invited to a hangout!",
       sub: "A friend wants you at their event. Open this link on your phone with SquadZ installed to RSVP.",
+    },
+    plan: {
+      emoji: planPreview?.type === "trip" ? "✈️" : planPreview?.emoji ?? "📅",
+      title: planPreview?.title
+        ? `You're invited to ${planPreview.type === "trip" ? "a trip" : "an event"}: ${planPreview.title}`
+        : "You're invited to a plan!",
+      sub: planPreview?.type === "trip"
+        ? "A friend wants you on their itinerary. Open this link on your phone with SquadZ installed to see the trip."
+        : "A friend wants you at their event. Open this link on your phone with SquadZ installed to RSVP.",
     },
     friend: {
       emoji: "👥",
@@ -105,23 +148,32 @@ export default function OpenInApp({ kind }: { kind: LinkKind }) {
   };
 
   const { emoji, title, sub } = copy[kind];
+  const nativeAppUrl =
+    kind === "squad" && code
+      ? `squadz-native://squad/join?code=${encodeURIComponent(code)}`
+      : (kind === "plan" || kind === "event") && code
+        ? `squadz-native://join/${encodeURIComponent(code)}`
+        : kind === "friend" && code
+          ? `squadz-native://add/friend/${encodeURIComponent(code)}`
+          : kind === "publicSquad" && publicSquadId
+            ? `squadz-native://squad/join-public?id=${encodeURIComponent(publicSquadId)}`
+            : null;
 
   async function copyInviteThenOpenStore(event: React.MouseEvent<HTMLAnchorElement>) {
     trackEvent("app_store_clicked", {
       location: "invite_fallback",
       invite_type: kind,
+      store: event.currentTarget.dataset.store ?? "unknown",
     });
-    if (!["squad", "event", "friend"].includes(kind)) return;
+    if (!["squad", "publicSquad", "plan", "event", "friend"].includes(kind)) return;
     event.preventDefault();
     const destination = event.currentTarget.href;
     const inviteUrl = window.location.href;
-    let preservationMethod = "clipboard";
+    let preservationMethod = "textarea";
     let preserved = false;
     try {
-      await navigator.clipboard.writeText(inviteUrl);
-      preserved = true;
-    } catch {
-      preservationMethod = "textarea";
+      // Keep this synchronous while still inside the click gesture. Safari
+      // preview iframes often reject navigator.clipboard before navigation.
       const textarea = document.createElement("textarea");
       textarea.value = inviteUrl;
       textarea.style.position = "fixed";
@@ -130,6 +182,13 @@ export default function OpenInApp({ kind }: { kind: LinkKind }) {
       textarea.select();
       preserved = document.execCommand("copy");
       textarea.remove();
+      if (!preserved && navigator.clipboard) {
+        preservationMethod = "clipboard";
+        await navigator.clipboard.writeText(inviteUrl);
+        preserved = true;
+      }
+    } catch {
+      // The visible code/link remains a usable manual fallback.
     } finally {
       trackEvent("invite_link_preservation", {
         invite_type: kind,
@@ -143,7 +202,7 @@ export default function OpenInApp({ kind }: { kind: LinkKind }) {
   return (
     <div style={{ background: T.bg, color: T.text, fontFamily: font, minHeight: "100dvh", display: "flex", flexDirection: "column" }}>
       <Helmet>
-        <title>{title} · SquadZ</title>
+        <title>{`${title} · SquadZ`}</title>
         <meta name="robots" content="noindex, nofollow" />
       </Helmet>
 
@@ -185,18 +244,58 @@ export default function OpenInApp({ kind }: { kind: LinkKind }) {
             </div>
           ) : null}
 
-          <a
-            href={APP_STORE_URL}
-            onClick={copyInviteThenOpenStore}
-            style={{
-              display: "inline-flex", alignItems: "center", gap: 8,
-              background: ACCENT_GRADIENT, color: "#fff", textDecoration: "none",
-              fontWeight: 800, fontSize: 15, padding: "14px 28px", borderRadius: 14,
-              boxShadow: `0 8px 28px ${T.accent}45`,
-            }}
-          >
-            Get SquadZ on the App Store
-          </a>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "stretch", gap: 10, maxWidth: 320, margin: "0 auto" }}>
+            <a
+              href={IOS_APP_STORE_URL}
+              data-store="ios"
+              onClick={copyInviteThenOpenStore}
+              style={{
+                display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
+                background: ACCENT_GRADIENT, color: "#fff", textDecoration: "none",
+                fontWeight: 800, fontSize: 15, padding: "14px 28px", borderRadius: 14,
+                boxShadow: `0 8px 28px ${T.accent}45`,
+              }}
+            >
+              Get SquadZ on the App Store
+            </a>
+            {ANDROID_PLAY_STORE_URL ? (
+              <a
+                href={ANDROID_PLAY_STORE_URL}
+                data-store="android"
+                onClick={copyInviteThenOpenStore}
+                style={{
+                  display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
+                  background: T.surfaceUp, color: T.text, textDecoration: "none",
+                  border: `1px solid ${T.border}`, fontWeight: 800, fontSize: 15,
+                  padding: "13px 28px", borderRadius: 14,
+                }}
+              >
+                Get SquadZ on Google Play
+              </a>
+            ) : (
+              <div
+                aria-label="Google Play version coming soon"
+                style={{
+                  border: `1px solid ${T.border}`, borderRadius: 14, padding: "12px 28px",
+                  color: T.textDim, background: T.surface, fontSize: 14, fontWeight: 700,
+                }}
+              >
+                Android · Coming soon
+              </div>
+            )}
+          </div>
+          <p style={{ fontSize: 13, color: T.textDim, lineHeight: 1.5, margin: "16px 0 0" }}>
+            Keep this page or copy the invite code above. After installing and
+            creating your account, SquadZ will return you to this invite.
+          </p>
+          {nativeAppUrl ? (
+            <a
+              href={nativeAppUrl}
+              style={{ display: "inline-block", marginTop: 12, color: T.accent, fontSize: 13.5, fontWeight: 700, textDecoration: "none" }}
+            >
+              Already installed? Open in SquadZ
+            </a>
+          ) : null}
         </div>
       </div>
 

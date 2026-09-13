@@ -39,6 +39,7 @@ import { STOP_VOTING_ENABLED } from "@/lib/tripApi";
 import { useToast } from "@/context/ToastContext";
 import { useTimezone } from "@/context/TimezoneContext";
 import { todayKey } from "@/lib/tripUtils";
+import { publicSquadUrl, squadInviteUrl } from "@/lib/inviteLinks";
 
 /** Open the platform maps app pointed at a freeform location string. */
 function openMaps(location: string) {
@@ -429,9 +430,7 @@ export default function HomeScreen() {
     `I'm on SquadZ — let's plan our next hangout and find a time everyone's free. Add me with my code ${friendCode}\nhttps://joinsquadz.com`;
 
   const squadInviteMessage = (squad: (typeof squads)[0]) => {
-    const link = squad.inviteCode
-      ? `https://joinsquadz.com/squad/join?code=${squad.inviteCode}`
-      : `https://joinsquadz.com/squad/${squad.id}`;
+    const link = squad.inviteCode ? squadInviteUrl(squad.inviteCode) : publicSquadUrl(squad.id);
     return `Join my squad "${squad.emoji} ${squad.name}" on SquadZ — let's find a time we're all actually free 🎉\n${link}`;
   };
 

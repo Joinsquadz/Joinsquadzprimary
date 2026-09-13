@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { INVITE_ORIGIN } from "./inviteLinks";
 
 // B6: persist the actual pending squad-invite code (not just a flag) so an
 // invite deep-link survives the whole onboarding flow — including cold starts
@@ -7,10 +8,11 @@ const PENDING_INVITE_KEY = "@squadz/pendingInviteCode";
 const EXPIRY_MS = 24 * 60 * 60 * 1000;
 
 type Stored = { code: string; savedAt: number };
-export type PendingInviteKind = "friend" | "squad" | "event";
+export type PendingInviteKind = "friend" | "squad" | "publicSquad" | "event";
 export type PendingInvite = { kind: PendingInviteKind; code: string };
 
 const PENDING_FRIEND_INVITE_KEY = "@squadz/pendingFriendInviteCode";
+const PENDING_PUBLIC_SQUAD_KEY = "@squadz/pendingPublicSquadId";
 
 async function saveCode(key: string, code: string, normalize: (value: string) => string): Promise<boolean> {
   const normalized = normalize(code);
@@ -95,11 +97,23 @@ export async function clearPendingFriendCode(): Promise<void> {
   await clearCode(PENDING_FRIEND_INVITE_KEY);
 }
 
+export async function savePendingPublicSquadId(id: string): Promise<boolean> {
+  return saveCode(PENDING_PUBLIC_SQUAD_KEY, id, (value) => value.trim());
+}
+
+export async function readPendingPublicSquadId(): Promise<string | null> {
+  return readCode(PENDING_PUBLIC_SQUAD_KEY);
+}
+
+export async function clearPendingPublicSquadId(): Promise<void> {
+  await clearCode(PENDING_PUBLIC_SQUAD_KEY);
+}
+
 /** Parse only canonical SquadZ HTTPS invite URLs copied by the fallback pages. */
 export function parsePendingInviteUrl(value: string): PendingInvite | null {
   try {
     const url = new URL(value.trim());
-    if (url.protocol !== "https:" || url.hostname !== "joinsquadz.com") return null;
+    if (url.protocol !== "https:" || url.origin !== INVITE_ORIGIN) return null;
     const parts = url.pathname.split("/").filter(Boolean);
     if ((parts[0] === "api" && parts[1] === "add" && parts[2] === "friend") ||
         (parts[0] === "add" && parts[1] === "friend")) {
@@ -109,6 +123,14 @@ export function parsePendingInviteUrl(value: string): PendingInvite | null {
     if (parts[0] === "squad" && parts[1] === "join") {
       const code = url.searchParams.get("code")?.trim().toUpperCase();
       return code ? { kind: "squad", code } : null;
+    }
+    if (parts[0] === "squad" && parts[1] === "join-public") {
+      const id = url.searchParams.get("id")?.trim();
+      return id ? { kind: "publicSquad", code: id } : null;
+    }
+    if (parts[0] === "squad" && parts.length === 2 && parts[1] !== "join") {
+      const id = parts[1]?.trim();
+      return id ? { kind: "publicSquad", code: id } : null;
     }
     if (parts[0] === "join" && parts.length === 2) {
       const code = parts[1]?.trim().toUpperCase();
@@ -126,6 +148,7 @@ export async function savePendingInvite(invite: PendingInvite): Promise<boolean>
     case "friend": return savePendingFriendCode(invite.code);
     case "squad": return savePendingInviteCode(invite.code);
     case "event": return savePendingEventCode(invite.code);
+    case "publicSquad": return savePendingPublicSquadId(invite.code);
   }
 }
 
@@ -135,6 +158,7 @@ export function pendingInviteRoute(invite: PendingInvite): string {
     case "friend": return `/add/friend/${encodeURIComponent(invite.code)}?auto=1`;
     case "squad": return `/squad/join?code=${encodeURIComponent(invite.code)}&auto=1`;
     case "event": return `/join/${encodeURIComponent(invite.code)}`;
+    case "publicSquad": return `/squad/join-public?id=${encodeURIComponent(invite.code)}`;
   }
 }
 
@@ -143,6 +167,8 @@ export async function readPendingInvite(): Promise<PendingInvite | null> {
   if (friend) return { kind: "friend", code: friend };
   const squad = await readPendingInviteCode();
   if (squad) return { kind: "squad", code: squad };
+  const publicSquad = await readPendingPublicSquadId();
+  if (publicSquad) return { kind: "publicSquad", code: publicSquad };
   const event = await readPendingEventCode();
   return event ? { kind: "event", code: event } : null;
 }

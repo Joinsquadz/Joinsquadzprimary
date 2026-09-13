@@ -182,6 +182,13 @@ export default function EventJoinScreen() {
     else router.replace("/(tabs)" as never);
   };
 
+  const hasRichPreview = Boolean(
+    preview?.title &&
+    preview.date &&
+    preview.location &&
+    typeof preview.goingCount === "number",
+  );
+
   if (!code) {
     return (
       <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: topPad }]}>
@@ -224,7 +231,9 @@ export default function EventJoinScreen() {
       <View style={[styles.hero, { paddingTop: topPad + 20 }]}>
         <Text style={[styles.heroLabel, { color: "rgba(255,255,255,0.7)" }]}>YOU'RE INVITED</Text>
         <Text style={styles.heroEmoji}>{preview?.emoji ?? "🎉"}</Text>
-        <Text style={[styles.heroTitle, { color: "#fff" }]}>{preview?.title ?? "Join the Event"}</Text>
+        <Text style={[styles.heroTitle, { color: "#fff" }]}>
+          {preview?.title ?? (preview?.type === "trip" ? "Join the Trip" : "Join the Event")}
+        </Text>
         {preview?.hostName ? (
           <Text style={[styles.heroCopy, { color: "rgba(255,255,255,0.85)" }]}>
             Hosted by {preview.hostName}
@@ -237,7 +246,7 @@ export default function EventJoinScreen() {
       </View>
 
       <View style={[styles.body, { paddingBottom: botPad + 24 }]}>
-        {preview ? (
+        {preview && hasRichPreview ? (
           <View style={[styles.detailsCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <View style={styles.detailRow}>
               <Ionicons name="calendar-outline" size={18} color={colors.primary} />

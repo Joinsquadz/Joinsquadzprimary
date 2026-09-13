@@ -20,6 +20,7 @@ import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AppContext";
 import { API_BASE } from "@/lib/api";
 import { UpgradeModal } from "@/components/UpgradeModal";
+import { publicSquadUrl } from "@/lib/inviteLinks";
 
 type PublicSquad = {
   id: string;
@@ -117,7 +118,7 @@ export default function DiscoverSquadsScreen() {
 
   const handleShare = async (squad: PublicSquad) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const link = `https://joinsquadz.com/squad/join-public?id=${squad.id}`;
+    const link = publicSquadUrl(squad.id);
     try {
       await Share.share({
         message: `Join "${squad.emoji} ${squad.name}" on SquadZ!\n${link}`,

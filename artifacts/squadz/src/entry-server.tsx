@@ -5,6 +5,7 @@ import Landing from "./pages/Landing";
 import Privacy from "./pages/Privacy";
 import Terms from "./pages/Terms";
 import NotFound from "./pages/NotFound";
+import OpenInApp from "./pages/OpenInApp";
 
 export interface RenderResult {
   html: string;
@@ -19,7 +20,18 @@ const ROUTES: Record<string, React.ComponentType> = {
 
 export function render(url: string): RenderResult {
   const ctx: { helmet?: HelmetServerState } = {};
-  const Component = ROUTES[url] ?? NotFound;
+  const pathname = new URL(url, "https://joinsquadz.com").pathname;
+  const inviteKind =
+    pathname === "/squad/join"
+      ? "squad"
+      : pathname === "/squad/join-public" || /^\/squad\/[^/]+$/.test(pathname)
+        ? "publicSquad"
+        : /^\/join\/[^/]+$/.test(pathname)
+          ? "plan"
+          : /^\/(?:api\/)?add\/friend\/[^/]+$/.test(pathname)
+            ? "friend"
+            : null;
+  const Component = ROUTES[pathname] ?? (inviteKind ? () => <OpenInApp kind={inviteKind} url={url} /> : NotFound);
 
   const html = renderToString(
     <HelmetProvider context={ctx}>

@@ -22,8 +22,9 @@ function Router() {
         <Route path="/squad/join">{() => <OpenInApp kind="squad" />}</Route>
         <Route path="/squad/join-public">{() => <OpenInApp kind="publicSquad" />}</Route>
         <Route path="/squad/:id">{() => <OpenInApp kind="publicSquad" />}</Route>
-        <Route path="/join/:code">{() => <OpenInApp kind="event" />}</Route>
+        <Route path="/join/:code">{() => <OpenInApp kind="plan" />}</Route>
         <Route path="/add/friend/:code">{() => <OpenInApp kind="friend" />}</Route>
+        <Route path="/api/add/friend/:code">{() => <OpenInApp kind="friend" />}</Route>
         <Route path="/availability">{() => <OpenInApp kind="poll" />}</Route>
         <Route component={NotFound} />
       </Switch>

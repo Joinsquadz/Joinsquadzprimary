@@ -24,7 +24,8 @@ import { CelebrationOverlay } from "@/components/CelebrationOverlay";
 import { claimOnce } from "@/lib/seenFlags";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { EMOJI_CHOICES } from "@/constants/emojis";
-import { readPendingFriendCode, readPendingInviteCode, readPendingEventCode, type PendingInvite } from "@/lib/pendingInvite";
+import { pendingInviteRoute, readPendingInvite, type PendingInvite } from "@/lib/pendingInvite";
+import { publicSquadUrl, squadInviteUrl } from "@/lib/inviteLinks";
 
 const SQUAD_COLORS = ["#FF6B2C", "#A855F7", "#2ECC8A", "#4A9EFF", "#FFB23E", "#FF6B2C"];
 const SQUAD_CHIPS = ["Friend Group", "Coworkers", "Family", "College", "Roommates", "Sports"];
@@ -56,12 +57,8 @@ export default function OnboardingScreen() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const friend = await readPendingFriendCode();
-      const squad = friend ? null : await readPendingInviteCode();
-      const event = friend || squad ? null : await readPendingEventCode();
-      if (!cancelled && (friend || squad || event)) {
-        setStoredInvite(friend ? { kind: "friend", code: friend } : squad ? { kind: "squad", code: squad } : { kind: "event", code: event! });
-      }
+      const invite = await readPendingInvite();
+      if (!cancelled) setStoredInvite(invite);
     })();
     return () => { cancelled = true; };
   }, []);
@@ -102,8 +99,8 @@ export default function OnboardingScreen() {
   const inviteCode = createdSquad?.inviteCode ?? null;
   const inviteLink = createdSquad
     ? inviteCode
-      ? `https://joinsquadz.com/squad/join?code=${inviteCode}`
-      : `https://joinsquadz.com/squad/${createdSquad.id}`
+      ? squadInviteUrl(inviteCode)
+      : publicSquadUrl(createdSquad.id)
     : `https://joinsquadz.com`;
 
   const shareMessage = createdSquad
@@ -133,20 +130,10 @@ export default function OnboardingScreen() {
       // over the created-squad route: if the user arrived via an invite
       // link, landing on the invite is the whole point of their signup.
       void (async () => {
-        const friend = storedInvite?.kind === "friend" ? storedInvite.code : await readPendingFriendCode();
-        if (friend) {
-          router.replace({ pathname: "/add/friend/[code]", params: { code: friend, auto: "1" } } as never);
-          return;
-        }
-        const stored = storedInvite?.kind === "squad" ? storedInvite.code : await readPendingInviteCode();
-        if (stored) {
-          armTour();
-          router.replace({ pathname: "/squad/join", params: { code: stored, auto: "1" } } as never);
-          return;
-        }
-        const storedEvent = await readPendingEventCode();
-        if (storedEvent) {
-          router.replace({ pathname: "/join/[inviteCode]", params: { inviteCode: storedEvent } } as never);
+        const pending = storedInvite ?? await readPendingInvite();
+        if (pending) {
+          if (pending.kind === "squad" || pending.kind === "publicSquad") armTour();
+          router.replace(pendingInviteRoute(pending) as never);
         } else if (createdSquadId) {
           armTour();
           router.replace({ pathname: "/squad/[id]", params: { id: createdSquadId } } as never);

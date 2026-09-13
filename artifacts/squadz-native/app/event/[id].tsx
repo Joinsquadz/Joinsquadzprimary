@@ -75,6 +75,7 @@ import { deviceWallClockToZoneIso, instantToZoneWallClockDate } from "@/lib/time
 import { IconPicker } from "@/components/IconPicker";
 import { EventVaultPanel } from "@/components/EventVaultPanel";
 import { AddFriendBadge } from "@/components/AddFriendBadge";
+import { planInviteUrl } from "@/lib/inviteLinks";
 // Shared auth-race guard (see lib/vaultAuthRace.ts). Opening an event directly on
 // a cold start (deep link / push tap) can 401 before the token restores and
 // AppContext hasn't loaded the event yet; keep it loading + retry instead of
@@ -1705,7 +1706,7 @@ export default function EventDetailScreen() {
               <TouchableOpacity
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  Share.share({ message: `Join ${event.title}! https://joinsquadz.com/join/${event.inviteCode}` });
+                  Share.share({ message: `Join ${event.title}! ${planInviteUrl(event.inviteCode)}` });
                 }}
                 style={[styles.shareInviteBtn, { backgroundColor: colors.primary + "20", borderColor: colors.primary + "40" }]}
               >
@@ -2323,7 +2324,7 @@ export default function EventDetailScreen() {
                 joinsquadz.com/join/{event.inviteCode}
               </Text>
               <TouchableOpacity
-                onPress={() => Share.share({ message: `Join ${event.title}! https://joinsquadz.com/join/${event.inviteCode}` })}
+                onPress={() => Share.share({ message: `Join ${event.title}! ${planInviteUrl(event.inviteCode)}` })}
                 style={[styles.shareInviteBtn, { backgroundColor: colors.primary + "20", borderColor: colors.primary + "40" }]}
               >
                 <Ionicons name="share-outline" size={16} color={colors.primary} />

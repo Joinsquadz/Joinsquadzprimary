@@ -31,6 +31,9 @@ import {
   readPendingFriendCode,
   savePendingFriendCode,
   savePendingInvite,
+  savePendingPublicSquadId,
+  readPendingPublicSquadId,
+  clearPendingPublicSquadId,
 } from "../pendingInvite";
 
 const KEY = "@squadz/pendingInviteCode";
@@ -141,6 +144,8 @@ describe("clipboard invite parser and resume routes", () => {
     ["https://joinsquadz.com/api/add/friend/friend7", { kind: "friend", code: "FRIEND7" }],
     ["https://joinsquadz.com/add/friend/friend7", { kind: "friend", code: "FRIEND7" }],
     ["https://joinsquadz.com/squad/join?code=squad7", { kind: "squad", code: "SQUAD7" }],
+    ["https://joinsquadz.com/squad/join-public?id=squad-id", { kind: "publicSquad", code: "squad-id" }],
+    ["https://joinsquadz.com/squad/squad-id", { kind: "publicSquad", code: "squad-id" }],
     ["https://joinsquadz.com/join/event7", { kind: "event", code: "EVENT7" }],
   ])("recognizes canonical %s URLs", (url, expected) => {
     expect(parsePendingInviteUrl(url)).toEqual(expected);
@@ -153,5 +158,15 @@ describe("clipboard invite parser and resume routes", () => {
 
   it("routes resumed friend codes directly into automatic acceptance", () => {
     expect(pendingInviteRoute({ kind: "friend", code: "ABC 1" })).toBe("/add/friend/ABC%201?auto=1");
+  });
+
+  it("persists and resumes public squad destinations", async () => {
+    await expect(savePendingPublicSquadId(" squad-id ")).resolves.toBe(true);
+    expect(await readPendingPublicSquadId()).toBe("squad-id");
+    expect(pendingInviteRoute({ kind: "publicSquad", code: "squad-id" })).toBe(
+      "/squad/join-public?id=squad-id",
+    );
+    await clearPendingPublicSquadId();
+    expect(await readPendingPublicSquadId()).toBeNull();
   });
 });

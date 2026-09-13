@@ -10,6 +10,7 @@ import {
   Platform,
   TextInput,
   Modal,
+  Share,
   Animated,
   LayoutAnimation,
   UIManager,
@@ -80,6 +81,7 @@ import {
   GENERAL_GROUP,
   type PendingSort,
 } from "@/lib/ideaUtils";
+import { planInviteUrl } from "@/lib/inviteLinks";
 import {
   coverFor,
   parseISO,
@@ -608,6 +610,16 @@ export default function TripDetailScreen() {
       Alert.alert("Couldn't add to calendar", "Something went wrong. Please try again.");
     } finally {
       setCalBusy(false);
+    }
+  };
+
+  const shareTripInvite = async () => {
+    try {
+      await Share.share({
+        message: `Join ${event.title} on SquadZ — see the itinerary and trip plans:\n${planInviteUrl(event.inviteCode)}`,
+      });
+    } catch {
+      // The user dismissed the share sheet.
     }
   };
 
@@ -1313,7 +1325,20 @@ export default function TripDetailScreen() {
 
         {/* Who's coming */}
         <View style={styles.invitePanel}>
-          <Text style={[styles.inviteHeading, { color: colors.foreground }]}>Who's coming</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+            <Text style={[styles.inviteHeading, { color: colors.foreground }]}>Who's coming</Text>
+            {canInvite && event.inviteCode ? (
+              <TouchableOpacity
+                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); void shareTripInvite(); }}
+                style={{ flexDirection: "row", alignItems: "center", gap: 5 }}
+                accessibilityRole="button"
+                accessibilityLabel="Share trip invite link"
+              >
+                <Ionicons name="share-outline" size={16} color={colors.primary} />
+                <Text style={{ color: colors.primary, fontSize: 13, fontWeight: "700" }}>Share link</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
           <View style={styles.memberGrid}>
             {allTripMembers.map(({ user: u, isSquadMember }) => {
               const isSelf = u.id === currentUser.id;

@@ -42,6 +42,9 @@ import { claimOnce } from "@/lib/seenFlags";
 import { SquadzPlusBanner } from "@/components/SquadzPlusBanner";
 import { goingCount } from "@/lib/eventUtils";
 import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
+import { publicSquadUrl, squadInviteUrl } from "@/lib/inviteLinks";
+import { savePendingPublicSquadId } from "@/lib/pendingInvite";
+import { legacySquadLinkAction } from "@/lib/legacySquadLinkRoute";
 
 import { IconPicker } from "@/components/IconPicker";
 import { KeyboardDismissControl } from "@/components/KeyboardDismissControl";
@@ -73,9 +76,37 @@ export default function SquadDetailScreen() {
   const { events, squads, getSquad, updateSquad, regenerateInviteCode, leaveSquad, currentUser, addMemberByFriendCode, removeMember, conflictSquadId, clearConflictSquad, refreshSquads, addSquadCoAdmin, removeSquadCoAdmin, squadsLoading, squadsAuthPending, squadsAuthError, retrySquads } = useData();
   const { resolveUser, prefetchUsers, seedUser } = useUserCache();
   const { getSquadConversation } = useMessages();
-  const { authToken } = useAuth();
+  const { authToken, isLoggedIn, isAuthRestoring } = useAuth();
   const { id, welcome } = useLocalSearchParams<{ id: string; welcome?: string }>();
   const [findTimeOpen, setFindTimeOpen] = useState(false);
+
+  useEffect(() => {
+    const action = legacySquadLinkAction({
+      id,
+      isLoggedIn,
+      isAuthRestoring,
+      squadsLoading,
+      squadsAuthPending,
+      squadsAuthError,
+      memberSquadIds: squads.map((squad) => squad.id),
+    });
+    if (action === "login" && id) {
+      void (async () => {
+        await savePendingPublicSquadId(id);
+        router.replace({ pathname: "/login", params: { publicSquadId: id } } as never);
+      })();
+    } else if (action === "join-public" && id) {
+      router.replace({ pathname: "/squad/join-public", params: { id } } as never);
+    }
+  }, [
+    id,
+    isLoggedIn,
+    isAuthRestoring,
+    squads,
+    squadsLoading,
+    squadsAuthPending,
+    squadsAuthError,
+  ]);
 
   // Transient welcome moment after joining via invite link — the celebration
   // lives here in the squad, not on an interstitial screen. Auto-dismisses.
@@ -690,7 +721,7 @@ export default function SquadDetailScreen() {
     ]);
   };
   const inviteCode = squad.inviteCode ?? null;
-  const inviteLink = inviteCode ? `https://joinsquadz.com/squad/join?code=${inviteCode}` : `https://joinsquadz.com/squad/${squad.id}`;
+  const inviteLink = inviteCode ? squadInviteUrl(inviteCode) : publicSquadUrl(squad.id);
 
   const shareInvite = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -701,7 +732,7 @@ export default function SquadDetailScreen() {
     });
   };
 
-  const publicLink = `https://joinsquadz.com/squad/join-public?id=${squad.id}`;
+  const publicLink = publicSquadUrl(squad.id);
   const sharePublicLink = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     Share.share({
@@ -1593,14 +1624,14 @@ export default function SquadDetailScreen() {
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.newLinkLabel, { color: colors.primary }]}>New link ready</Text>
                   <Text style={[styles.newLinkCode, { color: colors.mutedForeground }]} numberOfLines={1}>
-                    {`joinsquadz.com/squad/join?code=${newInviteCode}`}
+                    {squadInviteUrl(newInviteCode).replace("https://", "")}
                   </Text>
                 </View>
                 <TouchableOpacity
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     Share.share({
-                      message: `Join my squad "${squad.emoji} ${squad.name}" on SquadZ!\n\nUse invite code: ${newInviteCode}\nhttps://joinsquadz.com/squad/join?code=${newInviteCode}`,
+                      message: `Join my squad "${squad.emoji} ${squad.name}" on SquadZ!\n\nUse invite code: ${newInviteCode}\n${squadInviteUrl(newInviteCode)}`,
                     });
                   }}
                   style={[styles.shareNowBtn, { backgroundColor: colors.primary }]}

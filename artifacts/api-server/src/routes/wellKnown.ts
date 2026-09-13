@@ -49,9 +49,38 @@ function androidFingerprints(): string[] {
     .filter((fp) => fp.length > 0);
 }
 
+function iosProductionIdentityError(): string | null {
+  if (process.env.NODE_ENV !== "production") return null;
+  const appId = process.env.IOS_APP_ID?.trim();
+  if (!appId || !new RegExp(`^[A-Z0-9]{10}\\.${IOS_BUNDLE_ID.replaceAll(".", "\\.")}$`).test(appId)) {
+    return "IOS_APP_ID must be set to the signed app's <TEAM_ID>.<BUNDLE_ID> value";
+  }
+  return null;
+}
+
+function androidProductionIdentityError(): string | null {
+  if (process.env.NODE_ENV !== "production") return null;
+  if (androidPackageName() !== "com.squadz.app") {
+    return "ANDROID_PACKAGE_NAME must match the signed com.squadz.app package";
+  }
+  const fingerprints = androidFingerprints();
+  if (
+    fingerprints.length === 0 ||
+    fingerprints.some((fingerprint) => !/^(?:[0-9A-F]{2}:){31}[0-9A-F]{2}$/i.test(fingerprint))
+  ) {
+    return "ANDROID_SHA256_CERT_FINGERPRINTS must include the signed Android certificate";
+  }
+  return null;
+}
+
 router.get(
   "/.well-known/apple-app-site-association",
   (_req: Request, res: Response): void => {
+    const configurationError = iosProductionIdentityError();
+    if (configurationError) {
+      res.status(503).json({ error: "App-link association is not configured", detail: configurationError });
+      return;
+    }
     const appId = iosAppId();
     const body = {
       applinks: {
@@ -64,8 +93,10 @@ router.get(
               "/squad/join-public",
               "/squad/join-public/*",
               "/squad/join",
+              "/squad/join/*",
+              "/squad/*",
               "/join/*",
-               "/api/add/friend/*",
+              "/api/add/friend/*",
             ],
             // Modern keys (iOS 13+) — take precedence when supported.
             appIDs: [appId],
@@ -77,6 +108,14 @@ router.get(
               {
                 "/": "/squad/join",
                 comment: "Open shared squad invite-code links in the Squadz app",
+              },
+              {
+                "/": "/squad/join/*",
+                comment: "Open shared squad invite-code links in the Squadz app",
+              },
+              {
+                "/": "/squad/*",
+                comment: "Open shared squad links in the Squadz app",
               },
               {
                 "/": "/join/*",
@@ -99,6 +138,11 @@ router.get(
 router.get(
   "/.well-known/assetlinks.json",
   (_req: Request, res: Response): void => {
+    const configurationError = androidProductionIdentityError();
+    if (configurationError) {
+      res.status(503).json({ error: "App-link association is not configured", detail: configurationError });
+      return;
+    }
     const body = [
       {
         relation: ["delegate_permission/common.handle_all_urls"],

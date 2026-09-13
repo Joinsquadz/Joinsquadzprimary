@@ -29,6 +29,9 @@ args = ["node", "--import", "./artifacts/api-server/dist/instrument.mjs", "--ena
 [services.production.run.env]
 PORT = "8080"
 NODE_ENV = "production"
+IOS_APP_ID = "2567CLAZKC.com.squadz.app"
+ANDROID_PACKAGE_NAME = "com.squadz.app"
+ANDROID_SHA256_CERT_FINGERPRINTS = "FE:7C:A7:AF:18:82:01:91:07:28:02:AA:2E:FD:CA:0A:E5:46:20:E9:2C:1D:43:5D:BE:49:DA:37:39:74:71:19"
 
 [services.production.health.startup]
 path = "/api/healthz"

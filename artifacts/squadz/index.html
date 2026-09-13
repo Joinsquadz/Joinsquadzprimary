@@ -187,12 +187,31 @@
         </div>
         <main class="first-paint-content">
           <div class="first-paint-kicker">📱 iPhone app is live — Android coming soon</div>
-          <h1>Stop texting.<br />Start <span>actually hanging.</span></h1>
-          <p>Find the time everyone's free, plan the hangout, split the bill, and keep the memories. All in one place.</p>
+          <h1 id="first-paint-title">Stop texting.<br />Start <span>actually hanging.</span></h1>
+          <p id="first-paint-copy">Find the time everyone's free, plan the hangout, split the bill, and keep the memories. All in one place.</p>
+          <div id="first-paint-code" style="display:none;margin:24px auto 0;padding:12px 18px;border:1px dashed #3a3a4a;border-radius:12px;color:#ffb547;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:20px;font-weight:700;letter-spacing:.12em"></div>
         </main>
       </div>
       <!-- FIRST_PAINT_SHELL_END -->
     </div>
+    <script>
+      (function () {
+        var path = window.location.pathname;
+        var isSquad = path === "/squad/join" || path === "/squad/join-public" || /^\/squad\/[^/]+$/.test(path);
+        var isPlan = /^\/join\/[^/]+$/.test(path);
+        if (!isSquad && !isPlan) return;
+        var title = document.getElementById("first-paint-title");
+        var copy = document.getElementById("first-paint-copy");
+        var code = document.getElementById("first-paint-code");
+        var parts = path.split("/").filter(Boolean);
+        var inviteCode = isPlan ? parts[1] : new URLSearchParams(window.location.search).get("code");
+        if (title) title.innerHTML = isPlan ? "You're invited<br />to <span>SquadZ.</span>" : "You're invited<br />to a <span>squad.</span>";
+        if (copy) copy.textContent = isPlan
+          ? "Open this invite in SquadZ to join the event or trip. Install the app to continue."
+          : "A friend invited you to join their SquadZ crew. Install the app to accept the invite.";
+        if (code && inviteCode) { code.textContent = inviteCode; code.style.display = "inline-block"; }
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

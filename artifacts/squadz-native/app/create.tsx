@@ -36,6 +36,7 @@ import { shouldAutoSelectDefaultSquad } from "@/lib/createDefaults";
 import { useTimezone, runtimeTimezone, zoneLabel } from "@/context/TimezoneContext";
 import { deviceWallClockToZoneIso } from "@/lib/timezoneFormat";
 import ConflictBanner from "@/components/ConflictBanner";
+import { planInviteUrl } from "@/lib/inviteLinks";
 
 function formatPickedDay(d: Date): string {
   const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -1065,7 +1066,7 @@ export default function CreateEventScreen() {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                   Share.share({
                     message: code
-                      ? `${beat.emoji} ${beat.title} — you in? Join on SquadZ: https://joinsquadz.com/join/${code}`
+                      ? `${beat.emoji} ${beat.title} — you in? Join on SquadZ: ${planInviteUrl(code)}`
                       : `${beat.emoji} ${beat.title} — you in? Join me on SquadZ!`,
                   }).finally(() => {
                     setCreatedBeat(null);

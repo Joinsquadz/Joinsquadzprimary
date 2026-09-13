@@ -3,9 +3,9 @@ import { Helmet } from "react-helmet-async";
 import { T, font } from "@/lib/data";
 import { trackEvent } from "@/lib/analytics";
 import { SquadzIcon } from "@/components/SquadzIcon";
+import { ANDROID_PLAY_STORE_URL, IOS_APP_STORE_URL } from "@/lib/storeLinks";
 
 const ACCENT_GRADIENT = `linear-gradient(135deg, ${T.accent} 0%, ${T.gold} 100%)`;
-const APP_STORE_URL = "https://apps.apple.com/us/app/squadz-friend-group-planner/id6789990515";
 
 const features = [
   {
@@ -62,11 +62,12 @@ function StoreBadge({
   foundingAvailable: boolean;
 }) {
   const isIos = store === "ios";
+  const storeUrl = isIos ? IOS_APP_STORE_URL : ANDROID_PLAY_STORE_URL;
   const content = (
     <>
       <span style={{ fontSize: 22 }}>{store === "ios" ? "" : "🤖"}</span>
       <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.2 }}>
-        <span style={{ fontSize: 10, color: T.textSub }}>{isIos ? "Download on" : "Launching on"}</span>
+        <span style={{ fontSize: 10, color: T.textSub }}>{isIos || storeUrl ? "Download on" : "Launching on"}</span>
         <span style={{ fontSize: 15, fontWeight: 700 }}>{store === "ios" ? "App Store" : "Google Play"}</span>
       </span>
     </>
@@ -77,13 +78,14 @@ function StoreBadge({
     border: `1px solid ${T.border}`, color: T.text, fontFamily: font,
   } as const;
 
-  return isIos ? (
+  return storeUrl ? (
     <a
-      href={APP_STORE_URL}
+      href={storeUrl}
       target="_blank"
       rel="noreferrer"
       onClick={() => trackEvent("app_store_clicked", {
         location,
+        store: isIos ? "ios" : "android",
         founding_available: foundingAvailable,
       })}
       style={style}
@@ -271,7 +273,7 @@ export default function Landing() {
             <a href="#how" style={{ color: T.textSub, textDecoration: "none", fontSize: 14.5, fontWeight: 600 }}>How it works</a>
           </div>
           <a
-            href={APP_STORE_URL}
+            href={IOS_APP_STORE_URL}
             target="_blank"
             rel="noreferrer"
             onClick={() => trackEvent("app_store_clicked", {

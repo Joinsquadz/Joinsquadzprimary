@@ -44,7 +44,11 @@ function extractHeadTags(html) {
   return { headTags: match[1].trim(), bodyHtml: html.slice(match[1].length) };
 }
 
-const routes = ["/", "/privacy", "/terms"];
+// Invite codes are dynamic, so the inline first-paint shell handles arbitrary
+// code-bearing URLs. These representative directories also ensure a direct
+// request with a path (rather than a query-only URL) receives invite HTML
+// before the client bundle hydrates.
+const routes = ["/", "/privacy", "/terms", "/squad/join", "/squad/join-public", "/join/INVITE"];
 
 for (const route of routes) {
   const { html } = render(route);
@@ -63,6 +67,14 @@ for (const route of routes) {
     /<div id="root">[\s\S]*?<!-- FIRST_PAINT_SHELL_END -->\s*<\/div>/,
     `<div id="root">${bodyHtml}</div>`,
   );
+  const inviteRoute = route === "/squad/join" || route === "/squad/join-public" || route === "/join/INVITE";
+  const requiredInviteText = ["You're invited", "Get SquadZ on the App Store"];
+  if (inviteRoute && requiredInviteText.some((text) => !page.includes(text))) {
+    throw new Error(`Invite prerender for ${route} is missing required first-paint content`);
+  }
+  if (route === "/join/INVITE" && !page.includes("INVITE")) {
+    throw new Error("Plan invite prerender lost its representative invite code");
+  }
 
   // Write to the correct directory.
   const routeDir =
@@ -70,6 +82,22 @@ for (const route of routes) {
   fs.mkdirSync(routeDir, { recursive: true });
   fs.writeFileSync(path.join(routeDir, "index.html"), page);
   console.log(`  Prerendered: ${route}`);
+}
+
+// Keep every browser-to-installed-app handoff mapped to its own native route.
+// This is intentionally checked in the production build because these links
+// are rendered server-side before hydration.
+const nativeHandoffs = [
+  ["/squad/join?code=SQUAD7", "squadz-native://squad/join?code=SQUAD7"],
+  ["/squad/join-public?id=public-7", "squadz-native://squad/join-public?id=public-7"],
+  ["/join/PLAN7", "squadz-native://join/PLAN7"],
+  ["/api/add/friend/FRIEND7", "squadz-native://add/friend/FRIEND7"],
+];
+for (const [route, expectedHref] of nativeHandoffs) {
+  const { html } = render(route);
+  if (!html.includes(expectedHref)) {
+    throw new Error(`Invite handoff for ${route} did not render ${expectedHref}`);
+  }
 }
 
 console.log("Prerender complete.");

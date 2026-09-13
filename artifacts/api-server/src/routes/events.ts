@@ -1,6 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, count, or, sql, and, gte, isNull, inArray, asc, ne } from "drizzle-orm";
 import { z } from "zod";
+import { randomBytes } from "node:crypto";
 import {
   db,
   eventsTable,
@@ -141,9 +142,10 @@ class PollAlreadyConvertedError extends Error {
 
 function randomCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const bytes = randomBytes(20);
   let out = "";
-  for (let i = 0; i < 4; i++) out += chars[Math.floor(Math.random() * chars.length)];
-  return `SQ-${out}`;
+  for (let i = 0; i < bytes.length; i++) out += chars[bytes[i]! & 31];
+  return `PL-${out}`;
 }
 
 function parseId(raw: unknown): string {
@@ -428,31 +430,30 @@ async function allowedParticipantIds(
   return ids;
 }
 
-// GET /events/preview?code=<inviteCode> — public, read-only preview of an event
-// for shareable invite deep-links so a friend can see what they're joining
-// before they sign in. Only exposes non-sensitive fields (no chat, costs, or
-// member PII). Mirrors the public-squad preview (GET /discover/squads/:id).
+// GET /events/preview?code=<inviteCode> — public, privacy-minimized plan-kind
+// lookup for high-entropy invite links. Legacy short codes still work for
+// authenticated join requests but are deliberately not enumerable here.
 router.get("/events/preview", async (req: Request, res: Response): Promise<void> => {
   try {
-    // Privacy: full event details (title, host, date, location, going-count)
-    // require a signed-in user. Unauthenticated visitors get a 401 and the
-    // client falls back to generic SquadZ branding — same policy as shared
-    // squad links (generic landing preview, never real content).
-    if (!req.isAuthenticated()) {
-      res.status(401).json({ error: "Sign in to see event details." });
-      return;
-    }
     const rawCode = req.query.code;
     const code = (Array.isArray(rawCode) ? rawCode[0] : rawCode) as string | undefined;
     if (!code || typeof code !== "string" || !code.trim()) {
       res.status(404).json({ error: "This invite isn't available." });
       return;
     }
+    const normalizedCode = code.trim().toUpperCase();
+    if (!/^PL-[A-Z2-9]{20}$/.test(normalizedCode)) {
+      // Do not query legacy short codes from a public route: that would create
+      // an enumeration oracle. No-content lets old installed-app links proceed
+      // to the authenticated join request instead of being marked invalid.
+      res.status(204).end();
+      return;
+    }
 
     const [event] = await db
       .select()
       .from(eventsTable)
-      .where(eq(eventsTable.inviteCode, code.trim()));
+      .where(eq(eventsTable.inviteCode, normalizedCode));
 
     if (!event) {
       res.status(404).json({ error: "This invite isn't available." });
@@ -463,39 +464,8 @@ router.get("/events/preview", async (req: Request, res: Response): Promise<void>
       return;
     }
 
-    let hostName: string | null = null;
-    if (event.hostId) {
-      const [host] = await db
-        .select({
-          firstName: usersTable.firstName,
-          lastName: usersTable.lastName,
-        })
-        .from(usersTable)
-        .where(eq(usersTable.id, event.hostId));
-      hostName =
-        [host?.firstName, host?.lastName].filter(Boolean).join(" ").trim() || null;
-    }
-
-    const rsvps = (event.rsvps ?? {}) as Record<string, string>;
-    const goingCount = Object.values(rsvps).filter((s) => s === "going").length;
-
     res.json({
-      emoji: event.emoji,
-      title: event.title,
-      // Trips live in the same table as events but have their own detail
-      // screen; the client needs the plan type to route the accepted invite
-      // to /trip/:id instead of /event/:id.
       type: event.type === "trip" ? "trip" : "event",
-      hostName,
-      // `date` is the creator's stored display text; the absolute fields let the
-      // client render the start on the *viewer's* clock instead. Kept as a
-      // fallback for all-day/TBD/legacy events that have no instant.
-      date: event.date,
-      eventAt: event.eventAt,
-      startAt: event.startAt,
-      allDay: event.allDay,
-      location: event.location,
-      goingCount,
     });
   } catch (err) {
     logger.error({ err }, "Error fetching event preview");
@@ -601,7 +571,7 @@ router.post("/events", requireAuth, async (req: Request, res: Response): Promise
     const isPro = await resolveProStatus(user!);
 
     const {
-      inviteCode,
+      inviteCode: _clientInviteCode,
       hostId: _bodyHostId,
       eventAt,
       startAt,
@@ -689,7 +659,10 @@ router.post("/events", requireAuth, async (req: Request, res: Response): Promise
       ...rest,
       hostId,
       invitedUserIds,
-      inviteCode: inviteCode ?? randomCode(),
+      // Invite destinations are public capability URLs. Generate at least
+      // 100 bits of CSPRNG entropy server-side; never trust a client-supplied
+      // short code for new plans.
+      inviteCode: randomCode(),
       // Trips have no RSVP UI (access is squad-membership based), so the organizer
       // would otherwise show as "0 going". Seed the host as going at creation so
       // the count reflects them immediately. Events deliberately leave the host

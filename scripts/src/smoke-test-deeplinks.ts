@@ -13,7 +13,7 @@
  *   - Served over HTTPS with no redirects (Android's verifier rejects redirects).
  *   - Content-Type is application/json.
  *   - AASA appID is NOT the `TEAMID.*` placeholder and is in `<TEAM_ID>.<BUNDLE_ID>` form.
- *   - AASA paths/components cover `/squad/join-public`.
+ *   - AASA paths/components cover every canonical squad and plan invite path.
  *   - assetlinks declares `delegate_permission/common.handle_all_urls`.
  *   - assetlinks has at least one SHA-256 fingerprint in valid colon-hex form
  *     (i.e. NOT the empty placeholder).
@@ -28,7 +28,7 @@
  */
 
 const DEFAULT_BASE_URL = "https://joinsquadz.com";
-const JOIN_PATH = "/squad/join-public";
+const REQUIRED_PATHS = ["/squad/join-public", "/squad/join", "/squad/*", "/join/*"];
 const SHA256_FINGERPRINT_RE = /^([0-9A-F]{2}:){31}[0-9A-F]{2}$/i;
 
 type CheckResult = { ok: boolean; label: string; detail?: string };
@@ -120,22 +120,27 @@ async function checkAasa(baseUrl: string): Promise<void> {
     wellFormed ? undefined : appIdList.join(", "),
   );
 
-  const coversJoin = details.some((d) => {
+  const pathsCovered = REQUIRED_PATHS.filter((requiredPath) => details.some((d) => {
     const paths = Array.isArray(d.paths) ? (d.paths as unknown[]) : [];
     const inPaths = paths.some(
-      (p) => typeof p === "string" && p.includes(JOIN_PATH),
+      (p) => typeof p === "string" && p.includes(requiredPath),
     );
     const components = Array.isArray(d.components)
       ? (d.components as Array<Record<string, unknown>>)
       : [];
     const inComponents = components.some((c) =>
       Object.values(c).some(
-        (v) => typeof v === "string" && v.includes(JOIN_PATH),
+        (v) => typeof v === "string" && v.includes(requiredPath),
       ),
     );
     return inPaths || inComponents;
-  });
-  check(coversJoin, `paths/components cover ${JOIN_PATH}`);
+  }));
+  for (const requiredPath of REQUIRED_PATHS) {
+    check(
+      pathsCovered.includes(requiredPath),
+      `paths/components cover ${requiredPath}`,
+    );
+  }
 }
 
 async function checkAssetLinks(baseUrl: string): Promise<void> {
@@ -262,7 +267,7 @@ async function main() {
       "     https://developers.google.com/digital-asset-links/tools/generator\n" +
       "  4. Tap https://" +
       baseUrl.replace(/^https:\/\//, "") +
-      JOIN_PATH +
+      REQUIRED_PATHS[0] +
       "?id=<id> on a real iOS and Android device — it must open the app.\n" +
       "  5. (Android) adb shell pm verify-app-links --re-verify com.squadz.app\n" +
       "     then: adb shell pm get-app-links com.squadz.app  → expect 'verified'.",

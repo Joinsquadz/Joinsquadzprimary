@@ -88,10 +88,15 @@ EXPO_PUBLIC_REVENUECAT_IOS_KEY = "appl_LvAkfCnKUyRHhxUulPPvgamVTOz"
 EXPO_PUBLIC_REVENUECAT_ANDROID_KEY = "goog_GpcusvPHJLilCDywiobzwUUtolK"
 DB_POOLER_PORT = "6543"
 DB_POOL_MAX = "45"
+ANDROID_PACKAGE_NAME = "com.squadz.app"
+ANDROID_SHA256_CERT_FINGERPRINTS = "FE:7C:A7:AF:18:82:01:91:07:28:02:AA:2E:FD:CA:0A:E5:46:20:E9:2C:1D:43:5D:BE:49:DA:37:39:74:71:19"
+IOS_APP_ID = "2567CLAZKC.com.squadz.app"
 
 [userenv.development]
 ENABLE_EMAIL_PREVIEW_TEST = "true"
 API_RATE_LIMIT_MAX = "5000"
+
+[userenv.production]
 
 [objectStorage]
 defaultBucketID = "replit-objstore-bd05c8f7-1da6-4f29-911a-7d60d1dfe0bd"

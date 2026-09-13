@@ -19,7 +19,7 @@ import { SquadzIcon } from "@/components/SquadzIcon";
 import { GradientButton } from "@/components/GradientButton";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { fonts } from "@/constants/fonts";
-import { readPendingFriendCode, readPendingInviteCode, readPendingEventCode } from "@/lib/pendingInvite";
+import { pendingInviteRoute, readPendingInvite } from "@/lib/pendingInvite";
 
 type Screen = "splash" | "signin";
 
@@ -99,24 +99,8 @@ export default function LoginScreen() {
     } else if (params.publicSquadId) {
       router.replace({ pathname: "/squad/join-public", params: { id: params.publicSquadId } } as never);
     } else {
-      // Resume friend links first, then preserve the established squad/event
-      // ordering for older pending entries.
-      const storedFriend = await readPendingFriendCode();
-      if (storedFriend) {
-        router.replace({ pathname: "/add/friend/[code]", params: { code: storedFriend, auto: "1" } } as never);
-      } else {
-        const stored = await readPendingInviteCode();
-        if (stored) {
-        router.replace({ pathname: "/squad/join", params: { code: stored, auto: "1" } } as never);
-        } else {
-          const storedEvent = await readPendingEventCode();
-          if (storedEvent) {
-            router.replace({ pathname: "/join/[inviteCode]", params: { inviteCode: storedEvent } } as never);
-          } else {
-            router.replace("/(tabs)" as never);
-          }
-        }
-      }
+      const pending = await readPendingInvite();
+      router.replace((pending ? pendingInviteRoute(pending) : "/(tabs)") as never);
     }
   };
 

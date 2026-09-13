@@ -31,6 +31,7 @@ import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { profileVaultUpgradeTrigger } from "@/lib/profileVault";
 import { upgradeCtaLabel, useSquadzPlusPriceLabel } from "@/lib/squadzPlusPrice";
 import { subscriptionManagementUrl } from "@/lib/subscriptionManagement";
+import { publicSquadUrl, squadInviteUrl } from "@/lib/inviteLinks";
 // Shared auth-race guard (see lib/vaultAuthRace.ts). The profile's own on-mount
 // fetch (event count) can 401 during a slow login; keep the events stat loading
 // + retrying rather than briefly showing a misleading value before it restores.
@@ -491,9 +492,7 @@ export default function ProfileScreen() {
     if (!firstSquad) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const code = firstSquad.inviteCode;
-    const link = code
-      ? `https://joinsquadz.com/squad/join?code=${code}`
-      : `https://joinsquadz.com/squad/${firstSquad.id}`;
+    const link = code ? squadInviteUrl(code) : publicSquadUrl(firstSquad.id);
     const msg = `Join "${firstSquad.emoji} ${firstSquad.name}" on SquadZ — we use it to find when we're all free and plan hangouts 📅\n\n${link}`;
     if (Platform.OS === "web") {
       let copied = false;

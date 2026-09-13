@@ -54,9 +54,10 @@ import eventsRouter from "../routes/events";
 import { makeTestApp } from "./helpers/makeTestApp";
 import { makeBaseEvent } from "./helpers/fixtures";
 
-// The preview requires a signed-in user (privacy: event details must not be
-// dumpable by unauthenticated invite-code scanning).
+// Invite fallback pages only need event-vs-trip context before authentication.
+// The public endpoint must never expose identity, time, place, or attendance.
 const makeApp = () => makeTestApp(eventsRouter, { id: "viewer-1" });
+const SECURE_CODE = "PL-ABCDEFGHJKLMNPQRSTUV";
 
 beforeEach(() => {
   selectCall.count = 0;
@@ -65,16 +66,20 @@ beforeEach(() => {
 });
 
 describe("GET /api/events/preview", () => {
-  it("returns 401 without authentication", async () => {
+  it("returns a lightweight preview without authentication", async () => {
     mockEventRows.value = [makeBaseEvent()];
     const app = makeTestApp(eventsRouter);
-    const res = await request(app).get("/api/events/preview?code=SQ-ABCD");
-    expect(res.status).toBe(401);
-    // Never leak event details to anonymous invite-code scans.
+    const res = await request(app).get(`/api/events/preview?code=${SECURE_CODE}`);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ type: "event" });
     expect(res.body.title).toBeUndefined();
+    expect(res.body.hostName).toBeUndefined();
+    expect(res.body.location).toBeUndefined();
+    expect(res.body.goingCount).toBeUndefined();
+    expect(res.body.rsvps).toBeUndefined();
   });
 
-  it("returns a preview for an authenticated user", async () => {
+  it("never exposes private event details from the public preview", async () => {
     mockEventRows.value = [
       makeBaseEvent({
         emoji: "🥳",
@@ -87,25 +92,16 @@ describe("GET /api/events/preview", () => {
     mockUserRows.value = [{ firstName: "Sam", lastName: "Rivera" }];
 
     const app = makeApp();
-    const res = await request(app).get("/api/events/preview?code=SQ-ABCD");
+    const res = await request(app).get(`/api/events/preview?code=${SECURE_CODE}`);
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({
-      emoji: "🥳",
-      title: "Birthday Bash",
-      type: "event",
-      hostName: "Sam Rivera",
-      date: "2026-08-01",
-      location: "The Park",
-      goingCount: 2,
-    });
-    // Never leak chat, costs, member ids, or raw rsvps.
+    expect(res.body).toEqual({ type: "event" });
     expect(res.body.rsvps).toBeUndefined();
     expect(res.body.messages).toBeUndefined();
     expect(res.body.costs).toBeUndefined();
   });
 
-  it("exposes the absolute start so the joiner sees it on their own clock", async () => {
+  it("does not expose absolute times from the public preview", async () => {
     // The stored `date` is the creator's wall-clock text. Without the absolute
     // instant the invite screen can only echo the creator's timezone, which
     // misdates the event for anyone joining from elsewhere.
@@ -120,25 +116,23 @@ describe("GET /api/events/preview", () => {
     mockUserRows.value = [{ firstName: "Sam", lastName: "Rivera" }];
 
     const app = makeApp();
-    const res = await request(app).get("/api/events/preview?code=SQ-ABCD");
+    const res = await request(app).get(`/api/events/preview?code=${SECURE_CODE}`);
 
     expect(res.status).toBe(200);
-    expect(res.body.eventAt).toBe("2026-07-16T01:00:00.000Z");
-    expect(res.body.startAt).toBe("2026-07-16T01:00:00.000Z");
-    expect(res.body.allDay).toBe(false);
-    // The creator's text stays as the fallback for all-day/TBD/legacy events.
-    expect(res.body.date).toBe("Wed, Jul 15 · 6:00 PM");
+    expect(res.body.eventAt).toBeUndefined();
+    expect(res.body.startAt).toBeUndefined();
+    expect(res.body.date).toBeUndefined();
   });
 
-  it("returns null hostName when the host has no name", async () => {
+  it("does not expose host identity", async () => {
     mockEventRows.value = [makeBaseEvent()];
     mockUserRows.value = [];
 
     const app = makeApp();
-    const res = await request(app).get("/api/events/preview?code=SQ-ABCD");
+    const res = await request(app).get(`/api/events/preview?code=${SECURE_CODE}`);
 
     expect(res.status).toBe(200);
-    expect(res.body.hostName).toBeNull();
+    expect(res.body.hostName).toBeUndefined();
   });
 
   it("returns 404 when the code is missing", async () => {
@@ -150,8 +144,15 @@ describe("GET /api/events/preview", () => {
   it("returns 404 for an unknown code", async () => {
     mockEventRows.value = [];
     const app = makeApp();
-    const res = await request(app).get("/api/events/preview?code=NOPE");
+    const res = await request(app).get("/api/events/preview?code=PL-ZYXWVUTSRQPNMLKJHGFE");
     expect(res.status).toBe(404);
+  });
+
+  it("returns no public content for enumerable legacy short codes", async () => {
+    mockEventRows.value = [makeBaseEvent()];
+    const res = await request(makeTestApp(eventsRouter)).get("/api/events/preview?code=SQ-ABCD");
+    expect(res.status).toBe(204);
+    expect(res.body).toEqual({});
   });
 
   it("reports the plan type so a trip invite opens the trip screen", async () => {
@@ -162,7 +163,7 @@ describe("GET /api/events/preview", () => {
     mockUserRows.value = [{ firstName: "Sam", lastName: "Rivera" }];
 
     const app = makeApp();
-    const res = await request(app).get("/api/events/preview?code=SQ-ABCD");
+    const res = await request(app).get(`/api/events/preview?code=${SECURE_CODE}`);
 
     expect(res.status).toBe(200);
     expect(res.body.type).toBe("trip");
@@ -173,7 +174,7 @@ describe("GET /api/events/preview", () => {
     mockUserRows.value = [];
 
     const app = makeApp();
-    const res = await request(app).get("/api/events/preview?code=SQ-ABCD");
+    const res = await request(app).get(`/api/events/preview?code=${SECURE_CODE}`);
 
     expect(res.status).toBe(200);
     expect(res.body.type).toBe("event");
@@ -182,7 +183,7 @@ describe("GET /api/events/preview", () => {
   it("returns 410 for a cancelled event", async () => {
     mockEventRows.value = [makeBaseEvent({ cancelled: true })];
     const app = makeApp();
-    const res = await request(app).get("/api/events/preview?code=SQ-ABCD");
+    const res = await request(app).get(`/api/events/preview?code=${SECURE_CODE}`);
     expect(res.status).toBe(410);
   });
 
@@ -191,7 +192,7 @@ describe("GET /api/events/preview", () => {
     mockUserRows.value = [{ firstName: "Sam", lastName: "Rivera" }];
 
     const app = makeApp();
-    const res = await request(app).get("/api/events/preview?code=SQ-ABCD");
+    const res = await request(app).get(`/api/events/preview?code=${SECURE_CODE}`);
 
     expect(res.status).toBe(200);
     expect(res.body.type).toBe("trip");
@@ -202,7 +203,7 @@ describe("GET /api/events/preview", () => {
     mockUserRows.value = [{ firstName: "Sam", lastName: "Rivera" }];
 
     const app = makeApp();
-    const res = await request(app).get("/api/events/preview?code=SQ-ABCD");
+    const res = await request(app).get(`/api/events/preview?code=${SECURE_CODE}`);
 
     expect(res.status).toBe(200);
     expect(res.body.type).toBe("event");

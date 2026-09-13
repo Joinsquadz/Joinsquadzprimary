@@ -53,6 +53,11 @@
             {
               "scheme": "https",
               "host": "joinsquadz.com",
+              "pathPrefix": "/squad"
+            },
+            {
+              "scheme": "https",
+              "host": "joinsquadz.com",
               "pathPrefix": "/add/friend"
             },
             {
