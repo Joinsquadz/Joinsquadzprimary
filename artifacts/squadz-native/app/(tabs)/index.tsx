@@ -107,7 +107,19 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { currentUser, authToken, apiFetch } = useAuth();
   const { unreadCount: unreadActivity } = useActivity();
-  const { events, squads, friends, eventsLoading, squadsLoading, joinEvent, joinSquad, friendCode, refreshEvents, refreshSquads } = useData();
+  const {
+    events,
+    squads,
+    friends,
+    eventsLoading,
+    squadsLoading,
+    joinEvent,
+    joinSquad,
+    friendCode,
+    refreshEvents,
+    refreshSquads,
+    retryFriends,
+  } = useData();
   const { showToast } = useToast();
   const { formatEventTime } = useTimezone();
   const [refreshing, setRefreshing] = useState(false);
@@ -115,13 +127,17 @@ export default function HomeScreen() {
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await Promise.all([refreshEvents(), refreshSquads()]);
+      await Promise.all([
+        refreshEvents(),
+        refreshSquads(),
+        Promise.resolve(retryFriends()),
+      ]);
     } finally {
       // A rejected refresh must never leave the native RefreshControl spinning
       // forever. The individual loaders retain the last good data on failure.
       setRefreshing(false);
     }
-  }, [refreshEvents, refreshSquads]);
+  }, [refreshEvents, refreshSquads, retryFriends]);
   const [discoverEvents, setDiscoverEvents] = useState<DiscoverEvent[]>([]);
   const [discoverSquads, setDiscoverSquads] = useState<DiscoverSquad[]>([]);
   const [streaks, setStreaks] = useState<{ monthlyPlan: number; stayInTouch: number } | null>(null);
@@ -536,6 +552,11 @@ export default function HomeScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [topSquadMembersKey]);
 
+  const openFriends = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.push("/friends" as never);
+  };
+
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       {/* Header */}
@@ -592,28 +613,42 @@ export default function HomeScreen() {
         }
       >
         {/* Quick actions — always-present primary actions */}
-        <View style={[styles.section, { flexDirection: "row", gap: 12 }]}>
+        <View style={[styles.section, { flexDirection: "row", gap: 8 }]}>
           <TouchableOpacity
             onPress={handleFindTime}
             activeOpacity={0.85}
             style={[styles.quickAction, { backgroundColor: colors.primary + "12", borderColor: colors.primary + "30" }]}
+            accessibilityRole="button"
+            accessibilityLabel="Find a time"
           >
             <View style={[styles.quickIcon, { backgroundColor: colors.primary + "22" }]}>
               <Ionicons name="sparkles" size={20} color={colors.primary} />
             </View>
             <Text style={[styles.quickTitle, { color: colors.foreground }]}>Find a time</Text>
-            <Text style={[styles.quickSub, { color: colors.mutedForeground }]}>When's everyone free?</Text>
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => { void handleInvite(); }}
             activeOpacity={0.85}
             style={[styles.quickAction, { backgroundColor: "#2ECC8A12", borderColor: "#2ECC8A30" }]}
+            accessibilityRole="button"
+            accessibilityLabel="Invite to SquadZ"
           >
             <View style={[styles.quickIcon, { backgroundColor: "#2ECC8A22" }]}>
-              <Ionicons name="person-add" size={20} color="#2ECC8A" />
+              <Ionicons name="share-social-outline" size={20} color="#2ECC8A" />
             </View>
-            <Text style={[styles.quickTitle, { color: colors.foreground }]}>Invite crew</Text>
-            <Text style={[styles.quickSub, { color: colors.mutedForeground }]}>Better with friends</Text>
+            <Text style={[styles.quickTitle, { color: colors.foreground }]}>Invite to SquadZ</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={openFriends}
+            activeOpacity={0.85}
+            style={[styles.quickAction, { backgroundColor: "#4A9EFF12", borderColor: "#4A9EFF30" }]}
+            accessibilityRole="button"
+            accessibilityLabel="Add friend"
+          >
+            <View style={[styles.quickIcon, { backgroundColor: "#4A9EFF22" }]}>
+              <Ionicons name="person-add-outline" size={20} color="#4A9EFF" />
+            </View>
+            <Text style={[styles.quickTitle, { color: colors.foreground }]}>Add friend</Text>
           </TouchableOpacity>
         </View>
 
@@ -1533,13 +1568,14 @@ const styles = StyleSheet.create({
   coachEmoji: { fontSize: 18 },
   coachText: { flex: 1, fontSize: 13, lineHeight: 18, fontWeight: "600" },
   quickAction: {
-    flex: 1, borderRadius: 16, borderWidth: 1, padding: 14, gap: 6,
+    flex: 1, minHeight: 96, borderRadius: 16, borderWidth: 1, paddingHorizontal: 8,
+    paddingVertical: 12, gap: 7, alignItems: "center", justifyContent: "center",
   },
   quickIcon: {
     width: 36, height: 36, borderRadius: 11,
-    alignItems: "center", justifyContent: "center", marginBottom: 2,
+    alignItems: "center", justifyContent: "center",
   },
-  quickTitle: { fontSize: 15, fontWeight: "800" },
+  quickTitle: { fontSize: 12, lineHeight: 16, fontWeight: "800", textAlign: "center" },
   quickSub: { fontSize: 12 },
   emptyHero: {
     borderRadius: 22, borderWidth: 1, padding: 22, alignItems: "center", gap: 8,
