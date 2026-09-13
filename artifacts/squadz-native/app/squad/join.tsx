@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   Platform,
   ActivityIndicator,
+  TextInput,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -16,6 +17,7 @@ import { useData, useAuth } from "@/context/AppContext";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { API_BASE } from "@/lib/api";
 import { savePendingInviteCode, clearPendingInviteCode } from "@/lib/pendingInvite";
+import { normalizeSquadInviteCode } from "@/lib/inviteCode";
 import type { Squad } from "@/types";
 
 type SquadPreview = {
@@ -53,8 +55,12 @@ export default function SquadJoinScreen() {
   const [error, setError] = useState<string | null>(null);
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [preview, setPreview] = useState<SquadPreview | null>(null);
+  const [manualCode, setManualCode] = useState("");
+  const [submittedCode, setSubmittedCode] = useState<string | null>(null);
+  const [checkingCode, setCheckingCode] = useState(false);
 
-  const code = params.code?.trim().toUpperCase() ?? null;
+  const linkedCode = params.code ? normalizeSquadInviteCode(params.code) : "";
+  const code = linkedCode || submittedCode;
   const loggedIn = isLoggedIn || authIsLoggedIn;
 
   // B6: persist the pending invite code for logged-out visitors so the
@@ -68,6 +74,10 @@ export default function SquadJoinScreen() {
   useEffect(() => {
     if (!code) return;
     let cancelled = false;
+    setPreview(null);
+    setRevoked(false);
+    setError(null);
+    if (submittedCode) setCheckingCode(true);
     (async () => {
       try {
         const res = await fetch(
@@ -80,13 +90,17 @@ export default function SquadJoinScreen() {
           setRevoked(true);
         }
       } catch {
-        // Fall back to the generic invite hero.
+        if (!cancelled && submittedCode) {
+          setError("Couldn't check this invite code. Check your connection, then try again.");
+        }
+      } finally {
+        if (!cancelled) setCheckingCode(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [code]);
+  }, [code, submittedCode]);
 
   const handleJoin = useCallback(async () => {
     if (!code || joining) return;
@@ -156,19 +170,50 @@ export default function SquadJoinScreen() {
   };
 
   if (!code) {
+    const normalizedManualCode = normalizeSquadInviteCode(manualCode);
     return (
       <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: topPad }]}>
         <TouchableOpacity onPress={goHome} style={[styles.backBtn, { top: topPad + 8 }]}>
           <Ionicons name="chevron-back" size={24} color={colors.foreground} />
         </TouchableOpacity>
-        <View style={styles.centerWrap}>
-          <Ionicons name="link-outline" size={48} color={colors.textDim} />
-          <Text style={[styles.errorTitle, { color: colors.foreground }]}>Invalid Link</Text>
-          <Text style={[styles.errorSub, { color: colors.mutedForeground }]}>
-            This invite link is missing a code. Ask for a new one.
+        <View style={styles.entryWrap}>
+          <View style={[styles.entryIcon, { backgroundColor: colors.primary + "18" }]}>
+            <Ionicons name="ticket-outline" size={34} color={colors.primary} />
+          </View>
+          <Text style={[styles.entryTitle, { color: colors.foreground }]}>Join a squad</Text>
+          <Text style={[styles.entrySub, { color: colors.mutedForeground }]}>
+            Enter the invite code shared by a squad member.
           </Text>
-          <TouchableOpacity onPress={goHome} style={[styles.btn, { backgroundColor: colors.primary, marginTop: 24 }]}>
-            <Text style={[styles.btnText, { color: "#fff" }]}>Go Home</Text>
+          <View style={[styles.codeInputRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <TextInput
+              testID="squad-invite-code-input"
+              value={manualCode}
+              onChangeText={(value) => {
+                setManualCode(value.toUpperCase());
+                setError(null);
+              }}
+              placeholder="SQ-AB12"
+              placeholderTextColor={colors.textDim}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              returnKeyType="go"
+              onSubmitEditing={() => {
+                if (normalizedManualCode) setSubmittedCode(normalizedManualCode);
+              }}
+              style={[styles.codeInput, { color: colors.foreground }]}
+              autoFocus
+            />
+          </View>
+          <TouchableOpacity
+            testID="submit-squad-invite-code"
+            disabled={!normalizedManualCode}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              setSubmittedCode(normalizedManualCode);
+            }}
+            style={[styles.btn, { backgroundColor: colors.primary, marginTop: 20, alignSelf: "stretch", opacity: normalizedManualCode ? 1 : 0.5 }]}
+          >
+            <Text style={[styles.btnText, { color: "#fff" }]}>Continue →</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -190,8 +235,39 @@ export default function SquadJoinScreen() {
             This invite link is no longer valid — the squad creator may have regenerated it. Ask them for a fresh link.
           </Text>
           <TouchableOpacity onPress={goHome} style={[styles.btn, { backgroundColor: colors.primary, marginTop: 28 }]}>
-            <Text style={[styles.btnText, { color: "#fff" }]}>Go Home</Text>
+            <Text style={[styles.btnText, { color: "#fff" }]}>Back to Squads</Text>
           </TouchableOpacity>
+          {submittedCode ? (
+            <TouchableOpacity
+              onPress={() => {
+                setSubmittedCode(null);
+                setManualCode("");
+                setRevoked(false);
+                setPreview(null);
+                setError(null);
+              }}
+              style={[styles.authBtn, { borderColor: colors.primary, alignSelf: "stretch" }]}
+            >
+              <Text style={[styles.authBtnText, { color: colors.primary }]}>Try another code</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      </View>
+    );
+  }
+
+  if (checkingCode) {
+    return (
+      <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: topPad }]}>
+        <TouchableOpacity onPress={goHome} style={[styles.backBtn, { top: topPad + 8 }]}>
+          <Ionicons name="chevron-back" size={24} color={colors.foreground} />
+        </TouchableOpacity>
+        <View style={styles.centerWrap}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={[styles.errorTitle, { color: colors.foreground }]}>Checking invite code…</Text>
+          <Text style={[styles.errorSub, { color: colors.mutedForeground }]}>
+            Finding the squad this code belongs to.
+          </Text>
         </View>
       </View>
     );
@@ -363,6 +439,35 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 32,
+  },
+  entryWrap: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 28,
+  },
+  entryIcon: {
+    width: 72,
+    height: 72,
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 18,
+  },
+  entryTitle: { fontSize: 26, fontWeight: "800", textAlign: "center" },
+  entrySub: { fontSize: 14, lineHeight: 20, textAlign: "center", marginTop: 8, marginBottom: 22 },
+  codeInputRow: {
+    alignSelf: "stretch",
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+  },
+  codeInput: {
+    minHeight: 54,
+    fontSize: 20,
+    fontWeight: "800",
+    letterSpacing: 2,
+    textAlign: "center",
   },
   successIcon: {
     width: 100,

@@ -53,6 +53,7 @@ export default function OpenInApp({ kind, url }: { kind: LinkKind; url?: string 
 
   const [preview, setPreview] = useState<SquadPreview | null>(null);
   const [planPreview, setPlanPreview] = useState<PlanPreview | null>(null);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "success" | "failed">("idle");
 
   useEffect(() => {
     trackEvent("invite_fallback_viewed", {
@@ -199,6 +200,34 @@ export default function OpenInApp({ kind, url }: { kind: LinkKind; url?: string 
     }
   }
 
+  async function copyInviteCode() {
+    if (!code) return;
+    let copied = false;
+    try {
+      // execCommand must run synchronously in the click gesture. It works in
+      // embedded previews where the async Clipboard API may be blocked.
+      const textarea = document.createElement("textarea");
+      textarea.value = code;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      copied = document.execCommand("copy");
+      textarea.remove();
+      if (!copied && navigator.clipboard) {
+        await navigator.clipboard.writeText(code);
+        copied = true;
+      }
+    } catch {
+      copied = false;
+    }
+    setCopyStatus(copied ? "success" : "failed");
+    trackEvent("invite_code_copy", {
+      invite_type: kind,
+      result: copied ? "success" : "failed",
+    });
+  }
+
   return (
     <div style={{ background: T.bg, color: T.text, fontFamily: font, minHeight: "100dvh", display: "flex", flexDirection: "column" }}>
       <Helmet>
@@ -228,15 +257,36 @@ export default function OpenInApp({ kind, url }: { kind: LinkKind; url?: string 
               <div style={{ fontSize: 13, color: T.textDim, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700 }}>
                 {kind === "friend" ? "Friend code" : "Invite code"}
               </div>
-              <div
-                style={{
-                  display: "inline-block", padding: "12px 22px", borderRadius: 12,
-                  border: `1.5px dashed ${T.border}`, background: "rgba(255,255,255,0.04)",
-                  fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-                  fontSize: 22, fontWeight: 700, letterSpacing: "0.12em", userSelect: "all",
-                }}
-              >
-                {code}
+              <div style={{ display: "inline-flex", alignItems: "stretch", gap: 8, maxWidth: "100%" }}>
+                <div
+                  style={{
+                    display: "inline-flex", alignItems: "center", padding: "12px 18px", borderRadius: 12,
+                    border: `1.5px dashed ${T.border}`, background: "rgba(255,255,255,0.04)",
+                    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                    fontSize: 22, fontWeight: 700, letterSpacing: "0.12em", userSelect: "all",
+                  }}
+                >
+                  {code}
+                </div>
+                <button
+                  type="button"
+                  onClick={copyInviteCode}
+                  aria-label="Copy invite code"
+                  style={{
+                    border: `1px solid ${T.border}`, borderRadius: 12, padding: "0 16px",
+                    background: T.surfaceUp, color: T.text, fontFamily: font, fontSize: 14,
+                    fontWeight: 800, cursor: "pointer",
+                  }}
+                >
+                  {copyStatus === "success" ? "Copied!" : "Copy"}
+                </button>
+              </div>
+              <div role="status" aria-live="polite" style={{ minHeight: 18, fontSize: 12.5, color: copyStatus === "failed" ? T.gold : T.textDim, marginTop: 8 }}>
+                {copyStatus === "success"
+                  ? "Invite code copied."
+                  : copyStatus === "failed"
+                    ? "Copy failed. Select the code and copy it manually."
+                    : ""}
               </div>
               <p style={{ fontSize: 13.5, color: T.textDim, margin: "10px 0 0" }}>
                 Already have the app? Enter this code there to accept the invite.

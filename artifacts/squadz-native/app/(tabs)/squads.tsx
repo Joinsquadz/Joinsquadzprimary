@@ -332,6 +332,18 @@ export default function SquadsScreen() {
           <Ionicons name="add-circle-outline" size={22} color={colors.primary} />
           <Text style={[styles.createBtnText, { color: colors.primary }]}>Create a new squad</Text>
         </TouchableOpacity>
+        <TouchableOpacity
+          testID="join-squad-with-code"
+          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push("/squad/join"); }}
+          style={[styles.joinCodeBtn, { backgroundColor: colors.surfaceUp, borderColor: colors.border }]}
+        >
+          <Ionicons name="ticket-outline" size={21} color={colors.primary} />
+          <View style={styles.joinCodeBody}>
+            <Text style={[styles.joinCodeTitle, { color: colors.foreground }]}>Join with code</Text>
+            <Text style={[styles.joinCodeSub, { color: colors.mutedForeground }]}>Enter a squad invite code</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
+        </TouchableOpacity>
 
         {pendingInvites.length > 0 && (
           <View style={styles.inviteSection}>
@@ -478,6 +490,13 @@ const styles = StyleSheet.create({
     borderRadius: 16, borderWidth: 1.5, borderStyle: "dashed", padding: 16, marginTop: 6,
   },
   createBtnText: { fontSize: 15, fontWeight: "700" },
+  joinCodeBtn: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    borderRadius: 16, borderWidth: 1, padding: 14, marginTop: 10,
+  },
+  joinCodeBody: { flex: 1, gap: 2 },
+  joinCodeTitle: { fontSize: 15, fontWeight: "800" },
+  joinCodeSub: { fontSize: 12 },
   inviteSection: { marginTop: 24 },
   inviteSectionTitle: { fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 10 },
   inviteCard: {
