@@ -10,16 +10,26 @@ import React, {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import { useData } from "@/context/AppContext";
+import { track } from "@/lib/analytics";
 
 export type TipLayout = { x: number; y: number; width: number; height: number };
 
-export type SquadAnchorKey = "events" | "poll" | "chat";
+export type SquadAnchorKey = "events" | "plans" | "poll" | "chat" | "vault";
+export type CoachTourStep =
+  | "event"
+  | "trip"
+  | "availability"
+  | "chat"
+  | "moments"
+  | "vibe_feed"
+  | "vault";
 
 export type TipDef = {
   /** Where the tip lives: on the squad detail screen or anchored to the Feed tab. */
   place: "squad" | "feedTab";
   /** Which squad-screen element to anchor to (only for place === "squad"). */
   target?: SquadAnchorKey;
+  step: CoachTourStep;
   headline: string;
   body: string;
 };
@@ -32,30 +42,49 @@ export const TIPS: TipDef[] = [
   {
     place: "squad",
     target: "events",
+    step: "event",
     headline: "Create your first event",
     body: "Pick a date, add a location, and invite your crew.",
   },
   {
     place: "squad",
+    target: "plans",
+    step: "trip",
+    headline: "Plan your first trip",
+    body: "Build a shared itinerary, packing list, and plan with your squad.",
+  },
+  {
+    place: "squad",
     target: "poll",
+    step: "availability",
     headline: "Find a time everyone's free",
     body: "Drop a poll and let your squad respond.",
   },
   {
     place: "squad",
     target: "chat",
+    step: "chat",
     headline: "Talk it out",
     body: "Every squad has its own group chat — no more lost plans in a group text.",
   },
   {
     place: "feedTab",
+    step: "moments",
     headline: "Catch Moments here too",
     body: "Squad Moments and Friends Moments both live in your feed ring row at the top.",
   },
   {
     place: "feedTab",
+    step: "vibe_feed",
     headline: "See what your crew is up to",
     body: "Post a Vibe to let your friends know you're free.",
+  },
+  {
+    place: "squad",
+    target: "vault",
+    step: "vault",
+    headline: "Keep memories in your Squad Vault",
+    body: "Save your squad's photos and videos together in one private place.",
   },
 ];
 
@@ -75,7 +104,7 @@ type TipsContextValue = {
   /** Mark that the tour should begin on the first squad screen the user lands on. */
   armTour: () => void;
   /** Called by the squad screen once it has mounted with a loaded squad. */
-  maybeStartTour: () => void;
+  maybeStartTour: (squadId: string) => void;
   next: () => void;
   dismiss: () => void;
   setSquadAnchor: (key: SquadAnchorKey, layout: TipLayout | null) => void;
@@ -98,8 +127,10 @@ type TipsContextValue = {
 
 const EMPTY_ANCHORS: Record<SquadAnchorKey, TipLayout | null> = {
   events: null,
+  plans: null,
   poll: null,
   chat: null,
+  vault: null,
 };
 
 const TipsContext = createContext<TipsContextValue>({
@@ -128,8 +159,12 @@ export function TipsProvider({ children }: { children: React.ReactNode }) {
   const armedRef = useRef(false);
   const startedRef = useRef(false);
   const activeIndexRef = useRef<number | null>(null);
+  const activeSquadIdRef = useRef<string | null>(null);
+  const trackedStepsRef = useRef(new Set<CoachTourStep>());
+  const tourActionLockedRef = useRef(false);
   useEffect(() => {
     activeIndexRef.current = activeIndex;
+    tourActionLockedRef.current = false;
   }, [activeIndex]);
 
   const [seen, setSeen] = useState(false);
@@ -142,6 +177,8 @@ export function TipsProvider({ children }: { children: React.ReactNode }) {
   const [costSeenLoaded, setCostSeenLoaded] = useState(false);
   const eventCostActiveRef = useRef(false);
   const eventCostAnchorRef = useRef<TipLayout | null>(null);
+  const eventCostViewTrackedRef = useRef(false);
+  const eventCostDismissTrackedRef = useRef(false);
   useEffect(() => {
     eventCostActiveRef.current = eventCostActive;
   }, [eventCostActive]);
@@ -205,6 +242,12 @@ export function TipsProvider({ children }: { children: React.ReactNode }) {
     };
   }, [storageKey, costStorageKey]);
 
+  useEffect(() => {
+    trackedStepsRef.current.clear();
+    eventCostViewTrackedRef.current = false;
+    eventCostDismissTrackedRef.current = false;
+  }, [storageKey]);
+
   const persistSeen = useCallback(() => {
     setSeen(true);
     if (storageKey) AsyncStorage.setItem(storageKey, "1").catch(() => {});
@@ -215,11 +258,12 @@ export function TipsProvider({ children }: { children: React.ReactNode }) {
     startedRef.current = false;
   }, []);
 
-  const maybeStartTour = useCallback(() => {
+  const maybeStartTour = useCallback((squadId: string) => {
     if (!armedRef.current || startedRef.current) return;
     if (!seenLoaded || seen) return;
     if (activeIndexRef.current !== null) return;
     startedRef.current = true;
+    activeSquadIdRef.current = squadId;
     setActiveIndex(0);
   }, [seenLoaded, seen]);
 
@@ -227,13 +271,17 @@ export function TipsProvider({ children }: { children: React.ReactNode }) {
     armedRef.current = false;
     setActiveIndex(null);
     persistSeen();
+    activeSquadIdRef.current = null;
   }, [persistSeen]);
 
   const next = useCallback(() => {
+    if (tourActionLockedRef.current) return;
     const prev = activeIndexRef.current;
     if (prev === null) return;
+    tourActionLockedRef.current = true;
     const nextIdx = prev + 1;
     if (nextIdx >= TIPS.length) {
+      track("coach_tour_completed");
       finish();
       return;
     }
@@ -242,10 +290,21 @@ export function TipsProvider({ children }: { children: React.ReactNode }) {
     if (TIPS[prev].place === "squad" && TIPS[nextIdx].place === "feedTab") {
       router.replace("/(tabs)/feed" as never);
     }
+    if (TIPS[prev].place === "feedTab" && TIPS[nextIdx].place === "squad") {
+      const squadId = activeSquadIdRef.current;
+      if (squadId) {
+        router.replace({ pathname: "/squad/[id]", params: { id: squadId } } as never);
+      }
+    }
     setActiveIndex(nextIdx);
   }, [finish]);
 
   const dismiss = useCallback(() => {
+    if (tourActionLockedRef.current) return;
+    tourActionLockedRef.current = true;
+    const index = activeIndexRef.current;
+    const step = index === null ? null : TIPS[index]?.step;
+    if (step) track("coach_tour_dismissed", { step });
     finish();
   }, [finish]);
 
@@ -263,14 +322,28 @@ export function TipsProvider({ children }: { children: React.ReactNode }) {
     if (eventCostActiveRef.current) return;
     if (!costSeenLoaded || costSeen) return;
     if (activeIndexRef.current !== null) return;
+    eventCostViewTrackedRef.current = false;
+    eventCostDismissTrackedRef.current = false;
     setEventCostActive(true);
   }, [costSeenLoaded, costSeen]);
 
   const setEventCostAnchor = useCallback((layout: TipLayout | null) => {
     setEventCostAnchorState(layout);
+    if (
+      layout &&
+      eventCostActiveRef.current &&
+      !eventCostViewTrackedRef.current
+    ) {
+      eventCostViewTrackedRef.current = true;
+      track("event_cost_tip_viewed");
+    }
   }, []);
 
   const dismissEventCostTip = useCallback(() => {
+    if (eventCostActiveRef.current && !eventCostDismissTrackedRef.current) {
+      eventCostDismissTrackedRef.current = true;
+      track("event_cost_tip_dismissed");
+    }
     setEventCostActive(false);
     setEventCostAnchorState(null);
     setCostSeen(true);
@@ -281,6 +354,14 @@ export function TipsProvider({ children }: { children: React.ReactNode }) {
   // becomes allowed (tour ends, fail-safe releases a stuck flag, seen flag loads).
   const canShowEventCostTip =
     costSeenLoaded && !costSeen && activeIndex === null && !eventCostActive;
+
+  useEffect(() => {
+    if (activeIndex === null) return;
+    const step = TIPS[activeIndex]?.step;
+    if (!step || trackedStepsRef.current.has(step)) return;
+    trackedStepsRef.current.add(step);
+    track("coach_tour_step_viewed", { step });
+  }, [activeIndex]);
 
   const value: TipsContextValue = useMemo(
     () => ({

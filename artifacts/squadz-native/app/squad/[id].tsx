@@ -530,16 +530,20 @@ export default function SquadDetailScreen() {
   const { activeIndex, tips, setSquadAnchor, clearSquadAnchors, maybeStartTour } = useTips();
   const scrollRef = useRef<ScrollView>(null);
   const eventsAnchorRef = useRef<View>(null);
+  const plansAnchorRef = useRef<View>(null);
   const pollAnchorRef = useRef<View>(null);
   const chatAnchorRef = useRef<View>(null);
+  const vaultAnchorRef = useRef<View>(null);
   const eventsContentY = useRef(0);
+  const plansContentY = useRef(0);
   const pollContentY = useRef(0);
   const chatContentY = useRef(0);
+  const vaultContentY = useRef(0);
 
   // Start the tour once the squad has loaded (no-op unless armed at onboarding
   // and not yet seen by this user).
   useEffect(() => {
-    if (squad) maybeStartTour();
+    if (squad) maybeStartTour(squad.id);
   }, [squad, maybeStartTour]);
 
   // When a squad-screen tip activates, scroll its target into view and measure
@@ -552,11 +556,23 @@ export default function SquadDetailScreen() {
     const contentY =
       target === "events"
         ? eventsContentY.current
+        : target === "plans"
+          ? plansContentY.current
         : target === "poll"
           ? pollContentY.current
-          : chatContentY.current;
+          : target === "chat"
+            ? chatContentY.current
+            : vaultContentY.current;
     const anchorRef =
-      target === "events" ? eventsAnchorRef : target === "poll" ? pollAnchorRef : chatAnchorRef;
+      target === "events"
+        ? eventsAnchorRef
+        : target === "plans"
+          ? plansAnchorRef
+          : target === "poll"
+            ? pollAnchorRef
+            : target === "chat"
+              ? chatAnchorRef
+              : vaultAnchorRef;
     scrollRef.current?.scrollTo({ y: Math.max(0, contentY - 140), animated: true });
     const t = setTimeout(() => {
       anchorRef.current?.measureInWindow((x, y, width, height) => {
@@ -1064,6 +1080,10 @@ export default function SquadDetailScreen() {
             </TouchableOpacity>
             <View style={[styles.groupDivider, { backgroundColor: colors.border }]} />
             <TouchableOpacity
+              ref={vaultAnchorRef}
+              onLayout={(e) => {
+                vaultContentY.current = chatContentY.current + e.nativeEvent.layout.y;
+              }}
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 router.push(`/vault?squadId=${squad.id}&squadName=${encodeURIComponent(squad.name)}` as never);
@@ -1126,7 +1146,15 @@ export default function SquadDetailScreen() {
           }}
           style={{ marginTop: 24 }}
         >
-          <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Plans</Text>
+          <View
+            ref={plansAnchorRef}
+            collapsable={false}
+            onLayout={(e) => {
+              plansContentY.current = eventsContentY.current + e.nativeEvent.layout.y;
+            }}
+          >
+            <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Plans</Text>
+          </View>
         </View>
         {squadEvents.length === 0 ? (
           <TouchableOpacity

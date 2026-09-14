@@ -26,6 +26,7 @@ import { UpgradeModal } from "@/components/UpgradeModal";
 import { EMOJI_CHOICES } from "@/constants/emojis";
 import { pendingInviteRoute, readPendingInvite, type PendingInvite } from "@/lib/pendingInvite";
 import { publicSquadUrl, squadInviteUrl } from "@/lib/inviteLinks";
+import { track } from "@/lib/analytics";
 
 const SQUAD_COLORS = ["#FF6B2C", "#A855F7", "#2ECC8A", "#4A9EFF", "#FFB23E", "#FF6B2C"];
 const SQUAD_CHIPS = ["Friend Group", "Coworkers", "Family", "College", "Roommates", "Sports"];
@@ -48,6 +49,7 @@ export default function OnboardingScreen() {
   const params = useLocalSearchParams<{ inviteEventId?: string; inviteTitle?: string; publicSquadId?: string; joinEventCode?: string; squadCode?: string; squadName?: string; squadEmoji?: string; inviteCode?: string; friendCode?: string }>();
   const [upgradeModalVisible, setUpgradeModalVisible] = useState(false);
   const [storedInvite, setStoredInvite] = useState<PendingInvite | null>(null);
+  const [storedInviteLoaded, setStoredInviteLoaded] = useState(false);
 
   // Users arriving from a shared invite link should NOT be asked to build their
   // own squad — fast-track them straight into the squad/event they were invited
@@ -58,7 +60,10 @@ export default function OnboardingScreen() {
     let cancelled = false;
     void (async () => {
       const invite = await readPendingInvite();
-      if (!cancelled) setStoredInvite(invite);
+      if (!cancelled) {
+        setStoredInvite(invite);
+        setStoredInviteLoaded(true);
+      }
     })();
     return () => { cancelled = true; };
   }, []);
@@ -74,6 +79,23 @@ export default function OnboardingScreen() {
   const [createdSquadId, setCreatedSquadId] = useState<string | null>(null);
   // First-squad milestone beat between "create" and the invite step.
   const [showFirstSquadCelebration, setShowFirstSquadCelebration] = useState(false);
+  const viewedStepsRef = useRef(new Set<number>());
+  const fastPathTrackedRef = useRef(false);
+  const completionTrackedRef = useRef(false);
+
+  useEffect(() => {
+    if (!storedInviteLoaded) return;
+    if (isJoining) {
+      if (!fastPathTrackedRef.current) {
+        fastPathTrackedRef.current = true;
+        track("onboarding_invite_fast_path_viewed");
+      }
+      return;
+    }
+    if (viewedStepsRef.current.has(step)) return;
+    viewedStepsRef.current.add(step);
+    track(step === 0 ? "onboarding_squad_step_viewed" : "onboarding_invite_step_viewed");
+  }, [isJoining, step, storedInviteLoaded]);
 
   // Resume an abandoned onboarding: if a squad already exists (created in a
   // previous session before the app was closed), skip the create step and drop
@@ -108,6 +130,9 @@ export default function OnboardingScreen() {
     : `I'm on SquadZ — let's plan our next hangout and find a time everyone's free. Add me with my code ${friendCode}\nhttps://joinsquadz.com`;
 
   const handleComplete = () => {
+    if (completionTrackedRef.current) return;
+    completionTrackedRef.current = true;
+    track(createdSquadId ? "onboarding_completed" : "onboarding_skipped");
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     login();
     if (params.inviteEventId) {
@@ -153,6 +178,7 @@ export default function OnboardingScreen() {
       const color = SQUAD_COLORS[Math.max(0, emojiIndex) % SQUAD_COLORS.length] ?? "#FF6B2C";
       const wasFirstSquad = squads.length === 0;
       const id = await addSquad({ name: squadName.trim(), emoji: squadEmoji, color, isPublic: false });
+      track("onboarding_squad_created");
       setCreatedSquadId(id);
       setCreating(false);
       if (wasFirstSquad && (await claimOnce("firstsquad", currentUser.id))) {
@@ -174,6 +200,7 @@ export default function OnboardingScreen() {
   async function handleCopy() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     await Clipboard.setStringAsync(inviteLink);
+    track("onboarding_invite_copied", { has_onboarding_squad: !!createdSquadId });
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
   }
@@ -183,6 +210,7 @@ export default function OnboardingScreen() {
     try {
       const result = await Share.share({ message: shareMessage });
       if (result.action === Share.sharedAction) {
+        track("onboarding_invite_shared", { has_onboarding_squad: !!createdSquadId });
         handleComplete();
       }
     } catch {
@@ -366,7 +394,13 @@ export default function OnboardingScreen() {
               onPress={() => { void handleCreateSquad(); }}
               disabled={!squadName.trim() || creating}
             />
-            <TouchableOpacity onPress={() => setStep(1)} style={{ alignItems: "center", padding: 4 }}>
+            <TouchableOpacity
+              onPress={() => {
+                track("onboarding_squad_skipped");
+                setStep(1);
+              }}
+              style={{ alignItems: "center", padding: 4 }}
+            >
               <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>Skip — I'll make a squad later</Text>
             </TouchableOpacity>
           </View>

@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   View,
   Text,
@@ -20,6 +20,7 @@ import { GradientButton } from "@/components/GradientButton";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { fonts } from "@/constants/fonts";
 import { pendingInviteRoute, readPendingInvite } from "@/lib/pendingInvite";
+import { track } from "@/lib/analytics";
 
 type Screen = "splash" | "signin";
 
@@ -59,6 +60,13 @@ export default function LoginScreen() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const passwordRef = useRef<TextInput>(null);
+  const welcomeTrackedRef = useRef(false);
+
+  useEffect(() => {
+    if (screen !== "splash" || hasInvite || hasSquadInvite || welcomeTrackedRef.current) return;
+    welcomeTrackedRef.current = true;
+    track("onboarding_welcome_viewed");
+  }, [screen, hasInvite, hasSquadInvite]);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
@@ -319,7 +327,10 @@ export default function LoginScreen() {
         <View style={styles.ctaSection}>
           <GradientButton
             label="Get Started — It's Free ✨"
-            onPress={() => router.push({ pathname: "/signup", params } as never)}
+            onPress={() => {
+              track("onboarding_get_started");
+              router.push({ pathname: "/signup", params } as never);
+            }}
           />
           <TouchableOpacity
             onPress={() => setScreen("signin")}
