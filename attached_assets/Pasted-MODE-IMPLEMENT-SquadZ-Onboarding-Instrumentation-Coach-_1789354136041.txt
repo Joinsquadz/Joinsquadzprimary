@@ -1,0 +1,60 @@
+MODE: IMPLEMENT
+
+# SquadZ — Onboarding Instrumentation + Coach Tour Extension
+
+## Deployment track: OTA-eligible
+
+Pure JS/TS changes to existing screens and context providers. No new native modules, no new permissions, no native build required.
+
+## Locked decisions
+
+- All new PostHog events use the naming and calling convention already established for `signup` / `login` / `logout` / `account_deleted` in `context/AppContext.tsx`. Mirror that exact pattern, don't introduce a new capture method.
+- No PII in event properties. Squad names, invite codes, and user names are never sent as properties.
+- New coach tour steps are added to the existing sequence array in `TipsContext.tsx` and use the existing `tips_seen_<userId>` persistence key. No new persistence key.
+- Test baseline preservation applies: standing baseline test counts must be preserved. Account explicitly for any new or changed tests.
+
+---
+
+## Part 1: PostHog instrumentation
+
+Add capture calls at the following points. Fire each exactly once per occurrence (not on every re-render).
+
+| Event | Fires when | Properties |
+|---|---|---|
+| `onboarding_welcome_viewed` | `/login` renders in its default signed-out state | none |
+| `onboarding_get_started_tapped` | `Get Started — It's Free ✨` tapped on `/login` | none |
+| `onboarding_squad_step_viewed` | The create-first-squad step of `/onboarding` renders | none |
+| `onboarding_squad_created` | Squad successfully created from onboarding | none |
+| `onboarding_squad_skipped` | `Skip — I'll make a squad later` tapped | none |
+| `onboarding_invite_step_viewed` | The invite-crew step of `/onboarding` renders | none |
+| `onboarding_invite_link_copied` | `Copy` tapped on the invite step | none |
+| `onboarding_invite_share_tapped` | `Send to your crew` tapped | none |
+| `onboarding_invite_step_completed` | `Done — take me to my squad →` tapped | none |
+| `onboarding_invite_step_skipped` | `Skip for now` tapped on the invite step | none |
+| `onboarding_invite_fastpath_landed` | The invite-specific `You're in, {name}!` fast path renders | none |
+| `coach_tour_step_viewed` | Each coach mark step renders | `{ step: string }` — use `"event"`, `"trip"`, `"availability"`, `"chat"`, `"moments"`, `"vibe_feed"`, `"vault"` (see Part 2 for the two new steps) |
+| `coach_tour_completed` | `Done` tapped on the final coach tour step | none |
+| `coach_tour_skipped` | The close button tapped mid-tour | `{ step: string }` — the step active when closed |
+| `event_cost_tip_viewed` | The standalone event-cost coach mark renders | none |
+| `event_cost_tip_dismissed` | `Got it` tapped on the event-cost coach mark | none |
+
+---
+
+## Part 2: Extend the coach tour to Trips and Vault
+
+The current sequence (in `TipsContext.tsx` / `TipCoachMark.tsx`) is: Squad event → Availability → Squad chat → Moments ring → Vibe Feed. Insert two new steps:
+
+1. **Trip step** — insert immediately after the squad event step. Anchor it to the "Plans" section in squad detail (the one with the `No plans yet · start an event or a trip` empty state, per `app/squad/[id].tsx`), or to the most reliable measurable target for trip-starting intent if that empty state isn't a stable anchor. Copy: **"Plan a trip here too"**
+2. **Vault step** — insert immediately after the Vibe Feed step. Anchor it to the `Squad Vault` / `View vault · private memories` row in squad detail. Copy: **"Photos land in your Vault"**
+
+Final sequence: Squad event → Trip → Availability → Squad chat → Moments ring → Vibe Feed → Vault.
+
+Use the same overlay mechanics, controls (`Next` / `Done` / close), and anchor-measurement approach already used for the existing steps. Don't build a parallel system.
+
+---
+
+## Verification
+
+- Confirm standing baseline test count is preserved; account for any new/changed tests explicitly.
+- Confirm no existing coach tour step's behavior changes, only insertion of the two new steps.
+- Confirm events fire exactly once per occurrence, not on remount/re-render.
