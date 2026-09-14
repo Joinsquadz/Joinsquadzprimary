@@ -9,9 +9,53 @@ const Support = lazy(() => import("@/pages/Support"));
 const NotFound = lazy(() => import("@/pages/NotFound"));
 const OpenInApp = lazy(() => import("@/pages/OpenInApp"));
 
+function RouteLoadingFallback() {
+  return (
+    <div
+      role="status"
+      aria-label="Loading SquadZ"
+      style={{
+        boxSizing: "border-box",
+        minHeight: "100dvh",
+        display: "grid",
+        placeItems: "center",
+        padding: 24,
+        background:
+          "radial-gradient(circle at 50% 35%, rgba(255, 92, 58, 0.16), transparent 34%), #0a0a0f",
+        color: "#f0eff8",
+        fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+      }}
+    >
+      <div style={{ textAlign: "center" }}>
+        <div
+          aria-hidden="true"
+          style={{
+            width: 52,
+            height: 52,
+            display: "grid",
+            placeItems: "center",
+            margin: "0 auto 14px",
+            borderRadius: 15,
+            background: "linear-gradient(135deg, #ff5c3a, #ffb547)",
+            color: "#0a0a0f",
+            fontFamily: "Georgia, serif",
+            fontSize: 36,
+            fontWeight: 700,
+          }}
+        >
+          Z
+        </div>
+        <div style={{ fontFamily: "Georgia, serif", fontSize: 25, fontWeight: 700 }}>
+          SquadZ
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Router() {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<RouteLoadingFallback />}>
       <Switch>
         <Route path="/" component={Landing} />
         <Route path="/privacy" component={Privacy} />

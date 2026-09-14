@@ -26,11 +26,31 @@ if (!basePath) {
   );
 }
 
+const nonBlockingStyles = {
+  name: "squadz-non-blocking-styles",
+  enforce: "post" as const,
+  transformIndexHtml(html: string) {
+    if (process.env.NODE_ENV !== "production") {
+      return html;
+    }
+
+    return html.replace(
+      /<link rel="stylesheet" crossorigin href="([^"]+)">/g,
+      [
+        '<link rel="preload" as="style" href="$1">',
+        '<link rel="stylesheet" href="$1" media="print" onload="this.media=\'all\'">',
+        '<noscript><link rel="stylesheet" href="$1"></noscript>',
+      ].join(""),
+    );
+  },
+};
+
 export default defineConfig({
   base: basePath,
   plugins: [
     react(),
     tailwindcss(),
+    nonBlockingStyles,
     runtimeErrorOverlay(),
     ...(process.env.NODE_ENV !== "production" &&
     process.env.REPL_ID !== undefined
