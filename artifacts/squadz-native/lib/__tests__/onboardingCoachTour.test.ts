@@ -19,8 +19,37 @@ describe("onboarding analytics contract", () => {
     expect(onboarding).toContain('track("onboarding_squad_skipped")');
     expect(onboarding).toContain('track("onboarding_invite_copied", { has_onboarding_squad: !!createdSquadId })');
     expect(onboarding).toContain('track("onboarding_invite_shared", { has_onboarding_squad: !!createdSquadId })');
-    expect(onboarding).toContain('track(createdSquadId ? "onboarding_completed" : "onboarding_skipped")');
+    expect(onboarding).toContain('createdSquadId ? "onboarding_completed" : "onboarding_skipped"');
+    expect(onboarding).toContain('createdSquadId ? { sent_invite: inviteEngagedRef.current } : undefined');
     expect(onboarding).toContain('track("onboarding_invite_fast_path_viewed")');
+  });
+
+  it("tracks invite engagement only for successful copy/share completion", () => {
+    const onboarding = read("app/onboarding.tsx");
+    const copyStart = onboarding.indexOf("async function handleCopy()");
+    const shareStart = onboarding.indexOf("async function handleShare()");
+    const completionStart = onboarding.indexOf("const handleComplete = () =>");
+
+    expect(copyStart).toBeGreaterThan(-1);
+    expect(shareStart).toBeGreaterThan(copyStart);
+    expect(completionStart).toBeGreaterThan(-1);
+    expect(onboarding.slice(completionStart, copyStart)).toContain(
+      'createdSquadId ? "onboarding_completed" : "onboarding_skipped"',
+    );
+    expect(onboarding.slice(completionStart, copyStart)).toContain(
+      'createdSquadId ? { sent_invite: inviteEngagedRef.current } : undefined',
+    );
+
+    const copyBlock = onboarding.slice(copyStart, shareStart);
+    expect(copyBlock).toContain("await Clipboard.setStringAsync(inviteLink);");
+    expect(copyBlock).toContain("inviteEngagedRef.current = true;");
+    expect(copyBlock).toContain('track("onboarding_invite_copied", { has_onboarding_squad: !!createdSquadId })');
+
+    const shareBlock = onboarding.slice(shareStart);
+    expect(shareBlock).toContain("if (result.action === Share.sharedAction)");
+    expect(shareBlock).toContain("inviteEngagedRef.current = true;");
+    expect(shareBlock).toContain('track("onboarding_invite_shared", { has_onboarding_squad: !!createdSquadId })');
+    expect(shareBlock).toContain("handleComplete();");
   });
 
   it("deduplicates welcome, step, fast-path, and cost-tip views across rerenders", () => {

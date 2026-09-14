@@ -82,6 +82,7 @@ export default function OnboardingScreen() {
   const viewedStepsRef = useRef(new Set<number>());
   const fastPathTrackedRef = useRef(false);
   const completionTrackedRef = useRef(false);
+  const inviteEngagedRef = useRef(false);
 
   useEffect(() => {
     if (!storedInviteLoaded) return;
@@ -132,7 +133,10 @@ export default function OnboardingScreen() {
   const handleComplete = () => {
     if (completionTrackedRef.current) return;
     completionTrackedRef.current = true;
-    track(createdSquadId ? "onboarding_completed" : "onboarding_skipped");
+    track(
+      createdSquadId ? "onboarding_completed" : "onboarding_skipped",
+      createdSquadId ? { sent_invite: inviteEngagedRef.current } : undefined,
+    );
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     login();
     if (params.inviteEventId) {
@@ -200,6 +204,7 @@ export default function OnboardingScreen() {
   async function handleCopy() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     await Clipboard.setStringAsync(inviteLink);
+    inviteEngagedRef.current = true;
     track("onboarding_invite_copied", { has_onboarding_squad: !!createdSquadId });
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
@@ -210,6 +215,7 @@ export default function OnboardingScreen() {
     try {
       const result = await Share.share({ message: shareMessage });
       if (result.action === Share.sharedAction) {
+        inviteEngagedRef.current = true;
         track("onboarding_invite_shared", { has_onboarding_squad: !!createdSquadId });
         handleComplete();
       }
