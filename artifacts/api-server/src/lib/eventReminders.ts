@@ -61,6 +61,20 @@ function eventStartFor(
   return parseEventStart(event.date, now);
 }
 
+// Recaps for multi-day trips are measured from their stored end. Plain events,
+// legacy rows, and trips without a valid end retain the existing start/display
+// date behavior.
+function eventRecapTimeFor(
+  event: { eventAt?: Date | string | null; endAt?: Date | string | null; date: string },
+  now: Date,
+): Date | null {
+  if (event.endAt) {
+    const t = event.endAt instanceof Date ? event.endAt : new Date(event.endAt);
+    if (!Number.isNaN(t.getTime())) return t;
+  }
+  return eventStartFor(event, now);
+}
+
 export type PushRecipient = { pushToken: string; timezone: string | null };
 
 /**
@@ -504,9 +518,9 @@ export async function runEventRecapScan(): Promise<void> {
   const events = await storage.getEventsPendingRecap();
   const now = new Date();
   for (const event of events) {
-    const start = eventStartFor(event, now);
-    if (!start) continue;
-    const msSince = now.getTime() - start.getTime();
+    const recapTime = eventRecapTimeFor(event, now);
+    if (!recapTime) continue;
+    const msSince = now.getTime() - recapTime.getTime();
     if (msSince < RECAP_DELAY_MS) continue; // not over yet
     if (msSince > RECAP_MAX_AGE_MS) {
       // Too old to feel timely — retire it so we stop reprocessing.

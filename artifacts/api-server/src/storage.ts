@@ -2902,11 +2902,13 @@ export class Storage {
           isNull(eventsTable.recapPromptSentAt),
           ne(eventsTable.date, ""),
           ne(eventsTable.date, "TBD"),
-          // SQL-level guard: only include events that have plausibly started
-          // (event_at <= NOW() - 2h, matching the RECAP_DELAY_MS minimum).
-          // Events without eventAt are kept for JS-level text parsing (they are
-          // skipped by eventStartFor returning null). Future events are excluded.
-          or(isNull(eventsTable.eventAt), sql`${eventsTable.eventAt} <= NOW() - interval '2 hours'`),
+          // SQL-level guard: recap timing uses a trip's end when present and
+          // otherwise its event start. Rows without either timestamp stay in
+          // the candidate set for JS-level legacy display-date parsing.
+          or(
+            and(isNull(eventsTable.endAt), isNull(eventsTable.eventAt)),
+            sql`COALESCE(${eventsTable.endAt}, ${eventsTable.eventAt}) <= NOW() - interval '3 hours'`,
+          ),
         ),
       );
   }

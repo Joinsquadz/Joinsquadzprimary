@@ -502,6 +502,63 @@ describe("runEventRecapScan", () => {
     expect(storageMock.markEventRecapSent).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["during the trip", 24 * 60 * 60 * 1000],
+    ["just before the post-end delay", -(RECAP_DELAY_MS - 1)],
+  ])("does NOT send a multi-day trip recap %s", async (_label, endOffsetMs) => {
+    const now = new Date("2026-09-21T12:00:00.000Z");
+    vi.useFakeTimers({ now });
+    storageMock.getEventsPendingRecap.mockResolvedValue([
+      evt({
+        type: "trip",
+        eventAt: new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000),
+        endAt: new Date(now.getTime() + endOffsetMs),
+      }),
+    ]);
+
+    await runEventRecapScan();
+
+    expect(sendPushNotificationsMock).not.toHaveBeenCalled();
+    expect(storageMock.markEventRecapSent).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("sends a multi-day trip recap at the three-hour post-end boundary", async () => {
+    const now = new Date("2026-09-21T12:00:00.000Z");
+    vi.useFakeTimers({ now });
+    storageMock.getEventsPendingRecap.mockResolvedValue([
+      evt({
+        type: "trip",
+        eventAt: new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000),
+        endAt: new Date(now.getTime() - RECAP_DELAY_MS),
+      }),
+    ]);
+
+    await runEventRecapScan();
+
+    expect(sendPushNotificationsMock).toHaveBeenCalledTimes(1);
+    expect(storageMock.tryClaimEventRecapSend).toHaveBeenCalledWith("evt-1");
+    vi.useRealTimers();
+  });
+
+  it("retires a multi-day trip after 48 hours measured from its end", async () => {
+    const now = new Date("2026-09-21T12:00:00.000Z");
+    vi.useFakeTimers({ now });
+    storageMock.getEventsPendingRecap.mockResolvedValue([
+      evt({
+        type: "trip",
+        eventAt: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000),
+        endAt: new Date(now.getTime() - RECAP_MAX_AGE_MS - 1),
+      }),
+    ]);
+
+    await runEventRecapScan();
+
+    expect(sendPushNotificationsMock).not.toHaveBeenCalled();
+    expect(storageMock.markEventRecapSent).toHaveBeenCalledWith("evt-1");
+    vi.useRealTimers();
+  });
+
   it("retires very old events via eventAt even when the display date is the year-less app format", async () => {
     // Real-world shape: a stale event keeps its human-readable year-less display
     // string (which the parser would roll forward a year, hiding its true age),
