@@ -1,0 +1,21 @@
+# Diagnose Native Serve Startup Failure Blocking Deploy (Report Only)
+
+**MODE: REPORT (read only). Do not deploy, modify code, or change deployment settings yet.**
+
+## Context
+
+The API side of the deployment is fine, it reaches `Server listening` on port 8080 with no crash and no missing variable error. The failure is isolated to `squadz-native`'s serve process (`pnpm --filter @workspace/squadz-native run serve`), which starts, never crashes, but also never logs its expected `Serving static Expo build on port 22402` line. It never reaches its listen call, and the previous diagnosis couldn't tell why from the available logs alone.
+
+This deploy attempt is the same one meant to carry both the notification fixes and whatever recent client side changes, settings screen removals, itinerary invite behavior, are currently sitting in the workspace. Those client changes have not been separately audited yet.
+
+## What to report
+
+1. Recent git history touching `artifacts/squadz-native`, specifically anything from the settings and itinerary invite work mentioned. Does anything there plausibly affect the serve script or its startup path?
+2. Run `pnpm --filter @workspace/squadz-native run serve` directly in the workspace, not through the deploy pipeline, with maximum verbosity, and see if it reproduces the same hang. Capture whatever output appears, or the exact point it stops at.
+3. What does this native serve process actually serve? Is it required for universal links, the apple app site association file, an Expo web build, an EAS update manifest, or something else? This determines how much it actually matters versus being safe to work around temporarily.
+4. Has this specific deploy target, the native artifact on port 22402, ever succeeded in a previous deployment, or is there no confirmed history of it working? If there's a last known good deploy log, note when that was.
+5. Is the API deployable on its own, independent of this native artifact, even temporarily, so the notification fix could ship without waiting on this to be resolved? Don't change any settings, just report whether that option exists and what it would involve.
+
+## Output
+
+Plain answers to the five points above. No fixes, no deploy attempts, no config changes. This determines whether the native serve issue gets fixed directly or the API fix ships on its own first.
