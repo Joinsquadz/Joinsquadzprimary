@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -15,7 +15,7 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useData, useAuth } from "@/context/AppContext";
 import { UpgradeModal } from "@/components/UpgradeModal";
-import { API_BASE } from "@/lib/api";
+import { API_BASE, fetchWithTimeout } from "@/lib/api";
 import { savePendingInviteCode, clearPendingInviteCode } from "@/lib/pendingInvite";
 import { normalizeSquadInviteCode } from "@/lib/inviteCode";
 import type { Squad } from "@/types";
@@ -55,6 +55,8 @@ export default function SquadJoinScreen() {
   const [error, setError] = useState<string | null>(null);
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [preview, setPreview] = useState<SquadPreview | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewAttempt, setPreviewAttempt] = useState(0);
   const [manualCode, setManualCode] = useState("");
   const [submittedCode, setSubmittedCode] = useState<string | null>(null);
   const [checkingCode, setCheckingCode] = useState(false);
@@ -76,11 +78,12 @@ export default function SquadJoinScreen() {
     let cancelled = false;
     setPreview(null);
     setRevoked(false);
+    setPreviewError(null);
     setError(null);
-    if (submittedCode) setCheckingCode(true);
+    setCheckingCode(true);
     (async () => {
       try {
-        const res = await fetch(
+        const res = await fetchWithTimeout(
           `${API_BASE}/api/squads/preview?code=${encodeURIComponent(code)}`,
         );
         if (res.ok) {
@@ -88,10 +91,12 @@ export default function SquadJoinScreen() {
           if (!cancelled) setPreview(data);
         } else if (res.status === 404 && !cancelled) {
           setRevoked(true);
+        } else if (!cancelled) {
+          setPreviewError("We couldn't load this invite. Check your connection, then try again.");
         }
       } catch {
-        if (!cancelled && submittedCode) {
-          setError("Couldn't check this invite code. Check your connection, then try again.");
+        if (!cancelled) {
+          setPreviewError("We couldn't load this invite. Check your connection, then try again.");
         }
       } finally {
         if (!cancelled) setCheckingCode(false);
@@ -100,7 +105,7 @@ export default function SquadJoinScreen() {
     return () => {
       cancelled = true;
     };
-  }, [code, submittedCode]);
+  }, [code, previewAttempt]);
 
   const handleJoin = useCallback(async () => {
     if (!code || joining) return;
@@ -268,6 +273,42 @@ export default function SquadJoinScreen() {
           <Text style={[styles.errorSub, { color: colors.mutedForeground }]}>
             Finding the squad this code belongs to.
           </Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (previewError) {
+    return (
+      <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: topPad }]}>
+        <TouchableOpacity onPress={goHome} style={[styles.backBtn, { top: topPad + 8 }]}>
+          <Ionicons name="chevron-back" size={24} color={colors.foreground} />
+        </TouchableOpacity>
+        <View style={styles.centerWrap}>
+          <View style={[styles.revokedIcon, { backgroundColor: colors.destructive + "15" }]}>
+            <Ionicons name="cloud-offline-outline" size={40} color={colors.destructive} />
+          </View>
+          <Text style={[styles.errorTitle, { color: colors.foreground }]}>Couldn't load invite</Text>
+          <Text style={[styles.errorSub, { color: colors.mutedForeground }]}>{previewError}</Text>
+          <TouchableOpacity
+            testID="retry-squad-invite-preview"
+            onPress={() => setPreviewAttempt((attempt) => attempt + 1)}
+            style={[styles.btn, { backgroundColor: colors.primary, marginTop: 28 }]}
+          >
+            <Text style={[styles.btnText, { color: "#fff" }]}>Try again</Text>
+          </TouchableOpacity>
+          {submittedCode ? (
+            <TouchableOpacity
+              onPress={() => {
+                setSubmittedCode(null);
+                setManualCode("");
+                setPreviewError(null);
+              }}
+              style={[styles.authBtn, { borderColor: colors.primary, alignSelf: "stretch" }]}
+            >
+              <Text style={[styles.authBtnText, { color: colors.primary }]}>Try another code</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       </View>
     );
