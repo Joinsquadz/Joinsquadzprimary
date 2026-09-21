@@ -20,7 +20,7 @@ import {
 import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { SettleUp } from "@/components/SettleUp";
 import type { Event as SquadzEvent } from "@/types";
-import { isEventPast, resolveEventStart } from "@/lib/calendar";
+import { isEventPast, nextEventCompletionDelay, resolveEventStart } from "@/lib/calendar";
 import { buildPlanIcs } from "@/lib/ics";
 import { shareIcsFile } from "@/lib/shareIcs";
 import { findMyConflicts, getPlanSpan } from "@/lib/conflicts";
@@ -89,6 +89,8 @@ import {
   resetAuthRaceState,
   type AuthRaceState,
 } from "@/lib/vaultAuthRace";
+
+const MAX_TIMER_DELAY_MS = 2_147_000_000;
 
 type EventTab = "overview" | "ideas" | "guests" | "tasks" | "food" | "costs" | "chat" | "photos" | "admin";
 
@@ -191,7 +193,18 @@ export default function EventDetailScreen() {
   const ctxEvent = getEvent(id ?? "");
   const [fallbackEvent, setFallbackEvent] = useState<import("@/types").Event | null>(null);
   const [fallbackAuthRace, setFallbackAuthRace] = useState<AuthRaceState>(INITIAL_AUTH_RACE_STATE);
+  const [completionTick, setCompletionTick] = useState(0);
   const event = ctxEvent ?? fallbackEvent;
+
+  useEffect(() => {
+    const delay = event ? nextEventCompletionDelay([event]) : null;
+    if (delay === null) return;
+    const timer = setTimeout(
+      () => setCompletionTick((tick) => tick + 1),
+      Math.min(delay + 1, MAX_TIMER_DELAY_MS),
+    );
+    return () => clearTimeout(timer);
+  }, [event?.id, event?.date, event?.eventAt, event?.startAt, event?.endAt, completionTick]);
 
   const fetchFallbackEvent = useCallback(async (track = false) => {
     if (!id) return;

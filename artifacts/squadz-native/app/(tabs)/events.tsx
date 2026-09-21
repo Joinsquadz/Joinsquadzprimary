@@ -25,7 +25,7 @@ import { TripCard } from "@/components/TripCard";
 import type { Event } from "@/types";
 import { goingCount } from "@/lib/eventUtils";
 import { isTripPast, isHappeningNow } from "@/lib/tripUtils";
-import { isEventPast, sortPastPlansNewestFirst } from "@/lib/calendar";
+import { isEventPast, nextEventCompletionDelay, sortPastPlansNewestFirst } from "@/lib/calendar";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 // Shared auth-race guard (see lib/vaultAuthRace.ts). This screen has its own
 // events fetch (includePast), so a cold-start / slow-login 401 here must keep it
@@ -40,6 +40,7 @@ import {
 } from "@/lib/vaultAuthRace";
 
 type Segment = "trips" | "events" | "past";
+const MAX_TIMER_DELAY_MS = 2_147_000_000;
 const SEGMENTS: { key: Segment; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { key: "trips", label: "Trips", icon: "airplane-outline" },
   { key: "events", label: "Events", icon: "calendar-outline" },
@@ -241,6 +242,7 @@ export default function PlansScreen() {
   const [hasMore, setHasMore] = useState(false);
   const [nextOffset, setNextOffset] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [completionTick, setCompletionTick] = useState(0);
   // Auth-race guard for the cold-start fetch (see lib/vaultAuthRace.ts).
   const [authRace, setAuthRace] = useState<AuthRaceState>(INITIAL_AUTH_RACE_STATE);
 
@@ -316,6 +318,16 @@ export default function PlansScreen() {
     }
   }, [authRace, load]);
 
+  useEffect(() => {
+    const delay = nextEventCompletionDelay(allPlans);
+    if (delay === null) return;
+    const timer = setTimeout(
+      () => setCompletionTick((tick) => tick + 1),
+      Math.min(delay + 1, MAX_TIMER_DELAY_MS),
+    );
+    return () => clearTimeout(timer);
+  }, [allPlans, completionTick]);
+
   const retry = useCallback(() => {
     setAuthRace(resetAuthRaceState());
     setLoading(true);
@@ -371,7 +383,7 @@ export default function PlansScreen() {
       // endAt; a one-off event completes at its absolute start).
       past: sortPastPlansNewestFirst(filtered.filter((e) => isPastPlan(e))),
     };
-  }, [allPlans, matchesSearch, isPastPlan]);
+  }, [allPlans, matchesSearch, isPastPlan, completionTick]);
 
   const listData = segment === "trips" ? trips : segment === "events" ? events : past;
 

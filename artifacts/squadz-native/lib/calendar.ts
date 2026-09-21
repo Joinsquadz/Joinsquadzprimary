@@ -86,6 +86,30 @@ export function isEventPast(
 }
 
 /**
+ * Milliseconds until the next plain event completes. Already-completed events
+ * and trips are ignored so callers can safely use this to schedule a UI update
+ * without changing trip end-of-day behavior.
+ */
+export function nextEventCompletionDelay(
+  plans: readonly PlanForCompletion[],
+  now = new Date(),
+): number | null {
+  const nowMs = now.getTime();
+  let nextDelay: number | null = null;
+
+  for (const plan of plans) {
+    if (plan.type === "trip") continue;
+    const completion = resolveEventCompletion(plan);
+    if (!completion) continue;
+    const delay = completion.getTime() - nowMs;
+    if (delay < 0) continue;
+    if (nextDelay === null || delay < nextDelay) nextDelay = delay;
+  }
+
+  return nextDelay;
+}
+
+/**
  * The instant a plan is considered complete for archive ordering. Trips sort by
  * their final day; one-off events sort by their explicit end when available,
  * otherwise by their start. This deliberately uses persisted instants rather

@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import {
   isEventPast,
+  nextEventCompletionDelay,
   resolveEventCompletion,
   resolveEventStart,
   resolvePlanCompletion,
@@ -103,6 +104,21 @@ describe("plain event completion", () => {
     const now = new Date("2026-07-16T02:00:00.000Z");
     expect(isEventPast({ eventAt: event.eventAt }, now)).toBe(true);
     expect(isEventPast({ eventAt: event.eventAt, endAt: "invalid" }, now)).toBe(true);
+  });
+
+  it("finds the next plain-event completion without scheduling from trips or past events", () => {
+    const now = new Date("2026-07-16T02:00:00.000Z");
+    expect(nextEventCompletionDelay([
+      { type: "trip", endAt: "2026-07-16T02:01:00.000Z" },
+      { type: "event", endAt: "2026-07-16T01:00:00.000Z" },
+      { type: "event", endAt: "2026-07-16T02:05:00.000Z" },
+      { type: "event", endAt: "2026-07-16T02:03:00.000Z" },
+    ], now)).toBe(3 * 60 * 1000);
+  });
+
+  it("returns zero at the exact completion instant so the UI can cross the boundary", () => {
+    const now = new Date(event.endAt);
+    expect(nextEventCompletionDelay([{ type: "event", ...event }], now)).toBe(0);
   });
 });
 
