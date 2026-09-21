@@ -7,6 +7,7 @@ import { useColors } from "@/hooks/useColors";
 import { useTimezone } from "@/context/TimezoneContext";
 import type { Event } from "@/types";
 import { coverFor, tripNights, isHappeningNow } from "@/lib/tripUtils";
+import { MOBILE_LAYOUT } from "@/constants/layout";
 
 function TripCardBase({ trip }: { trip: Event }) {
   const colors = useColors();
@@ -73,14 +74,14 @@ export const TripCard = memo(TripCardBase);
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 18,
+    borderRadius: MOBILE_LAYOUT.cardRadius,
     borderWidth: 1,
     overflow: "hidden",
-    marginBottom: 12,
+    marginBottom: MOBILE_LAYOUT.cardGap,
   },
-  cover: { padding: 16, minHeight: 116, justifyContent: "space-between" },
+  cover: { padding: MOBILE_LAYOUT.cardPadding, minHeight: 104, justifyContent: "space-between" },
   coverTopRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" },
-  coverEmoji: { fontSize: 30 },
+  coverEmoji: { fontSize: 26 },
   nowBadge: {
     flexDirection: "row", alignItems: "center", gap: 5,
     backgroundColor: "rgba(0,0,0,0.28)", borderRadius: 20,
@@ -88,9 +89,9 @@ const styles = StyleSheet.create({
   },
   nowDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#fff" },
   nowText: { color: "#fff", fontSize: 11, fontWeight: "800" },
-  coverTitle: { color: "#fff", fontSize: 20, fontWeight: "900", marginTop: 10 },
+  coverTitle: { color: "#fff", fontSize: 18, fontWeight: "900", marginTop: 8 },
   coverRange: { color: "rgba(255,255,255,0.92)", fontSize: 13, fontWeight: "700", marginTop: 2 },
-  meta: { flexDirection: "row", alignItems: "center", gap: 14, paddingHorizontal: 14, paddingVertical: 11 },
+  meta: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 10, paddingHorizontal: 12, paddingVertical: 10 },
   metaItem: { flexDirection: "row", alignItems: "center", gap: 5 },
   metaText: { fontSize: 12, fontWeight: "600" },
 });

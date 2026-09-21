@@ -22,6 +22,7 @@ import { useTimezone } from "@/context/TimezoneContext";
 import { EventCard } from "@/components/EventCard";
 import { KeyboardDismissControl } from "@/components/KeyboardDismissControl";
 import { TripCard } from "@/components/TripCard";
+import { MOBILE_LAYOUT } from "@/constants/layout";
 import type { Event } from "@/types";
 import { goingCount } from "@/lib/eventUtils";
 import { isTripPast, isHappeningNow } from "@/lib/tripUtils";
@@ -479,7 +480,7 @@ export default function PlansScreen() {
         data={listData}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{
-          paddingHorizontal: 20,
+          paddingHorizontal: MOBILE_LAYOUT.screenGutter,
           paddingTop: 12,
           paddingBottom: insets.bottom + (Platform.OS === "web" ? 84 : 100),
         }}
@@ -577,24 +578,24 @@ const styles = StyleSheet.create({
   pastPlanCopy: { flex: 1, gap: 3, marginRight: 12 },
   pastPlanTitle: { fontSize: 16, fontWeight: "700" },
   pastPlanDate: { fontSize: 13, fontWeight: "500" },
-  header: { paddingHorizontal: 20, paddingBottom: 8 },
-  titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
-  title: { fontSize: 28, fontWeight: "900" },
+  header: { paddingHorizontal: MOBILE_LAYOUT.screenGutter, paddingBottom: 8 },
+  titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 },
+  title: { fontSize: MOBILE_LAYOUT.titleSize, fontWeight: "900" },
   joinCodeBtn: {
     flexDirection: "row", alignItems: "center", gap: 6,
-    borderRadius: 20, borderWidth: 1.5, paddingHorizontal: 12, paddingVertical: 7,
+    minHeight: MOBILE_LAYOUT.minTouchTarget, borderRadius: 20, borderWidth: 1.5, paddingHorizontal: 10,
   },
   joinCodeText: { fontSize: 13, fontWeight: "700" },
   searchBar: {
     flexDirection: "row", alignItems: "center", gap: 10,
-    borderRadius: 13, borderWidth: 1.5, paddingHorizontal: 14, height: 48,
-    marginBottom: 12,
+    borderRadius: 13, borderWidth: 1.5, paddingHorizontal: 12, height: MOBILE_LAYOUT.controlHeight,
+    marginBottom: 10,
   },
   searchInput: { flex: 1, fontSize: 15 },
   segmentRow: { flexDirection: "row", borderRadius: 14, borderWidth: 1, padding: 4, gap: 4 },
   segment: {
     flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5,
-    borderRadius: 10, paddingVertical: 9,
+    minHeight: MOBILE_LAYOUT.minTouchTarget, borderRadius: 10, paddingVertical: 8,
   },
   segmentText: { fontSize: 13, fontWeight: "800" },
   empty: { alignItems: "center", paddingTop: 60, gap: 8 },

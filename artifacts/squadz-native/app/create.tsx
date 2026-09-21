@@ -37,6 +37,7 @@ import { useTimezone, runtimeTimezone, zoneLabel } from "@/context/TimezoneConte
 import { deviceWallClockToZoneIso } from "@/lib/timezoneFormat";
 import ConflictBanner from "@/components/ConflictBanner";
 import { planInviteUrl } from "@/lib/inviteLinks";
+import { MOBILE_LAYOUT } from "@/constants/layout";
 
 function formatPickedDay(d: Date): string {
   const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -1289,7 +1290,7 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   header: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1 },
   headerBack: { padding: 4, marginLeft: -4 },
-  title: { fontSize: 28, fontWeight: "900" },
+  title: { fontSize: MOBILE_LAYOUT.titleSize, fontWeight: "900" },
   limitBanner: {
     flexDirection: "row", alignItems: "center", gap: 6,
     paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 1,
@@ -1297,15 +1298,15 @@ const styles = StyleSheet.create({
   limitBannerText: { flex: 1, fontSize: 12, fontWeight: "600" },
   limitBannerBtn: { borderRadius: 8, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 3 },
   limitBannerBtnText: { fontSize: 11, fontWeight: "700" },
-  body: { flex: 1, paddingHorizontal: 20 },
-  section: { paddingTop: 20 },
-  label: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 10 },
+  body: { flex: 1, paddingHorizontal: MOBILE_LAYOUT.screenGutter },
+  section: { paddingTop: MOBILE_LAYOUT.sectionGap },
+  label: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 8 },
   kindRow: { flexDirection: "row", borderRadius: 14, borderWidth: 1, padding: 4, gap: 4 },
-  kindOption: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 10, paddingVertical: 11 },
+  kindOption: { flex: 1, minHeight: MOBILE_LAYOUT.minTouchTarget, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 10, paddingVertical: 8 },
   kindText: { fontSize: 14, fontWeight: "800" },
   kindHint: { fontSize: 12, marginTop: 8, lineHeight: 17 },
   rangeRow: { flexDirection: "row", gap: 10 },
-  rangeBtn: { flex: 1, borderRadius: 13, borderWidth: 1.5, paddingHorizontal: 14, paddingVertical: 11 },
+  rangeBtn: { flex: 1, minWidth: 0, borderRadius: 13, borderWidth: 1.5, paddingHorizontal: 12, paddingVertical: 10 },
   rangeLabel: { fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 4 },
   rangeValue: { fontSize: 15, fontWeight: "700" },
   rangePreview: { fontSize: 13, fontWeight: "700", marginTop: 10 },
@@ -1313,13 +1314,13 @@ const styles = StyleSheet.create({
   coverSwatch: { width: 64, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   field: {
     flexDirection: "row", alignItems: "center", gap: 12,
-    borderRadius: 13, borderWidth: 1.5, paddingHorizontal: 14, height: 52,
+    borderRadius: 13, borderWidth: 1.5, paddingHorizontal: 12, height: MOBILE_LAYOUT.controlHeight,
   },
   fieldInput: { flex: 1, fontSize: 15 },
   fieldMultiline: { height: undefined, alignItems: "flex-start", paddingVertical: 12 },
   dateBtn: {
     flexDirection: "row", alignItems: "center", gap: 12,
-    borderRadius: 13, borderWidth: 1.5, paddingHorizontal: 14, height: 52,
+    borderRadius: 13, borderWidth: 1.5, paddingHorizontal: 12, height: MOBILE_LAYOUT.controlHeight,
   },
   dateBtnText: { flex: 1, fontSize: 15 },
   dateDisplay: {
@@ -1340,7 +1341,7 @@ const styles = StyleSheet.create({
   bestTimeText: { flex: 1, fontSize: 14, fontWeight: "700" },
   toggleRow: {
     flexDirection: "row", alignItems: "center", gap: 12,
-    borderRadius: 13, borderWidth: 1.5, padding: 14,
+    borderRadius: 13, borderWidth: 1.5, padding: 12, minHeight: MOBILE_LAYOUT.controlHeight,
   },
   toggleTitle: { fontSize: 15, fontWeight: "700" },
   toggleSub: { fontSize: 12, marginTop: 2 },
@@ -1359,7 +1360,7 @@ const styles = StyleSheet.create({
   squadOptionBody: { flex: 1 },
   squadOptionName: { fontSize: 14, fontWeight: "700" },
   squadOptionCount: { fontSize: 12 },
-  bottomBar: { paddingHorizontal: 20, paddingTop: 12, borderTopWidth: 1 },
+  bottomBar: { paddingHorizontal: MOBILE_LAYOUT.screenGutter, paddingTop: 10, borderTopWidth: 1 },
   allowanceCaption: { fontSize: 11, fontWeight: "600", textAlign: "center", marginBottom: 8 },
   beatOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", alignItems: "center", padding: 28 },
   beatCard: { width: "100%", maxWidth: 340, borderRadius: 24, borderWidth: 1, padding: 24, alignItems: "center", gap: 6 },

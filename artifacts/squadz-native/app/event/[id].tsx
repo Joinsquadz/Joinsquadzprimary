@@ -70,7 +70,6 @@ import { sortPendingIdeas, applyVoteToggle, moveWithinGroup, type PendingSort } 
 import type { PlanIdea } from "@/types";
 import type { RsvpStatus } from "@/types";
 import { useUserCache, type ResolvedUser } from "@/context/UserCacheContext";
-import { useTips } from "@/context/TipsContext";
 import { useTimezone, runtimeTimezone, zoneLabel } from "@/context/TimezoneContext";
 import { deviceWallClockToZoneIso, instantToZoneWallClockDate } from "@/lib/timezoneFormat";
 import { IconPicker } from "@/components/IconPicker";
@@ -89,6 +88,7 @@ import {
   resetAuthRaceState,
   type AuthRaceState,
 } from "@/lib/vaultAuthRace";
+import { MOBILE_LAYOUT } from "@/constants/layout";
 
 const MAX_TIMER_DELAY_MS = 2_147_000_000;
 
@@ -333,43 +333,6 @@ export default function EventDetailScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     router.push((userId === currentUser.id ? "/profile" : `/user/${userId}`) as never);
   }, [currentUser.id]);
-
-  // Contextual cost-split coach mark: fires the first time the user opens an
-  // event, anchored to the "Costs" tab (where splitting actually lives).
-  const { eventCostActive, canShowEventCostTip, maybeShowEventCostTip, setEventCostAnchor } = useTips();
-  const tabScrollRef = useRef<ScrollView>(null);
-  const costsChipRef = useRef<View>(null);
-  const costsChipX = useRef(0);
-
-  // Surface the cost tip once the event has loaded and showing is actually
-  // allowed. Keying on `canShowEventCostTip` means it re-attempts the moment the
-  // gate opens — the seen flag finishes loading, the sequential tour ends, or the
-  // fail-safe releases a stuck active flag — rather than being a one-shot miss.
-  const eventLoaded = !!event;
-  useEffect(() => {
-    if (!eventLoaded || !canShowEventCostTip) return;
-    const t = setTimeout(() => maybeShowEventCostTip(), 600);
-    return () => clearTimeout(t);
-  }, [eventLoaded, canShowEventCostTip, maybeShowEventCostTip]);
-
-  // Once the cost tip is active, reveal the Costs chip and measure it so the
-  // coach mark can point at it precisely.
-  useEffect(() => {
-    if (!eventCostActive) return;
-    tabScrollRef.current?.scrollTo({ x: Math.max(0, costsChipX.current - 40), animated: true });
-    const t = setTimeout(() => {
-      costsChipRef.current?.measureInWindow((x, y, width, height) => {
-        if (width > 0 || height > 0) setEventCostAnchor({ x, y, width, height });
-      });
-    }, 380);
-    return () => clearTimeout(t);
-  }, [eventCostActive, setEventCostAnchor]);
-
-  // Drop the anchor when leaving the event screen so the global coach mark
-  // never flashes at this event's stale coordinates on the next screen.
-  useEffect(() => {
-    return () => setEventCostAnchor(null);
-  }, [setEventCostAnchor]);
 
   // Pre-load all user profiles referenced in this event.
   // Keyed on the roster itself (not just event.id): when someone RSVPs or is
@@ -1462,21 +1425,14 @@ export default function EventDetailScreen() {
 
       {/* Tab bar */}
       <ScrollView
-        ref={tabScrollRef}
         horizontal
         showsHorizontalScrollIndicator={false}
         style={[styles.tabBar, { borderBottomColor: colors.border }]}
-        contentContainerStyle={{ paddingHorizontal: 20, gap: 4 }}
+        contentContainerStyle={{ paddingHorizontal: MOBILE_LAYOUT.screenGutter, gap: 4 }}
       >
         {TABS.map((t) => (
           <TouchableOpacity
             key={t.key}
-            ref={t.key === "costs" ? (costsChipRef as never) : undefined}
-            onLayout={
-              t.key === "costs"
-                ? (e) => { costsChipX.current = e.nativeEvent.layout.x; }
-                : undefined
-            }
             onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setTab(t.key); }}
             style={[
               styles.tabChip,
@@ -1510,7 +1466,7 @@ export default function EventDetailScreen() {
       {/* Tab content */}
       <ScrollView
         style={styles.tabContent}
-        contentContainerStyle={{ padding: 20, paddingBottom: botPad + 24 }}
+        contentContainerStyle={{ padding: MOBILE_LAYOUT.screenGutter, paddingBottom: botPad + 24 }}
         showsVerticalScrollIndicator={false}
       >
         {tab === "overview" && (
@@ -3048,7 +3004,7 @@ export default function EventDetailScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  hero: { backgroundColor: "#FF6B2C", paddingHorizontal: 16, paddingBottom: 14, position: "relative" },
+  hero: { backgroundColor: "#FF6B2C", paddingHorizontal: MOBILE_LAYOUT.screenGutter, paddingBottom: 12, position: "relative" },
   backBtn: { position: "absolute", top: 0, left: 10, width: 44, height: 44, alignItems: "center", justifyContent: "center", zIndex: 10 },
   shareBtn: { position: "absolute", top: 0, right: 10, width: 44, height: 44, alignItems: "center", justifyContent: "center", zIndex: 10 },
   gearBtn: { position: "absolute", top: 0, right: 50, width: 44, height: 44, alignItems: "center", justifyContent: "center", zIndex: 10 },
@@ -3062,14 +3018,14 @@ const styles = StyleSheet.create({
   budgetMetaRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 8 },
   budgetMeta: { fontSize: 13, fontWeight: "700" },
   budgetPer: { fontSize: 12, marginTop: 6 },
-  heroSummary: { flexDirection: "row", alignItems: "flex-start", gap: 12, marginTop: 48, marginBottom: 10 },
-  heroSummaryBody: { flex: 1, minWidth: 0, gap: 3 },
-  heroEmoji: { fontSize: 38, lineHeight: 44, width: 48, textAlign: "center" },
-  heroTitleRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6, borderRadius: 8, paddingHorizontal: 4, paddingVertical: 1, alignSelf: "flex-start" },
-  heroTitle: { flexShrink: 1, fontSize: 21, lineHeight: 25, fontWeight: "800", color: "#fff" },
+  heroSummary: { alignItems: "center", marginTop: 42, marginBottom: 8 },
+  heroSummaryBody: { width: "100%", alignItems: "center", gap: 2 },
+  heroEmoji: { fontSize: 32, lineHeight: 38, textAlign: "center", marginBottom: 2 },
+  heroTitleRow: { flexDirection: "row", justifyContent: "center", alignItems: "center", flexWrap: "wrap", gap: 6, borderRadius: 8, paddingHorizontal: 4, paddingVertical: 1, maxWidth: "100%" },
+  heroTitle: { flexShrink: 1, fontSize: 20, lineHeight: 24, fontWeight: "800", color: "#fff", textAlign: "center" },
   heroHostBadge: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: "rgba(255,255,255,0.2)", borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2 },
   heroHostText: { color: "#fff", fontSize: 11, fontWeight: "700" },
-  heroMetaRow: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 6, paddingHorizontal: 4, minHeight: 20, alignSelf: "flex-start", maxWidth: "100%" },
+  heroMetaRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, borderRadius: 6, paddingHorizontal: 4, minHeight: 20, maxWidth: "100%" },
   heroDate: { flexShrink: 1, fontSize: 13, lineHeight: 18, color: "rgba(255,255,255,0.9)", fontWeight: "600" },
   heroLocation: { flexShrink: 1, fontSize: 13, lineHeight: 18, color: "rgba(255,255,255,0.9)" },
   countdownPill: {
@@ -3119,11 +3075,11 @@ const styles = StyleSheet.create({
   recapRow: { flexDirection: "row", flexWrap: "wrap", gap: 14 },
   recapItem: { flexDirection: "row", alignItems: "center", gap: 5 },
   recapItemText: { fontSize: 13, fontWeight: "700" },
-  tabBar: { maxHeight: 52, borderBottomWidth: 1 },
-  tabChip: { borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, marginVertical: 8 },
+  tabBar: { maxHeight: 48, borderBottomWidth: 1 },
+  tabChip: { borderRadius: 18, paddingHorizontal: 12, paddingVertical: 7, marginVertical: 7 },
   tabChipText: { fontSize: 13, fontWeight: "700" },
   tabContent: { flex: 1 },
-  card: { borderRadius: 14, borderWidth: 1, padding: 16, gap: 8 },
+  card: { borderRadius: MOBILE_LAYOUT.cardRadius, borderWidth: 1, padding: MOBILE_LAYOUT.cardPadding, gap: 8 },
   cardTitle: { fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.8 },
   cardHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   cardBody: { fontSize: 15, lineHeight: 22 },
@@ -3139,8 +3095,8 @@ const styles = StyleSheet.create({
   hostRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   hostName: { fontSize: 15, fontWeight: "700" },
   sectionLabel: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 4 },
-  guestRow: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 12, borderWidth: 1, padding: 12 },
-  inviteFriendsRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 12, borderWidth: 1.5, borderStyle: "dashed", paddingVertical: 12 },
+  guestRow: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 12, borderWidth: 1, padding: 10, minHeight: MOBILE_LAYOUT.minTouchTarget },
+  inviteFriendsRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 12, borderWidth: 1.5, borderStyle: "dashed", minHeight: MOBILE_LAYOUT.minTouchTarget, paddingHorizontal: 12 },
   inviteFriendsText: { fontSize: 14, fontWeight: "700" },
   guestName: { fontSize: 14, fontWeight: "700" },
   guestStatus: { fontSize: 12, fontWeight: "600", marginTop: 1 },
@@ -3172,10 +3128,10 @@ const styles = StyleSheet.create({
   addRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 12, borderWidth: 1.5, borderStyle: "dashed", padding: 14 },
   addText: { fontSize: 14, fontWeight: "700" },
   inviteCard: { paddingVertical: 12 },
-  inviteHeadingRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  inviteHeadingRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 10 },
   inviteTextColumn: { flex: 1, minWidth: 0, gap: 3 },
   inviteCode: { fontSize: 15, lineHeight: 20, fontWeight: "800", letterSpacing: 0.8 },
-  inviteActions: { flexDirection: "row", alignItems: "center", gap: 6 },
+  inviteActions: { flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 0 },
   inviteActionBtn: { minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, borderRadius: 12, borderWidth: 1, paddingHorizontal: 9 },
   inviteActionText: { fontSize: 12, fontWeight: "700" },
   adminRow: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 12, borderWidth: 1, padding: 14 },

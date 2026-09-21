@@ -7,6 +7,7 @@ import { useData } from "@/context/AppContext";
 import { useTimezone } from "@/context/TimezoneContext";
 import { useUserCache } from "@/context/UserCacheContext";
 import { ProAvatar } from "./ProAvatar";
+import { MOBILE_LAYOUT } from "@/constants/layout";
 
 interface EventCardProps {
   id: string;
@@ -57,7 +58,7 @@ function EventCardBase({
         {
           backgroundColor: colors.card,
           borderColor: colors.border,
-          width: horizontal ? 260 : undefined,
+          width: horizontal ? 244 : undefined,
         },
       ]}
     >
@@ -107,21 +108,21 @@ const styles = StyleSheet.create({
   card: {
     flexDirection: "row",
     alignItems: "center",
-    borderRadius: 16,
+    borderRadius: MOBILE_LAYOUT.cardRadius,
     borderWidth: 1,
-    padding: 14,
-    gap: 12,
-    marginBottom: 10,
+    padding: 12,
+    gap: 10,
+    marginBottom: MOBILE_LAYOUT.cardGap,
   },
   emojiWrap: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
+    width: 44,
+    height: 44,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
   },
-  emoji: { fontSize: 22 },
+  emoji: { fontSize: 20 },
   body: { flex: 1, gap: 2 },
   titleRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   title: { fontSize: 15, fontWeight: "700", flexShrink: 1 },

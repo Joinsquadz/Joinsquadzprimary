@@ -10,7 +10,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets, type EdgeInsets } from "react-native-safe-area-context";
 import {
   useTips,
-  EVENT_COST_TIP,
   type SquadAnchorKey,
   type TipLayout,
 } from "@/context/TipsContext";
@@ -114,12 +113,7 @@ function TipCard({
 /**
  * Global onboarding coach-mark overlay. Renders nothing unless a tip is active.
  *
- * Two independent surfaces share this overlay:
- * - The sequential first-run tour (squad-screen tips + Feed-tab tips), driven
- *   by `activeIndex`.
- * - A standalone, contextual cost-split tip (`eventCostActive`) that fires the
- *   first time the user opens an event, anchored to that screen's Costs tab.
- *
+ * Renders the sequential first-run tour, driven by `activeIndex`.
  * Mounted once at the root so it can float above any screen.
  */
 export function TipCoachMark() {
@@ -129,30 +123,11 @@ export function TipCoachMark() {
     anchors,
     next,
     dismiss,
-    eventCostActive,
-    eventCostAnchor,
-    dismissEventCostTip,
   } = useTips();
   const insets = useSafeAreaInsets();
   const [cardH, setCardH] = useState(132);
 
   const win = Dimensions.get("window");
-
-  // Standalone event-cost tip takes precedence — it's screen-local & real-time.
-  if (eventCostActive) {
-    if (!eventCostAnchor) return null; // wait for the Costs tab to be measured
-    return (
-      <TipCard
-        pos={positionFromAnchor(eventCostAnchor, cardH, win, insets)}
-        headline={EVENT_COST_TIP.headline}
-        body={EVENT_COST_TIP.body}
-        primaryLabel="Got it"
-        onPrimary={dismissEventCostTip}
-        onClose={dismissEventCostTip}
-        onCardLayout={setCardH}
-      />
-    );
-  }
 
   if (activeIndex === null) return null;
   const tip = tips[activeIndex];

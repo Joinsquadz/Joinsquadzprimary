@@ -20,6 +20,7 @@ import { useUserCache } from "@/context/UserCacheContext";
 import { useTimezone } from "@/context/TimezoneContext";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 import { acceptedInviteRoute } from "@/lib/acceptedInviteRoute";
+import { MOBILE_LAYOUT } from "@/constants/layout";
 
 export default function InviteScreen() {
   const colors = useColors();
@@ -128,7 +129,7 @@ export default function InviteScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <View style={[styles.hero, { paddingTop: topPad + 20 }]}>
+      <View style={[styles.hero, { paddingTop: topPad + 14 }]}>
         <Text style={[styles.heroLabel, { color: "rgba(255,255,255,0.7)" }]}>YOU'RE INVITED</Text>
         <Text style={styles.heroEmoji}>{event.emoji}</Text>
         <Text style={[styles.heroTitle, { color: "#fff" }]}>{event.title}</Text>
@@ -204,27 +205,27 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   hero: {
     backgroundColor: "#FF6B2C",
-    paddingHorizontal: 24,
-    paddingBottom: 28,
+    paddingHorizontal: MOBILE_LAYOUT.screenGutter,
+    paddingBottom: 20,
     alignItems: "center",
   },
   heroLabel: { fontSize: 12, fontWeight: "700", letterSpacing: 1.5, marginBottom: 8 },
-  heroEmoji: { fontSize: 52, marginBottom: 8 },
-  heroTitle: { fontSize: 28, fontWeight: "800", textAlign: "center" },
+  heroEmoji: { fontSize: 40, marginBottom: 6 },
+  heroTitle: { fontSize: 24, lineHeight: 29, fontWeight: "800", textAlign: "center" },
   heroSquad: { fontSize: 14, marginTop: 4 },
-  body: { flex: 1, paddingHorizontal: 20, paddingTop: 16 },
-  detailCard: { borderRadius: 16, borderWidth: 1, marginBottom: 12, overflow: "hidden" },
-  detailRow: { flexDirection: "row", alignItems: "center", gap: 12, padding: 16 },
+  body: { flex: 1, paddingHorizontal: MOBILE_LAYOUT.screenGutter, paddingTop: 14 },
+  detailCard: { borderRadius: MOBILE_LAYOUT.cardRadius, borderWidth: 1, marginBottom: 10, overflow: "hidden" },
+  detailRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, minHeight: MOBILE_LAYOUT.controlHeight },
   detailText: { fontSize: 14, fontWeight: "500", flex: 1 },
-  codeCard: { borderRadius: 16, borderWidth: 1, padding: 20, alignItems: "center", marginBottom: 16 },
+  codeCard: { borderRadius: MOBILE_LAYOUT.cardRadius, borderWidth: 1, padding: 14, alignItems: "center", marginBottom: 12 },
   codeLabel: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6 },
-  code: { fontSize: 28, fontWeight: "800", letterSpacing: 2, marginBottom: 12, fontVariant: ["tabular-nums"] },
-  copyBtn: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 20, borderWidth: 1.5, paddingHorizontal: 16, paddingVertical: 8 },
+  code: { fontSize: 24, fontWeight: "800", letterSpacing: 1.5, marginBottom: 10, fontVariant: ["tabular-nums"] },
+  copyBtn: { minHeight: MOBILE_LAYOUT.minTouchTarget, flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 20, borderWidth: 1.5, paddingHorizontal: 16 },
   copyText: { fontSize: 13, fontWeight: "700" },
-  btn: { borderRadius: 14, padding: 15, alignItems: "center", marginBottom: 12 },
+  btn: { minHeight: MOBILE_LAYOUT.controlHeight, borderRadius: 14, paddingHorizontal: 14, justifyContent: "center", alignItems: "center", marginBottom: 10 },
   btnText: { fontSize: 16, fontWeight: "800" },
-  altRow: { flexDirection: "row", gap: 10, marginBottom: 16 },
-  altBtn: { borderRadius: 12, borderWidth: 1.5, padding: 12, alignItems: "center" },
+  altRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 14 },
+  altBtn: { minWidth: 130, minHeight: MOBILE_LAYOUT.minTouchTarget, borderRadius: 12, borderWidth: 1.5, paddingHorizontal: 10, justifyContent: "center", alignItems: "center" },
   altBtnText: { fontSize: 13, fontWeight: "700" },
   note: { fontSize: 12, textAlign: "center", lineHeight: 18 },
   successWrap: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 32 },

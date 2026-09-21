@@ -52,7 +52,7 @@ describe("onboarding analytics contract", () => {
     expect(shareBlock).toContain("handleComplete();");
   });
 
-  it("deduplicates welcome, step, fast-path, and cost-tip views across rerenders", () => {
+  it("deduplicates welcome, step, and fast-path views across rerenders", () => {
     const login = read("app/login.tsx");
     const onboarding = read("app/onboarding.tsx");
     const tips = read("context/TipsContext.tsx");
@@ -61,8 +61,7 @@ describe("onboarding analytics contract", () => {
     expect(onboarding).toContain("viewedStepsRef.current.has(step)");
     expect(onboarding).toContain("fastPathTrackedRef.current");
     expect(tips).toContain("trackedStepsRef.current.has(step)");
-    expect(tips).toContain("eventCostViewTrackedRef.current");
-    expect(tips).toContain("eventCostDismissTrackedRef.current");
+    expect(tips).not.toContain("eventCost");
   });
 
   it("does not include invite or identity values in analytics properties", () => {
@@ -99,12 +98,12 @@ describe("seven-step coach tour", () => {
     expect(tips).toContain('pathname: "/squad/[id]", params: { id: squadId }');
   });
 
-  it("keeps the per-user seen keys and independent squad anchors", () => {
+  it("keeps the tour seen key and independent squad anchors", () => {
     const tips = read("context/TipsContext.tsx");
     const squad = read("app/squad/[id].tsx");
 
     expect(tips).toContain("`tips_seen_${userId}`");
-    expect(tips).toContain("`tip_eventcost_seen_${userId}`");
+    expect(tips).not.toContain("tip_eventcost_seen");
     expect(squad).toContain("ref={plansAnchorRef}");
     expect(squad).toContain("ref={vaultAnchorRef}");
   });

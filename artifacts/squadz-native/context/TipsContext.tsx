@@ -34,10 +34,7 @@ export type TipDef = {
   body: string;
 };
 
-// Sequential first-run tour shown on the first squad the user lands on. Tips
-// 1-3 live on the squad detail screen, tips 4-5 on the Feed tab. Cost splitting
-// is NOT part of this tour — it surfaces contextually on the event screen (see
-// the standalone "event cost" tip below) because that's where splitting lives.
+// Sequential first-run tour shown on the first squad the user lands on.
 export const TIPS: TipDef[] = [
   {
     place: "squad",
@@ -88,15 +85,6 @@ export const TIPS: TipDef[] = [
   },
 ];
 
-// Standalone, contextual coach mark for cost splitting. Unlike the sequential
-// tour, this fires in real time the first time a user opens an event detail
-// screen, anchored to that screen's "Costs" tab — so the tip appears on the
-// exact surface where splitting actually happens.
-export const EVENT_COST_TIP = {
-  headline: "Split costs without the awkwardness",
-  body: "Open the Costs tab to log expenses and track who owes what — no spreadsheets, no chasing.",
-};
-
 type TipsContextValue = {
   activeIndex: number | null;
   tips: TipDef[];
@@ -109,20 +97,6 @@ type TipsContextValue = {
   dismiss: () => void;
   setSquadAnchor: (key: SquadAnchorKey, layout: TipLayout | null) => void;
   clearSquadAnchors: () => void;
-  // Standalone, contextual cost-split tip shown on the event detail screen.
-  eventCostActive: boolean;
-  eventCostAnchor: TipLayout | null;
-  /**
-   * True only while every precondition for showing the cost tip holds (seen flag
-   * loaded + unseen, no sequential tour in flight, not already active). The event
-   * screen depends on this so it re-attempts the moment the gate opens — e.g. the
-   * tour finishes, or the fail-safe releases a stuck active flag.
-   */
-  canShowEventCostTip: boolean;
-  /** Called by the event screen on first open; shows the cost tip if unseen. */
-  maybeShowEventCostTip: () => void;
-  setEventCostAnchor: (layout: TipLayout | null) => void;
-  dismissEventCostTip: () => void;
 };
 
 const EMPTY_ANCHORS: Record<SquadAnchorKey, TipLayout | null> = {
@@ -143,12 +117,6 @@ const TipsContext = createContext<TipsContextValue>({
   dismiss: () => {},
   setSquadAnchor: () => {},
   clearSquadAnchors: () => {},
-  eventCostActive: false,
-  eventCostAnchor: null,
-  canShowEventCostTip: false,
-  maybeShowEventCostTip: () => {},
-  setEventCostAnchor: () => {},
-  dismissEventCostTip: () => {},
 });
 
 export function TipsProvider({ children }: { children: React.ReactNode }) {
@@ -170,55 +138,20 @@ export function TipsProvider({ children }: { children: React.ReactNode }) {
   const [seen, setSeen] = useState(false);
   const [seenLoaded, setSeenLoaded] = useState(false);
 
-  // Standalone cost-split tip (event screen) — independent state + seen flag.
-  const [eventCostActive, setEventCostActive] = useState(false);
-  const [eventCostAnchor, setEventCostAnchorState] = useState<TipLayout | null>(null);
-  const [costSeen, setCostSeen] = useState(false);
-  const [costSeenLoaded, setCostSeenLoaded] = useState(false);
-  const eventCostActiveRef = useRef(false);
-  const eventCostAnchorRef = useRef<TipLayout | null>(null);
-  const eventCostViewTrackedRef = useRef(false);
-  const eventCostDismissTrackedRef = useRef(false);
-  useEffect(() => {
-    eventCostActiveRef.current = eventCostActive;
-  }, [eventCostActive]);
-  useEffect(() => {
-    eventCostAnchorRef.current = eventCostAnchor;
-  }, [eventCostAnchor]);
-
-  // Fail-safe: if the tip turns active but no anchor is acquired shortly after
-  // (layout race, offscreen chip, the user navigates away before measuring),
-  // release `eventCostActive` so it never gets stuck in an invisible state that
-  // blocks every future attempt. We do NOT mark it seen — it can re-fire the
-  // next time the user opens an event.
-  useEffect(() => {
-    if (!eventCostActive || eventCostAnchor) return;
-    const t = setTimeout(() => {
-      if (eventCostActiveRef.current && !eventCostAnchorRef.current) {
-        setEventCostActive(false);
-      }
-    }, 2500);
-    return () => clearTimeout(t);
-  }, [eventCostActive, eventCostAnchor]);
-
   const userId = currentUser?.id;
   const storageKey = userId && userId !== "me" ? `tips_seen_${userId}` : null;
-  const costStorageKey = userId && userId !== "me" ? `tip_eventcost_seen_${userId}` : null;
 
-  // Load the per-user "seen" flags whenever the signed-in user changes. Both
-  // flags are user-id-suffixed and kept OUT of ALL_APP_STORAGE_KEYS so they
+  // Load the per-user "seen" flag whenever the signed-in user changes. It is
+  // user-id-suffixed and kept OUT of ALL_APP_STORAGE_KEYS so it
   // survive logout/login ("show once per user, ever").
   useEffect(() => {
     let cancelled = false;
     if (!storageKey) {
       setSeen(false);
       setSeenLoaded(false);
-      setCostSeen(false);
-      setCostSeenLoaded(false);
       return;
     }
     setSeenLoaded(false);
-    setCostSeenLoaded(false);
     AsyncStorage.getItem(storageKey)
       .then((v) => {
         if (cancelled) return;
@@ -228,24 +161,13 @@ export function TipsProvider({ children }: { children: React.ReactNode }) {
       .catch(() => {
         if (!cancelled) setSeenLoaded(true);
       });
-    AsyncStorage.getItem(costStorageKey as string)
-      .then((v) => {
-        if (cancelled) return;
-        setCostSeen(v === "1");
-        setCostSeenLoaded(true);
-      })
-      .catch(() => {
-        if (!cancelled) setCostSeenLoaded(true);
-      });
     return () => {
       cancelled = true;
     };
-  }, [storageKey, costStorageKey]);
+  }, [storageKey]);
 
   useEffect(() => {
     trackedStepsRef.current.clear();
-    eventCostViewTrackedRef.current = false;
-    eventCostDismissTrackedRef.current = false;
   }, [storageKey]);
 
   const persistSeen = useCallback(() => {
@@ -316,45 +238,6 @@ export function TipsProvider({ children }: { children: React.ReactNode }) {
     setAnchors(EMPTY_ANCHORS);
   }, []);
 
-  // First time the user opens an event, surface the cost-split tip in context.
-  // Skip if the sequential tour is mid-flight so two coach marks never overlap.
-  const maybeShowEventCostTip = useCallback(() => {
-    if (eventCostActiveRef.current) return;
-    if (!costSeenLoaded || costSeen) return;
-    if (activeIndexRef.current !== null) return;
-    eventCostViewTrackedRef.current = false;
-    eventCostDismissTrackedRef.current = false;
-    setEventCostActive(true);
-  }, [costSeenLoaded, costSeen]);
-
-  const setEventCostAnchor = useCallback((layout: TipLayout | null) => {
-    setEventCostAnchorState(layout);
-    if (
-      layout &&
-      eventCostActiveRef.current &&
-      !eventCostViewTrackedRef.current
-    ) {
-      eventCostViewTrackedRef.current = true;
-      track("event_cost_tip_viewed");
-    }
-  }, []);
-
-  const dismissEventCostTip = useCallback(() => {
-    if (eventCostActiveRef.current && !eventCostDismissTrackedRef.current) {
-      eventCostDismissTrackedRef.current = true;
-      track("event_cost_tip_dismissed");
-    }
-    setEventCostActive(false);
-    setEventCostAnchorState(null);
-    setCostSeen(true);
-    if (costStorageKey) AsyncStorage.setItem(costStorageKey, "1").catch(() => {});
-  }, [costStorageKey]);
-
-  // Single gate the event screen watches so it re-attempts the moment showing
-  // becomes allowed (tour ends, fail-safe releases a stuck flag, seen flag loads).
-  const canShowEventCostTip =
-    costSeenLoaded && !costSeen && activeIndex === null && !eventCostActive;
-
   useEffect(() => {
     if (activeIndex === null) return;
     const step = TIPS[activeIndex]?.step;
@@ -374,12 +257,6 @@ export function TipsProvider({ children }: { children: React.ReactNode }) {
       dismiss,
       setSquadAnchor,
       clearSquadAnchors,
-      eventCostActive,
-      eventCostAnchor,
-      canShowEventCostTip,
-      maybeShowEventCostTip,
-      setEventCostAnchor,
-      dismissEventCostTip,
     }),
     [
       activeIndex,
@@ -390,12 +267,6 @@ export function TipsProvider({ children }: { children: React.ReactNode }) {
       dismiss,
       setSquadAnchor,
       clearSquadAnchors,
-      eventCostActive,
-      eventCostAnchor,
-      canShowEventCostTip,
-      maybeShowEventCostTip,
-      setEventCostAnchor,
-      dismissEventCostTip,
     ],
   );
 
