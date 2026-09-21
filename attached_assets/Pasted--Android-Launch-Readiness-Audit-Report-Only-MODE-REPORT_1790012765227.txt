@@ -1,0 +1,20 @@
+# Android Launch Readiness Audit (Report Only)
+
+**MODE: REPORT (read only). Do not modify code, submit anything to Play Console, or change configuration.**
+
+## Context
+
+Before doing any Android work, get a current picture of what is actually still needed on the code side. Prior notes listed several open items, confirm each directly rather than trusting old status, given how much has changed recently in git history and deploys.
+
+## What to report
+
+1. Android SKU identifier fix: is it actually present in the current code on `main`? Has it ever been verified against a real Play Store transaction, where the tier writes "founding" and `founding_member_redemptions` increments? Confirm status directly, don't assume from prior notes.
+2. RevenueCat service account configuration for Android: what is currently configured, and what if anything is missing or unverified.
+3. Privacy policy: does it currently cover collection of the profile fields shipped earlier, bio, city/hometown, age, hobbies, and phone number for contact matching? Where does the privacy policy actually live, native app, marketing site, or both, and is it out of date relative to what's actually collected.
+4. Media and location permissions: list every permission the Android app currently requests, from the app config or native manifest, and for each, confirm there's a clear justification that would match what needs to be declared in Play Console's Data Safety form.
+5. Current Play Console build: confirm the version code, whether it reflects any of the recent work, profile fields, contact matching, notification fixes, or anything else merged since, and whether a new build or version bump is needed before the manual dashboard steps make sense to complete.
+6. Android SHA-256 signing fingerprint, task #728: has this been retrieved and added anywhere in code or config yet, or is it still fully outstanding.
+
+## Output
+
+One status report covering the six items above, each marked confirmed current, stale or unverified, or not started.
