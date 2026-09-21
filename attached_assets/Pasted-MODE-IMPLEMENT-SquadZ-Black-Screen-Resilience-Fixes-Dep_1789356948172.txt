@@ -1,0 +1,48 @@
+MODE: IMPLEMENT
+
+# SquadZ — Black Screen Resilience Fixes
+
+## Deployment track: OTA-eligible
+
+Pure JS/TS changes to existing screens and components. No new native modules, no new permissions, no native build required.
+
+## Context
+
+The root-cause audit found no evidence that Autoscale cold starts explain the reported black screens. Production response times were 20 to 190 ms across the board, well under the server's 1-second slow-request threshold, even after 56+ minute gaps with no traffic. The real, documented causes are client-side: several screens make raw `fetch` calls with no timeout, so a stalled or failed request leaves the loading state on screen indefinitely instead of ever reaching an error state. Fix those directly. Do not touch deployment type or infrastructure.
+
+## Locked decisions
+
+- This is a client-only fix. No deployment or infrastructure changes.
+- Standard timeout for preview/list-type network calls: 15 seconds, matching the precedent already set in `availability.tsx`.
+- On timeout or failure, follow the pattern already established elsewhere in the app: a clear error state with a "Try again" action, never a silent indefinite loading state.
+- Where a call requires authentication, prefer routing it through the existing shared authenticated client and its established timeout/retry handling rather than writing new timeout logic per screen. Where a call is intentionally unauthenticated (e.g. a public invite preview before login), add equivalent timeout handling directly.
+
+## Fixes, in priority order
+
+### 1. Event invite preview and join — `app/join/[inviteCode].tsx`
+
+Add a 15-second timeout to the preview fetch (~lines 64-177) and the join fetch (~lines 212-223). On timeout, route into the same error state already used for the existing 404/410/403/network failure cases, with a retry action.
+
+### 2. Squad invite preview and manual code check — `app/squad/join.tsx`
+
+Add a 15-second timeout to the preview fetch (~lines 66-103) and the manual code-check flow (~lines 259-273), which currently can stay on "Checking invite code…" indefinitely. On timeout, route into the existing error/revoked-link pattern with a retry action.
+
+### 3. Plans/Events list — `app/(tabs)/events.tsx`
+
+Two fixes here:
+- Add a 15-second timeout to the fetch calls (~lines 230-333), routing into the existing "Couldn't load your plans" retry state on timeout, same as other failures.
+- Validate the response shape before casting it to an array. If the payload isn't the expected array shape, route into the same retry error state instead of letting the mapping throw.
+
+### 4. Font-loading boot gate — `app/_layout.tsx`
+
+The `if (!fontsLoaded && !fontError) return null;` gate has no timeout, so a font load that never resolves and never errors can block the entire app indefinitely, especially on web where there's no splash graphic at all during this wait. Add a 5-second timeout after which the app proceeds with system fallback fonts rather than staying blocked.
+
+### 5. Video playback error states — `components/AttachmentVideo.native.tsx` and `components/AttachmentVideo.tsx`
+
+Both currently render a black wrapper with no loading indicator and no error/retry UI, so an expired URL, unsupported codec, authorization failure, or stalled fetch all look identical: a black rectangle, forever. Add a loading state while resolving/loading, and an explicit error state with a retry action on playback failure, on both native and web.
+
+## Verification
+
+- Confirm standing baseline test count is preserved, accounting for any new or changed tests.
+- Confirm none of these changes touch authentication logic, routing destinations, or existing error-state copy beyond what's specified here.
+- Confirm each fixed screen now reaches a terminal state (success, explicit error, or retry) within its specified timeout, rather than being able to remain in a loading state indefinitely.

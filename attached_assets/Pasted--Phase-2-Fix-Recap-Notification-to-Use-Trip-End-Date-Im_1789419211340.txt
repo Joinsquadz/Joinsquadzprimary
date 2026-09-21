@@ -1,0 +1,40 @@
+# Phase 2: Fix Recap Notification to Use Trip End Date (Implement)
+
+**MODE: IMPLEMENT**
+
+## Context
+
+The Phase 1 audit (docs/audit/trip-plan-notifications.md) confirmed the post plan recap notification ("How was your trip?") is scheduled from the event/trip start time only. It never reads an end date. For multi day trips this sends roughly 3 hours after the trip starts instead of after it ends, which is why the Hawaii trip test received the recap mid trip.
+
+## Locked decision
+
+Recap eligibility must be based on the trip's actual end when one exists.
+
+- If the plan has an end date/time distinct from its start (`endAt` or the equivalent field on the trip/event), eligibility becomes `now minus endAt` in the same 3h to 48h window currently used for `now minus start`.
+- If the plan has no distinct end date (single instant events), keep the current start based behavior. Confirm the actual field name and nullability in the schema before writing the fix, don't assume it matches the audit's naming.
+- No change to the 3 hour delay or 48 hour retirement duration, only the reference timestamp changes.
+
+## Scope
+
+Files to change (confirm against current code before editing, line numbers are from the audit and may have shifted):
+- `artifacts/api-server/src/lib/eventReminders.ts`, `runEventRecapScan` (around line 501 to 575)
+- `artifacts/api-server/src/storage.ts`, recap candidate query (around line 2893 to 2935)
+
+## Required
+
+- Update the candidate SQL prefilter and the JS eligibility check to use the end date when present.
+- Add a regression test: a multi day trip is not recap eligible on day 1, and becomes eligible starting 3 hours after the stored end date.
+- Preserve existing single instant event recap test coverage, do not regress it.
+- Preserve standing baseline test counts. Any new test must be explicitly noted in the summary.
+
+## Out of scope
+
+Do not touch the day of reminder window, the three day reminder, poll nudges, manual reminders, or any other item from the audit's "risks and candidate Phase 2 areas" list. Those are being scoped separately.
+
+## Deployment track
+
+Backend only scheduled job logic and query fix. No schema migration expected, assuming `endAt` already exists on the relevant table. No native build required.
+
+## Output
+
+Summary of the change, the confirmed field name used, and updated/added test results. No unrelated refactors.

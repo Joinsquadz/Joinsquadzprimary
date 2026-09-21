@@ -1,0 +1,46 @@
+# Full Status Check: All Recent Changes and Enhancements (Report Only)
+
+**MODE: REPORT (read only). Do not modify code, run migrations, or deploy anything.**
+
+## Context
+
+Picking this back up after a break. Need the full picture of everything currently in flight, not just the notification work, before deciding what to do next. Check the actual code and config for each item below, don't just repeat what was previously reported.
+
+## What to report
+
+### 1. Git status
+Current branch, any uncommitted or unpushed changes, and recent commit history with one line summaries, far enough back to cover everything below.
+
+### 2. Notifications (should all be done, confirm still true)
+- Recap notification keyed off `endAt` instead of start
+- Day of reminder scanner and its tests removed
+- Three day reminder using calendar days instead of elapsed hours
+- Shared 15 minute cooldown across cost added, cost edited, cost deleted, debtor marks paid
+- Squad mute enforced on the seven previously audited routes
+- Device verification checklist doc updated to 10 minute cadence and claim before send
+
+### 3. Other open bugs and tasks, current status on each
+- Task #683: pool `connect()` client acquisition diagnostic gap
+- Task #710: real database tests for mocked SQL tag failures
+- Task #711: scheduled poll nudge/event recap scans failing with connection timeouts (this is the connection reliability issue, separate from the notification timing fixes)
+- Free tier limit consistency: paywall shows 3 squads/3 plans, intended is 2 squads/5 plans, confirm what's actually enforced server side right now
+- Founding cutover fix: needed before the founding counter reaches 400 of 500 spots, confirm current spot count and whether the fix is in place
+- Test accounts in production: still pending deletion or already handled
+- Squad invite link (`/squad/join?code=`) dark screen bug: status
+- Task #728: Android SHA-256 signing fingerprint from Play Console's App Integrity page, retrieved or still needed
+- Trip best-stretch consecutive-stretch availability algorithm: device verification status
+
+### 4. Native build batch (pending verification as of last check)
+- Opt-in contact matching via hashed phone numbers
+- Invite link fix: stale App Store ID and broken routing, deferred deep link clipboard recovery
+- Confirm whether either has since been verified or shipped
+
+### 5. Test suite
+Run the full suite (API, mobile if applicable, concurrency, typecheck) and report current pass counts.
+
+### 6. Deploy status
+What has actually shipped to production, OTA or native, versus what's sitting in the workspace only. Break this down by OTA eligible, native build required, and backend only, so it's clear what's ready to ship together and what needs a build.
+
+## Output
+
+A single status report organized by the sections above, each item marked done, pending, or blocked with a one line note. No fixes, no refactors, no deploy actions, this is confirmation only.

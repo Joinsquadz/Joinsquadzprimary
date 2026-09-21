@@ -1,0 +1,36 @@
+# Phase 1: Notification System Audit (Report Only)
+
+**MODE: AUDIT (read only). Do not modify code, schema, or data. Do not implement fixes. This is investigation and reporting only.**
+
+## Context
+
+Two notification bugs surfaced during device testing on test account jmontoy3694@gmail.com using a Hawaii trip:
+
+1. A "trip coming up" reminder fired roughly 14 hours before the trip's start time, not matching either the day of reminder or the 3 day out reminder windows we expect to exist.
+2. A "how was your trip" recap notification fired mid trip, days before the trip's actual end date (the 21st).
+
+We already know from a prior incident that one notification timing bug was traced to a separately stored/cached timezone value (captured at account signup) being used instead of the live device timezone, and was fixed for that one notification type via a shared `calendarDaysUntil` utility. This audit should check whether that same root cause, or a related one, explains the two bugs above, and whether other notification types are similarly exposed.
+
+## What to map out
+
+For every trip/plan related notification type in the system (pre trip reminders, day of reminders, recap notifications, poll nudges, organizer reminders, and any others you find), report:
+
+1. **Trigger condition**: what field(s) and logic determine when it fires (days/hours relative to `start_date`, `end_date`, plan creation date, etc)
+2. **Scheduling mechanism**: cron job, scheduled scan, queue, etc, including file and function references
+3. **Timezone handling**: live device timezone, a stored/cached signup time value, server time, or something else. Does it use the shared `calendarDaysUntil` utility or its own date math?
+4. **Known related tickets**: cross reference Task #711 (poll nudge/event recap scans failing with connection timeouts) and the notification device verification checklist (day of reminder timezone fix, 3 day reminder, manual organizer reminders, poll debounce)
+
+## Root cause questions to answer
+
+1. What logic determined the "trip coming up" send time for the Hawaii trip test, and why did it compute roughly 14 hours before rather than the intended window? Was this the day of reminder, the 3 day reminder, or a different notification type entirely?
+2. What logic determines when the recap notification fires? Is it keyed off `end_date`, or something else (`start_date`, a fixed offset, plan status)? Why did it fire before the trip ended on the 21st?
+3. Does either bug match the previously fixed signup timezone vs device timezone pattern? If so, which notification type(s) still use the old approach instead of `calendarDaysUntil`?
+
+## Output
+
+A single markdown report covering:
+- A table of all trip/plan notification types with the four attributes above
+- Root cause findings for the two specific bugs, with file and line references
+- A list of any other notification types that show the same timezone or date math risk pattern, even if not yet reported as broken
+
+No code changes, no migrations, no fixes. Findings only. Phase 2 implementation gets scoped separately once we have the map.
