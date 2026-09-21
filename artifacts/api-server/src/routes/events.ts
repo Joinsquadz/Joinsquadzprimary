@@ -25,6 +25,7 @@ import { emitEventUpdate, onEventUpdate } from "../lib/eventUpdates";
 import { recordActivitySafe, removeActivity } from "../lib/activity";
 import { parseEventStart, relativeDayLabel, formatEventTimeIn } from "../lib/eventDate";
 import { groupRecipientsByZone } from "../lib/eventReminders";
+import { shouldSendNotification } from "../lib/notificationDebounce";
 import { resolveProStatus } from "../lib/proStatus";
 import {
   FREE_PLAN_LIMIT,
@@ -41,6 +42,39 @@ import {
 } from "@workspace/cost-math";
 
 const router: IRouter = Router();
+
+const COST_NOTIFICATION_COOLDOWN_MS = 15 * 60 * 1000;
+const COST_NOTIFICATION_DEBOUNCE_TYPE = "plan_cost_mutation";
+
+/**
+ * Return push-token batches for payment recipients who are not muted in the
+ * plan's squad and have not received another cost mutation alert recently.
+ * The debounce claim is made before delivery, and is shared by add/edit/delete
+ * and mark-paid so different mutations cannot bypass the same plan/recipient
+ * cooldown.
+ */
+async function getCostNotificationRecipients(
+  event: typeof eventsTable.$inferSelect,
+  recipientIds: string[],
+): Promise<Array<{ userId: string; tokens: string[] }>> {
+  const uniqueIds = [...new Set(recipientIds)];
+  const unmutedIds = event.squadId
+    ? await storage.filterUnmutedForSquad(uniqueIds, event.squadId)
+    : uniqueIds;
+  const recipients: Array<{ userId: string; tokens: string[] }> = [];
+  for (const userId of unmutedIds) {
+    const tokens = await storage.getPushTokensForUsers([userId], { requireNotifyPayments: true });
+    if (tokens.length === 0) continue;
+    const allowed = await shouldSendNotification(
+      event.id,
+      userId,
+      COST_NOTIFICATION_DEBOUNCE_TYPE,
+      COST_NOTIFICATION_COOLDOWN_MS,
+    );
+    if (allowed) recipients.push({ userId, tokens });
+  }
+  return recipients;
+}
 
 function displayName(user: { firstName?: string | null; lastName?: string | null; email?: string | null } | null | undefined): string {
   if (!user) return "Someone";
@@ -1935,11 +1969,12 @@ router.post("/events/:id/costs", requireAuth, async (req: Request, res: Response
       if (debtors.length === 0) return;
       const payer = await storage.getUser(payerId);
       const payerName = displayName(payer);
-      for (const debtor of debtors) {
-        const tokens = await storage.getPushTokensForUsers([debtor.userId], { requireNotifyPayments: true });
-        if (tokens.length === 0) continue;
+      const recipients = await getCostNotificationRecipients(existing, debtors.map((debtor) => debtor.userId));
+      for (const recipient of recipients) {
+        const debtor = debtors.find((candidate) => candidate.userId === recipient.userId);
+        if (!debtor) continue;
         await sendPushNotifications(
-          tokens,
+          recipient.tokens,
           {
             title: "💸 New expense to settle",
             body: `You owe ${payerName} $${debtor.amount.toFixed(2)} for ${newCost.description}`,
@@ -2017,11 +2052,11 @@ router.post("/events/:id/costs/:costId/mark-paid", requireAuth, async (req: Requ
   if (parsed.data.paid && wasUnpaid) {
     void (async () => {
       try {
-        const tokens = await storage.getPushTokensForUsers([cost.paidById], { requireNotifyPayments: true });
-        if (tokens.length === 0) return;
+        const [recipient] = await getCostNotificationRecipients(existing, [cost.paidById]);
+        if (!recipient) return;
         const debtor = await storage.getUser(userId);
         await sendPushNotifications(
-          tokens,
+          recipient.tokens,
           {
             title: "✅ Payment marked as sent",
             body: `${displayName(debtor)} marked $${share.amount.toFixed(2)} as paid for ${cost.description}`,
@@ -2356,11 +2391,12 @@ router.patch("/events/:id/costs/:costId", requireAuth, async (req: Request, res:
       if (debtors.length === 0) return;
       const editor = await storage.getUser(userId);
       const editorName = displayName(editor);
-      for (const debtor of debtors) {
-        const tokens = await storage.getPushTokensForUsers([debtor.userId], { requireNotifyPayments: true });
-        if (tokens.length === 0) continue;
+      const recipients = await getCostNotificationRecipients(existing, debtors.map((debtor) => debtor.userId));
+      for (const recipient of recipients) {
+        const debtor = debtors.find((candidate) => candidate.userId === recipient.userId);
+        if (!debtor) continue;
         await sendPushNotifications(
-          tokens,
+          recipient.tokens,
           {
             title: `${editorName} updated a cost`,
             body: `Your share of '${updatedCost.description}' is now $${debtor.amount.toFixed(2)} for ${existing.title}`,
@@ -2419,11 +2455,12 @@ router.delete("/events/:id/costs/:costId", requireAuth, async (req: Request, res
       if (debtors.length === 0) return;
       const payer = await storage.getUser(cost.paidById);
       const payerName = displayName(payer);
-      for (const debtor of debtors) {
-        const tokens = await storage.getPushTokensForUsers([debtor.userId], { requireNotifyPayments: true });
-        if (tokens.length === 0) continue;
+      const recipients = await getCostNotificationRecipients(existing, debtors.map((debtor) => debtor.userId));
+      for (const recipient of recipients) {
+        const debtor = debtors.find((candidate) => candidate.userId === recipient.userId);
+        if (!debtor) continue;
         await sendPushNotifications(
-          tokens,
+          recipient.tokens,
           {
             title: `${payerName} removed a cost`,
             body: `'${cost.description}' ($${cost.amount.toFixed(2)}) was deleted from ${existing.title}`,

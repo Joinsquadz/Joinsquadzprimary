@@ -26,15 +26,18 @@ const storageMock = vi.hoisted(() => ({
   getUser: vi.fn(),
   getUsers: vi.fn(),
   getSquad: vi.fn(),
+  filterUnmutedForSquad: vi.fn(),
   getPushTokensForUsers: vi.fn(),
   clearPushToken: vi.fn(),
 }));
 
 const sendPushNotificationsMock = vi.hoisted(() => vi.fn());
+const shouldSendNotificationMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../storage", () => ({ storage: storageMock }));
 vi.mock("../lib/logger");
 vi.mock("../lib/pushNotifications", () => ({ sendPushNotifications: sendPushNotificationsMock }));
+vi.mock("../lib/notificationDebounce", () => ({ shouldSendNotification: shouldSendNotificationMock }));
 
 import eventsRouter from "../routes/events";
 import { makeTestApp, type TestUser } from "./helpers/makeTestApp";
@@ -62,9 +65,11 @@ beforeEach(() => {
   storageMock.getUser.mockResolvedValue({ id: HOST, firstName: "Hank", lastName: null, email: "h@x.io" });
   storageMock.getUsers.mockResolvedValue([]);
   storageMock.getSquad.mockResolvedValue(null);
+  storageMock.filterUnmutedForSquad.mockImplementation((ids: string[]) => Promise.resolve(ids));
   storageMock.getPushTokensForUsers.mockResolvedValue([]);
   storageMock.clearPushToken.mockResolvedValue(undefined);
   sendPushNotificationsMock.mockResolvedValue({ staleTokens: [] });
+  shouldSendNotificationMock.mockResolvedValue(true);
 });
 
 describe("POST /api/events/:id/costs — owe-push to debtors", () => {
@@ -176,6 +181,55 @@ describe("POST /api/events/:id/costs — owe-push to debtors", () => {
     const recipients = storageMock.getPushTokensForUsers.mock.calls.map((c) => (c[0] as string[])[0]);
     expect(recipients).toEqual([ALICE]);
   });
+
+  it("does not push a debtor who muted the plan's squad", async () => {
+    dbState.selectRows = [{ ...eventWith([]), squadId: "squad-1" }];
+    dbState.updateRows = [{ ...eventWith([]), squadId: "squad-1" }];
+    storageMock.getPushTokensForUsers.mockResolvedValue(["ExponentPushToken[x]"]);
+    storageMock.filterUnmutedForSquad.mockResolvedValue([]);
+
+    await request(await makeApp({ id: HOST }))
+      .post("/api/events/evt-1/costs")
+      .send({
+        description: "Pizza",
+        amount: 20,
+        paidById: HOST,
+        shares: [{ userId: HOST, amount: 10 }, { userId: ALICE, amount: 10 }],
+        version: 0,
+      })
+      .expect(200);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(storageMock.filterUnmutedForSquad).toHaveBeenCalledWith([ALICE], "squad-1");
+    expect(sendPushNotificationsMock).not.toHaveBeenCalled();
+  });
+
+  it("shares one cooldown across repeated cost mutations for a plan recipient", async () => {
+    dbState.selectRows = [eventWith([])];
+    dbState.updateRows = [eventWith([])];
+    storageMock.getPushTokensForUsers.mockResolvedValue(["ExponentPushToken[x]"]);
+    shouldSendNotificationMock.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    const app = await makeApp({ id: HOST });
+    const body = {
+      description: "Pizza",
+      amount: 20,
+      paidById: HOST,
+      shares: [{ userId: HOST, amount: 10 }, { userId: ALICE, amount: 10 }],
+      version: 0,
+    };
+
+    await request(app).post("/api/events/evt-1/costs").send(body).expect(200);
+    await request(app).post("/api/events/evt-1/costs").send({ ...body, description: "Pizza (updated)" }).expect(200);
+    await vi.waitFor(() => expect(shouldSendNotificationMock).toHaveBeenCalledTimes(2));
+    expect(sendPushNotificationsMock).toHaveBeenCalledTimes(1);
+    expect(shouldSendNotificationMock).toHaveBeenNthCalledWith(
+      1,
+      "evt-1",
+      ALICE,
+      "plan_cost_mutation",
+      15 * 60 * 1000,
+    );
+  });
 });
 
 describe("POST /api/events/:id/costs/:costId/mark-paid", () => {
@@ -207,6 +261,22 @@ describe("POST /api/events/:id/costs/:costId/mark-paid", () => {
     expect(opts.requireNotifyPayments).toBe(true);
     const [, payload] = sendPushNotificationsMock.mock.calls[0] as [unknown, { body: string }];
     expect(payload.body).toContain("Alice");
+  });
+
+  it("does not notify a muted creditor when a debtor marks paid", async () => {
+    const freshCost = {
+      ...cost,
+      shares: cost.shares.map((share) => ({ ...share, paidAt: null, confirmedAt: null })),
+    };
+    dbState.selectRows = [{ ...eventWith([freshCost]), squadId: "squad-1" }];
+    dbState.updateRows = [{ ...eventWith([freshCost]), squadId: "squad-1" }];
+    storageMock.filterUnmutedForSquad.mockResolvedValue([]);
+
+    const app = await makeApp({ id: ALICE });
+    await request(app).post("/api/events/evt-1/costs/c1/mark-paid").send({ paid: true }).expect(200);
+
+    await vi.waitFor(() => expect(storageMock.filterUnmutedForSquad).toHaveBeenCalledWith([HOST], "squad-1"));
+    expect(sendPushNotificationsMock).not.toHaveBeenCalled();
   });
 
   it("rejects the payer marking their own (nonexistent) debt", async () => {

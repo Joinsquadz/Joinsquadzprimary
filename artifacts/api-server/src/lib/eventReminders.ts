@@ -1,7 +1,7 @@
 import { logger } from './logger';
 import { sendPushNotifications } from './pushNotifications';
 import { storage } from '../storage';
-import { parseEventStart, relativeDayLabel, formatEventTimeIn } from './eventDate';
+import { parseEventStart, relativeDayLabel, formatEventTimeIn, calendarDaysUntil } from './eventDate';
 import {
   runWithSchedulerLock,
   ENGAGEMENT_SCAN_LOCK_KEY,
@@ -15,14 +15,10 @@ import {
 export const REMINDER_SCAN_INTERVAL_MS = 10 * 60 * 1000;
 export const REMINDER_LEAD_MS = 2 * 60 * 60 * 1000;
 
-// "Day-of" heads-up: fire once when the event is within this lead but still more
-// than the "starting soon" lead away, so the two reminders don't collide.
-export const DAY_OF_LEAD_MS = 14 * 60 * 60 * 1000;
-
 // 3-day-out reminder: fires once per event when the start is within 3 calendar
-// days but still outside the day-of window. Gated by a plan-age check so a
+// days but still outside the starting-soon window. Gated by a plan-age check so a
 // plan created 3 days before the event doesn't trigger immediately.
-export const THREE_DAY_LEAD_MS = 3 * 24 * 60 * 60 * 1000; // 72 h
+export const THREE_DAY_MIN_LEAD_MS = 14 * 60 * 60 * 1000;
 export const MIN_PLAN_AGE_FOR_3DAY_MS = 4 * 24 * 60 * 60 * 1000; // 96 h
 
 // Post-event recap: prompt for photos once the event is comfortably over, but
@@ -363,80 +359,8 @@ export async function runEventReminderScan(): Promise<void> {
   }
 }
 
-// "Day-of" heads-up reminder to going RSVPs, fired once per event when the start
-// is within DAY_OF_LEAD_MS but still further out than the 2h "starting soon"
-// window (so guests get a morning-of nudge as well as the last-minute one).
-export async function runDayOfReminderScan(): Promise<void> {
-  const events = await storage.getEventsPendingDayOfReminder();
-  const now = new Date();
-  for (const event of events) {
-    const start = eventStartFor(event, now);
-    if (!start) continue;
-    const msUntil = start.getTime() - now.getTime();
-    // Past, or already inside the "starting soon" window — the soon-reminder
-    // covers it; mark day-of done so we don't fire a late duplicate.
-    if (msUntil <= REMINDER_LEAD_MS) {
-      await storage.markEventDayOfReminderSent(event.id);
-      continue;
-    }
-    if (msUntil > DAY_OF_LEAD_MS) continue; // too far out yet
-
-    const rsvps = (event.rsvps ?? {}) as Record<string, string>;
-    const goingIds = Object.keys(rsvps).filter((uid) => rsvps[uid] === 'going');
-    if (goingIds.length === 0) continue;
-
-    const recipientIds = event.squadId
-      ? await storage.filterUnmutedForSquad(goingIds, event.squadId)
-      : goingIds;
-    if (recipientIds.length === 0) continue;
-
-    const recipients = await storage.getPushRecipientsForUsers(recipientIds, { requireNotifyReminders: true });
-    if (recipients.length === 0) continue;
-
-    const claimed = await storage.tryClaimDayOfReminderSend(event.id);
-    if (!claimed) continue;
-
-    try {
-      // The "today"/"tomorrow" label and the printed clock time are both
-      // computed per recipient: a guest in Tokyo and a host in Los Angeles are
-      // often on different calendar days for the same instant. Recipients with
-      // no saved zone fall back to the event's stored (creator's) zone, and
-      // when that is missing too the body degrades to the event's date text —
-      // see relativeDayLabel for why UTC is not a safe default here.
-      const eventTz = (event as { timezone?: string | null }).timezone ?? null;
-      const result = await sendPerZone(
-        groupRecipientsByZone(recipients, eventTz),
-        (zone) => ({
-          title: `${event.emoji} ${event.title}`,
-          body: reminderBodyFor({ now, start, zone, eventDateText: event.date }),
-          data: { screen: event.type === 'trip' ? 'trip' : 'event', eventId: event.id },
-        }),
-        `day-of-reminder:${event.id}`,
-      );
-      if (!shouldReleaseReminderClaim(result)) {
-        // Already marked by the atomic claim.
-        if (result.hadSendError) {
-          logger.warn(
-            { eventId: event.id, okCount: result.okCount },
-            'Day-of reminder partially accepted; preserving claim to avoid duplicate alerts',
-          );
-        }
-      } else {
-        logger.warn(
-          { eventId: event.id, okCount: result.okCount, hadSendError: result.hadSendError },
-          'Day-of reminder not confirmed sent; releasing claim for retry next scan',
-        );
-        await storage.unclaimDayOfReminderSend(event.id);
-      }
-    } catch (err) {
-      logger.error({ err, eventId: event.id }, 'Day-of reminder send failed; releasing claim for retry');
-      await storage.unclaimDayOfReminderSend(event.id);
-    }
-  }
-}
-
 // 3-day-out reminder to going RSVPs, fired once per event when the start is
-// within THREE_DAY_LEAD_MS but still outside the day-of window. An additional
+// within three calendar days but still outside the 14-hour lower boundary. An additional
 // plan-age gate prevents plans created <4 days before the event from firing
 // immediately (the organizer just made the plan — the reminder would be noise).
 export async function run3DayReminderScan(): Promise<void> {
@@ -447,12 +371,15 @@ export async function run3DayReminderScan(): Promise<void> {
     if (!start) continue;
     const msUntil = start.getTime() - now.getTime();
 
-    // Already inside the day-of window — mark done (day-of scanner covers it).
-    if (msUntil <= DAY_OF_LEAD_MS) {
+    // Starting-soon owns the final two hours; the three-day reminder's locked
+    // lower boundary is 14 hours before start.
+    if (msUntil <= THREE_DAY_MIN_LEAD_MS) {
       await storage.markEvent3DayReminderSent(event.id);
       continue;
     }
-    if (msUntil > THREE_DAY_LEAD_MS) continue; // still too far out
+    const eventTz = (event as { timezone?: string | null }).timezone ?? null;
+    const calendarDays = calendarDaysUntil(now, start, eventTz);
+    if (calendarDays < 1 || calendarDays > 3) continue;
 
     // Plan-age gate: skip (and mark done) if the event was created fewer than
     // 4 days before its start — the reminder would fire almost immediately,
@@ -480,7 +407,6 @@ export async function run3DayReminderScan(): Promise<void> {
     if (!claimed) continue;
 
     try {
-      const eventTz = (event as { timezone?: string | null }).timezone ?? null;
       const result = await sendPerZone(
         groupRecipientsByZone(recipients, eventTz),
         (zone) => ({
@@ -681,7 +607,6 @@ export async function runEngagementScanPass(): Promise<void> {
   await runWithSchedulerLock(ENGAGEMENT_SCAN_LOCK_KEY, 'engagement-scans', REMINDER_SCAN_INTERVAL_MS, async () => {
     const scans: Array<[string, () => Promise<void>]> = [
       ['Event reminder scan failed', runEventReminderScan],
-      ['Day-of reminder scan failed', runDayOfReminderScan],
       ['3-day reminder scan failed', run3DayReminderScan],
       ['Event recap scan failed', runEventRecapScan],
       ['Poll nudge scan failed', runPollNudgeScan],

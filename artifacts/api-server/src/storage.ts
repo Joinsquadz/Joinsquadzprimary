@@ -2733,48 +2733,6 @@ export class Storage {
       .where(eq(eventsTable.id, eventId));
   }
 
-  /** Events eligible for a "day-of" heads-up reminder (fire-once via
-   *  dayOfReminderSentAt). Same date-parseability gate as the soon reminder. */
-  async getEventsPendingDayOfReminder(): Promise<DbEvent[]> {
-    return db
-      .select()
-      .from(eventsTable)
-      .where(
-        and(
-          eq(eventsTable.cancelled, false),
-          isNull(eventsTable.dayOfReminderSentAt),
-          ne(eventsTable.date, ""),
-          ne(eventsTable.date, "TBD"),
-          // SQL-level time-window guard: skip events more than 14 h out (the
-          // day-of lead window). Events without eventAt kept for JS parsing.
-          or(isNull(eventsTable.eventAt), sql`${eventsTable.eventAt} <= NOW() + interval '14 hours'`),
-        ),
-      );
-  }
-
-  async markEventDayOfReminderSent(eventId: string): Promise<void> {
-    await db
-      .update(eventsTable)
-      .set({ dayOfReminderSentAt: new Date() })
-      .where(eq(eventsTable.id, eventId));
-  }
-
-  async tryClaimDayOfReminderSend(eventId: string): Promise<boolean> {
-    const [row] = await db
-      .update(eventsTable)
-      .set({ dayOfReminderSentAt: new Date() })
-      .where(and(eq(eventsTable.id, eventId), isNull(eventsTable.dayOfReminderSentAt)))
-      .returning({ id: eventsTable.id });
-    return Boolean(row);
-  }
-
-  async unclaimDayOfReminderSend(eventId: string): Promise<void> {
-    await db
-      .update(eventsTable)
-      .set({ dayOfReminderSentAt: null })
-      .where(eq(eventsTable.id, eventId));
-  }
-
   /** Events eligible for the 3-day-out heads-up reminder (fire-once via
    *  threeDayReminderSentAt). Only returns events whose toggle is on. */
   async getEventsPending3DayReminder(): Promise<DbEvent[]> {
@@ -2788,9 +2746,11 @@ export class Storage {
           isNull(eventsTable.threeDayReminderSentAt),
           ne(eventsTable.date, ""),
           ne(eventsTable.date, "TBD"),
-          // SQL-level time-window guard: skip events more than 72 h out (the
-          // 3-day lead window). Events without eventAt kept for JS parsing.
-          or(isNull(eventsTable.eventAt), sql`${eventsTable.eventAt} <= NOW() + interval '72 hours'`),
+          // SQL-level guard is deliberately broader than the calendar-day
+          // window. Around DST, three calendar days can exceed 72 elapsed
+          // hours; the scanner applies the timezone-aware exact check.
+          // Events without eventAt are kept for JS parsing.
+          or(isNull(eventsTable.eventAt), sql`${eventsTable.eventAt} <= NOW() + interval '96 hours'`),
         ),
       );
   }

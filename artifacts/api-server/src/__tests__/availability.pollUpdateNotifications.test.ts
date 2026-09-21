@@ -12,6 +12,7 @@ const storageMock = vi.hoisted(() => ({
   getSquad: vi.fn(),
   getEvent: vi.fn(),
   getUsers: vi.fn(),
+  filterUnmutedForSquad: vi.fn(),
   markPollUpdateNotified: vi.fn(),
 }));
 
@@ -63,6 +64,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   storageMock.getUsers.mockResolvedValue([]);
   storageMock.getPushTokensForUsers.mockResolvedValue([]);
+  storageMock.filterUnmutedForSquad.mockImplementation((ids: string[]) => Promise.resolve(ids));
   storageMock.upsertAvailabilityResponse.mockResolvedValue({});
   storageMock.canAccessAvailabilityPoll.mockResolvedValue(true);
   storageMock.clearPushToken.mockResolvedValue(undefined);
@@ -168,6 +170,27 @@ describe("PATCH /api/availability/polls/:id — push notifications (squad-scoped
     expect(recipientIds).toContain(MEMBER_B);
     expect(recipientIds).toContain(MEMBER_C);
     expect(recipientIds).not.toContain(HOST_ID);
+  });
+
+  it("excludes squad-muted members before looking up push tokens", async () => {
+    storageMock.getAvailabilityResponses.mockResolvedValue([]);
+    storageMock.filterUnmutedForSquad.mockResolvedValue([MEMBER_B]);
+
+    const app = await makeApp({ id: HOST_ID });
+    await request(app)
+      .patch("/api/availability/polls/poll-1")
+      .send({ days: NEW_DAYS });
+
+    await vi.waitFor(() => {
+      expect(storageMock.getPushTokensForUsers).toHaveBeenCalled();
+    });
+
+    const [recipientIds] = storageMock.getPushTokensForUsers.mock.calls[0] as [string[], unknown];
+    expect(storageMock.filterUnmutedForSquad).toHaveBeenCalledWith(
+      expect.arrayContaining([MEMBER_A, MEMBER_B, MEMBER_C]),
+      "squad-1",
+    );
+    expect(recipientIds).toEqual([MEMBER_B]);
   });
 
   it("excludes members who updated AND includes those who did not, simultaneously", async () => {
@@ -428,6 +451,20 @@ describe("PUT /api/availability/polls/:id/me — host notification on re-submiss
     expect(payload.body).toContain("Alice");
     expect(payload.data.screen).toBe("availability");
     expect(payload.data.squadId).toBe("squad-1");
+  });
+
+  it("does not look up push tokens when the squad-mute filter excludes the creator", async () => {
+    storageMock.filterUnmutedForSquad.mockResolvedValue([]);
+
+    const app = await makeApp({ id: MEMBER_A });
+    await request(app)
+      .put("/api/availability/polls/poll-1/me")
+      .send({ cells: ["Mon-6PM"] });
+
+    await new Promise((r) => setTimeout(r, 50));
+    expect(storageMock.filterUnmutedForSquad).toHaveBeenCalledWith([HOST_ID], "squad-1");
+    expect(storageMock.getPushTokensForUsers).not.toHaveBeenCalled();
+    expect(sendPushNotificationsMock).not.toHaveBeenCalled();
   });
 
   it("fetches push tokens only for the poll creator, not for all members", async () => {

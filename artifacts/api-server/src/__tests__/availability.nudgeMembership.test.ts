@@ -9,6 +9,7 @@ const storageMock = vi.hoisted(() => ({
   createNudge: vi.fn(),
   getUsers: vi.fn(),
   getPushTokensForUsers: vi.fn(),
+  filterUnmutedForSquad: vi.fn(),
 }));
 
 vi.mock("../storage", () => ({ storage: storageMock }));
@@ -41,6 +42,7 @@ beforeEach(() => {
   storageMock.createNudge.mockResolvedValue({ applied: true, sentAt: new Date() });
   storageMock.getUsers.mockResolvedValue([{ id: CREATOR, firstName: "Cara" }]);
   storageMock.getPushTokensForUsers.mockResolvedValue([]);
+  storageMock.filterUnmutedForSquad.mockImplementation((ids: string[]) => Promise.resolve(ids));
 });
 
 describe("POST /api/availability/polls/:id/nudge — participant membership", () => {
@@ -60,6 +62,20 @@ describe("POST /api/availability/polls/:id/nudge — participant membership", ()
       .send({ targetUserId: MEMBER });
     expect(res.status).toBe(200);
     expect(storageMock.createNudge).toHaveBeenCalledWith("poll-1", CREATOR, MEMBER, expect.any(Number));
+  });
+
+  it("does not look up push tokens when the target is muted in the squad", async () => {
+    storageMock.filterUnmutedForSquad.mockResolvedValue([]);
+
+    const app = await makeApp({ id: CREATOR });
+    const res = await request(app)
+      .post("/api/availability/polls/poll-1/nudge")
+      .send({ targetUserId: MEMBER });
+
+    expect(res.status).toBe(200);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(storageMock.filterUnmutedForSquad).toHaveBeenCalledWith([MEMBER], "squad-1");
+    expect(storageMock.getPushTokensForUsers).not.toHaveBeenCalled();
   });
 
   it("returns 403 when a non-creator attempts to nudge", async () => {

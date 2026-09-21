@@ -16,6 +16,7 @@ const storageMock = vi.hoisted(() => ({
   canAccessAvailabilityPoll: vi.fn(),
   markPollUpdateNotified: vi.fn(),
   getPushTokensForUsers: vi.fn(),
+  filterUnmutedForSquad: vi.fn(),
   clearPushToken: vi.fn(),
   getSquad: vi.fn(),
   getEvent: vi.fn(),
@@ -97,6 +98,7 @@ beforeEach(() => {
   storageMock.findAvailabilityPoll.mockResolvedValue(null);
   storageMock.markPollUpdateNotified.mockResolvedValue(undefined);
   storageMock.getPushTokensForUsers.mockResolvedValue([]);
+  storageMock.filterUnmutedForSquad.mockImplementation((ids: string[]) => Promise.resolve(ids));
 });
 
 describe("POST /api/availability/polls — trip kind and length", () => {

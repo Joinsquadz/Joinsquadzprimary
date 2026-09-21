@@ -1026,7 +1026,12 @@ router.patch("/availability/polls/:id", requireAuth, async (req: Request, res: R
 
         if (needsNudge.length === 0) return;
 
-        const tokens = await storage.getPushTokensForUsers(needsNudge, { requireNotifyReminders: true });
+        const unmutedIds = poll.squadId
+          ? await storage.filterUnmutedForSquad(needsNudge, poll.squadId)
+          : needsNudge;
+        if (unmutedIds.length === 0) return;
+
+        const tokens = await storage.getPushTokensForUsers(unmutedIds, { requireNotifyReminders: true });
         const scopeData: Record<string, string> = poll.squadId
           ? { screen: "availability", squadId: poll.squadId }
           : { screen: "availability", eventId: poll.eventId ?? "" };
@@ -1133,6 +1138,11 @@ router.post("/availability/polls/:id/nudge", requireAuth, async (req: Request, r
     // Fire-and-forget: send the push notification after responding to the host.
     void (async () => {
       try {
+        if (poll.squadId) {
+          const unmutedIds = await storage.filterUnmutedForSquad([targetUserId], poll.squadId);
+          if (unmutedIds.length === 0) return;
+        }
+
         const tokens = await storage.getPushTokensForUsers([targetUserId], { requireNotifyReminders: true });
         if (tokens.length === 0) return;
 
@@ -1229,7 +1239,12 @@ router.put("/availability/polls/:id/me", requireAuth, async (req: Request, res: 
         const myResponse = responses.find((r) => r.userId === userId);
         if (!myResponse || new Date(myResponse.updatedAt) <= poll.updatedAt) return;
 
-        const tokens = await storage.getPushTokensForUsers([poll.createdBy], { requireNotifyReminders: true });
+        const recipientIds = poll.squadId
+          ? await storage.filterUnmutedForSquad([poll.createdBy], poll.squadId)
+          : [poll.createdBy];
+        if (recipientIds.length === 0) return;
+
+        const tokens = await storage.getPushTokensForUsers(recipientIds, { requireNotifyReminders: true });
         if (tokens.length === 0) return;
 
         const memberUsers = await storage.getUsers([userId]);

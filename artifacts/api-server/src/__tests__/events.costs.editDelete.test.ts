@@ -10,6 +10,7 @@ import request from "supertest";
 
 const mockRows = vi.hoisted(() => ({ value: [] as unknown[] }));
 const mockUpdateRows = vi.hoisted(() => ({ value: [] as unknown[] }));
+const shouldSendNotificationMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@workspace/db", () => ({
   db: {
@@ -80,6 +81,7 @@ vi.mock("../lib/logger");
 vi.mock("../lib/pushNotifications", () => ({
   sendPushNotifications: vi.fn().mockResolvedValue(undefined),
 }));
+vi.mock("../lib/notificationDebounce", () => ({ shouldSendNotification: shouldSendNotificationMock }));
 
 import eventsRouter from "../routes/events";
 import { makeTestApp } from "./helpers/makeTestApp";
@@ -127,6 +129,7 @@ beforeEach(() => {
   const ev = makeEventWithCost();
   mockRows.value = [ev];
   mockUpdateRows.value = [{ ...ev, version: 3 }];
+  shouldSendNotificationMock.mockResolvedValue(true);
 });
 
 // ── D1: authorization matrix for PATCH ───────────────────────────────────────
@@ -267,5 +270,37 @@ describe("D3 — PATCH /api/events/:id/costs/:costId blocked when payment exists
       .patch(`/api/events/evt-1/costs/${COST_ID}`)
       .send(editBody);
     expect(res.status).toBe(200);
+  });
+});
+
+describe("squad mute enforcement for cost mutations", () => {
+  it("filters muted recipients on cost edits", async () => {
+    const event = { ...makeEventWithCost(), squadId: "squad-1" };
+    mockRows.value = [event];
+    mockUpdateRows.value = [{ ...event, version: 3 }];
+    const app = makeApp(PAYER_ID);
+
+    await request(app)
+      .patch(`/api/events/evt-1/costs/${COST_ID}`)
+      .send(editBody)
+      .expect(200);
+
+    const storageModule = await import("../storage");
+    await vi.waitFor(() => expect(storageModule.storage.filterUnmutedForSquad).toHaveBeenCalledWith([HOST_ID], "squad-1"));
+  });
+
+  it("filters muted recipients on cost deletes", async () => {
+    const event = { ...makeEventWithCost(), squadId: "squad-1" };
+    mockRows.value = [event];
+    mockUpdateRows.value = [{ ...event, version: 3 }];
+    const app = makeApp(PAYER_ID);
+
+    await request(app)
+      .delete(`/api/events/evt-1/costs/${COST_ID}`)
+      .send({ version: 2 })
+      .expect(200);
+
+    const storageModule = await import("../storage");
+    await vi.waitFor(() => expect(storageModule.storage.filterUnmutedForSquad).toHaveBeenCalledWith([HOST_ID], "squad-1"));
   });
 });

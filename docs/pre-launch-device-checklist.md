@@ -42,10 +42,11 @@ second device or account ready to send events.
 ### 1b  Event reminder ("starting soon")
 - [ ] Create an event starting ~30 minutes from now
 - [ ] RSVP "going" from a second account
-- [ ] Wait for the reminder scanner window (runs every 5 min); User B receives
+- [ ] Wait for the reminder scanner window (runs every 10 min); User B receives
   a push while backgrounded
-- [ ] `reminderSentAt` is only written **after** the push succeeds
-  (verify in server logs: look for `"Event reminder sent"` log entry)
+- [ ] `reminderSentAt` is claimed **before** the push is attempted; it is
+  released only when no device accepts the push, so a later scan can retry
+  without duplicating devices that already accepted it
 
 ### 1c  Availability poll response
 - [ ] Host creates an availability poll
