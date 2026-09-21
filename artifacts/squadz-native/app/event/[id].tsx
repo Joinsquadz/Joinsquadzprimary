@@ -33,6 +33,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import * as Clipboard from "expo-clipboard";
 import { useColors } from "@/hooks/useColors";
 import { useEventStream } from "@/hooks/useEventStream";
 import { useData, useAuth, dbEventToEvent } from "@/context/AppContext";
@@ -292,9 +293,14 @@ export default function EventDetailScreen() {
   // receipts). The thread is created lazily the first time the Chat tab opens.
   const chat = useEventChat(event?.id, tab === "chat");
   const [nowTick, setNowTick] = useState(() => Date.now());
+  const [inviteCopied, setInviteCopied] = useState(false);
+  const inviteCopyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     const t = setInterval(() => setNowTick(Date.now()), 60000);
     return () => clearInterval(t);
+  }, []);
+  useEffect(() => () => {
+    if (inviteCopyTimer.current) clearTimeout(inviteCopyTimer.current);
   }, []);
   const [contactOpen, setContactOpen] = useState(false);
   const [contactMember, setContactMember] = useState<ResolvedUser | null>(null);
@@ -1255,68 +1261,82 @@ export default function EventDetailScreen() {
     <KeyboardAvoidingView behavior="padding" style={[styles.screen, { backgroundColor: colors.background }]}>
       {/* Hero */}
       <View style={[styles.hero, { paddingTop: topPad + 8 }]}>
-        <TouchableOpacity onPress={goBack} style={[styles.backBtn, { top: btnTop }]}>
+        <TouchableOpacity
+          onPress={goBack}
+          style={[styles.backBtn, { top: btnTop }]}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
           <Ionicons name="chevron-back" size={24} color="#fff" />
         </TouchableOpacity>
         <TouchableOpacity
-          onPress={() => Share.share({ message: `Join ${event.title}! Code: ${event.inviteCode}` })}
+          onPress={() => Share.share({ message: `Join ${event.title}! ${planInviteUrl(event.inviteCode)}` })}
           style={[styles.shareBtn, { top: btnTop }]}
+          accessibilityRole="button"
+          accessibilityLabel="Share event invite"
         >
           <Ionicons name="share-outline" size={22} color="#fff" />
         </TouchableOpacity>
         {canManage && (
-          <TouchableOpacity onPress={openEdit} style={[styles.gearBtn, { top: btnTop }]}>
+          <TouchableOpacity
+            onPress={openEdit}
+            style={[styles.gearBtn, { top: btnTop }]}
+            accessibilityRole="button"
+            accessibilityLabel="Event settings"
+          >
             <Ionicons name="settings-outline" size={21} color="#fff" />
           </TouchableOpacity>
         )}
-        <Text style={styles.heroEmoji}>{event.emoji}</Text>
-        <Animated.View
-          style={[
-            styles.heroTitleRow,
-            {
-              backgroundColor: titleHighlightAnim.interpolate({ inputRange: [0, 1], outputRange: ["rgba(245,158,11,0)", "rgba(245,158,11,0.28)"] }),
-              borderRadius: 10,
-              paddingHorizontal: 6,
-              paddingVertical: 2,
-            },
-          ]}
-        >
-          <Text style={styles.heroTitle}>{event.title}</Text>
-          {isHost && (
-            <View style={styles.heroHostBadge}>
-              <Ionicons name="star" size={11} color="#fff" />
-              <Text style={styles.heroHostText}>You're hosting</Text>
-            </View>
-          )}
-        </Animated.View>
-        <Animated.View
-          style={{
-            backgroundColor: dateHighlightAnim.interpolate({ inputRange: [0, 1], outputRange: ["rgba(245,158,11,0)", "rgba(245,158,11,0.28)"] }),
-            borderRadius: 8,
-            paddingHorizontal: 6,
-            alignSelf: "center",
-          }}
-        >
-          <Text style={styles.heroDate}>{formatEventTime(event)}</Text>
-        </Animated.View>
-        {event.endAt ? (
-          <Text style={styles.heroDate}>Ends {formatInstant(event.endAt) || formatEndLabel(event.endAt)}</Text>
-        ) : null}
-        <Animated.View
-          style={{
-            backgroundColor: locationHighlightAnim.interpolate({ inputRange: [0, 1], outputRange: ["rgba(245,158,11,0)", "rgba(245,158,11,0.28)"] }),
-            borderRadius: 8,
-            paddingHorizontal: 6,
-            marginBottom: 14,
-            alignSelf: "center",
-          }}
-        >
-          <AddressLink
-            location={event.location}
-            textStyle={[styles.heroLocation, { marginBottom: 0 }]}
-            iconColor="rgba(255,255,255,0.85)"
-          />
-        </Animated.View>
+        <View style={styles.heroSummary}>
+          <Text style={styles.heroEmoji}>{event.emoji}</Text>
+          <View style={styles.heroSummaryBody}>
+            <Animated.View
+              style={[
+                styles.heroTitleRow,
+                {
+                  backgroundColor: titleHighlightAnim.interpolate({ inputRange: [0, 1], outputRange: ["rgba(245,158,11,0)", "rgba(245,158,11,0.28)"] }),
+                },
+              ]}
+            >
+              <Text style={styles.heroTitle} numberOfLines={2}>{event.title}</Text>
+              {isHost && (
+                <View style={styles.heroHostBadge}>
+                  <Ionicons name="star" size={10} color="#fff" />
+                  <Text style={styles.heroHostText}>Hosting</Text>
+                </View>
+              )}
+            </Animated.View>
+            <Animated.View
+              style={[
+                styles.heroMetaRow,
+                { backgroundColor: dateHighlightAnim.interpolate({ inputRange: [0, 1], outputRange: ["rgba(245,158,11,0)", "rgba(245,158,11,0.28)"] }) },
+              ]}
+            >
+              <Ionicons name="calendar-outline" size={13} color="rgba(255,255,255,0.9)" />
+              <Text style={styles.heroDate} numberOfLines={1}>{formatEventTime(event)}</Text>
+            </Animated.View>
+            {event.endAt ? (
+              <View style={styles.heroMetaRow}>
+                <Ionicons name="time-outline" size={13} color="rgba(255,255,255,0.9)" />
+                <Text style={styles.heroDate} numberOfLines={1}>Ends {formatInstant(event.endAt) || formatEndLabel(event.endAt)}</Text>
+              </View>
+            ) : null}
+            {!!event.location && (
+              <Animated.View
+                style={[
+                  styles.heroMetaRow,
+                  { backgroundColor: locationHighlightAnim.interpolate({ inputRange: [0, 1], outputRange: ["rgba(245,158,11,0)", "rgba(245,158,11,0.28)"] }) },
+                ]}
+              >
+                <AddressLink
+                  location={event.location}
+                  textStyle={styles.heroLocation}
+                  iconColor="rgba(255,255,255,0.9)"
+                />
+              </Animated.View>
+            )}
+          </View>
+        </View>
 
         {(() => {
           const start = resolveEventStart(event);
@@ -1697,22 +1717,50 @@ export default function EventDetailScreen() {
             </View>
 
             {/* Invite code — visible to all members */}
-            <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <Text style={[styles.cardTitle, { color: colors.mutedForeground }]}>Invite friends</Text>
-              <Text style={[styles.inviteCode, { color: colors.primary, marginBottom: 4 }]}>{event.inviteCode}</Text>
-              <Text style={[styles.inviteLink, { color: colors.mutedForeground, marginBottom: 12 }]}>
-                joinsquadz.com/join/{event.inviteCode}
-              </Text>
-              <TouchableOpacity
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  Share.share({ message: `Join ${event.title}! ${planInviteUrl(event.inviteCode)}` });
-                }}
-                style={[styles.shareInviteBtn, { backgroundColor: colors.primary + "20", borderColor: colors.primary + "40" }]}
-              >
-                <Ionicons name="share-outline" size={16} color={colors.primary} />
-                <Text style={[styles.shareInviteText, { color: colors.primary }]}>Share invite link</Text>
-              </TouchableOpacity>
+            <View style={[styles.card, styles.inviteCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <View style={styles.inviteHeadingRow}>
+                <View style={styles.inviteTextColumn}>
+                  <Text style={[styles.cardTitle, { color: colors.mutedForeground }]}>Invite friends</Text>
+                  <Text
+                    style={[styles.inviteCode, { color: colors.foreground }]}
+                    numberOfLines={1}
+                    ellipsizeMode="middle"
+                    accessibilityLabel={`Invite code ${event.inviteCode}`}
+                  >
+                    {event.inviteCode}
+                  </Text>
+                </View>
+                <View style={styles.inviteActions}>
+                  <TouchableOpacity
+                    onPress={async () => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      await Clipboard.setStringAsync(planInviteUrl(event.inviteCode));
+                      setInviteCopied(true);
+                      if (inviteCopyTimer.current) clearTimeout(inviteCopyTimer.current);
+                      inviteCopyTimer.current = setTimeout(() => setInviteCopied(false), 2200);
+                    }}
+                    style={[styles.inviteActionBtn, { backgroundColor: colors.primary + "16", borderColor: colors.primary + "35" }]}
+                    accessibilityRole="button"
+                    accessibilityLabel={inviteCopied ? "Invite link copied" : "Copy invite link"}
+                    accessibilityLiveRegion="polite"
+                  >
+                    <Ionicons name={inviteCopied ? "checkmark" : "copy-outline"} size={17} color={inviteCopied ? colors.green : colors.primary} />
+                    <Text style={[styles.inviteActionText, { color: inviteCopied ? colors.green : colors.primary }]}>{inviteCopied ? "Copied" : "Copy"}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      Share.share({ message: `Join ${event.title}! ${planInviteUrl(event.inviteCode)}` });
+                    }}
+                    style={[styles.inviteActionBtn, { backgroundColor: colors.primary + "16", borderColor: colors.primary + "35" }]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Share invite link"
+                  >
+                    <Ionicons name="share-outline" size={17} color={colors.primary} />
+                    <Text style={[styles.inviteActionText, { color: colors.primary }]}>Share</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
             </View>
 
             {isHost && (
@@ -2317,19 +2365,42 @@ export default function EventDetailScreen() {
 
         {tab === "admin" && (
           <View style={{ gap: 12 }}>
-            <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <Text style={[styles.cardTitle, { color: colors.mutedForeground }]}>Invite code</Text>
-              <Text style={[styles.inviteCode, { color: colors.primary }]}>{event.inviteCode}</Text>
-              <Text style={[styles.inviteLink, { color: colors.mutedForeground }]}>
-                joinsquadz.com/join/{event.inviteCode}
-              </Text>
-              <TouchableOpacity
-                onPress={() => Share.share({ message: `Join ${event.title}! ${planInviteUrl(event.inviteCode)}` })}
-                style={[styles.shareInviteBtn, { backgroundColor: colors.primary + "20", borderColor: colors.primary + "40" }]}
-              >
-                <Ionicons name="share-outline" size={16} color={colors.primary} />
-                <Text style={[styles.shareInviteText, { color: colors.primary }]}>Share invite</Text>
-              </TouchableOpacity>
+            <View style={[styles.card, styles.inviteCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <View style={styles.inviteHeadingRow}>
+                <View style={styles.inviteTextColumn}>
+                  <Text style={[styles.cardTitle, { color: colors.mutedForeground }]}>Invite code</Text>
+                  <Text style={[styles.inviteCode, { color: colors.foreground }]} numberOfLines={1} ellipsizeMode="middle" accessibilityLabel={`Invite code ${event.inviteCode}`}>
+                    {event.inviteCode}
+                  </Text>
+                </View>
+                <View style={styles.inviteActions}>
+                  <TouchableOpacity
+                    onPress={async () => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      await Clipboard.setStringAsync(planInviteUrl(event.inviteCode));
+                      setInviteCopied(true);
+                      if (inviteCopyTimer.current) clearTimeout(inviteCopyTimer.current);
+                      inviteCopyTimer.current = setTimeout(() => setInviteCopied(false), 2200);
+                    }}
+                    style={[styles.inviteActionBtn, { backgroundColor: colors.primary + "16", borderColor: colors.primary + "35" }]}
+                    accessibilityRole="button"
+                    accessibilityLabel={inviteCopied ? "Invite link copied" : "Copy invite link"}
+                    accessibilityLiveRegion="polite"
+                  >
+                    <Ionicons name={inviteCopied ? "checkmark" : "copy-outline"} size={17} color={inviteCopied ? colors.green : colors.primary} />
+                    <Text style={[styles.inviteActionText, { color: inviteCopied ? colors.green : colors.primary }]}>{inviteCopied ? "Copied" : "Copy"}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => Share.share({ message: `Join ${event.title}! ${planInviteUrl(event.inviteCode)}` })}
+                    style={[styles.inviteActionBtn, { backgroundColor: colors.primary + "16", borderColor: colors.primary + "35" }]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Share invite link"
+                  >
+                    <Ionicons name="share-outline" size={17} color={colors.primary} />
+                    <Text style={[styles.inviteActionText, { color: colors.primary }]}>Share</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
             </View>
             <TouchableOpacity
               onPress={openEdit}
@@ -2964,10 +3035,10 @@ export default function EventDetailScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  hero: { backgroundColor: "#FF6B2C", paddingHorizontal: 20, paddingBottom: 20, position: "relative" },
-  backBtn: { position: "absolute", top: 0, left: 16, padding: 8, zIndex: 10 },
-  shareBtn: { position: "absolute", top: 0, right: 16, padding: 8, zIndex: 10 },
-  gearBtn: { position: "absolute", top: 0, right: 54, padding: 8, zIndex: 10 },
+  hero: { backgroundColor: "#FF6B2C", paddingHorizontal: 16, paddingBottom: 14, position: "relative" },
+  backBtn: { position: "absolute", top: 0, left: 10, width: 44, height: 44, alignItems: "center", justifyContent: "center", zIndex: 10 },
+  shareBtn: { position: "absolute", top: 0, right: 10, width: 44, height: 44, alignItems: "center", justifyContent: "center", zIndex: 10 },
+  gearBtn: { position: "absolute", top: 0, right: 50, width: 44, height: 44, alignItems: "center", justifyContent: "center", zIndex: 10 },
   budgetCard: { borderRadius: 14, borderWidth: 1, padding: 16 },
   budgetHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   budgetEdit: { flexDirection: "row", alignItems: "center", gap: 3 },
@@ -2978,13 +3049,16 @@ const styles = StyleSheet.create({
   budgetMetaRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 8 },
   budgetMeta: { fontSize: 13, fontWeight: "700" },
   budgetPer: { fontSize: 12, marginTop: 6 },
-  heroEmoji: { fontSize: 48, textAlign: "center", marginTop: 20, marginBottom: 8 },
-  heroTitleRow: { alignItems: "center", gap: 6, marginBottom: 4 },
-  heroTitle: { fontSize: 24, fontWeight: "800", color: "#fff", textAlign: "center" },
-  heroHostBadge: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(255,255,255,0.2)", borderRadius: 12, paddingHorizontal: 10, paddingVertical: 3 },
+  heroSummary: { flexDirection: "row", alignItems: "flex-start", gap: 12, marginTop: 48, marginBottom: 10 },
+  heroSummaryBody: { flex: 1, minWidth: 0, gap: 3 },
+  heroEmoji: { fontSize: 38, lineHeight: 44, width: 48, textAlign: "center" },
+  heroTitleRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6, borderRadius: 8, paddingHorizontal: 4, paddingVertical: 1, alignSelf: "flex-start" },
+  heroTitle: { flexShrink: 1, fontSize: 21, lineHeight: 25, fontWeight: "800", color: "#fff" },
+  heroHostBadge: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: "rgba(255,255,255,0.2)", borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2 },
   heroHostText: { color: "#fff", fontSize: 11, fontWeight: "700" },
-  heroDate: { fontSize: 14, color: "rgba(255,255,255,0.85)", textAlign: "center", fontWeight: "600", marginBottom: 2 },
-  heroLocation: { fontSize: 13, color: "rgba(255,255,255,0.75)", textAlign: "center", marginBottom: 14 },
+  heroMetaRow: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 6, paddingHorizontal: 4, minHeight: 20, alignSelf: "flex-start", maxWidth: "100%" },
+  heroDate: { flexShrink: 1, fontSize: 13, lineHeight: 18, color: "rgba(255,255,255,0.9)", fontWeight: "600" },
+  heroLocation: { flexShrink: 1, fontSize: 13, lineHeight: 18, color: "rgba(255,255,255,0.9)" },
   countdownPill: {
     flexDirection: "row",
     alignItems: "center",
@@ -2993,7 +3067,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 11,
     paddingVertical: 5,
     borderRadius: 999,
-    marginBottom: 14,
+    marginBottom: 10,
   },
   countdownText: { fontSize: 12, fontWeight: "700", color: "#fff" },
   rsvpRow: { flexDirection: "row", gap: 8, justifyContent: "center" },
@@ -3018,7 +3092,7 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   pollClosedText: { fontSize: 11, fontWeight: "700" },
-  rsvpBtn: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 20, borderWidth: 1.5, paddingHorizontal: 14, paddingVertical: 8 },
+  rsvpBtn: { flex: 1, minHeight: 42, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, borderRadius: 20, borderWidth: 1.5, paddingHorizontal: 8, paddingVertical: 8 },
   rsvpText: { fontSize: 13, fontWeight: "700", color: "#fff" },
   rsvpMoment: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
@@ -3084,10 +3158,13 @@ const styles = StyleSheet.create({
   payBtnText: { fontSize: 12, fontWeight: "800", color: "#fff" },
   addRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 12, borderWidth: 1.5, borderStyle: "dashed", padding: 14 },
   addText: { fontSize: 14, fontWeight: "700" },
-  inviteCode: { fontSize: 24, fontWeight: "800", letterSpacing: 2 },
-  inviteLink: { fontSize: 12 },
-  shareInviteBtn: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 20, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 8, alignSelf: "flex-start", marginTop: 4 },
-  shareInviteText: { fontSize: 13, fontWeight: "700" },
+  inviteCard: { paddingVertical: 12 },
+  inviteHeadingRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  inviteTextColumn: { flex: 1, minWidth: 0, gap: 3 },
+  inviteCode: { fontSize: 15, lineHeight: 20, fontWeight: "800", letterSpacing: 0.8 },
+  inviteActions: { flexDirection: "row", alignItems: "center", gap: 6 },
+  inviteActionBtn: { minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, borderRadius: 12, borderWidth: 1, paddingHorizontal: 9 },
+  inviteActionText: { fontSize: 12, fontWeight: "700" },
   adminRow: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 12, borderWidth: 1, padding: 14 },
   adminLabel: { flex: 1, fontSize: 15 },
   coAdminHint: { fontSize: 13, lineHeight: 18, marginTop: 4, marginBottom: 8 },
