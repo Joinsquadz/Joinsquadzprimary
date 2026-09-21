@@ -20,7 +20,7 @@ import {
 import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { SettleUp } from "@/components/SettleUp";
 import type { Event as SquadzEvent } from "@/types";
-import { resolveEventStart } from "@/lib/calendar";
+import { isEventPast, resolveEventStart } from "@/lib/calendar";
 import { buildPlanIcs } from "@/lib/ics";
 import { shareIcsFile } from "@/lib/shareIcs";
 import { findMyConflicts, getPlanSpan } from "@/lib/conflicts";
@@ -1158,7 +1158,7 @@ export default function EventDetailScreen() {
   };
   const eventStart = resolveEventStart(event);
   const isCancelled = !!event.cancelled;
-  const isPastEvent = eventStart != null && eventStart.getTime() < Date.now();
+  const isPastEvent = isEventPast(event);
   const saveEdit = () => {
     if (!edit.title.trim()) {
       Alert.alert("Missing info", "Event needs a title.");

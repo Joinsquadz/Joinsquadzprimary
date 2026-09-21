@@ -1,5 +1,11 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { resolveEventStart, resolvePlanCompletion, sortPastPlansNewestFirst } from "@/lib/calendar";
+import {
+  isEventPast,
+  resolveEventCompletion,
+  resolveEventStart,
+  resolvePlanCompletion,
+  sortPastPlansNewestFirst,
+} from "@/lib/calendar";
 
 /**
  * resolveEventStart backs everything that does *time math* on an event:
@@ -78,8 +84,30 @@ describe("resolveEventStart", () => {
   });
 });
 
+describe("plain event completion", () => {
+  const event = {
+    eventAt: "2026-07-16T01:00:00.000Z",
+    endAt: "2026-07-16T03:00:00.000Z",
+  };
+
+  it("keeps a started event active until its configured end", () => {
+    expect(resolveEventCompletion(event)?.toISOString()).toBe(event.endAt);
+    expect(isEventPast(event, new Date("2026-07-16T02:00:00.000Z"))).toBe(false);
+  });
+
+  it("marks the event past after its configured end", () => {
+    expect(isEventPast(event, new Date("2026-07-16T03:00:00.001Z"))).toBe(true);
+  });
+
+  it("falls back to the start when the end is missing or invalid", () => {
+    const now = new Date("2026-07-16T02:00:00.000Z");
+    expect(isEventPast({ eventAt: event.eventAt }, now)).toBe(true);
+    expect(isEventPast({ eventAt: event.eventAt, endAt: "invalid" }, now)).toBe(true);
+  });
+});
+
 describe("past plan archive ordering", () => {
-  it("puts the most recently completed plan first, using trip end times", () => {
+  it("puts the most recently completed plan first, using event and trip end times", () => {
     const alaskaCruise = {
       id: "alaska",
       type: "trip" as const,
@@ -92,13 +120,31 @@ describe("past plan archive ordering", () => {
       type: "event" as const,
       date: "Sun, Aug 16 · 6:00 PM",
       eventAt: "2026-08-17T01:00:00.000Z",
+      endAt: "2026-08-17T03:00:00.000Z",
+    };
+    const lateStarter = {
+      id: "late-starter",
+      type: "event" as const,
+      eventAt: "2026-08-17T02:00:00.000Z",
+      endAt: "2026-08-17T02:30:00.000Z",
     };
 
     expect(resolvePlanCompletion(alaskaCruise)?.toISOString()).toBe(alaskaCruise.endAt);
-    expect(sortPastPlansNewestFirst([alaskaCruise, happyHour]).map((plan) => plan.id)).toEqual([
+    expect(resolvePlanCompletion(happyHour)?.toISOString()).toBe(happyHour.endAt);
+    expect(sortPastPlansNewestFirst([alaskaCruise, lateStarter, happyHour]).map((plan) => plan.id)).toEqual([
       "happy-hour",
+      "late-starter",
       "alaska",
     ]);
+  });
+
+  it("keeps trip completion resolution unchanged", () => {
+    const trip = {
+      type: "trip" as const,
+      startAt: "2026-08-10T16:00:00.000Z",
+      endAt: "2026-08-12T01:00:00.000Z",
+    };
+    expect(resolvePlanCompletion(trip)?.toISOString()).toBe(trip.endAt);
   });
 
   it("keeps undated legacy records behind timestamped plans without reshuffling them", () => {

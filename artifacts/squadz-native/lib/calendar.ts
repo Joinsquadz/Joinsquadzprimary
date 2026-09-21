@@ -54,7 +54,7 @@ export function resolveEventStart(
   return parseEventStart(plan.date ?? "");
 }
 
-type PlanForPastOrdering = {
+type PlanForCompletion = {
   type?: "event" | "trip";
   date?: string | null;
   eventAt?: string | null;
@@ -63,27 +63,51 @@ type PlanForPastOrdering = {
 };
 
 /**
- * The instant a plan is considered complete for archive ordering. Trips sort by
- * their final day; one-off events sort by their start instant. This deliberately
- * uses persisted instants rather than the creator's display text, which has no
- * timezone or reliable year.
+ * The instant a plain event is complete. A valid explicit end wins; events
+ * without one retain the historical start-time fallback.
  */
-export function resolvePlanCompletion(plan: PlanForPastOrdering): Date | null {
+export function resolveEventCompletion(
+  event: Omit<PlanForCompletion, "type"> | null | undefined,
+): Date | null {
+  if (!event) return null;
+  if (event.endAt) {
+    const end = new Date(event.endAt);
+    if (!Number.isNaN(end.getTime())) return end;
+  }
+  return resolveEventStart(event);
+}
+
+export function isEventPast(
+  event: Omit<PlanForCompletion, "type"> | null | undefined,
+  now = new Date(),
+): boolean {
+  const completion = resolveEventCompletion(event);
+  return completion != null && completion.getTime() < now.getTime();
+}
+
+/**
+ * The instant a plan is considered complete for archive ordering. Trips sort by
+ * their final day; one-off events sort by their explicit end when available,
+ * otherwise by their start. This deliberately uses persisted instants rather
+ * than the creator's display text, which has no timezone or reliable year.
+ */
+export function resolvePlanCompletion(plan: PlanForCompletion): Date | null {
   if (plan.type === "trip") {
     for (const iso of [plan.endAt, plan.startAt, plan.eventAt]) {
       if (!iso) continue;
       const date = new Date(iso);
       if (!Number.isNaN(date.getTime())) return date;
     }
+    return resolveEventStart(plan);
   }
-  return resolveEventStart(plan);
+  return resolveEventCompletion(plan);
 }
 
 /**
  * Returns a new archive list ordered most-recently-completed first. Plans with
  * no usable instant retain their relative source order at the end.
  */
-export function sortPastPlansNewestFirst<T extends PlanForPastOrdering>(plans: readonly T[]): T[] {
+export function sortPastPlansNewestFirst<T extends PlanForCompletion>(plans: readonly T[]): T[] {
   return plans
     .map((plan, index) => ({ plan, index, completedAt: resolvePlanCompletion(plan)?.getTime() ?? null }))
     .sort((a, b) => {

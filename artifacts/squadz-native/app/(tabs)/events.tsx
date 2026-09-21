@@ -25,7 +25,7 @@ import { TripCard } from "@/components/TripCard";
 import type { Event } from "@/types";
 import { goingCount } from "@/lib/eventUtils";
 import { isTripPast, isHappeningNow } from "@/lib/tripUtils";
-import { resolveEventStart, sortPastPlansNewestFirst } from "@/lib/calendar";
+import { isEventPast, sortPastPlansNewestFirst } from "@/lib/calendar";
 import { API_BASE, buildAuthHeaders } from "@/lib/api";
 // Shared auth-race guard (see lib/vaultAuthRace.ts). This screen has its own
 // events fetch (includePast), so a cold-start / slow-login 401 here must keep it
@@ -342,11 +342,7 @@ export default function PlansScreen() {
 
   const isPastPlan = useCallback((e: Event): boolean => {
     if (e.type === "trip") return isTripPast(e);
-    // Past-vs-upcoming must key on the absolute instant. Reading the creator's
-    // wall-clock text as device-local time files a plan under the wrong tab for
-    // any viewer in another zone.
-    const d = resolveEventStart(e);
-    return !!d && d < new Date();
+    return isEventPast(e);
   }, []);
 
   const matchesSearch = useCallback((e: Event): boolean => {
