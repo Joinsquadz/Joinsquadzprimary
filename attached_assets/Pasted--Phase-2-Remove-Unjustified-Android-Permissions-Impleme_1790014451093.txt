@@ -1,0 +1,27 @@
+# Phase 2: Remove Unjustified Android Permissions (Implement)
+
+**MODE: IMPLEMENT**
+
+## Context
+
+The permission audit confirmed seven permissions have no tie to any current SquadZ feature: `SYSTEM_ALERT_WINDOW` (base template artifact, not a real feature), `ACCESS_MEDIA_LOCATION` (explicitly enabled in `app.json` but unused, and conflicts with the privacy first position), `READ_MEDIA_AUDIO` (no audio library feature exists), `READ_CONTACTS` and `WRITE_CONTACTS` (`expo-contacts` is installed but never imported or called anywhere, and the hashed contact matching feature it would support isn't implemented, phone handling is explicitly deferred in `app/signup.tsx`), and `ACCESS_COARSE_LOCATION` and `ACCESS_FINE_LOCATION` (`expo-location` is installed but never imported or called anywhere, no location feature exists).
+
+## Locked decisions
+
+- Remove `SYSTEM_ALERT_WINDOW`. This comes from the base Expo/React Native template, confirm there's a way to suppress it, typically an Android manifest override, and apply it.
+- Set `isAccessMediaLocationEnabled` to false, or remove the flag entirely, in `app.json`, since nothing reads media GPS metadata and upload processing already strips EXIF/GPS.
+- Uninstall `expo-contacts` from `package.json`, since it's installed but never imported or invoked anywhere, and the feature it was meant to support isn't built yet. If something else in the codebase turns out to depend on it, stop and report that rather than removing it.
+- Uninstall `expo-location` from `package.json`, same reasoning, confirmed unused anywhere. Same stop and report condition if something turns out to depend on it.
+- Do not touch `READ_EXTERNAL_STORAGE`, `WRITE_EXTERNAL_STORAGE`, `READ_MEDIA_IMAGES`, or `READ_MEDIA_VIDEO`. Those require migrating existing picker calls to the Android Photo Picker first, that's separate follow up work, not part of this pass.
+- Do not touch `INTERNET`, `VIBRATE`, `READ_MEDIA_VISUAL_USER_SELECTED`, or `RECORD_AUDIO`. All four are actively used and justified as reported.
+
+## Required
+
+- After making these changes, regenerate the Expo introspected config and confirm all seven target permissions are gone from it.
+- Build or otherwise inspect the actual release AAB manifest, not just the Expo config, and confirm the same seven permissions are absent there too. The audit specifically noted Gradle dependencies can reintroduce permissions the JS level config doesn't show.
+- Run the full test suite and confirm nothing regresses from removing the two packages.
+- If removing either package breaks a build step or an unexpected import surfaces, stop and report rather than working around it.
+
+## Output
+
+Confirmation of what was removed, the before and after permission list from both the Expo introspected config and the actual release AAB manifest, and test results.

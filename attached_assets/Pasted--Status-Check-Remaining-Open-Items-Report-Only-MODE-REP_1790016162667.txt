@@ -1,0 +1,23 @@
+# Status Check: Remaining Open Items (Report Only)
+
+**MODE: REPORT (read only). Do not modify code or deploy anything.**
+
+## Context
+
+Notifications are confirmed live and the Android permission cleanup is in progress. Several other items from the original project notes were never actually confirmed, the last full status check only came back covering notifications specifically. Get current status on what's left, checking the actual code and config directly rather than trusting old notes, the same way notifications and contact matching both turned out to differ from what was assumed.
+
+## What to report
+
+1. Task #683: pool `connect()` client acquisition diagnostic gap, current status.
+2. Task #710: real database tests for mocked SQL tag failures, current status.
+3. Task #711: scheduled poll nudge/event recap scans failing with connection timeouts, current status. This is the connection reliability issue, intentionally excluded from the notification Phase 2 batch, confirm it's still open and hasn't been accidentally addressed as a side effect of anything since.
+4. Free tier limit consistency: paywall shows 3 squads/3 plans, intended is 2 squads/5 plans, confirm what's actually enforced server side right now.
+5. Founding cutover fix: needed before the founding counter reaches 400 of 500 spots, confirm the current spot count and whether the fix is in place.
+6. Test accounts in production: still pending deletion or already handled.
+7. Squad invite link (`/squad/join?code=`) dark screen bug: reproduce or confirm current status.
+8. Native build batch: contact matching is now confirmed not implemented, phone handling deferred at signup. Separately confirm status of the invite link fix, stale App Store ID and broken routing, was that ever merged, and is it distinct from the "Published your App" commit (`8230525`) that touched trip/event invite UI.
+9. Trip best-stretch consecutive-stretch availability algorithm: device verification status.
+
+## Output
+
+One status report covering the nine items above, each marked done, pending, or blocked with a one line note.
