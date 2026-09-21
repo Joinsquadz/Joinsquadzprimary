@@ -1,0 +1,19 @@
+# Diagnose Failed Deployment and Confirm What Is Actually Live (Report Only)
+
+**MODE: REPORT (read only). Do not redeploy, rebuild, or modify anything yet.**
+
+## Context
+
+The last deploy attempt did not succeed. Deployment logs show repeated health check failures on `/api` and `/.well-known`, ending in "not all artifact ports opened within timeout," expecting ports 8080 and 22402 but only one opening, with both the API and native artifact processes terminated. Production's most recent successful startup was 2026-09-21 02:01:07 UTC, which is before commit `751b8b8` (05:58:22 UTC) even existed, so the Phase 2 batch cannot be live. It is also unclear whether the recap fix redo is live, since its commit SHA and timestamp were never confirmed against that startup time.
+
+## What to report
+
+1. What is the merged commit SHA and timestamp for the recap fix redo, the one done after the recovery check and before the Phase 2 batch? Is it before or after 2026-09-21 02:01:07 UTC?
+2. Based on that, is the recap fix actually live in production right now, or is production running code from before even that?
+3. Root cause of the port timeout. Why did only one of ports 8080 and 22402 open? Check the startup logs for the failed attempt specifically, not the older healthy process. Rule in or out: a startup crash after partial boot, a port binding conflict, a missing environment variable, a migration or startup script hanging.
+4. Are the Stripe customer sync failure and the push retry drain failure with a terminated database connection related to the deploy failure, or unrelated background noise from the process that's still running? Note whether the push retry drain failure matches the same connection timeout pattern as Task #711.
+5. Is there a way to add a lightweight version or build info endpoint that reports the running commit SHA, so confirming what's live doesn't require log archaeology next time?
+
+## Output
+
+Plain answers to the five points above. No redeploy, no fixes, this is diagnosis only, so the actual cause is known before trying again.
