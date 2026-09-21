@@ -1,0 +1,65 @@
+# Phase 2: Notification Cadence, Debounce, and Mute Enforcement (Implement)
+
+**MODE: IMPLEMENT**
+
+## Context
+
+This batches four fixes on top of the recap end date fix already scoped in squadz recap fix prompt.md. All of it is backend only, same deployment track, and touches eventReminders.ts, storage.ts, routes/events.ts, and routes/availability.ts. Ship this together with the recap fix as one deploy.
+
+## Locked decision 1: drop the day of reminder, keep two pre trip touches instead of three
+
+Currently a single upcoming trip can generate three separate pushes as it approaches: three day, day of, starting soon. That is too many touches for one event, and day of (2 to 14 hours before start, whichever ten minute scan pass catches it first) is the one that produced the fourteen hour complaint in the first place, since it is neither far out enough to be a heads up nor close enough to be actionable.
+
+Remove the day of reminder entirely. Keep:
+- Three day: 14 to 72 hours before start, gated on plan age at least 96 hours before start (unchanged mechanics, see decision 2 for a related fix)
+- Starting soon: 0 to 2 hours before start (unchanged)
+
+Every existing day of reminder test should be removed or repurposed, not left in place as dead coverage for removed code.
+
+## Locked decision 2: three day reminder should use real calendar days, not elapsed hours
+
+The three day window currently checks raw millisecond difference (14 to 72 hours), which can drift around DST and late night starts. Rewrite its eligibility check to use the existing calendarDaysUntil utility (already used to fix the earlier signup timezone bug) so three days before matches the user's actual calendar, not a flat 72 hour count. Keep the 96 hour plan age gate as is unless implementing this reveals it should also move to calendar days, flag that if so rather than guessing.
+
+## Locked decision 3: cost notifications need the same cooldown pattern poll updates already use
+
+Cost added, cost edited, cost deleted, and debtor marks paid all fire immediately with no debounce, so someone splitting several receipts from one outing can generate a burst of pushes. Apply the same time window cooldown pattern already used for poll range change notifications (stamped before delivery, not after) to all four cost notification triggers: cap it at one cost notification per plan per recipient within a 15 minute window. Reuse the existing cooldown mechanism and table if it is generic enough, do not build a new one if the poll cooldown infrastructure already fits.
+
+## Locked decision 4: enforce squad mute everywhere it is currently missing
+
+The audit found several immediate notification routes that check notification category preferences but skip the squad mute filter entirely, which means muting a squad does not actually mute it for these paths:
+- Poll range changed
+- Manual poll member nudge
+- Poll response after range change
+- Cost added
+- Cost edited
+- Cost deleted
+
+Verify each of the six against the current code, and also check debtor marks paid even though the audit did not explicitly flag it, since it is the same family of route. Apply the same squad mute filter scheduled event reminders already use to every route that is missing it.
+
+## Also fix
+
+Update the device verification checklist: it currently says the scanner runs every 5 minutes, it actually runs every 10, and it describes reminderSentAt as written only after push success when the current flow claims before sending and releases only if nothing is accepted. Correct both.
+
+## Explicitly out of scope
+
+Do not build a catch up or retry mechanism for missed scan passes from scheduler connection failures (the Task 711 pattern). That is a reliability project on its own, touching scheduler lock and retry internals, and deserves its own audit and its own prompt rather than riding along with notification content and timing changes.
+
+## Required
+
+- Tests for the removed day of reminder path are cleaned up, not left stale
+- New test proving three day eligibility now follows calendar days across a DST boundary or late night start
+- New test proving repeated cost mutations to the same plan and recipient within the cooldown window produce one notification, not several
+- New test proving each of the six (seven, including debtor marks paid if it turns out to be missing) routes now respects squad mute
+- Preserve standing baseline test counts, any new test must be explicitly noted in the summary
+
+## Deployment track
+
+Backend only. No schema migration expected. No native build required. Ship together with the recap end date fix as one deploy.
+
+## Merge requirement
+
+This is not done until it is merged into `main`. Confirm the recap fix from squadz recap fix prompt.md is already present on `main` before starting, if it isn't, stop and say so rather than building on top of a branch that never landed. When this batch is finished, merge it into `main` and report the resulting commit SHA. Confirm with `git log main` that the commit is actually present on `main`, not only in a task branch.
+
+## Output
+
+Summary of every change made, which of the six audited routes were actually missing the mute filter versus already had it, full test results, and the merged commit SHA on `main`.
