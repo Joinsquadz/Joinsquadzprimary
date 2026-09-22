@@ -3,6 +3,10 @@ import React from "react";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const routeParams = vi.hoisted(() => ({
+  current: { code: "slow-invite" } as { code?: string },
+}));
+
 vi.mock("react-native", () => ({
   View: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
   Text: ({ children }: { children?: React.ReactNode }) => <span>{children}</span>,
@@ -20,7 +24,8 @@ vi.mock("react-native", () => ({
     </button>
   ),
   ActivityIndicator: () => <span>Loading</span>,
-  TextInput: () => <input />,
+  TextInput: ({ testID }: { testID?: string }) => <input data-testid={testID} />,
+  ScrollView: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
   StyleSheet: { create: <T,>(styles: T) => styles },
   Platform: { OS: "web" },
 }));
@@ -32,7 +37,7 @@ vi.mock("expo-router", () => ({
     push: vi.fn(),
     replace: vi.fn(),
   },
-  useLocalSearchParams: () => ({ code: "slow-invite" }),
+  useLocalSearchParams: () => routeParams.current,
 }));
 
 vi.mock("react-native-safe-area-context", () => ({
@@ -73,6 +78,16 @@ vi.mock("@/components/UpgradeModal", () => ({
   UpgradeModal: () => null,
 }));
 
+vi.mock("@/components/KeyboardAwareScrollViewCompat", () => ({
+  KeyboardAwareScrollViewCompat: ({
+    children,
+    testID,
+  }: {
+    children?: React.ReactNode;
+    testID?: string;
+  }) => <div data-testid={testID}>{children}</div>,
+}));
+
 vi.mock("@/lib/pendingInvite", () => ({
   savePendingInviteCode: vi.fn(),
   clearPendingInviteCode: vi.fn(),
@@ -82,6 +97,7 @@ import SquadJoinScreen from "../join";
 
 describe("SquadJoinScreen invite preview", () => {
   beforeEach(() => {
+    routeParams.current = { code: "slow-invite" };
     vi.useFakeTimers();
     vi.stubGlobal(
       "fetch",
@@ -115,5 +131,24 @@ describe("SquadJoinScreen invite preview", () => {
     expect(screen.getByText("We couldn't load this invite. Check your connection, then try again.")).toBeTruthy();
     expect(screen.getByTestId("retry-squad-invite-preview")).toBeTruthy();
     expect(screen.queryByText("Checking invite code…")).toBeNull();
+  });
+
+  it("shows an unavailable-link state for an expired invite instead of a network error", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 410 }));
+
+    render(<SquadJoinScreen />);
+    await act(async () => Promise.resolve());
+
+    expect(screen.getByText("Invite unavailable")).toBeTruthy();
+    expect(screen.queryByText("Couldn't load invite")).toBeNull();
+  });
+
+  it("uses a keyboard-aware scroller for manual code entry", () => {
+    routeParams.current = {};
+
+    render(<SquadJoinScreen />);
+
+    expect(screen.getByTestId("squad-invite-keyboard-scroll")).toBeTruthy();
+    expect(screen.getByTestId("squad-invite-code-input")).toBeTruthy();
   });
 });

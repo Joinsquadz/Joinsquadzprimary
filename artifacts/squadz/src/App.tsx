@@ -2,12 +2,12 @@ import { Suspense, lazy } from "react";
 import { Switch, Route, Router as WouterRouter } from "wouter";
 import { HelmetProvider } from "react-helmet-async";
 import Landing from "@/pages/Landing";
+import OpenInApp from "@/pages/OpenInApp";
 
 const Privacy = lazy(() => import("@/pages/Privacy"));
 const Terms = lazy(() => import("@/pages/Terms"));
 const Support = lazy(() => import("@/pages/Support"));
 const NotFound = lazy(() => import("@/pages/NotFound"));
-const OpenInApp = lazy(() => import("@/pages/OpenInApp"));
 
 function RouteLoadingFallback() {
   return (

@@ -23,6 +23,22 @@ publicDir = "artifacts/squadz/dist/public"
 serve = "static"
 
 [[services.production.rewrites]]
+from = "/squad/join"
+to = "/squad/join/index.html"
+
+[[services.production.rewrites]]
+from = "/squad/join/"
+to = "/squad/join/index.html"
+
+[[services.production.rewrites]]
+from = "/squad/join-public"
+to = "/squad/join-public/index.html"
+
+[[services.production.rewrites]]
+from = "/squad/join-public/"
+to = "/squad/join-public/index.html"
+
+[[services.production.rewrites]]
 from = "/*"
 to = "/index.html"
 

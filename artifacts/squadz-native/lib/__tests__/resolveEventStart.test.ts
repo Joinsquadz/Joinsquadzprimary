@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import {
+  classifyPlanAt,
   isEventPast,
   nextEventCompletionDelay,
   resolveEventCompletion,
@@ -119,6 +120,41 @@ describe("plain event completion", () => {
   it("returns zero at the exact completion instant so the UI can cross the boundary", () => {
     const now = new Date(event.endAt);
     expect(nextEventCompletionDelay([{ type: "event", ...event }], now)).toBe(0);
+  });
+});
+
+describe("Home plan timing", () => {
+  const now = new Date("2026-09-22T20:00:00.000Z");
+
+  it("keeps an in-progress trip out of upcoming while its end is in the future", () => {
+    expect(classifyPlanAt({
+      type: "trip",
+      startAt: "2026-09-20T16:00:00.000Z",
+      endAt: "2026-09-23T16:00:00.000Z",
+    }, now)).toBe("active");
+  });
+
+  it("classifies a later plan as upcoming", () => {
+    expect(classifyPlanAt({
+      type: "trip",
+      startAt: "2026-09-24T16:00:00.000Z",
+      endAt: "2026-09-26T16:00:00.000Z",
+    }, now)).toBe("upcoming");
+  });
+
+  it("ends a plain event at its explicit instant instead of local end-of-day", () => {
+    expect(classifyPlanAt({
+      type: "event",
+      startAt: "2026-09-22T17:00:00.000Z",
+      endAt: "2026-09-22T19:00:00.000Z",
+    }, now)).toBe("past");
+  });
+
+  it("uses a four-hour live window when a plain event has no explicit end", () => {
+    expect(classifyPlanAt({
+      type: "event",
+      startAt: "2026-09-22T18:00:00.000Z",
+    }, now)).toBe("active");
   });
 });
 

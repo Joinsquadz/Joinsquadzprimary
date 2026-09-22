@@ -15,6 +15,7 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useData, useAuth } from "@/context/AppContext";
 import { UpgradeModal } from "@/components/UpgradeModal";
+import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { API_BASE, fetchWithTimeout } from "@/lib/api";
 import { savePendingInviteCode, clearPendingInviteCode } from "@/lib/pendingInvite";
 import { normalizeSquadInviteCode } from "@/lib/inviteCode";
@@ -89,7 +90,7 @@ export default function SquadJoinScreen() {
         if (res.ok) {
           const data = (await res.json()) as SquadPreview;
           if (!cancelled) setPreview(data);
-        } else if (res.status === 404 && !cancelled) {
+        } else if ((res.status === 404 || res.status === 410) && !cancelled) {
           setRevoked(true);
         } else if (!cancelled) {
           setPreviewError("We couldn't load this invite. Check your connection, then try again.");
@@ -181,46 +182,54 @@ export default function SquadJoinScreen() {
         <TouchableOpacity onPress={goHome} style={[styles.backBtn, { top: topPad + 8 }]}>
           <Ionicons name="chevron-back" size={24} color={colors.foreground} />
         </TouchableOpacity>
-        <View style={styles.entryWrap}>
-          <View style={[styles.entryIcon, { backgroundColor: colors.primary + "18" }]}>
-            <Ionicons name="ticket-outline" size={34} color={colors.primary} />
-          </View>
-          <Text style={[styles.entryTitle, { color: colors.foreground }]}>Join a squad</Text>
-          <Text style={[styles.entrySub, { color: colors.mutedForeground }]}>
-            Enter the invite code shared by a squad member.
-          </Text>
-          <View style={[styles.codeInputRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <TextInput
-              testID="squad-invite-code-input"
-              value={manualCode}
-              onChangeText={(value) => {
-                setManualCode(value);
-                setError(null);
+        <KeyboardAwareScrollViewCompat
+          testID="squad-invite-keyboard-scroll"
+          contentContainerStyle={{ flexGrow: 1 }}
+          bottomOffset={72}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.entryWrap}>
+            <View style={[styles.entryIcon, { backgroundColor: colors.primary + "18" }]}>
+              <Ionicons name="ticket-outline" size={34} color={colors.primary} />
+            </View>
+            <Text style={[styles.entryTitle, { color: colors.foreground }]}>Join a squad</Text>
+            <Text style={[styles.entrySub, { color: colors.mutedForeground }]}>
+              Enter the invite code shared by a squad member.
+            </Text>
+            <View style={[styles.codeInputRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <TextInput
+                testID="squad-invite-code-input"
+                value={manualCode}
+                onChangeText={(value) => {
+                  setManualCode(value);
+                  setError(null);
+                }}
+                placeholder="Code or squad invite link"
+                placeholderTextColor={colors.textDim}
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="go"
+                onSubmitEditing={() => {
+                  if (normalizedManualCode) setSubmittedCode(normalizedManualCode);
+                }}
+                style={[styles.codeInput, { color: colors.foreground }]}
+                autoFocus
+              />
+            </View>
+            <TouchableOpacity
+              testID="submit-squad-invite-code"
+              disabled={!normalizedManualCode}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                setSubmittedCode(normalizedManualCode);
               }}
-              placeholder="Code or squad invite link"
-              placeholderTextColor={colors.textDim}
-              autoCapitalize="none"
-              autoCorrect={false}
-              returnKeyType="go"
-              onSubmitEditing={() => {
-                if (normalizedManualCode) setSubmittedCode(normalizedManualCode);
-              }}
-              style={[styles.codeInput, { color: colors.foreground }]}
-              autoFocus
-            />
+              style={[styles.btn, { backgroundColor: colors.primary, marginTop: 20, alignSelf: "stretch", opacity: normalizedManualCode ? 1 : 0.5 }]}
+            >
+              <Text style={[styles.btnText, { color: "#fff" }]}>Continue →</Text>
+            </TouchableOpacity>
           </View>
-          <TouchableOpacity
-            testID="submit-squad-invite-code"
-            disabled={!normalizedManualCode}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              setSubmittedCode(normalizedManualCode);
-            }}
-            style={[styles.btn, { backgroundColor: colors.primary, marginTop: 20, alignSelf: "stretch", opacity: normalizedManualCode ? 1 : 0.5 }]}
-          >
-            <Text style={[styles.btnText, { color: "#fff" }]}>Continue →</Text>
-          </TouchableOpacity>
-        </View>
+        </KeyboardAwareScrollViewCompat>
       </View>
     );
   }
@@ -235,9 +244,9 @@ export default function SquadJoinScreen() {
           <View style={[styles.revokedIcon, { backgroundColor: colors.destructive + "15" }]}>
             <Ionicons name="link-outline" size={40} color={colors.destructive} />
           </View>
-          <Text style={[styles.errorTitle, { color: colors.foreground }]}>Link Revoked</Text>
+          <Text style={[styles.errorTitle, { color: colors.foreground }]}>Invite unavailable</Text>
           <Text style={[styles.errorSub, { color: colors.mutedForeground }]}>
-            This invite link is no longer valid — the squad creator may have regenerated it. Ask them for a fresh link.
+            This invite has expired or was replaced. Ask the squad organizer for a fresh link.
           </Text>
           <TouchableOpacity onPress={goHome} style={[styles.btn, { backgroundColor: colors.primary, marginTop: 28 }]}>
             <Text style={[styles.btnText, { color: "#fff" }]}>Back to Squads</Text>

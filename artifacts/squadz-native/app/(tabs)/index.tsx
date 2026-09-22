@@ -23,6 +23,7 @@ import { useAuth, useData, SquadLimitError } from "@/context/AppContext";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { EventCard } from "@/components/EventCard";
 import { TripCard } from "@/components/TripCard";
+import { classifyPlanAt, resolveEventStart, resolvePlanActiveEnd } from "@/lib/calendar";
 import { SkeletonBox } from "@/components/SkeletonBox";
 import { goingCount, attendingIds } from "@/lib/eventUtils";
 import { useUserCache } from "@/context/UserCacheContext";
@@ -221,30 +222,6 @@ export default function HomeScreen() {
 
   const { resolveUser, prefetchUsers } = useUserCache();
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
-  const upNext = useMemo(() => {
-    const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    // Sort a shallow copy: events with a concrete eventAt timestamp first
-    // (ascending — soonest first), TBD / no-timestamp events after.
-    const sorted = [...events].sort((a, b) => {
-      const aMs = a.eventAt ? new Date(a.eventAt).getTime() : Infinity;
-      const bMs = b.eventAt ? new Date(b.eventAt).getTime() : Infinity;
-      return aMs - bMs;
-    });
-    return sorted.find((e) => {
-      if (e.eventAt) return new Date(e.eventAt) >= todayStart;
-      // No eventAt — show TBD events (genuinely undated future plans).
-      if (!e.date || e.date === "Date TBD" || e.date === "TBD") return true;
-      // The app's display format ("Jun 12 · 7:00 PM") doesn't parse via
-      // new Date() — treat unparseable strings as past to avoid surfacing
-      // stale events. The server already filters past eventAt rows.
-      const parsed = new Date(e.date);
-      if (isNaN(parsed.getTime())) return false;
-      const endOfDay = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate() + 1);
-      return endOfDay >= now;
-    }) ?? null;
-  }, [events]);
-
   // Minute ticker so the day-of countdown stays fresh while the screen is open.
   const [nowMinute, setNowMinute] = useState(() => Date.now());
   useEffect(() => {
@@ -252,19 +229,30 @@ export default function HomeScreen() {
     return () => clearInterval(t);
   }, []);
 
+  const homePlans = useMemo(() => {
+    const now = new Date(nowMinute);
+    const byStart = (a: (typeof events)[number], b: (typeof events)[number]) =>
+      (resolveEventStart(a)?.getTime() ?? Infinity) - (resolveEventStart(b)?.getTime() ?? Infinity);
+    const active = events.filter((event) => classifyPlanAt(event, now) === "active").sort(byStart);
+    const upcoming = events.filter((event) => classifyPlanAt(event, now) === "upcoming").sort(byStart);
+    const undated = events.filter((event) => classifyPlanAt(event, now) === "undated");
+    return {
+      upNext: active[0] ?? upcoming[0] ?? undated[0] ?? null,
+      upcoming: [...upcoming, ...undated],
+    };
+  }, [events, nowMinute]);
+  const upNext = homePlans.upNext;
+
   // Day-of takeover: when the Up Next plan is today (or in progress right now),
   // the hero switches to a live variant — countdown/"Happening now", one-tap
   // maps, today's itinerary stops for trips, and a shortcut to the plan's chat.
   const dayOf = useMemo(() => {
     if (!upNext) return null;
-    const startIso = upNext.eventAt ?? upNext.startAt ?? null;
-    if (!startIso) return null;
-    const start = new Date(startIso);
-    if (isNaN(start.getTime())) return null;
+    const start = resolveEventStart(upNext);
+    if (!start) return null;
     const now = new Date(nowMinute);
-    // Trips span multiple days; plain events get a generous 4h window.
-    const endIso = upNext.endAt ?? null;
-    const end = endIso ? new Date(new Date(endIso).setHours(23, 59, 59, 999)) : new Date(start.getTime() + 4 * 3600_000);
+    const end = resolvePlanActiveEnd(upNext);
+    if (!end) return null;
     const sameDay =
       start.getFullYear() === now.getFullYear() &&
       start.getMonth() === now.getMonth() &&
@@ -942,7 +930,7 @@ export default function HomeScreen() {
             </View>
           ) : (
           <FlatList
-            data={events.slice(0, 3)}
+            data={homePlans.upcoming.slice(0, 3)}
             horizontal
             showsHorizontalScrollIndicator={false}
             keyExtractor={(e) => e.id}

@@ -62,6 +62,47 @@ type PlanForCompletion = {
   endAt?: string | null;
 };
 
+export type PlanTimingState = "active" | "upcoming" | "past" | "undated";
+
+/**
+ * Classifies a plan for live Home surfaces using absolute instants.
+ * Plain events without an explicit end retain Home's historical four-hour
+ * active window; trips use their persisted end.
+ */
+export function classifyPlanAt(
+  plan: PlanForCompletion,
+  now = new Date(),
+): PlanTimingState {
+  const start = resolveEventStart(plan);
+  if (!start) return "undated";
+  const startMs = start.getTime();
+  const nowMs = now.getTime();
+  if (startMs > nowMs) return "upcoming";
+
+  let endMs: number;
+  if (plan.endAt) {
+    const explicitEnd = new Date(plan.endAt);
+    endMs = Number.isNaN(explicitEnd.getTime())
+      ? startMs + (plan.type === "trip" ? 0 : 4 * 60 * 60 * 1000)
+      : explicitEnd.getTime();
+  } else {
+    endMs = startMs + (plan.type === "trip" ? 0 : 4 * 60 * 60 * 1000);
+  }
+  return nowMs < endMs ? "active" : "past";
+}
+
+export function resolvePlanActiveEnd(
+  plan: PlanForCompletion,
+): Date | null {
+  const start = resolveEventStart(plan);
+  if (!start) return null;
+  if (plan.endAt) {
+    const end = new Date(plan.endAt);
+    if (!Number.isNaN(end.getTime())) return end;
+  }
+  return new Date(start.getTime() + (plan.type === "trip" ? 0 : 4 * 60 * 60 * 1000));
+}
+
 /**
  * The instant a plain event is complete. A valid explicit end wins; events
  * without one retain the historical start-time fallback.

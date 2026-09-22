@@ -53,6 +53,7 @@ export default function OpenInApp({ kind, url }: { kind: LinkKind; url?: string 
 
   const [preview, setPreview] = useState<SquadPreview | null>(null);
   const [planPreview, setPlanPreview] = useState<PlanPreview | null>(null);
+  const [inviteUnavailable, setInviteUnavailable] = useState(false);
   const [copyStatus, setCopyStatus] = useState<"idle" | "success" | "failed">("idle");
 
   useEffect(() => {
@@ -69,23 +70,31 @@ export default function OpenInApp({ kind, url }: { kind: LinkKind; url?: string 
     const lookup = kind === "squad" ? code : publicSquadId;
     if (!lookup) return;
     let cancelled = false;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 2_000);
     (async () => {
       try {
         const endpoint =
           kind === "squad"
             ? `/api/squads/preview?code=${encodeURIComponent(lookup)}`
             : `/api/discover/squads/${encodeURIComponent(lookup)}`;
-        const res = await fetch(endpoint);
+        const res = await fetch(endpoint, { signal: controller.signal });
         if (res.ok) {
           const data = (await res.json()) as SquadPreview;
           if (!cancelled) setPreview(data);
+        } else if ((res.status === 404 || res.status === 410) && !cancelled) {
+          setInviteUnavailable(true);
         }
       } catch {
         // keep generic copy
+      } finally {
+        window.clearTimeout(timeout);
       }
     })();
     return () => {
       cancelled = true;
+      window.clearTimeout(timeout);
+      controller.abort();
     };
   }, [kind, code, publicSquadId]);
 
@@ -107,11 +116,15 @@ export default function OpenInApp({ kind, url }: { kind: LinkKind; url?: string 
 
   const copy: Record<LinkKind, { emoji: string; title: string; sub: string }> = {
     squad: {
-      emoji: preview?.emoji ?? "🎉",
-      title: preview
+      emoji: inviteUnavailable ? "🔗" : preview?.emoji ?? "🎉",
+      title: inviteUnavailable
+        ? "This invite is no longer available"
+        : preview
         ? `You're invited to ${preview.name}!`
         : "You're invited to a squad!",
-      sub: preview
+      sub: inviteUnavailable
+        ? "This link has expired or was replaced. Ask the squad organizer to send you a fresh invite."
+        : preview
         ? `${preview.creatorFirstName ? `${preview.creatorFirstName} and ` : ""}${preview.memberCount} ${preview.memberCount === 1 ? "friend is" : "friends are"} planning hangouts on SquadZ. Open this link on your phone to join them.`
         : "A friend invited you to their squad on SquadZ. Open this link on your phone to join them.",
     },
@@ -150,7 +163,7 @@ export default function OpenInApp({ kind, url }: { kind: LinkKind; url?: string 
 
   const { emoji, title, sub } = copy[kind];
   const nativeAppUrl =
-    kind === "squad" && code
+    kind === "squad" && code && !inviteUnavailable
       ? `squadz-native://squad/join?code=${encodeURIComponent(code)}`
       : (kind === "plan" || kind === "event") && code
         ? `squadz-native://join/${encodeURIComponent(code)}`
@@ -252,7 +265,7 @@ export default function OpenInApp({ kind, url }: { kind: LinkKind; url?: string 
           </h1>
           <p style={{ fontSize: 16.5, color: T.textSub, margin: "0 0 28px", lineHeight: 1.6 }}>{sub}</p>
 
-          {code ? (
+          {code && !inviteUnavailable ? (
             <div style={{ margin: "0 0 28px" }}>
               <div style={{ fontSize: 13, color: T.textDim, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700 }}>
                 {kind === "friend" ? "Friend code" : "Invite code"}
@@ -334,10 +347,12 @@ export default function OpenInApp({ kind, url }: { kind: LinkKind; url?: string 
               </div>
             )}
           </div>
-          <p style={{ fontSize: 13, color: T.textDim, lineHeight: 1.5, margin: "16px 0 0" }}>
-            Keep this page or copy the invite code above. After installing and
-            creating your account, SquadZ will return you to this invite.
-          </p>
+          {!inviteUnavailable ? (
+            <p style={{ fontSize: 13, color: T.textDim, lineHeight: 1.5, margin: "16px 0 0" }}>
+              Keep this page or copy the invite code above. After installing and
+              creating your account, SquadZ will return you to this invite.
+            </p>
+          ) : null}
           {nativeAppUrl ? (
             <a
               href={nativeAppUrl}

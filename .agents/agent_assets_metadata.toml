@@ -11,60 +11,70 @@ id = "D2J2PRzoh7X-VbKYlUbtH"
 uri = "file://artifacts/squadz-native/assets/images/splash.png"
 type = "image"
 title = "Splash Screen (1284×2778)"
+logical_id = "2940b67a-f75b-4c4c-a1c1-a8e52234aa3b"
 
 [[outputs]]
 id = "noG0PPdu8unlty56-esxt"
 uri = "file://artifacts/squadz-native/assets/images/icon.png"
 type = "image"
 title = "App Icon (1024×1024)"
+logical_id = "348d4f6c-2c07-4e7b-82fc-8b3512f3f911"
 
 [[outputs]]
 id = "fDCLMV1TPELYphaSUcMVt"
 uri = "file://docs/ux-craft-sweep-phase1.md"
 type = "text"
 title = "UX Craft Sweep — Phase 1 Flow-by-Flow Report"
+logical_id = "ffb851ec-ee7a-4e72-b341-0da4a90f83c2"
 
 [[outputs]]
 id = "fxD4BT5t-O2alxj3rrq9O"
 uri = "file://audit-screenshots/flow-0/01-landing.png"
 type = "image"
 title = "flow-0/01-landing.png"
+logical_id = "cad90223-a555-4d16-b5b3-2c304ddf1344"
 
 [[outputs]]
 id = "rXp-ppWRhxTf_OOFc9jdW"
 uri = "file://audit-screenshots/flow-0/02-auth-buttons.png"
 type = "image"
 title = "flow-0/02-auth-buttons.png"
+logical_id = "631ce1e9-d61a-4527-9236-c0f182982229"
 
 [[outputs]]
 id = "LlGqKoy9FYSdY6ZU-J3Vv"
 uri = "file://audit-screenshots/flow-0/02-login-screen.png"
 type = "image"
 title = "flow-0/02-login-screen.png"
+logical_id = "d8a70b55-b1a8-4c47-b392-be8efbd58c21"
 
 [[outputs]]
 id = "M0KKOUoSrAIdnad5L_jnW"
 uri = "file://audit-screenshots/flow-0/02-signup-screen.png"
 type = "image"
 title = "flow-0/02-signup-screen.png"
+logical_id = "3e00962f-b978-4fdf-807a-1e608930fd1f"
 
 [[outputs]]
 id = "tGplEd8NJ1Ry_WW78_WVU"
 uri = "file://audit-screenshots/flow-0/04-signup-filled.png"
 type = "image"
 title = "flow-0/04-signup-filled.png"
+logical_id = "424a5bdc-5d79-47a7-9b07-dd38980414be"
 
 [[outputs]]
 id = "Fdq3IE0iYo3h-i6IHbFfg"
 uri = "file://audit-screenshots/flow-0/05-signup-result.png"
 type = "image"
 title = "flow-0/05-signup-result.png"
+logical_id = "029048e1-7f03-40c6-a747-b541486a374f"
 
 [[outputs]]
 id = "XHBi7zV4qOm21jaN0bZ0G"
 uri = "file://audit-screenshots/flow-1/01-home-logged-in.png"
 type = "image"
 title = "flow-1/01-home-logged-in.png"
+logical_id = "934c98c3-3b67-4fc8-9317-a8eec58b40d7"
 
 [[outputs]]
 id = "byI1EMuW0G9CrQtiA9Nj8"
@@ -72,6 +82,7 @@ uri = "file://attached_assets/test-runs/api-last-verbose.txt"
 type = "text"
 title = "API verbose test output"
 description = "Unedited stdout/stderr from the last API test run, including every pass/fail line and final counts."
+logical_id = "d988ab00-6d47-4717-869d-36980877c675"
 
 [[outputs]]
 id = "smPcKxDUF0wNMKV7JI-JL"
@@ -79,3 +90,4 @@ uri = "file://attached_assets/test-runs/mobile-last-verbose.txt"
 type = "text"
 title = "Mobile verbose test output"
 description = "Unedited stdout/stderr from the last mobile test run, including every pass/fail line and final counts."
+logical_id = "6d5b7211-50d0-43cc-b826-e2e9ce319531"
