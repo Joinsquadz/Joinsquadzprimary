@@ -15,7 +15,7 @@ const router: IRouter = Router();
  *
  * - Everything else (browser) → serve an HTML redirect page that immediately
  *   tries the native deep link (squadz-native://add/friend/:code) and falls
- *   back to the Expo web screen (/mobile/add/friend/:code) after 1 s.
+ *   back to the web screen (/add/friend/:code) after 1 s.
  */
 // Only allow codes in the SquadZ format: SQ- followed by 1–12 uppercase
 // alphanumeric characters.  This allowlist is enforced BEFORE any HTML
@@ -25,9 +25,16 @@ const FRIEND_CODE_RE = /^SQ-[A-Z0-9]{1,12}$/;
 
 router.get("/add/friend/:code", async (req: Request, res: Response): Promise<void> => {
   try {
+    // Browsers should receive the branded unavailable page for malformed
+    // codes; API clients can explicitly request the machine-readable error.
+    const wantsJson = req.accepts(["html", "json"]) === "json";
     const raw = (req.params.code as string).toUpperCase().trim();
     if (!FRIEND_CODE_RE.test(raw)) {
-      res.status(400).json({ error: "Invalid friend code format." });
+      if (wantsJson) {
+        res.status(400).json({ error: "Invalid friend code format." });
+      } else {
+        res.status(400).type("html").send(buildUnavailablePage());
+      }
       return;
     }
     const code = raw; // guaranteed safe for HTML/URL after allowlist check
@@ -45,8 +52,6 @@ router.get("/add/friend/:code", async (req: Request, res: Response): Promise<voi
 
     // Prefer HTML (browser / share-link tap) unless the client explicitly
     // requests JSON (in-app fetch with Accept: application/json).
-    const wantsJson = req.accepts(["html", "json"]) === "json";
-
     if (!user) {
       if (wantsJson) {
         res.status(404).json({ error: "No user found with that friend code." });
@@ -80,7 +85,7 @@ router.get("/add/friend/:code", async (req: Request, res: Response): Promise<voi
 
 function buildRedirectPage(code: string, name: string | null, origin: string): string {
   const deepLink = `squadz-native://add/friend/${code}`;
-  const webFallback = `${origin}/mobile/add/friend/${code}`;
+  const webFallback = `${origin}/add/friend/${code}`;
   // Keep the original public invite available through the install gap. The
   // allowlisted code makes this fixed-origin URL safe to embed in the page.
   const inviteUrl = `https://joinsquadz.com/api/add/friend/${code}`;
@@ -165,6 +170,41 @@ function buildRedirectPage(code: string, name: string | null, origin: string): s
     <a class="btn-outline" href="${webFallback}">Continue in browser</a>
     <a class="btn-store" href="${appStoreUrl}" onclick="copyInviteBeforeStore(event)">Get SquadZ on the App Store</a>
     <p class="hint">New here? Your invite is copied before the App Store opens, so SquadZ can recover it after install.</p>
+  </div>
+</body>
+</html>`;
+}
+
+function buildUnavailablePage(): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Friend invite unavailable · SquadZ</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0A0A0F; color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh; padding: 24px;
+    }
+    .card {
+      text-align: center; max-width: 360px; width: 100%;
+      background: #16161F; border: 1px solid #2A2A3A;
+      border-radius: 24px; padding: 40px 32px;
+    }
+    .logo { font-size: 48px; margin-bottom: 16px; }
+    h1 { font-size: 22px; font-weight: 800; margin-bottom: 8px; }
+    p { color: #888; font-size: 14px; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">👥</div>
+    <h1>Friend invite unavailable</h1>
+    <p>This friend invite link is invalid or unavailable. Ask your friend to send you a new link.</p>
   </div>
 </body>
 </html>`;

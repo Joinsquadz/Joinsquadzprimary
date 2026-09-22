@@ -6,6 +6,7 @@ import { buildProWelcomeHtml } from '../emailService';
 import { getBaseUrl } from '../lib/urls';
 import { getFoundingStatus } from '../lib/founding';
 import { resolveProStatus } from '../lib/proStatus';
+import { requireInternalToken } from '../middleware/adminToken';
 
 const router: IRouter = Router();
 
@@ -190,7 +191,7 @@ router.post('/portal', (_req, res): void => {
 
 // Dev-only: render the Pro welcome email HTML in the browser for visual testing.
 // Gated to NODE_ENV=development — returns 404 in production.
-router.get('/stripe/email-preview/pro-welcome', (req, res): void => {
+router.get('/stripe/email-preview/pro-welcome', requireInternalToken, (req, res): void => {
   if (process.env.NODE_ENV !== 'development') {
     res.status(404).json({ error: 'Not found' });
     return;

@@ -1,10 +1,11 @@
-import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
+import { Router, type IRouter } from "express";
 import { HealthCheckResponse } from "@workspace/api-zod";
 import { getSmtpStatus } from "../emailService";
 import { pool } from "@workspace/db";
 import { getRecentErrorCount } from "../services/monitoring";
 import { POOL_MAX, DB_MAX_CONNECTIONS } from "../lib/poolMonitor";
 import { getMediaBackupStatus } from "../lib/mediaBackup";
+import { requireInternalToken } from "../middleware/adminToken";
 
 const router: IRouter = Router();
 
@@ -47,29 +48,6 @@ router.get("/healthz/smtp", (_req, res) => {
 // For Sentry Performance detail and full error history, use the Sentry dashboard.
 // For Supabase quota/storage/compute alerts, configure them in the Supabase
 // dashboard (see Part 4 of the monitoring setup doc).
-
-function requireInternalToken(
-  req: Request,
-  res: Response,
-  next: NextFunction,
-): void {
-  const configured = process.env.INTERNAL_API_TOKEN;
-  if (!configured) {
-    res.status(401).json({
-      error: "Internal API access not configured — set the INTERNAL_API_TOKEN secret",
-    });
-    return;
-  }
-  const authHeader = req.headers.authorization;
-  const token = authHeader?.startsWith("Bearer ")
-    ? authHeader.slice(7)
-    : null;
-  if (token !== configured) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-  next();
-}
 
 router.get("/internal/health", requireInternalToken, async (_req, res, next) => {
   // ── Pool stats (no DB query — instant) ────────────────────────────────────

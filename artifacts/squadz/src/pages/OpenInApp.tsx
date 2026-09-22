@@ -103,14 +103,24 @@ export default function OpenInApp({ kind, url }: { kind: LinkKind; url?: string 
   useEffect(() => {
     if (kind !== "plan" || !code) return;
     let cancelled = false;
-    fetch(`/api/events/preview?code=${encodeURIComponent(code)}`)
-      .then((res) => (res.ok ? res.json() : null))
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 2_000);
+    fetch(`/api/events/preview?code=${encodeURIComponent(code)}`, { signal: controller.signal })
+      .then((res) => {
+        if ((res.status === 404 || res.status === 410) && !cancelled) {
+          setInviteUnavailable(true);
+        }
+        return res.ok ? res.json() : null;
+      })
       .then((data: PlanPreview | null) => {
         if (!cancelled && data) setPlanPreview(data);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => window.clearTimeout(timeout));
     return () => {
       cancelled = true;
+      window.clearTimeout(timeout);
+      controller.abort();
     };
   }, [kind, code]);
 
@@ -129,9 +139,15 @@ export default function OpenInApp({ kind, url }: { kind: LinkKind; url?: string 
         : "A friend invited you to their squad on SquadZ. Open this link on your phone to join them.",
     },
     publicSquad: {
-      emoji: preview?.emoji ?? "🌎",
-      title: preview ? `Join ${preview.name} on SquadZ!` : "You're invited to a squad!",
-      sub: preview
+      emoji: inviteUnavailable ? "🔗" : preview?.emoji ?? "🌎",
+      title: inviteUnavailable
+        ? "This squad invite is no longer available"
+        : preview
+          ? `Join ${preview.name} on SquadZ!`
+          : "You're invited to a squad!",
+      sub: inviteUnavailable
+        ? "This squad is no longer public or the link has expired. Ask the organizer for a fresh invite."
+        : preview
         ? `${preview.memberCount} ${preview.memberCount === 1 ? "member is" : "members are"} already planning together. Open this link on your phone to join.`
         : "This squad is open to join. Open this link on your phone with SquadZ installed to jump in.",
     },
@@ -141,11 +157,15 @@ export default function OpenInApp({ kind, url }: { kind: LinkKind; url?: string 
       sub: "A friend wants you at their event. Open this link on your phone with SquadZ installed to RSVP.",
     },
     plan: {
-      emoji: planPreview?.type === "trip" ? "✈️" : planPreview?.emoji ?? "📅",
-      title: planPreview?.title
+      emoji: inviteUnavailable ? "🔗" : planPreview?.type === "trip" ? "✈️" : planPreview?.emoji ?? "📅",
+      title: inviteUnavailable
+        ? "This plan invite is no longer available"
+        : planPreview?.title
         ? `You're invited to ${planPreview.type === "trip" ? "a trip" : "an event"}: ${planPreview.title}`
         : "You're invited to a plan!",
-      sub: planPreview?.type === "trip"
+      sub: inviteUnavailable
+        ? "This link has expired or was replaced. Ask the organizer to send you a fresh invite."
+        : planPreview?.type === "trip"
         ? "A friend wants you on their itinerary. Open this link on your phone with SquadZ installed to see the trip."
         : "A friend wants you at their event. Open this link on your phone with SquadZ installed to RSVP.",
     },
@@ -162,8 +182,8 @@ export default function OpenInApp({ kind, url }: { kind: LinkKind; url?: string 
   };
 
   const { emoji, title, sub } = copy[kind];
-  const nativeAppUrl =
-    kind === "squad" && code && !inviteUnavailable
+  const nativeAppUrl = !inviteUnavailable
+    ? kind === "squad" && code
       ? `squadz-native://squad/join?code=${encodeURIComponent(code)}`
       : (kind === "plan" || kind === "event") && code
         ? `squadz-native://join/${encodeURIComponent(code)}`
@@ -171,7 +191,8 @@ export default function OpenInApp({ kind, url }: { kind: LinkKind; url?: string 
           ? `squadz-native://add/friend/${encodeURIComponent(code)}`
           : kind === "publicSquad" && publicSquadId
             ? `squadz-native://squad/join-public?id=${encodeURIComponent(publicSquadId)}`
-            : null;
+            : null
+    : null;
 
   async function copyInviteThenOpenStore(event: React.MouseEvent<HTMLAnchorElement>) {
     trackEvent("app_store_clicked", {

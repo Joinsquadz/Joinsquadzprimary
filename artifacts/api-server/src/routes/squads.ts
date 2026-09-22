@@ -794,10 +794,17 @@ router.patch("/squads/:id", requireAuth, async (req: Request, res: Response): Pr
   // Consent-gated membership: PATCH may never inject users directly into
   // memberIds. Additions become pending invites (Accept/Decline from the
   // Activity tab — same as squad creation and POST /squads/:id/members);
-  // removals of existing members are applied as-is.
+  // removals of existing members require creator/co-admin management rights.
   const requestedAdds = parsed.data.memberIds
     ? Array.from(new Set(parsed.data.memberIds.filter((mid) => !memberIds.includes(mid) && mid !== userId)))
     : [];
+  const requestedRemovals = parsed.data.memberIds
+    ? memberIds.filter((mid) => !parsed.data.memberIds!.includes(mid))
+    : [];
+  if (requestedRemovals.length > 0 && !canManageSquad(existing, userId)) {
+    res.status(403).json({ error: "Only the squad creator or a co-admin can remove members." });
+    return;
+  }
   if (requestedAdds.length > 0) {
     const membersCanInvite = ((existing.membersCanInvite as boolean | null) ?? false) || canManageSquad(existing, userId);
     if (!membersCanInvite) {

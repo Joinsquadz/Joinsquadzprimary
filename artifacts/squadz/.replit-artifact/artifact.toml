@@ -39,6 +39,34 @@ from = "/squad/join-public/"
 to = "/squad/join-public/index.html"
 
 [[services.production.rewrites]]
+from = "/privacy"
+to = "/privacy/index.html"
+
+[[services.production.rewrites]]
+from = "/terms"
+to = "/terms/index.html"
+
+[[services.production.rewrites]]
+from = "/support"
+to = "/support/index.html"
+
+[[services.production.rewrites]]
+from = "/join/*"
+to = "/join/INVITE/index.html"
+
+[[services.production.rewrites]]
+from = "/add/friend/*"
+to = "/add/friend/SQ-INVITE/index.html"
+
+[[services.production.rewrites]]
+from = "/availability"
+to = "/availability/index.html"
+
+[[services.production.rewrites]]
+from = "/squad/*"
+to = "/squad/PUBLIC/index.html"
+
+[[services.production.rewrites]]
 from = "/*"
 to = "/index.html"
 

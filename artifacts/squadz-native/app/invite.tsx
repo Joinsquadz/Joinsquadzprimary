@@ -13,6 +13,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import * as Clipboard from "expo-clipboard";
 import { useColors } from "@/hooks/useColors";
 import { useData } from "@/context/AppContext";
 import { goingCount } from "@/lib/eventUtils";
@@ -31,23 +32,28 @@ export default function InviteScreen() {
   const params = useLocalSearchParams<{ eventId?: string; code?: string }>();
   const [accepted, setAccepted] = useState(false);
   const [joining, setJoining] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
 
-  const event = params.eventId ? events.find((e) => e.id === params.eventId) : events[0];
+  // Invite links must identify both the event and the code. In particular, do
+  // not render the first hydrated event while a deep link is still resolving:
+  // that could show the wrong event and submit the wrong invite.
+  const eventId = typeof params.eventId === "string" ? params.eventId.trim() : "";
+  const inviteCode = typeof params.code === "string" ? params.code.trim() : "";
+  const hasValidParams = Boolean(eventId && inviteCode);
+  const event = hasValidParams ? events.find((e) => e.id === eventId) : undefined;
 
   // Pre-load host profile
   useEffect(() => {
     if (event) prefetchUsers([event.hostId]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [event?.hostId]);
-  const inviteCode = params.code ?? event?.inviteCode ?? "BBQ-7K2M";
-
-  if (!event) {
+  if (!hasValidParams || !event) {
     // While events are still loading (cold start / deep link before hydration)
     // show a spinner rather than flashing "Invalid invite link" immediately.
-    if (eventsLoading) {
+    if (hasValidParams && eventsLoading) {
       return (
         <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: topPad, alignItems: "center", justifyContent: "center" }]}>
           <ActivityIndicator color={colors.primary} />
@@ -73,6 +79,13 @@ export default function InviteScreen() {
   };
 
   const handleAccept = async () => {
+    if (!authToken) {
+      router.push({
+        pathname: "/login",
+        params: inviteParams,
+      } as never);
+      return;
+    }
     setJoining(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
@@ -155,15 +168,35 @@ export default function InviteScreen() {
           <Text style={[styles.codeLabel, { color: colors.mutedForeground }]}>Invite code</Text>
           <Text style={[styles.code, { color: colors.primary }]}>{inviteCode}</Text>
           <TouchableOpacity
-            onPress={() => {
+            testID="invite-copy-code"
+            accessibilityRole="button"
+            onPress={async () => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              Alert.alert("Copied!", `Invite code ${inviteCode} copied.`);
+              try {
+                await Clipboard.setStringAsync(inviteCode);
+                setCopyStatus("copied");
+              } catch {
+                setCopyStatus("failed");
+                Alert.alert("Couldn't copy", "Please copy the invite code manually.");
+              }
             }}
             style={[styles.copyBtn, { borderColor: colors.primary }]}
           >
-            <Ionicons name="copy-outline" size={16} color={colors.primary} />
-            <Text style={[styles.copyText, { color: colors.primary }]}>Copy code</Text>
+            <Ionicons name={copyStatus === "copied" ? "checkmark" : "copy-outline"} size={16} color={copyStatus === "copied" ? colors.green : colors.primary} />
+            <Text style={[styles.copyText, { color: copyStatus === "copied" ? colors.green : colors.primary }]}>
+              {copyStatus === "copied" ? "Copied!" : "Copy code"}
+            </Text>
           </TouchableOpacity>
+          {copyStatus === "copied" && (
+            <Text accessibilityLiveRegion="polite" style={[styles.copyFeedback, { color: colors.green }]}>
+              Invite code copied to your clipboard.
+            </Text>
+          )}
+          {copyStatus === "failed" && (
+            <Text accessibilityLiveRegion="polite" style={[styles.copyFeedback, { color: colors.destructive }]}>
+              Copy failed — please copy the code above.
+            </Text>
+          )}
         </View>
 
         <TouchableOpacity
@@ -222,6 +255,7 @@ const styles = StyleSheet.create({
   code: { fontSize: 24, fontWeight: "800", letterSpacing: 1.5, marginBottom: 10, fontVariant: ["tabular-nums"] },
   copyBtn: { minHeight: MOBILE_LAYOUT.minTouchTarget, flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 20, borderWidth: 1.5, paddingHorizontal: 16 },
   copyText: { fontSize: 13, fontWeight: "700" },
+  copyFeedback: { fontSize: 12, fontWeight: "600", marginTop: 8, textAlign: "center" },
   btn: { minHeight: MOBILE_LAYOUT.controlHeight, borderRadius: 14, paddingHorizontal: 14, justifyContent: "center", alignItems: "center", marginBottom: 10 },
   btnText: { fontSize: 16, fontWeight: "800" },
   altRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 14 },

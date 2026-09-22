@@ -4,6 +4,7 @@ import type { HelmetServerState } from "react-helmet-async";
 import Landing from "./pages/Landing";
 import Privacy from "./pages/Privacy";
 import Terms from "./pages/Terms";
+import Support from "./pages/Support";
 import NotFound from "./pages/NotFound";
 import OpenInApp from "./pages/OpenInApp";
 
@@ -16,6 +17,7 @@ const ROUTES: Record<string, React.ComponentType> = {
   "/": Landing,
   "/privacy": Privacy,
   "/terms": Terms,
+  "/support": Support,
 };
 
 export function render(url: string): RenderResult {
@@ -30,6 +32,8 @@ export function render(url: string): RenderResult {
           ? "plan"
           : /^\/(?:api\/)?add\/friend\/[^/]+$/.test(pathname)
             ? "friend"
+            : pathname === "/availability"
+              ? "poll"
             : null;
   const Component = ROUTES[pathname] ?? (inviteKind ? () => <OpenInApp kind={inviteKind} url={url} /> : NotFound);
 

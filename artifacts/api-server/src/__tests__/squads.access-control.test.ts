@@ -158,6 +158,16 @@ describe("PATCH /api/squads/:id", () => {
     expect(res.status).toBe(200);
   });
 
+  it("rejects member removals by a regular member", async () => {
+    mockRows.value = [baseSquad];
+    const app = await makeApp({ id: MEMBER_ID });
+    const res = await request(app)
+      .patch("/api/squads/squad-1")
+      .send({ memberIds: [CREATOR_ID, SECOND_MEMBER_ID] });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain("remove members");
+  });
+
   it("returns 403 when a regular member tries to change the squad color", async () => {
     mockRows.value = [baseSquad];
     const app = await makeApp({ id: MEMBER_ID });

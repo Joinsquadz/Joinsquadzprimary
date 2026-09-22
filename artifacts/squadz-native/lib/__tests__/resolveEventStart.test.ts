@@ -134,6 +134,16 @@ describe("Home plan timing", () => {
     }, now)).toBe("active");
   });
 
+  it("keeps a trip active through the end of its final local calendar day", () => {
+    const end = new Date(2026, 8, 22, 18, 0, 0);
+    const laterThatDay = new Date(2026, 8, 22, 21, 0, 0);
+    expect(classifyPlanAt({
+      type: "trip",
+      startAt: new Date(2026, 8, 20, 9, 0, 0).toISOString(),
+      endAt: end.toISOString(),
+    }, laterThatDay)).toBe("active");
+  });
+
   it("classifies a later plan as upcoming", () => {
     expect(classifyPlanAt({
       type: "trip",

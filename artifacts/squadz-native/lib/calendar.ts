@@ -79,16 +79,8 @@ export function classifyPlanAt(
   const nowMs = now.getTime();
   if (startMs > nowMs) return "upcoming";
 
-  let endMs: number;
-  if (plan.endAt) {
-    const explicitEnd = new Date(plan.endAt);
-    endMs = Number.isNaN(explicitEnd.getTime())
-      ? startMs + (plan.type === "trip" ? 0 : 4 * 60 * 60 * 1000)
-      : explicitEnd.getTime();
-  } else {
-    endMs = startMs + (plan.type === "trip" ? 0 : 4 * 60 * 60 * 1000);
-  }
-  return nowMs < endMs ? "active" : "past";
+  const end = resolvePlanActiveEnd(plan);
+  return end && nowMs < end.getTime() ? "active" : "past";
 }
 
 export function resolvePlanActiveEnd(
@@ -98,7 +90,12 @@ export function resolvePlanActiveEnd(
   if (!start) return null;
   if (plan.endAt) {
     const end = new Date(plan.endAt);
-    if (!Number.isNaN(end.getTime())) return end;
+    if (!Number.isNaN(end.getTime())) {
+      if (plan.type === "trip") {
+        return new Date(end.getFullYear(), end.getMonth(), end.getDate(), 23, 59, 59, 999);
+      }
+      return end;
+    }
   }
   return new Date(start.getTime() + (plan.type === "trip" ? 0 : 4 * 60 * 60 * 1000));
 }

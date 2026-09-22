@@ -1,6 +1,7 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from 'express';
 import { buildProWelcomeHtml, type ProWelcomeEmailData } from '../emailService';
 import { requireAuth } from '../middleware/currentUser';
+import { requireInternalToken } from '../middleware/adminToken';
 import nodemailer from 'nodemailer';
 import { logger } from '../lib/logger';
 
@@ -112,13 +113,13 @@ function rateLimit(req: Request, res: Response, next: NextFunction): void {
   next();
 }
 
-router.get('/email/preview/welcome', requireEmailPreviewEnabled, (_req: Request, res: Response) => {
+router.get('/email/preview/welcome', requireInternalToken, requireEmailPreviewEnabled, (_req: Request, res: Response) => {
   const html = buildProWelcomeHtml(SAMPLE_DATA);
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(html);
 });
 
-router.get('/email/preview/welcome/text', requireEmailPreviewEnabled, (_req: Request, res: Response) => {
+router.get('/email/preview/welcome/text', requireInternalToken, requireEmailPreviewEnabled, (_req: Request, res: Response) => {
   const text = buildSampleText(SAMPLE_DATA);
   res.setHeader('Content-Type', 'text/plain; charset=utf-8');
   res.send(text);

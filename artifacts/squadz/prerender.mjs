@@ -48,7 +48,18 @@ function extractHeadTags(html) {
 // code-bearing URLs. These representative directories also ensure a direct
 // request with a path (rather than a query-only URL) receives invite HTML
 // before the client bundle hydrates.
-const routes = ["/", "/privacy", "/terms", "/squad/join", "/squad/join-public", "/join/INVITE"];
+const routes = [
+  "/",
+  "/privacy",
+  "/terms",
+  "/support",
+  "/squad/join",
+  "/squad/join-public",
+  "/squad/PUBLIC",
+  "/join/INVITE",
+  "/add/friend/SQ-INVITE",
+  "/availability",
+];
 
 for (const route of routes) {
   const { html } = render(route);
@@ -67,7 +78,13 @@ for (const route of routes) {
     /<div id="root">[\s\S]*?<!-- FIRST_PAINT_SHELL_END -->\s*<\/div>/,
     `<div id="root">${bodyHtml}</div>`,
   );
-  const inviteRoute = route === "/squad/join" || route === "/squad/join-public" || route === "/join/INVITE";
+  const inviteRoute =
+    route === "/squad/join" ||
+    route === "/squad/join-public" ||
+    route === "/squad/PUBLIC" ||
+    route === "/join/INVITE" ||
+    route === "/add/friend/SQ-INVITE" ||
+    route === "/availability";
   const requiredInviteText = ["You're invited", "Get SquadZ on the App Store"];
   if (inviteRoute && requiredInviteText.some((text) => !page.includes(text))) {
     throw new Error(`Invite prerender for ${route} is missing required first-paint content`);

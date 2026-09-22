@@ -115,16 +115,19 @@ export default function SquadJoinScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
       const result = await joinSquadByCode(code);
-      // Any definitive server response consumes the stored pending code.
-      void clearPendingInviteCode();
       if (result.revoked) {
+        // A revoked/expired code cannot recover, so it is safe to consume.
+        void clearPendingInviteCode();
         setRevoked(true);
       } else if (result.limit) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
         setShowUpgrade(true);
       } else if (result.error) {
+        // Keep the pending code across transient network/server failures so
+        // signup auto-join can recover on the next launch.
         setError(result.error);
       } else if (result.squad) {
+        void clearPendingInviteCode();
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         // Land directly inside the squad — the welcome moment lives there,
         // not on an interstitial screen. Already-members skip the welcome.
@@ -135,6 +138,7 @@ export default function SquadJoinScreen() {
             : { id: result.squad.id, welcome: "1" },
         } as never);
       } else {
+        void clearPendingInviteCode();
         setJoined(true);
         setJoinedSquad(null);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
