@@ -1,0 +1,20 @@
+# Verify and Explain the Release-Readiness Batch (Report Only)
+
+**MODE: REPORT (read only). Do not modify code or deploy anything.**
+
+## Context
+
+This batch combined investigation and fixes in one pass, unlike everything else done tonight. Before treating this as done, get direct confirmation of what actually changed, especially for the two access control fixes, not just a summary of them.
+
+## What to report
+
+1. Merge status: is this batch actually on `main`? What's the commit SHA, or SHAs if more than one commit? Confirm with `git log` directly, don't restate the earlier summary.
+2. Squad member removal authorization: show the actual before and after code for the check that now restricts removal to creators and co-admins. When was the unrestricted version introduced, check `git blame` or `git log` on that code, how long was it live, and confirm whether the currently live production API already includes this fix, the same standard applied to the notification work, don't assume a passing test means it's live.
+3. Email preview endpoint authorization: show the actual before and after code for the admin token check, including the Stripe welcome preview specifically. Confirm which endpoints were affected, when the missing check was introduced, and whether it's confirmed live in production the same way.
+4. Hardcoded fallback invite code and fallback to the first event: explain in plain terms what conditions triggered this, what a user would have actually experienced, which event they'd have landed in and under what circumstances, and when this behavior was introduced.
+5. For items 2 through 4: is there any way to check, from logs or audit trails, whether the unrestricted or fallback behavior was ever actually exercised in production, versus just being present in the code without being hit.
+6. Confirm GitHub connection status and current git status the same way it's been checked all night: any uncommitted changes, and upstream tracking status.
+
+## Output
+
+Plain, specific answers to all six points, with actual code snippets for items 2 and 3, not a restatement of the original summary.
