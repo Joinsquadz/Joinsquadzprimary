@@ -127,3 +127,4 @@
 - [Invite preview security](invite-preview-security.md) — public plan previews accept only high-entropy codes and reveal only event/trip; legacy short codes return neutral 204 but still join.
 - [Task-branch deployment visibility](task-branch-deployment-visibility.md) — publishing cannot expose unmerged task-branch changes; deployed-domain checks must run after completion review and merge.
 - [Android release manifest verification](android-release-manifest-verification.md) — local Gradle AAB builds lack an Android SDK; use an EAS release AAB and bundletool for final permission checks.
+- [Credential history cleanup](credential-history-cleanup.md) — a deleted credential may persist under earlier paths; remove every historical path from all refs before the first GitHub push.
