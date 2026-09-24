@@ -49,5 +49,6 @@ Thumbs.db
 .local/
 
 # Google service-account keys — never commit private keys; provide via env var GOOGLE_APPLICATION_CREDENTIALS or similar
+artifacts/squadz-native/squadz-service-account.json
 *-service-account.json
 google-services.json
